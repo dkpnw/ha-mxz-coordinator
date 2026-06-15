@@ -37,6 +37,12 @@
       }
     }
   },
+  "services": {
+    "recompute": {
+      "name": "Recompute",
+      "description": "Force the coordinator to recompute the plan and re-apply it to the heads now."
+    }
+  },
   "entity": {
     "number": {
       "primary_target": { "name": "Primary target" },
