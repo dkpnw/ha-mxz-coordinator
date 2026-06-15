@@ -8,6 +8,14 @@
 #
 # These are deliberately minimal: no floor-heat, no whole-house unit, no presence
 # entities — just the coordinator's own helpers. Add your own extras around them.
+#
+# NOTE — these examples target the LEGACY YAML package's helpers. For the HACS
+# integration, swap the service calls for its entities:
+#   input_number.set_value     -> number.set_value      (number.*_target)
+#   input_boolean.turn_on/off  -> switch.turn_on/off     (switch.*_enable / *_eco_idle)
+#   script.mxz_coordinate      -> (optional) service mxz_coordinator.recompute
+# The integration recomputes automatically whenever a helper changes, so the
+# explicit recompute call is optional there.
 # =============================================================================
 script:
   # Day / occupied: one target for both rooms. Pass `day_target` to override

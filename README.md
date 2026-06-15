@@ -77,11 +77,12 @@ under AUTO in the same conditions.
 ## Architecture: decide → act → trigger
 
 The coordinator is the **sole writer** of the heads. You set helper inputs (target / enable /
-eco); the coordinator translates them into safe firmware commands. Three pieces, all in one
-drop-in package ([`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml)):
+eco); the coordinator translates them into safe firmware commands. Three pieces — implemented in
+Python by the HACS integration (`custom_components/mxz_coordinator/`) and mirrored 1:1 by the
+legacy package ([`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml)):
 
-1. **Decide — `sensor.mxz_plan`** (a `template` sensor, no side effects). Its state is the
-   chosen shared mode (`cool`/`heat`). Two thresholds:
+1. **Decide — the plan** (`sensor.*_plan`; the package's `sensor.mxz_plan` `template` sensor). No
+   side effects; its state is the chosen shared mode (`cool`/`heat`). Two thresholds:
    - **demand** (`S = 3 °F`): how far a room must be off-target before the **shared mode** may
      flip. The **primary** room wins a standoff (one wants heat, the other cool); a **600 s
      hysteresis** stops flapping.
@@ -89,20 +90,19 @@ drop-in package ([`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml
      deadband it idles in `fan_only`, so a satisfied room is **not** dragged along when the
      other room forces the mode.
    - Eco/away → wide `78 / 50 °F` protection extremes only (system sits off unless extreme).
-2. **Act — `script.mxz_coordinate`** (the only thing that commands the heads). Reaches each
-   room's target (`cool → high=target, low=target−2`; `heat → low=target, high=target+2`),
-   **both edges clamped to `[59, 88] °F`**. Satisfied head or standoff-loser → `fan_only`;
-   disabled or eco-satisfied → `off`. Idempotent (skips a head already correct); never
-   `heat_cool`/`auto`; always sends both setpoint edges **with** the mode. Gated on the
-   kill-switch `input_boolean.hvac_coordinator_enable`.
-3. **Trigger — `automation.mxz_coordinator`** fires the actuator on a real decision change
-   (mode flip, demand/engage change), a `/15 min` heartbeat, and the `mxz_recompute` event.
-   Two self-heal automations cover drift (a head reverting to `heat_cool/auto/dry`, or a
-   head going `off` while enabled) and a stale plan sensor after an HA restart.
+2. **Act — the actuator** (the integration's coordinator; the package's `script.mxz_coordinate`) —
+   the only thing that commands the heads. Reaches each room's target (`cool → high=target,
+   low=target−2`; `heat → low=target, high=target+2`), **both edges clamped to `[59, 88] °F`**.
+   Satisfied head or standoff-loser → `fan_only`; disabled or eco-satisfied → `off`. Idempotent
+   (skips a head already correct); never `heat_cool`/`auto`; always sends both setpoint edges
+   **with** the mode. Gated on the kill-switch (`switch.*_coordinator_enable`; the package's
+   `input_boolean.hvac_coordinator_enable`).
+3. **Trigger** fires the actuator on a real decision change (mode flip, demand/engage change), a
+   `/15 min` heartbeat, and the `mxz_recompute` event. Two self-heal paths cover drift (a head
+   reverting to `heat_cool/auto/dry`, or going `off` while enabled) and a recompute after HA restart.
 
-> Every behavior above maps directly to [`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml)
-> — the decision `template` sensor, the actuator `script`, and the trigger/recovery `automation`s —
-> with the thresholds (3 °F demand, 1 °F engage, 600 s hysteresis, `[59,88]` clamp) marked inline.
+> The thresholds (3 °F demand, 1 °F engage, 600 s hysteresis, `[59,88]` clamp) are the integration's
+> **option defaults** (editable via its *Configure* dialog) and are marked inline in the legacy package.
 
 ---
 
@@ -164,10 +164,11 @@ uses `input_*` helpers instead of the integration's entities and is **not** one-
 
 v1 ships the validated **two-zone** arrangement (one primary, one secondary). The arbitration
 generalizes cleanly: the **primary** zone picks the shared mode, and any zone that doesn't want
-the shared direction idles in `fan_only`. To go to N zones you'd extend `sensor.mxz_plan` to
+the shared direction idles in `fan_only`. To go to N zones you'd extend the plan computation to
 fold N per-room demands into `any_cool`/`any_heat`, keep a single primary tiebreak, and loop the
-per-head apply block in `script.mxz_coordinate` over each head. Left as a documented exercise
-rather than shipped, because it's unvalidated on hardware here.
+per-head apply block over each head (`coordinator.py` in the integration, or `script.mxz_coordinate`
+in the package). Left as a documented exercise rather than shipped, because it's unvalidated on
+hardware here.
 
 ---
 
@@ -180,8 +181,8 @@ rather than shipped, because it's unvalidated on hardware here.
   *thermostat surface* (one number + Heat/Cool, exposed to HomeKit/Google) is a separate
   companion component — see **[ha-mitsubishi-climate-proxy](#related)** — and assumes
   dual-setpoint CN105 firmware. You don't need it to use the coordinator.
-- Public release means issues will come in; scope is intentionally tight (2-zone package +
-  this README).
+- Public release means issues will come in; scope is intentionally tight (2-zone integration +
+  legacy package).
 
 ---
 
@@ -191,9 +192,11 @@ The coordinator drives any HA `climate` heads on its own. If you also want each 
 **single-target thermostat** (one number + Heat/Cool auto + vane) in HA/HomeKit/Google — instead of
 the raw `cool`/`heat`/`fan_only` firmware tile — pair it with the **`coordinator_single_target`** option
 of the [Mitsubishi Climate Proxy](https://github.com/echavet/MitsubishiCN105ESPHome) component, which
-redirects the thermostat's writes to this coordinator's helpers. It defaults to the same helper names
-this package uses (`hvac_<room>_target` / `hvac_<room>_enable` / `input_select.hvac_shared_mode` /
-`mxz_recompute`). That surface assumes the dual-setpoint CN105 firmware; the coordinator itself does not.
+redirects the thermostat's writes to this coordinator's helpers. The proxy writes `input_number.*` /
+`input_boolean.*` / `input_select.hvac_shared_mode` and fires `mxz_recompute`, which matches the
+**legacy YAML package**'s helpers — so pair the proxy with the package. (The v2.0.0 HACS integration
+owns `number.*` / `switch.*` / `select.*` entities instead, which the proxy mode doesn't write to yet.)
+That surface assumes the dual-setpoint CN105 firmware; the coordinator itself does not.
 
 ## Credits & prior art
 
