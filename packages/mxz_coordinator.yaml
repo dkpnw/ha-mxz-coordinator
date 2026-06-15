@@ -1,0 +1,445 @@
+# =============================================================================
+# MXZ Coordinator — Home Assistant package (drop-in)
+# A software control layer for Mitsubishi MXZ multi-zone mini-splits (multiple
+# indoor heads on ONE outdoor unit) that fixes the "idle head starves the other"
+# AUTO deadlock and gives each room a single Tesla-style comfort target.
+#
+# Install: copy this file to <config>/packages/mxz_coordinator.yaml and enable
+# packages in configuration.yaml:
+#     homeassistant:
+#       packages: !include_dir_named packages
+# Then reload (Developer Tools → YAML → "All YAML configuration" / restart).
+#
+# -----------------------------------------------------------------------------
+# >>> EDIT THESE <<<  (the ONLY household-specific bits — find/replace below)
+#   climate.head_primary              your PRIMARY indoor head (wins a mode standoff)
+#   climate.head_secondary            your SECONDARY indoor head
+#   sensor.room_primary_temperature   ambient temp sensor for the primary room
+#   sensor.room_secondary_temperature ambient temp sensor for the secondary room
+#   weather.home                      a weather entity with a `daily` forecast (season pick)
+#   notify.your_phone                 (optional) notify service for drift alerts
+#
+# TUNABLE CONSTANTS (sane defaults; documented where they appear):
+#   demand threshold  S = 3.0 °F   -> how far off-target before the SHARED MODE may flip
+#   engage deadband   D = 1.0 °F   -> how far off-target before a head actively runs (else fan_only)
+#   mode hysteresis   = 600 s      -> minimum dwell before a heat<->cool flip
+#   eco extremes      cool>78 / heat<50 °F  -> away/eco protection band
+#   firmware clamp    [59, 88] °F  -> your heads' min/max setpoint (a low <59 made
+#                                     climate.set_temperature throw HTTP 500 on ours)
+#   season threshold  forecast daily high >= 68 °F -> cooling, else heating
+#
+# The coordinator is the SOLE writer of the heads. Never command the heads
+# directly (no heat_cool, no bare temperature, no direct off) — set the helpers
+# (target/enable/eco) and let the coordinator act. Kill-switch:
+# input_boolean.hvac_coordinator_enable (off = coordinator stops touching the heads).
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Helpers (the package's own namespace; safe to keep as-is)
+# -----------------------------------------------------------------------------
+input_number:
+  hvac_primary_target:
+    name: HVAC Primary Target
+    min: 55
+    max: 85
+    step: 1
+    initial: 70
+    unit_of_measurement: "°F"
+    mode: box
+    icon: mdi:thermostat
+  hvac_secondary_target:
+    name: HVAC Secondary Target
+    min: 55
+    max: 85
+    step: 1
+    initial: 70
+    unit_of_measurement: "°F"
+    mode: box
+    icon: mdi:thermostat
+
+input_boolean:
+  # `initial` omitted -> state restored across restarts (kill-switch persistence).
+  hvac_primary_enable:
+    name: HVAC Primary Enable
+    icon: mdi:bed
+  hvac_secondary_enable:
+    name: HVAC Secondary Enable
+    icon: mdi:sofa
+  hvac_coordinator_enable:
+    name: HVAC Coordinator Enable
+    icon: mdi:hvac
+  # Eco-idle (away): when on, a SATISFIED head idles to `off` instead of `fan_only`,
+  # and demand/engage use the wide 78/50 protection extremes so the system sits OFF
+  # unless a room hits an extreme. The band-recovery automation ignores "head off
+  # while enabled" while this is on (intentional eco-off, not drift).
+  hvac_eco_idle:
+    name: HVAC Eco Idle
+    icon: mdi:leaf
+
+input_select:
+  # `initial` omitted on both selects: with `initial` set, HA RESETS the value on
+  # every restart (bypassing RestoreEntity) -> a winter reboot would snap season/
+  # shared_mode back to cooling/cool. Omitting it restores the last persisted value;
+  # the coordinate script re-derives season from the forecast on every run anyway.
+  hvac_season:
+    name: HVAC Season
+    options:
+      - cooling
+      - heating
+    icon: mdi:sun-snowflake
+  hvac_shared_mode:
+    name: HVAC Shared Mode
+    options:
+      - cool
+      - heat
+      - fan_only
+      - "off"
+    icon: mdi:swap-horizontal
+
+input_datetime:
+  hvac_last_mode_change:
+    name: HVAC Last Mode Change
+    has_date: true
+    has_time: true
+    initial: "2024-01-01 00:00:00"
+
+# -----------------------------------------------------------------------------
+# Decision sensor (read-only; NO side effects) — the core logic
+#   state = chosen SHARED mode (cool|heat)
+#   SINGLE-TARGET AUTO: each room has ONE comfort target; the coordinator heats OR
+#   cools to reach it. TWO thresholds:
+#     * demand (S = 3 °F switch threshold) drives MODE selection / flip reluctance.
+#     * engage (D = 1 °F comfort deadband) drives per-head ACTIVE vs fan_only.
+#   Primary room is PRIMARY in a standoff; 600 s mode hysteresis prevents flapping.
+#   Sensor dropout fails safe to neutral (no spurious demand).
+# -----------------------------------------------------------------------------
+template:
+  - sensor:
+      - name: "MXZ Plan"
+        unique_id: mxz_plan
+        state: >
+          {% set S = 3.0 %}
+          {% set eco = is_state('input_boolean.hvac_eco_idle','on') %}
+          {% set pt_raw = states('sensor.room_primary_temperature') %}
+          {% set st_raw = states('sensor.room_secondary_temperature') %}
+          {% set pt_ok = pt_raw not in ['unknown','unavailable','none',''] %}
+          {% set st_ok = st_raw not in ['unknown','unavailable','none',''] %}
+          {% set pt = pt_raw | float(70) %}
+          {% set st = st_raw | float(70) %}
+          {% set ptar = states('input_number.hvac_primary_target') | float(70) %}
+          {% set star = states('input_number.hvac_secondary_target') | float(70) %}
+          {% set p_en = is_state('input_boolean.hvac_primary_enable','on') %}
+          {% set s_en = is_state('input_boolean.hvac_secondary_enable','on') %}
+          {% if not p_en %}{% set pd = 'off' %}
+          {% elif eco %}{% set pd = 'cool' if pt > 78 else ('heat' if pt < 50 else 'neutral') %}
+          {% elif not pt_ok %}{% set pd = 'neutral' %}
+          {% else %}{% set pd = 'cool' if pt > ptar + S else ('heat' if pt < ptar - S else 'neutral') %}{% endif %}
+          {% if not s_en %}{% set sd = 'off' %}
+          {% elif eco %}{% set sd = 'cool' if st > 78 else ('heat' if st < 50 else 'neutral') %}
+          {% elif not st_ok %}{% set sd = 'neutral' %}
+          {% else %}{% set sd = 'cool' if st > star + S else ('heat' if st < star - S else 'neutral') %}{% endif %}
+          {% set any_cool = pd == 'cool' or sd == 'cool' %}
+          {% set any_heat = pd == 'heat' or sd == 'heat' %}
+          {% set standoff = any_cool and any_heat %}
+          {% set prev = states('input_select.hvac_shared_mode') %}
+          {% set current = prev if prev in ['cool','heat'] else ('cool' if states('input_select.hvac_season') == 'cooling' else 'heat') %}
+          {% set elapsed = now().timestamp() - as_timestamp(states('input_datetime.hvac_last_mode_change'), 0) %}
+          {% set allowed = elapsed >= 600 %}
+          {% set proposed = (pd if (standoff and pd in ['cool','heat']) else current) if standoff else ('cool' if any_cool else ('heat' if any_heat else current)) %}
+          {% set still = (current == 'cool' and any_cool) or (current == 'heat' and any_heat) %}
+          {{ proposed if (proposed != current and allowed and (standoff or not still)) else current }}
+        attributes:
+          season: "{{ states('input_select.hvac_season') }}"
+          eco_idle: "{{ is_state('input_boolean.hvac_eco_idle','on') }}"
+          primary_target: "{{ states('input_number.hvac_primary_target') | float(70) }}"
+          secondary_target: "{{ states('input_number.hvac_secondary_target') | float(70) }}"
+          primary_demand: >
+            {% set S = 3.0 %}{% set eco = is_state('input_boolean.hvac_eco_idle','on') %}
+            {% set raw = states('sensor.room_primary_temperature') %}
+            {% set ok = raw not in ['unknown','unavailable','none',''] %}
+            {% set t = raw | float(70) %}{% set tar = states('input_number.hvac_primary_target') | float(70) %}
+            {% if not is_state('input_boolean.hvac_primary_enable','on') %}off
+            {% elif eco %}{{ 'cool' if t > 78 else ('heat' if t < 50 else 'neutral') }}
+            {% elif not ok %}neutral
+            {% else %}{{ 'cool' if t > tar + S else ('heat' if t < tar - S else 'neutral') }}{% endif %}
+          secondary_demand: >
+            {% set S = 3.0 %}{% set eco = is_state('input_boolean.hvac_eco_idle','on') %}
+            {% set raw = states('sensor.room_secondary_temperature') %}
+            {% set ok = raw not in ['unknown','unavailable','none',''] %}
+            {% set t = raw | float(70) %}{% set tar = states('input_number.hvac_secondary_target') | float(70) %}
+            {% if not is_state('input_boolean.hvac_secondary_enable','on') %}off
+            {% elif eco %}{{ 'cool' if t > 78 else ('heat' if t < 50 else 'neutral') }}
+            {% elif not ok %}neutral
+            {% else %}{{ 'cool' if t > tar + S else ('heat' if t < tar - S else 'neutral') }}{% endif %}
+          primary_engage: >
+            {% set D = 1.0 %}{% set eco = is_state('input_boolean.hvac_eco_idle','on') %}
+            {% set raw = states('sensor.room_primary_temperature') %}
+            {% set ok = raw not in ['unknown','unavailable','none',''] %}
+            {% set t = raw | float(70) %}{% set tar = states('input_number.hvac_primary_target') | float(70) %}
+            {% if not is_state('input_boolean.hvac_primary_enable','on') %}off
+            {% elif eco %}{{ 'cool' if t > 78 else ('heat' if t < 50 else 'satisfied') }}
+            {% elif not ok %}satisfied
+            {% else %}{{ 'cool' if t > tar + D else ('heat' if t < tar - D else 'satisfied') }}{% endif %}
+          secondary_engage: >
+            {% set D = 1.0 %}{% set eco = is_state('input_boolean.hvac_eco_idle','on') %}
+            {% set raw = states('sensor.room_secondary_temperature') %}
+            {% set ok = raw not in ['unknown','unavailable','none',''] %}
+            {% set t = raw | float(70) %}{% set tar = states('input_number.hvac_secondary_target') | float(70) %}
+            {% if not is_state('input_boolean.hvac_secondary_enable','on') %}off
+            {% elif eco %}{{ 'cool' if t > 78 else ('heat' if t < 50 else 'satisfied') }}
+            {% elif not ok %}satisfied
+            {% else %}{{ 'cool' if t > tar + D else ('heat' if t < tar - D else 'satisfied') }}{% endif %}
+          standoff: >
+            {% set S = 3.0 %}{% set eco = is_state('input_boolean.hvac_eco_idle','on') %}
+            {% set pt = states('sensor.room_primary_temperature') | float(70) %}
+            {% set st = states('sensor.room_secondary_temperature') | float(70) %}
+            {% set ptar = states('input_number.hvac_primary_target') | float(70) %}
+            {% set star = states('input_number.hvac_secondary_target') | float(70) %}
+            {% set p_en = is_state('input_boolean.hvac_primary_enable','on') %}
+            {% set s_en = is_state('input_boolean.hvac_secondary_enable','on') %}
+            {% set pc = p_en and (pt > 78 if eco else pt > ptar + S) %}
+            {% set ph = p_en and (pt < 50 if eco else pt < ptar - S) %}
+            {% set sc = s_en and (st > 78 if eco else st > star + S) %}
+            {% set sh = s_en and (st < 50 if eco else st < star - S) %}
+            {{ (pc or sc) and (ph or sh) }}
+          sensors_ok: >
+            {{ states('sensor.room_primary_temperature') not in ['unknown','unavailable','none','']
+               and states('sensor.room_secondary_temperature') not in ['unknown','unavailable','none',''] }}
+          seconds_since_mode_change: >
+            {{ (now().timestamp() - as_timestamp(states('input_datetime.hvac_last_mode_change'), 0)) | int }}
+          mode_change_allowed: >
+            {{ (now().timestamp() - as_timestamp(states('input_datetime.hvac_last_mode_change'), 0)) >= 600 }}
+
+# -----------------------------------------------------------------------------
+# Actuator (the SOLE head-writer). Reaches each room's target exactly
+# (cool -> high=target, low=target-2; heat -> low=target, high=target+2; eco ->
+# 78/76 cool or 59/61 heat), BOTH edges CLAMPED to the firmware range [59,88].
+# Per head: active in the shared mode only when that room needs it (engage==shared);
+# a satisfied head or the standoff loser -> fan_only; disabled or eco-satisfied -> off.
+# STOPs without touching the heads if the plan isn't ready. NEVER heat_cool/auto.
+# Always passes target_temp_low AND target_temp_high WITH hvac_mode (a bare
+# temperature throws). Idempotent. Stamps last_mode_change only on a real flip.
+# -----------------------------------------------------------------------------
+script:
+  mxz_coordinate:
+    alias: MXZ Coordinate
+    mode: restart
+    sequence:
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.hvac_coordinator_enable
+                state: "off"
+            sequence:
+              - stop: coordinator disabled
+      - action: weather.get_forecasts
+        target:
+          entity_id: weather.home
+        data:
+          type: daily
+        response_variable: fc
+      - variables:
+          daily_high: "{% set f = (fc | default({})).get('weather.home', {}).get('forecast', []) %}{{ (f[0].temperature | float(68)) if f else 68 }}"
+          season: "{% set f = (fc | default({})).get('weather.home', {}).get('forecast', []) %}{% set dh = (f[0].temperature | float(68)) if f else 68 %}{{ 'cooling' if dh >= 68 else 'heating' }}"
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.hvac_season
+        data:
+          option: "{{ season }}"
+      - variables:
+          shared: "{{ states('sensor.mxz_plan') }}"
+          prev_shared: "{{ states('input_select.hvac_shared_mode') }}"
+          p_engage: "{{ state_attr('sensor.mxz_plan','primary_engage') }}"
+          s_engage: "{{ state_attr('sensor.mxz_plan','secondary_engage') }}"
+          eco: "{{ is_state('input_boolean.hvac_eco_idle','on') }}"
+          p_target: "{{ states('input_number.hvac_primary_target') | int(70) }}"
+          s_target: "{{ states('input_number.hvac_secondary_target') | int(70) }}"
+          p_tc: "{{ [[states('input_number.hvac_primary_target') | int(70), 88] | min, 59] | max }}"
+          s_tc: "{{ [[states('input_number.hvac_secondary_target') | int(70), 88] | min, 59] | max }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ shared not in ['cool','heat'] or p_engage not in ['cool','heat','satisfied','off'] or s_engage not in ['cool','heat','satisfied','off'] }}"
+            sequence:
+              - stop: plan sensor not ready (unknown/unavailable) - leaving heads untouched
+      - variables:
+          p_act: "{{ 'off' if p_engage == 'off' else ('off' if (eco and p_engage == 'satisfied') else (shared if p_engage == shared else 'fan_only')) }}"
+          s_act: "{{ 'off' if s_engage == 'off' else ('off' if (eco and s_engage == 'satisfied') else (shared if s_engage == shared else 'fan_only')) }}"
+          p_high: "{{ (78 if shared == 'cool' else 61) if eco else (p_tc if shared == 'cool' else [p_tc + 2, 88] | min) }}"
+          p_low: "{{ (76 if shared == 'cool' else 59) if eco else ([p_tc - 2, 59] | max if shared == 'cool' else p_tc) }}"
+          s_high: "{{ (78 if shared == 'cool' else 61) if eco else (s_tc if shared == 'cool' else [s_tc + 2, 88] | min) }}"
+          s_low: "{{ (76 if shared == 'cool' else 59) if eco else ([s_tc - 2, 59] | max if shared == 'cool' else s_tc) }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ p_act in ['cool','heat'] }}"
+              - condition: template
+                value_template: "{{ not (is_state('climate.head_primary', p_act) and (state_attr('climate.head_primary','target_temp_low') | int(-99)) == p_low and (state_attr('climate.head_primary','target_temp_high') | int(-99)) == p_high) }}"
+            sequence:
+              - action: climate.set_temperature
+                target:
+                  entity_id: climate.head_primary
+                data:
+                  hvac_mode: "{{ p_act }}"
+                  target_temp_low: "{{ p_low }}"
+                  target_temp_high: "{{ p_high }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ p_act in ['fan_only','off'] }}"
+              - condition: template
+                value_template: "{{ not is_state('climate.head_primary', p_act) }}"
+            sequence:
+              - action: climate.set_hvac_mode
+                target:
+                  entity_id: climate.head_primary
+                data:
+                  hvac_mode: "{{ p_act }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ s_act in ['cool','heat'] }}"
+              - condition: template
+                value_template: "{{ not (is_state('climate.head_secondary', s_act) and (state_attr('climate.head_secondary','target_temp_low') | int(-99)) == s_low and (state_attr('climate.head_secondary','target_temp_high') | int(-99)) == s_high) }}"
+            sequence:
+              - action: climate.set_temperature
+                target:
+                  entity_id: climate.head_secondary
+                data:
+                  hvac_mode: "{{ s_act }}"
+                  target_temp_low: "{{ s_low }}"
+                  target_temp_high: "{{ s_high }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ s_act in ['fan_only','off'] }}"
+              - condition: template
+                value_template: "{{ not is_state('climate.head_secondary', s_act) }}"
+            sequence:
+              - action: climate.set_hvac_mode
+                target:
+                  entity_id: climate.head_secondary
+                data:
+                  hvac_mode: "{{ s_act }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ shared != prev_shared and shared in ['cool','heat','fan_only','off'] }}"
+            sequence:
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.hvac_shared_mode
+                data:
+                  option: "{{ shared }}"
+              - action: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.hvac_last_mode_change
+                data:
+                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+# -----------------------------------------------------------------------------
+# Automations: trigger layer + two self-heal recoveries
+# -----------------------------------------------------------------------------
+automation:
+  # Trigger: fire the actuator on a REAL decision change (mode flip, demand or
+  # engage change), a /15 min heartbeat (season refresh + drift re-assert), and
+  # the mxz_recompute event. NOT a bare state+for: debounce (the now()-based attrs
+  # re-render ~every minute, which would dead-letter a timer); flapping is held off
+  # by the 600 s hysteresis + setpoint idempotency.
+  - id: mxz_coordinator
+    alias: MXZ Coordinator
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: sensor.mxz_plan
+        to:
+          - cool
+          - heat
+      - trigger: state
+        entity_id: sensor.mxz_plan
+        attribute: primary_demand
+      - trigger: state
+        entity_id: sensor.mxz_plan
+        attribute: secondary_demand
+      - trigger: state
+        entity_id: sensor.mxz_plan
+        attribute: primary_engage
+      - trigger: state
+        entity_id: sensor.mxz_plan
+        attribute: secondary_engage
+      - trigger: time_pattern
+        minutes: "/15"
+      - trigger: event
+        event_type: mxz_recompute
+    conditions:
+      - condition: state
+        entity_id: input_boolean.hvac_coordinator_enable
+        state: "on"
+    actions:
+      - action: script.mxz_coordinate
+        data: {}
+
+  # Self-heal A — band-drift recovery. Re-asserts the coordinator's mode when a
+  # head drifts into a BANNED state: heat_cool/auto/dry for 20 s (a power-cycle
+  # returns in plain auto at the unit default and HEATS a cooler room until
+  # re-banded), or EITHER head == off while ITS OWN enable is on for 30 s
+  # (suppressed while eco-idle is on — that's intentional away-off, not drift).
+  # cool/heat are NORMAL coordinator-set modes and are NOT treated as drift.
+  - id: mxz_band_recovery
+    alias: MXZ Band Recovery (mode drift)
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id:
+          - climate.head_primary
+          - climate.head_secondary
+        to:
+          - heat_cool
+          - auto
+          - dry
+        for:
+          hours: 0
+          minutes: 0
+          seconds: 20
+      - trigger: template
+        value_template: "{{ is_state('input_boolean.hvac_eco_idle','off') and ((is_state('climate.head_primary','off') and is_state('input_boolean.hvac_primary_enable','on')) or (is_state('climate.head_secondary','off') and is_state('input_boolean.hvac_secondary_enable','on'))) }}"
+        for:
+          hours: 0
+          minutes: 0
+          seconds: 30
+    conditions:
+      - condition: state
+        entity_id: input_boolean.hvac_coordinator_enable
+        state: "on"
+    actions:
+      - action: script.mxz_coordinate
+        data: {}
+      # Optional: delete this notify action (or change the service) if you don't
+      # want drift alerts. notify.your_phone is the only notify reference.
+      - action: notify.your_phone
+        data:
+          title: HVAC Update
+          message: "A head was off its coordinated mode (drift or just re-enabled) - re-applied via the coordinator."
+
+  # Self-heal B — recover the plan sensor on HA start. After a Core restart the
+  # template sensor can come up stale 'unknown' (the coordinator safely STOPs on
+  # unknown). This reloads templates + fires a recompute ~40 s after start so the
+  # plan renders and the band re-applies.
+  - id: mxz_startup_recover
+    alias: MXZ - recover plan sensor on HA start
+    mode: single
+    triggers:
+      - trigger: homeassistant
+        event: start
+    conditions: []
+    actions:
+      - delay:
+          hours: 0
+          minutes: 0
+          seconds: 40
+      - action: template.reload
+        data: {}
+      - delay:
+          hours: 0
+          minutes: 0
+          seconds: 3
+      - event: mxz_recompute
+        event_data: {}

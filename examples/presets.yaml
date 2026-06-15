@@ -1,0 +1,74 @@
+# =============================================================================
+# MXZ Coordinator — EXAMPLE preset scripts (optional)
+# Copy the ones you want into your own package (or this file alongside the
+# coordinator) and wire them to whatever triggers you use (presence, schedule,
+# a dashboard button). They ONLY set targets / enables / eco-idle and then call
+# script.mxz_coordinate — the coordinator does the rest. Nothing here commands a
+# head directly. Adapt the numbers to your comfort bands.
+#
+# These are deliberately minimal: no floor-heat, no whole-house unit, no presence
+# entities — just the coordinator's own helpers. Add your own extras around them.
+# =============================================================================
+script:
+  # Day / occupied: one target for both rooms. Pass `day_target` to override
+  # (e.g. a "wake" automation passes a cooler number); defaults to 68.
+  mxz_preset_day:
+    alias: MXZ Preset — Day
+    sequence:
+      - action: input_number.set_value
+        target:
+          entity_id:
+            - input_number.hvac_primary_target
+            - input_number.hvac_secondary_target
+        data:
+          value: "{{ day_target | default(68) | int }}"
+      - action: input_boolean.turn_on
+        target:
+          entity_id:
+            - input_boolean.hvac_primary_enable
+            - input_boolean.hvac_secondary_enable
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.hvac_eco_idle
+      - action: script.mxz_coordinate
+        data: {}
+
+  # Night / sleep: separate per-room targets (e.g. cooler primary bedroom, a few
+  # degrees warmer for the secondary room). Tune to taste.
+  mxz_preset_night:
+    alias: MXZ Preset — Night
+    sequence:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.hvac_primary_target
+        data:
+          value: 62
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.hvac_secondary_target
+        data:
+          value: 65
+      - action: input_boolean.turn_on
+        target:
+          entity_id:
+            - input_boolean.hvac_primary_enable
+            - input_boolean.hvac_secondary_enable
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.hvac_eco_idle
+      - action: script.mxz_coordinate
+        data: {}
+
+  # Away / eco: heads idle to OFF unless a room hits the wide 78/50 protection
+  # extremes. Both enabled so the coordinator can still react to extremes.
+  mxz_preset_away:
+    alias: MXZ Preset — Away (eco)
+    sequence:
+      - action: input_boolean.turn_on
+        target:
+          entity_id:
+            - input_boolean.hvac_primary_enable
+            - input_boolean.hvac_secondary_enable
+            - input_boolean.hvac_eco_idle
+      - action: script.mxz_coordinate
+        data: {}

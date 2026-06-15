@@ -1,0 +1,16 @@
+# Home Assistant runtime / secrets — never commit
+secrets.yaml
+*.log
+.storage/
+.cloud/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
