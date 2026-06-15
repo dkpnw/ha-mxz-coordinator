@@ -7,6 +7,12 @@ turns on" deadlock — and gives each room a single, Tesla-style comfort target.
 > Shared as-is. Issues and PRs welcome, but support is best-effort — this was built and
 > validated on one real two-zone system (see [Caveats](#caveats)).
 
+[![Open your Home Assistant instance and open this repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration)
+[![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)
+
+**One-click HACS install:** click **Add to HACS** above → download → restart HA → click
+**Add Integration** → pick your two heads and two temperature sensors. No YAML editing.
+
 ---
 
 ## The problem: don't run AUTO on an MXZ
@@ -102,28 +108,37 @@ drop-in package ([`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml
 
 ## Install
 
-1. Copy [`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml) to your HA config at
-   `config/packages/mxz_coordinator.yaml`. Enable packages in `configuration.yaml` if you
-   haven't:
-   ```yaml
-   homeassistant:
-     packages: !include_dir_named packages
-   ```
-2. Edit the handful of entity IDs at the top of the file to match your system — see
-   [`docs/ENTITY-MAP.md`](docs/ENTITY-MAP.md) (two heads, two temp sensors, an optional
-   notify service).
-3. Reload YAML (Developer Tools → YAML, or restart). You'll get the helpers, `sensor.mxz_plan`,
-   `script.mxz_coordinate`, and the automations.
-4. Turn on `input_boolean.hvac_coordinator_enable`, set each room's
-   `input_number.hvac_*_target`, and enable the rooms. Optionally adapt the example presets in
-   [`examples/presets.yaml`](examples/presets.yaml) (day / night / away).
+### HACS (recommended — one click)
 
-### HACS (custom repository)
+1. Click **[Add to HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration)**
+   (the badge at the top), then **Download** in the dialog. If the badge doesn't open,
+   add `https://github.com/dkpnw/ha-mxz-coordinator` as a HACS **custom repository**
+   with category **Integration**, then download "MXZ Coordinator".
+2. **Restart Home Assistant.**
+3. Click **[Add Integration](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)**
+   (or **Settings → Devices & Services → Add Integration → MXZ Coordinator**).
+4. In the config form, pick your **primary** and **secondary** heads (the primary wins a
+   mode standoff), your two **room temperature sensors**, and optionally a **notify
+   service** for drift alerts.
+5. The integration creates the helpers (`number.*_target`, `switch.*_enable`,
+   `switch.*_coordinator_enable`, `switch.*_eco_idle`, `select.*_shared_mode`) and
+   `sensor.*_plan`. Turn on **Coordinator enable**, set each room's target, and enable
+   the rooms. Tune the thresholds anytime via the integration's **Configure** dialog.
 
-A plain HA *package* isn't a first-class HACS category, so the primary install is the manual
-copy above. If you'd rather track updates through HACS, you can add this repo as a **custom
-repository** and pull the package file from releases — but you still drop the YAML into
-`packages/` yourself. (A future config-flow integration would make this one-click; not in v1.)
+Adapt the example presets in [`examples/presets.yaml`](examples/presets.yaml) (day /
+night / away) to the new entity IDs if you want scheduled comfort changes.
+
+### Legacy / manual (YAML package)
+
+Prefer not to use HACS? The original drop-in package still ships in
+[`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml): copy it to
+`config/packages/`, enable `homeassistant: packages: !include_dir_named packages`, edit
+the entity IDs per [`docs/ENTITY-MAP.md`](docs/ENTITY-MAP.md), and reload YAML. This path
+uses `input_*` helpers instead of the integration's entities and is **not** one-click.
+
+> **Already on the YAML package?** See [`docs/MIGRATION.md`](docs/MIGRATION.md) for the
+> entity-ID mapping and upgrade steps (it's a breaking change — remove the package so the
+> two don't fight over the heads).
 
 ---
 

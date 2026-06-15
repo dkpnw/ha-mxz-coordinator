@@ -1,0 +1,79 @@
+"""Constants for the MXZ Coordinator integration."""
+
+from __future__ import annotations
+
+DOMAIN = "mxz_coordinator"
+
+PLATFORMS: list[str] = ["number", "switch", "select", "sensor"]
+
+# --- Config-entry keys (collected in the config flow; household-specific) ---
+CONF_PRIMARY_CLIMATE = "primary_climate"
+CONF_SECONDARY_CLIMATE = "secondary_climate"
+CONF_PRIMARY_SENSOR = "primary_sensor"
+CONF_SECONDARY_SENSOR = "secondary_sensor"
+CONF_NOTIFY_SERVICE = "notify_service"
+
+# --- Options keys (tunable constants; were hardcoded in the YAML package) ---
+CONF_DEMAND_THRESHOLD = "demand_threshold"
+CONF_ENGAGE_DEADBAND = "engage_deadband"
+CONF_MODE_HYSTERESIS = "mode_hysteresis"
+CONF_ECO_COOL_MAX = "eco_cool_max"
+CONF_ECO_HEAT_MIN = "eco_heat_min"
+CONF_CLAMP_MIN = "clamp_min"
+CONF_CLAMP_MAX = "clamp_max"
+
+# --- Defaults (match packages/mxz_coordinator.yaml exactly) ---
+DEFAULT_DEMAND_THRESHOLD = 3.0  # S — off-target °F before the SHARED MODE may flip
+DEFAULT_ENGAGE_DEADBAND = 1.0  # D — off-target °F before a head actively runs
+DEFAULT_MODE_HYSTERESIS = 600  # seconds minimum dwell before a heat<->cool flip
+DEFAULT_ECO_COOL_MAX = 78.0  # away/eco cool extreme
+DEFAULT_ECO_HEAT_MIN = 50.0  # away/eco heat extreme
+DEFAULT_CLAMP_MIN = 59  # firmware min setpoint
+DEFAULT_CLAMP_MAX = 88  # firmware max setpoint
+
+# Target setpoint number bounds (input_number hvac_*_target in the YAML)
+TARGET_MIN = 55
+TARGET_MAX = 85
+TARGET_STEP = 1
+TARGET_DEFAULT = 70
+
+# Eco setpoint edges when a head runs in eco (from the actuator script)
+ECO_COOL_HIGH = 78
+ECO_COOL_LOW = 76
+ECO_HEAT_HIGH = 61
+ECO_HEAT_LOW = 59
+
+# Heartbeat / drift re-assert interval (time_pattern "/15" in the YAML)
+HEARTBEAT_MINUTES = 15
+
+# Self-heal debounce windows (YAML `for:` durations)
+BAND_DRIFT_DELAY = 20  # head in heat_cool/auto/dry this long -> re-apply
+OFF_WHILE_ENABLED_DELAY = 30  # head off while enabled this long -> re-apply
+STARTUP_RECOVER_DELAY = 40  # after HA start, wait this long then recompute
+
+# Modes a head must never sit in (drift); the coordinator owns these transitions.
+BANNED_MODES = ("heat_cool", "auto", "dry")
+
+# Recompute trigger event (kept for echavet mitsubishi_climate_proxy interop)
+EVENT_RECOMPUTE = "mxz_recompute"
+SERVICE_RECOMPUTE = "recompute"
+
+# Plan "state" / engage sentinel values
+MODE_COOL = "cool"
+MODE_HEAT = "heat"
+MODE_FAN_ONLY = "fan_only"
+MODE_OFF = "off"
+DEMAND_NEUTRAL = "neutral"
+ENGAGE_SATISFIED = "satisfied"
+
+# Helper entity keys (used for unique_id suffixes and translation keys)
+KEY_PRIMARY_TARGET = "primary_target"
+KEY_SECONDARY_TARGET = "secondary_target"
+KEY_PRIMARY_ENABLE = "primary_enable"
+KEY_SECONDARY_ENABLE = "secondary_enable"
+KEY_COORDINATOR_ENABLE = "coordinator_enable"
+KEY_ECO_IDLE = "eco_idle"
+KEY_SHARED_MODE = "shared_mode"
+KEY_PLAN = "plan"
+
+UNAVAILABLE_STATES = ("unknown", "unavailable", "none", "")

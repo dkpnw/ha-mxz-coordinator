@@ -1,0 +1,13 @@
+{
+  "domain": "mxz_coordinator",
+  "name": "MXZ Coordinator",
+  "codeowners": ["@dkpnw"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/dkpnw/ha-mxz-coordinator",
+  "integration_type": "helper",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/dkpnw/ha-mxz-coordinator/issues",
+  "requirements": [],
+  "version": "2.0.0"
+}

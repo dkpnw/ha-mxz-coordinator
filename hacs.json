@@ -1,7 +1,5 @@
 {
   "name": "MXZ Coordinator",
   "homeassistant": "2024.12.0",
-  "content_in_root": false,
-  "filename": "mxz_coordinator.yaml",
   "render_readme": true
 }

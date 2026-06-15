@@ -1,0 +1,58 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "MXZ Coordinator",
+        "description": "Select the two indoor heads on your MXZ outdoor unit and a temperature sensor for each room. The first head is the PRIMARY (it wins a heat-vs-cool standoff).",
+        "data": {
+          "primary_climate": "Primary indoor head (climate entity)",
+          "secondary_climate": "Secondary indoor head (climate entity)",
+          "primary_sensor": "Primary room temperature sensor",
+          "secondary_sensor": "Secondary room temperature sensor",
+          "notify_service": "Notify service for drift alerts (optional, e.g. notify.mobile_app_phone)"
+        }
+      }
+    },
+    "error": {
+      "same_head": "The primary and secondary heads must be different entities."
+    },
+    "abort": {
+      "already_configured": "This pair of heads is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "MXZ Coordinator tuning",
+        "description": "Thresholds ported from the YAML package. Defaults match the validated values.",
+        "data": {
+          "demand_threshold": "Demand threshold S (°F off-target before the shared mode may flip)",
+          "engage_deadband": "Engage deadband D (°F off-target before a head actively runs)",
+          "mode_hysteresis": "Mode hysteresis (seconds minimum dwell before a heat↔cool flip)",
+          "eco_cool_max": "Eco cool extreme (°F)",
+          "eco_heat_min": "Eco heat extreme (°F)",
+          "clamp_min": "Firmware minimum setpoint (°F)",
+          "clamp_max": "Firmware maximum setpoint (°F)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "primary_target": { "name": "Primary target" },
+      "secondary_target": { "name": "Secondary target" }
+    },
+    "switch": {
+      "primary_enable": { "name": "Primary enable" },
+      "secondary_enable": { "name": "Secondary enable" },
+      "coordinator_enable": { "name": "Coordinator enable" },
+      "eco_idle": { "name": "Eco idle" }
+    },
+    "select": {
+      "shared_mode": { "name": "Shared mode" }
+    },
+    "sensor": {
+      "plan": { "name": "Plan" }
+    }
+  }
+}

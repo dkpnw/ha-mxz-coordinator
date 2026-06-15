@@ -1,0 +1,83 @@
+"""The MXZ Coordinator integration.
+
+A software control layer for Mitsubishi MXZ multi-zone mini-splits (multiple indoor
+heads on ONE outdoor unit) that fixes the "idle head starves the other" AUTO deadlock
+and gives each room a single Tesla-style comfort target.
+
+This is the config-flow / HACS port of the original YAML package
+(``packages/mxz_coordinator.yaml``). Behavior is preserved 1:1; the package's helpers
+become integration-owned ``number``/``switch``/``select`` entities and the decision
+``template`` sensor + actuator ``script`` + trigger/self-heal ``automation``s become the
+``MXZCoordinator`` in ``coordinator.py``.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, ServiceCall
+
+from .const import DOMAIN, PLATFORMS, SERVICE_RECOMPUTE
+from .coordinator import MXZCoordinator
+
+_LOGGER = logging.getLogger(__name__)
+
+# Typed config entry: the coordinator lives on entry.runtime_data.
+MXZConfigEntry = ConfigEntry[MXZCoordinator]
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
+    """Set up MXZ Coordinator from a config entry."""
+    coordinator = MXZCoordinator(hass, entry)
+    entry.runtime_data = coordinator
+
+    # Build the helper entities first; the coordinator reads their (restored)
+    # values, so it must not start applying until they exist. The kill-switch
+    # defaults OFF, so the first refresh is a safe no-op regardless.
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    await coordinator.async_setup()
+
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+    _async_register_recompute_service(hass)
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
+    """Unload a config entry."""
+    coordinator: MXZCoordinator = entry.runtime_data
+    await coordinator.async_shutdown_listeners()
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+    # Drop the shared service once the last entry is gone.
+    if unload_ok and not _other_entries_loaded(hass, entry):
+        hass.services.async_remove(DOMAIN, SERVICE_RECOMPUTE)
+    return unload_ok
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: MXZConfigEntry) -> None:
+    """Reload the entry when its options (tunable constants) change."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
+def _other_entries_loaded(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
+    """Return True if any OTHER loaded entry of this domain remains."""
+    return any(
+        e.entry_id != entry.entry_id and e.state.recoverable
+        for e in hass.config_entries.async_entries(DOMAIN)
+    )
+
+
+def _async_register_recompute_service(hass: HomeAssistant) -> None:
+    """Register the domain-wide ``mxz_coordinator.recompute`` service once."""
+    if hass.services.has_service(DOMAIN, SERVICE_RECOMPUTE):
+        return
+
+    async def _handle_recompute(call: ServiceCall) -> None:
+        """Force every loaded coordinator to recompute and re-apply now."""
+        for entry in hass.config_entries.async_loaded_entries(DOMAIN):
+            coordinator: MXZCoordinator = entry.runtime_data
+            await coordinator.async_request_refresh()
+
+    hass.services.async_register(DOMAIN, SERVICE_RECOMPUTE, _handle_recompute)

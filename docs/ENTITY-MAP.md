@@ -1,4 +1,10 @@
-# Entity map — what to edit
+# Entity map — what to edit (legacy YAML package)
+
+> **This page is for the legacy manual install** (the `packages/` YAML file). The
+> recommended install is now the **HACS integration**, which configures these entities
+> through a UI form — no find/replace. See the README's "Install" section, and
+> [`MIGRATION.md`](MIGRATION.md) for the integration's entity IDs. Keep reading only if
+> you are using the YAML package directly.
 
 The coordinator logic lives in HA `template:`, `script:`, and `automation:` blocks,
 which **can't take runtime config** — so configuring it is a one-time find/replace of
