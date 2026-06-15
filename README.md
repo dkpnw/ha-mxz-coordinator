@@ -36,10 +36,13 @@ the primary engaged and ramped to ~460 W. Classic starvation.
 ## The fix: one explicit shared mode + per-room targets + `fan_only` idling
 
 **Never run the heads in hardware AUTO.** Instead, a software coordinator keeps **both heads
-in ONE explicit mode** (COOL in cooling season, HEAT in heating season) and drives each room
-to its **own single target**. A head that's satisfied doesn't switch to AUTO and stall the
-system — it idles in **`fan_only`**, closing its expansion valve (LEV) while the other head
-keeps conditioning. This embraces the one-mode physical constraint instead of fighting it.
+in ONE explicit mode at any instant** — auto-choosing `cool` or `heat` from each room's
+temperature vs. its target (a 3 °F delta flips the shared mode, with hysteresis), Tesla-style —
+and drives each room to its **own single target**. (A weather forecast only seeds the *resting*
+mode for when no room is calling; it does not drive the mode.) A head that's satisfied doesn't
+switch to AUTO and stall the system — it idles in **`fan_only`**, closing its expansion valve
+(LEV) while the other head keeps conditioning. This embraces the one-mode physical constraint
+instead of fighting it.
 
 This is confirmed by the outdoor unit's service manual (OCH573E): there's one independently
 metered LEV per head, and the unit *"fully closes the LEV on the indoor unit which is in FAN,
