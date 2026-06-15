@@ -16,7 +16,6 @@
 #   climate.head_secondary            your SECONDARY indoor head
 #   sensor.room_primary_temperature   ambient temp sensor for the primary room
 #   sensor.room_secondary_temperature ambient temp sensor for the secondary room
-#   weather.home                      a weather entity with a `daily` forecast (season pick)
 #   notify.your_phone                 (optional) notify service for drift alerts
 #
 # TUNABLE CONSTANTS (sane defaults; documented where they appear):
@@ -26,7 +25,9 @@
 #   eco extremes      cool>78 / heat<50 °F  -> away/eco protection band
 #   firmware clamp    [59, 88] °F  -> your heads' min/max setpoint (a low <59 made
 #                                     climate.set_temperature throw HTTP 500 on ours)
-#   season threshold  forecast daily high >= 68 °F -> cooling, else heating
+#
+# Resting mode: when no room is calling, the shared mode stays at whatever was last
+# called (cool/heat), restored across restarts. Cold start (never run) defaults to cool.
 #
 # The coordinator is the SOLE writer of the heads. Never command the heads
 # directly (no heat_cool, no bare temperature, no direct off) — set the helpers
@@ -77,16 +78,9 @@ input_boolean:
     icon: mdi:leaf
 
 input_select:
-  # `initial` omitted on both selects: with `initial` set, HA RESETS the value on
-  # every restart (bypassing RestoreEntity) -> a winter reboot would snap season/
-  # shared_mode back to cooling/cool. Omitting it restores the last persisted value;
-  # the coordinate script re-derives season from the forecast on every run anyway.
-  hvac_season:
-    name: HVAC Season
-    options:
-      - cooling
-      - heating
-    icon: mdi:sun-snowflake
+  # `initial` omitted: with `initial` set, HA RESETS the value on every restart
+  # (bypassing RestoreEntity). Omitting it restores the last persisted value, so the
+  # shared mode "rests" at whatever was last called — preserved across an HA restart.
   hvac_shared_mode:
     name: HVAC Shared Mode
     options:
@@ -142,14 +136,13 @@ template:
           {% set any_heat = pd == 'heat' or sd == 'heat' %}
           {% set standoff = any_cool and any_heat %}
           {% set prev = states('input_select.hvac_shared_mode') %}
-          {% set current = prev if prev in ['cool','heat'] else ('cool' if states('input_select.hvac_season') == 'cooling' else 'heat') %}
+          {% set current = prev if prev in ['cool','heat'] else 'cool' %}{# resting mode = last called; cold start defaults to cool until first demand #}
           {% set elapsed = now().timestamp() - as_timestamp(states('input_datetime.hvac_last_mode_change'), 0) %}
           {% set allowed = elapsed >= 600 %}
           {% set proposed = (pd if (standoff and pd in ['cool','heat']) else current) if standoff else ('cool' if any_cool else ('heat' if any_heat else current)) %}
           {% set still = (current == 'cool' and any_cool) or (current == 'heat' and any_heat) %}
           {{ proposed if (proposed != current and allowed and (standoff or not still)) else current }}
         attributes:
-          season: "{{ states('input_select.hvac_season') }}"
           eco_idle: "{{ is_state('input_boolean.hvac_eco_idle','on') }}"
           primary_target: "{{ states('input_number.hvac_primary_target') | float(70) }}"
           secondary_target: "{{ states('input_number.hvac_secondary_target') | float(70) }}"
@@ -232,20 +225,6 @@ script:
                 state: "off"
             sequence:
               - stop: coordinator disabled
-      - action: weather.get_forecasts
-        target:
-          entity_id: weather.home
-        data:
-          type: daily
-        response_variable: fc
-      - variables:
-          daily_high: "{% set f = (fc | default({})).get('weather.home', {}).get('forecast', []) %}{{ (f[0].temperature | float(68)) if f else 68 }}"
-          season: "{% set f = (fc | default({})).get('weather.home', {}).get('forecast', []) %}{% set dh = (f[0].temperature | float(68)) if f else 68 %}{{ 'cooling' if dh >= 68 else 'heating' }}"
-      - action: input_select.select_option
-        target:
-          entity_id: input_select.hvac_season
-        data:
-          option: "{{ season }}"
       - variables:
           shared: "{{ states('sensor.mxz_plan') }}"
           prev_shared: "{{ states('input_select.hvac_shared_mode') }}"
@@ -340,7 +319,7 @@ script:
 # -----------------------------------------------------------------------------
 automation:
   # Trigger: fire the actuator on a REAL decision change (mode flip, demand or
-  # engage change), a /15 min heartbeat (season refresh + drift re-assert), and
+  # engage change), a /15 min heartbeat (drift re-assert), and
   # the mxz_recompute event. NOT a bare state+for: debounce (the now()-based attrs
   # re-render ~every minute, which would dead-letter a timer); flapping is held off
   # by the 600 s hysteresis + setpoint idempotency.

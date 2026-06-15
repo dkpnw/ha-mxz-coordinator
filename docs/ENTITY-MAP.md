@@ -13,12 +13,10 @@ Replace each placeholder on the left with your real entity on the right.
 | `climate.head_secondary` | Your **secondary** indoor head | `climate.living_room_minisplit` |
 | `sensor.room_primary_temperature` | Ambient temp sensor for the primary room | `sensor.bedroom_temperature` |
 | `sensor.room_secondary_temperature` | Ambient temp sensor for the secondary room | `sensor.living_room_temperature` |
-| `weather.home` | A weather entity exposing a **`daily`** forecast (drives the season pick) | `weather.forecast_home` |
 
 > Tip: `climate.head_primary` / `climate.head_secondary` appear in the actuator
 > script **and** the band-recovery automation. A single editor-wide find/replace per
-> ID gets them all. There are exactly two heads, two temp sensors, and one weather
-> entity to change.
+> ID gets them all. There are exactly two heads and two temp sensors to change.
 
 ## Optional
 
@@ -34,7 +32,7 @@ to rename the namespace (then also update the proxy's `helper_prefix` / `room_ke
 - `input_number.hvac_primary_target`, `input_number.hvac_secondary_target`
 - `input_boolean.hvac_primary_enable`, `input_boolean.hvac_secondary_enable`
 - `input_boolean.hvac_coordinator_enable` (kill-switch), `input_boolean.hvac_eco_idle`
-- `input_select.hvac_season`, `input_select.hvac_shared_mode`
+- `input_select.hvac_shared_mode`
 - `input_datetime.hvac_last_mode_change`
 - `sensor.mxz_plan` (decision sensor), `script.mxz_coordinate` (actuator)
 - event `mxz_recompute`
@@ -51,7 +49,6 @@ where they appear:
 | mode hysteresis | `600 s` | minimum dwell before a heat↔cool flip |
 | eco extremes | `cool > 78 / heat < 50 °F` | away/eco protection band |
 | firmware clamp | `[59, 88] °F` | your heads' min/max setpoint (a low `< 59` made `climate.set_temperature` throw **HTTP 500** on our units) |
-| season threshold | forecast daily high `>= 68 °F` → cooling | else heating |
 
 If your heads' setpoint range differs, change the `59` / `88` and the `78/76` /
 `61/59` eco bands in `script.mxz_coordinate` to match.

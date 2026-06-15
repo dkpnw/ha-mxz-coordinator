@@ -38,8 +38,9 @@ the primary engaged and ramped to ~460 W. Classic starvation.
 **Never run the heads in hardware AUTO.** Instead, a software coordinator keeps **both heads
 in ONE explicit mode at any instant** — auto-choosing `cool` or `heat` from each room's
 temperature vs. its target (a 3 °F delta flips the shared mode, with hysteresis), Tesla-style —
-and drives each room to its **own single target**. (A weather forecast only seeds the *resting*
-mode for when no room is calling; it does not drive the mode.) A head that's satisfied doesn't
+and drives each room to its **own single target**. (When no room is calling, the shared mode
+simply rests at whatever was **last called** — preserved across restarts. No weather/season input.)
+A head that's satisfied doesn't
 switch to AUTO and stall the system — it idles in **`fan_only`**, closing its expansion valve
 (LEV) while the other head keeps conditioning. This embraces the one-mode physical constraint
 instead of fighting it.
@@ -93,6 +94,10 @@ drop-in package ([`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml
    Two self-heal automations cover drift (a head reverting to `heat_cool/auto/dry`, or a
    head going `off` while enabled) and a stale plan sensor after an HA restart.
 
+> Every behavior above maps directly to [`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml)
+> — the decision `template` sensor, the actuator `script`, and the trigger/recovery `automation`s —
+> with the thresholds (3 °F demand, 1 °F engage, 600 s hysteresis, `[59,88]` clamp) marked inline.
+
 ---
 
 ## Install
@@ -105,8 +110,8 @@ drop-in package ([`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml
      packages: !include_dir_named packages
    ```
 2. Edit the handful of entity IDs at the top of the file to match your system — see
-   [`docs/ENTITY-MAP.md`](docs/ENTITY-MAP.md) (two heads, two temp sensors, one weather
-   entity, an optional notify service).
+   [`docs/ENTITY-MAP.md`](docs/ENTITY-MAP.md) (two heads, two temp sensors, an optional
+   notify service).
 3. Reload YAML (Developer Tools → YAML, or restart). You'll get the helpers, `sensor.mxz_plan`,
    `script.mxz_coordinate`, and the automations.
 4. Turn on `input_boolean.hvac_coordinator_enable`, set each room's
