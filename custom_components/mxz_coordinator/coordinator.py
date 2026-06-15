@@ -42,8 +42,12 @@ from .const import (
     CONF_NOTIFY_SERVICE,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
+    CONF_PRIMARY_VANE_HORIZONTAL,
+    CONF_PRIMARY_VANE_VERTICAL,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
+    CONF_SECONDARY_VANE_HORIZONTAL,
+    CONF_SECONDARY_VANE_VERTICAL,
     DEFAULT_CLAMP_MAX,
     DEFAULT_CLAMP_MIN,
     DEFAULT_DEMAND_THRESHOLD,
@@ -101,6 +105,20 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.primary_sensor_id: str = conf[CONF_PRIMARY_SENSOR]
         self.secondary_sensor_id: str = conf[CONF_SECONDARY_SENSOR]
         self.notify_service: str | None = conf.get(CONF_NOTIFY_SERVICE) or None
+
+        # Optional vane `select` entities exposed through the native thermostats.
+        self.primary_vane_vertical_id: str | None = (
+            conf.get(CONF_PRIMARY_VANE_VERTICAL) or None
+        )
+        self.primary_vane_horizontal_id: str | None = (
+            conf.get(CONF_PRIMARY_VANE_HORIZONTAL) or None
+        )
+        self.secondary_vane_vertical_id: str | None = (
+            conf.get(CONF_SECONDARY_VANE_VERTICAL) or None
+        )
+        self.secondary_vane_horizontal_id: str | None = (
+            conf.get(CONF_SECONDARY_VANE_HORIZONTAL) or None
+        )
 
         self.demand_threshold: float = conf.get(
             CONF_DEMAND_THRESHOLD, DEFAULT_DEMAND_THRESHOLD

@@ -178,9 +178,9 @@ hardware here.
   Other MXZ models/firmware may behave differently — especially the ~6-minute cool→heat
   reversal lag and the per-zone-power blindness.
 - The coordinator alone works on **any** HA `climate` heads. The single-target
-  *thermostat surface* (one number + Heat/Cool, exposed to HomeKit/Google) is a separate
-  companion component — see **[ha-mitsubishi-climate-proxy](#related)** — and assumes
-  dual-setpoint CN105 firmware. You don't need it to use the coordinator.
+  *thermostat surface* (one number + Heat/Cool, exposed to HomeKit/Google) ships natively as
+  two `climate.*` entities — see **[Related](#related--the-single-target-thermostat-surface)**.
+  It's optional; you don't need it to use the coordinator.
 - Public release means issues will come in; scope is intentionally tight (2-zone integration +
   legacy package).
 
@@ -188,15 +188,21 @@ hardware here.
 
 ## Related — the single-target thermostat surface
 
-The coordinator drives any HA `climate` heads on its own. If you also want each head to appear as a
-**single-target thermostat** (one number + Heat/Cool auto + vane) in HA/HomeKit/Google — instead of
-the raw `cool`/`heat`/`fan_only` firmware tile — pair it with the **`coordinator_single_target`** option
-of the [Mitsubishi Climate Proxy](https://github.com/echavet/MitsubishiCN105ESPHome) component, which
-redirects the thermostat's writes to this coordinator's helpers. The proxy writes `input_number.*` /
-`input_boolean.*` / `input_select.hvac_shared_mode` and fires `mxz_recompute`, which matches the
-**legacy YAML package**'s helpers — so pair the proxy with the package. (The v2.0.0 HACS integration
-owns `number.*` / `switch.*` / `select.*` entities instead, which the proxy mode doesn't write to yet.)
-That surface assumes the dual-setpoint CN105 firmware; the coordinator itself does not.
+Each room is exposed as a **native single-target thermostat** (`climate.*_primary_thermostat` /
+`climate.*_secondary_thermostat`, **v2.1.0+**): one number + Heat/Cool auto, rendered as a clean
+single-setpoint tile (never a dual threshold) that binds directly to HA/HomeKit/Google — instead of
+the raw `cool`/`heat`/`fan_only` firmware tile. It's a thin facade over the room's `number.*_target`
+and `switch.*_enable` entities; the coordinator stays the sole writer to your real heads. Expose only
+these `climate.*` thermostats (not the raw heads) to avoid two fighting tiles per room. Optional vane
+`select` entities, if configured, appear as swing modes on the tile.
+
+> **Older setups / the legacy YAML package** got this surface from the
+> [Mitsubishi Climate Proxy](https://github.com/echavet/MitsubishiCN105ESPHome)'s
+> `coordinator_single_target` option, which redirects a thermostat's writes to the package's
+> `input_*` helpers and fires `mxz_recompute`. That still works with the **YAML package**, but the
+> HACS integration no longer needs the proxy — its native thermostats own the surface. (The
+> `mxz_recompute` event is still honored, so existing proxy/automation nudges keep working.) The
+> proxy's tile assumes dual-setpoint CN105 firmware; the coordinator itself does not.
 
 ## Credits & prior art
 

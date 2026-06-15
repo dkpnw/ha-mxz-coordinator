@@ -25,8 +25,12 @@ from .const import (
     CONF_NOTIFY_SERVICE,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
+    CONF_PRIMARY_VANE_HORIZONTAL,
+    CONF_PRIMARY_VANE_VERTICAL,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
+    CONF_SECONDARY_VANE_HORIZONTAL,
+    CONF_SECONDARY_VANE_VERTICAL,
     DEFAULT_CLAMP_MAX,
     DEFAULT_CLAMP_MIN,
     DEFAULT_DEMAND_THRESHOLD,
@@ -43,6 +47,9 @@ _CLIMATE_SELECTOR = selector.EntitySelector(
 _SENSOR_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
 )
+_VANE_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain="select")
+)
 
 
 def _user_schema() -> vol.Schema:
@@ -53,6 +60,10 @@ def _user_schema() -> vol.Schema:
             vol.Required(CONF_PRIMARY_SENSOR): _SENSOR_SELECTOR,
             vol.Required(CONF_SECONDARY_SENSOR): _SENSOR_SELECTOR,
             vol.Optional(CONF_NOTIFY_SERVICE): selector.TextSelector(),
+            vol.Optional(CONF_PRIMARY_VANE_VERTICAL): _VANE_SELECTOR,
+            vol.Optional(CONF_PRIMARY_VANE_HORIZONTAL): _VANE_SELECTOR,
+            vol.Optional(CONF_SECONDARY_VANE_VERTICAL): _VANE_SELECTOR,
+            vol.Optional(CONF_SECONDARY_VANE_HORIZONTAL): _VANE_SELECTOR,
         }
     )
 

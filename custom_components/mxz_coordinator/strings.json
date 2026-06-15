@@ -9,7 +9,11 @@
           "secondary_climate": "Secondary indoor head (climate entity)",
           "primary_sensor": "Primary room temperature sensor",
           "secondary_sensor": "Secondary room temperature sensor",
-          "notify_service": "Notify service for drift alerts (optional, e.g. notify.mobile_app_phone)"
+          "notify_service": "Notify service for drift alerts (optional, e.g. notify.mobile_app_phone)",
+          "primary_vane_vertical": "Primary vertical vane select (optional, for swing control)",
+          "primary_vane_horizontal": "Primary horizontal vane select (optional)",
+          "secondary_vane_vertical": "Secondary vertical vane select (optional, for swing control)",
+          "secondary_vane_horizontal": "Secondary horizontal vane select (optional)"
         }
       }
     },
@@ -59,6 +63,10 @@
     },
     "sensor": {
       "plan": { "name": "Plan" }
+    },
+    "climate": {
+      "primary_thermostat": { "name": "Primary thermostat" },
+      "secondary_thermostat": { "name": "Secondary thermostat" }
     }
   }
 }

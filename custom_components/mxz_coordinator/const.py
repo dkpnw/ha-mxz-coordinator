@@ -4,7 +4,8 @@ from __future__ import annotations
 
 DOMAIN = "mxz_coordinator"
 
-PLATFORMS: list[str] = ["number", "switch", "select", "sensor"]
+# climate is last so the number/switch siblings it drives are registered first.
+PLATFORMS: list[str] = ["number", "switch", "select", "sensor", "climate"]
 
 # --- Config-entry keys (collected in the config flow; household-specific) ---
 CONF_PRIMARY_CLIMATE = "primary_climate"
@@ -12,6 +13,13 @@ CONF_SECONDARY_CLIMATE = "secondary_climate"
 CONF_PRIMARY_SENSOR = "primary_sensor"
 CONF_SECONDARY_SENSOR = "secondary_sensor"
 CONF_NOTIFY_SERVICE = "notify_service"
+
+# Optional vane `select` entities, mirrored onto the native thermostats so the
+# single-target tile keeps vane control (replaces the echavet proxy's vane mode).
+CONF_PRIMARY_VANE_VERTICAL = "primary_vane_vertical"
+CONF_PRIMARY_VANE_HORIZONTAL = "primary_vane_horizontal"
+CONF_SECONDARY_VANE_VERTICAL = "secondary_vane_vertical"
+CONF_SECONDARY_VANE_HORIZONTAL = "secondary_vane_horizontal"
 
 # --- Options keys (tunable constants; were hardcoded in the YAML package) ---
 CONF_DEMAND_THRESHOLD = "demand_threshold"
@@ -75,5 +83,7 @@ KEY_COORDINATOR_ENABLE = "coordinator_enable"
 KEY_ECO_IDLE = "eco_idle"
 KEY_SHARED_MODE = "shared_mode"
 KEY_PLAN = "plan"
+KEY_PRIMARY_THERMOSTAT = "primary_thermostat"
+KEY_SECONDARY_THERMOSTAT = "secondary_thermostat"
 
 UNAVAILABLE_STATES = ("unknown", "unavailable", "none", "")
