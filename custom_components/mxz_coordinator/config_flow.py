@@ -27,6 +27,7 @@ from .const import (
     CONF_PRIMARY_SENSOR,
     CONF_PRIMARY_VANE_HORIZONTAL,
     CONF_PRIMARY_VANE_VERTICAL,
+    CONF_RESTING_MODE_BIAS,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
     CONF_SECONDARY_VANE_HORIZONTAL,
@@ -38,7 +39,9 @@ from .const import (
     DEFAULT_ECO_HEAT_MIN,
     DEFAULT_ENGAGE_DEADBAND,
     DEFAULT_MODE_HYSTERESIS,
+    DEFAULT_RESTING_MODE_BIAS,
     DOMAIN,
+    RESTING_BIAS_OPTIONS,
 )
 
 _CLIMATE_SELECTOR = selector.EntitySelector(
@@ -106,6 +109,18 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
                 CONF_CLAMP_MAX,
                 default=current.get(CONF_CLAMP_MAX, DEFAULT_CLAMP_MAX),
             ): _num(),
+            vol.Optional(
+                CONF_RESTING_MODE_BIAS,
+                default=current.get(
+                    CONF_RESTING_MODE_BIAS, DEFAULT_RESTING_MODE_BIAS
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(RESTING_BIAS_OPTIONS),
+                    translation_key="resting_mode_bias",
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
         }
     )
 

@@ -29,6 +29,7 @@ CONF_ECO_COOL_MAX = "eco_cool_max"
 CONF_ECO_HEAT_MIN = "eco_heat_min"
 CONF_CLAMP_MIN = "clamp_min"
 CONF_CLAMP_MAX = "clamp_max"
+CONF_RESTING_MODE_BIAS = "resting_mode_bias"
 
 # --- Defaults (match packages/mxz_coordinator.yaml exactly) ---
 DEFAULT_DEMAND_THRESHOLD = 3.0  # S — off-target °F before the SHARED MODE may flip
@@ -38,6 +39,18 @@ DEFAULT_ECO_COOL_MAX = 78.0  # away/eco cool extreme
 DEFAULT_ECO_HEAT_MIN = 50.0  # away/eco heat extreme
 DEFAULT_CLAMP_MIN = 59  # firmware min setpoint
 DEFAULT_CLAMP_MAX = 88  # firmware max setpoint
+
+# Resting-mode bias: which shared mode to settle on when NO room is calling.
+#   "last" (default) -> hold whatever was last called (original behavior).
+#   "cool"/"heat"    -> always rest in that mode, so the system won't sit idle in
+#                       the wrong mode for the season. A genuine opposite demand
+#                       (room past its demand threshold) still flips the mode; the
+#                       bias only sets the *neutral* resting mode, it never blocks a call.
+RESTING_BIAS_LAST = "last"
+RESTING_BIAS_COOL = "cool"
+RESTING_BIAS_HEAT = "heat"
+RESTING_BIAS_OPTIONS = (RESTING_BIAS_LAST, RESTING_BIAS_COOL, RESTING_BIAS_HEAT)
+DEFAULT_RESTING_MODE_BIAS = RESTING_BIAS_LAST
 
 # Target setpoint number bounds (input_number hvac_*_target in the YAML)
 TARGET_MIN = 55

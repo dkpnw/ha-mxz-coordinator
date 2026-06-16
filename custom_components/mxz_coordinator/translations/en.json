@@ -36,8 +36,18 @@
           "eco_cool_max": "Eco cool extreme (°F)",
           "eco_heat_min": "Eco heat extreme (°F)",
           "clamp_min": "Firmware minimum setpoint (°F)",
-          "clamp_max": "Firmware maximum setpoint (°F)"
+          "clamp_max": "Firmware maximum setpoint (°F)",
+          "resting_mode_bias": "Resting mode when no room is calling"
         }
+      }
+    }
+  },
+  "selector": {
+    "resting_mode_bias": {
+      "options": {
+        "last": "Last called mode (default)",
+        "cool": "Always rest in cool",
+        "heat": "Always rest in heat"
       }
     }
   },
