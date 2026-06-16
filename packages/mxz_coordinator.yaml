@@ -28,6 +28,10 @@
 #
 # Resting mode: when no room is calling, the shared mode stays at whatever was last
 # called (cool/heat), restored across restarts. Cold start (never run) defaults to cool.
+# Optional resting-mode BIAS: set input_select.hvac_resting_bias to `cool` or `heat`
+# to always settle on that mode when idle (so the system won't sit in the wrong mode
+# for the season). `last` (default) keeps the last-called behavior. A genuine opposite
+# demand still flips the mode — the bias only changes the neutral resting fallback.
 #
 # The coordinator is the SOLE writer of the heads. Never command the heads
 # directly (no heat_cool, no bare temperature, no direct off) — set the helpers
@@ -89,6 +93,17 @@ input_select:
       - fan_only
       - "off"
     icon: mdi:swap-horizontal
+  # Optional resting-mode bias (mirrors the integration's "Resting mode" option).
+  # `last` = hold the last called mode (original behavior); `cool`/`heat` = always
+  # rest there when no room is calling. `initial` omitted so the user's choice
+  # persists across restarts; first boot (unknown) is treated as `last`.
+  hvac_resting_bias:
+    name: HVAC Resting Bias
+    options:
+      - last
+      - cool
+      - heat
+    icon: mdi:home-thermometer
 
 input_datetime:
   hvac_last_mode_change:
@@ -137,9 +152,11 @@ template:
           {% set standoff = any_cool and any_heat %}
           {% set prev = states('input_select.hvac_shared_mode') %}
           {% set current = prev if prev in ['cool','heat'] else 'cool' %}{# resting mode = last called; cold start defaults to cool until first demand #}
+          {% set bias = states('input_select.hvac_resting_bias') %}
+          {% set rest = bias if bias in ['cool','heat'] else current %}{# optional resting-mode bias: cool/heat = always rest there; else (last/unknown) hold the last mode. Does NOT block a real demand below. #}
           {% set elapsed = now().timestamp() - as_timestamp(states('input_datetime.hvac_last_mode_change'), 0) %}
           {% set allowed = elapsed >= 600 %}
-          {% set proposed = (pd if (standoff and pd in ['cool','heat']) else current) if standoff else ('cool' if any_cool else ('heat' if any_heat else current)) %}
+          {% set proposed = (pd if (standoff and pd in ['cool','heat']) else current) if standoff else ('cool' if any_cool else ('heat' if any_heat else rest)) %}
           {% set still = (current == 'cool' and any_cool) or (current == 'heat' and any_heat) %}
           {{ proposed if (proposed != current and allowed and (standoff or not still)) else current }}
         attributes:

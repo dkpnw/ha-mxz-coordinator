@@ -37,8 +37,8 @@ Since **v2.1.0** the integration also creates two native single-target thermosta
    helpers and automations stop fighting the integration over the same heads.
 4. **Re-point automations/dashboards** at the new entity IDs (table above).
 5. **Turn on** `switch.*_coordinator_enable`, set the targets, and enable the rooms.
-   Tunable constants (S, D, hysteresis, eco extremes, clamp) live in the integration's
-   **Configure** → options dialog.
+   Tunable constants (S, D, hysteresis, eco extremes, clamp, resting-mode bias) live in
+   the integration's **Configure** → options dialog.
 
 ## Rollback
 
@@ -62,6 +62,27 @@ the raw head `climate` entities (two tiles per room would fight over the same he
 
 Optional **vane control**: if your heads expose vertical/horizontal vane `select` entities,
 pick them in the config flow and they appear as swing modes on the thermostat tile.
+
+## Resting-mode bias (v2.2.0+)
+
+When **no room is calling**, the coordinator has to pick a shared mode to idle in. By default
+it holds whatever was **last called** — but that can leave the system sitting in the wrong mode
+for the season (e.g. resting in `heat` on a summer day until a real cool demand finally arrives).
+
+The **Resting mode** option (Configure → options) lets you bias the idle mode:
+
+| Setting | Idle behavior |
+| --- | --- |
+| `last` (default) | Hold the last called mode. Unchanged from earlier versions. |
+| `cool` | Always settle on `cool` when no room is calling. |
+| `heat` | Always settle on `heat` when no room is calling. |
+
+The bias changes **only the neutral resting mode** — a genuine opposite demand (a room past its
+demand threshold) still flips the shared mode, and the flip obeys the same mode hysteresis as any
+other change. The default `last` preserves existing behavior, so upgrading needs no action.
+
+**YAML package:** the same control is `input_select.hvac_resting_bias` (options `last` / `cool` /
+`heat`). It has no `initial:`, so your choice persists across restarts; an unset value reads as `last`.
 
 ### No longer need the echavet proxy for the tile
 

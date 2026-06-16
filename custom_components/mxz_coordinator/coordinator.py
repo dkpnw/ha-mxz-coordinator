@@ -44,6 +44,7 @@ from .const import (
     CONF_PRIMARY_SENSOR,
     CONF_PRIMARY_VANE_HORIZONTAL,
     CONF_PRIMARY_VANE_VERTICAL,
+    CONF_RESTING_MODE_BIAS,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
     CONF_SECONDARY_VANE_HORIZONTAL,
@@ -55,6 +56,7 @@ from .const import (
     DEFAULT_ECO_HEAT_MIN,
     DEFAULT_ENGAGE_DEADBAND,
     DEFAULT_MODE_HYSTERESIS,
+    DEFAULT_RESTING_MODE_BIAS,
     DEMAND_NEUTRAL,
     ENGAGE_SATISFIED,
     EVENT_RECOMPUTE,
@@ -131,6 +133,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.eco_heat_min: float = conf.get(CONF_ECO_HEAT_MIN, DEFAULT_ECO_HEAT_MIN)
         self.clamp_min: int = int(conf.get(CONF_CLAMP_MIN, DEFAULT_CLAMP_MIN))
         self.clamp_max: int = int(conf.get(CONF_CLAMP_MAX, DEFAULT_CLAMP_MAX))
+        self.resting_mode_bias: str = conf.get(
+            CONF_RESTING_MODE_BIAS, DEFAULT_RESTING_MODE_BIAS
+        )
 
         # Helper values (owned by the number/switch/select entities; seeded on
         # restore, mutated on user action). Kill-switch defaults OFF for safety.
@@ -225,8 +230,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         elapsed = dt_util.utcnow().timestamp() - self._last_mode_change_ts
         allowed = elapsed >= self.hysteresis
+        # "last" (or anything not cool|heat) -> resting=None keeps the last-mode behavior.
+        resting = (
+            self.resting_mode_bias
+            if self.resting_mode_bias in (MODE_COOL, MODE_HEAT)
+            else None
+        )
         state = shared_mode(
-            primary_demand=pd, secondary_demand=sd, current=current, allowed=allowed
+            primary_demand=pd,
+            secondary_demand=sd,
+            current=current,
+            allowed=allowed,
+            resting=resting,
         )
         standoff = (pd == MODE_COOL or sd == MODE_COOL) and (
             pd == MODE_HEAT or sd == MODE_HEAT

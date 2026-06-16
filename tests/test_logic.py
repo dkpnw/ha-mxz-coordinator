@@ -98,15 +98,45 @@ def test_engage_dropout_is_satisfied():
 
 
 # --- shared-mode selection (the 12-case heart) ---------------------------------
-def sm(pd, sd, current=COOL, allowed=True):
+def sm(pd, sd, current=COOL, allowed=True, resting=None):
     return logic.shared_mode(
-        primary_demand=pd, secondary_demand=sd, current=current, allowed=allowed
+        primary_demand=pd,
+        secondary_demand=sd,
+        current=current,
+        allowed=allowed,
+        resting=resting,
     )
 
 
 def test_both_neutral_holds_resting_mode():
     assert sm(NEUTRAL, NEUTRAL, current=HEAT) == HEAT
     assert sm(NEUTRAL, NEUTRAL, current=COOL) == COOL
+
+
+def test_resting_bias_pins_idle_mode():
+    # No demand: a cool bias settles to cool even though the last mode was heat
+    # (after hysteresis), and a heat bias settles to heat from a cool resting mode.
+    assert sm(NEUTRAL, NEUTRAL, current=HEAT, resting=COOL) == COOL
+    assert sm(NEUTRAL, NEUTRAL, current=COOL, resting=HEAT) == HEAT
+    # Bias matching the current mode is a no-op.
+    assert sm(NEUTRAL, NEUTRAL, current=COOL, resting=COOL) == COOL
+
+
+def test_resting_bias_none_keeps_last_mode():
+    # resting=None (or any non cool|heat value) -> original last-mode behavior.
+    assert sm(NEUTRAL, NEUTRAL, current=HEAT, resting=None) == HEAT
+    assert sm(NEUTRAL, NEUTRAL, current=HEAT, resting="last") == HEAT
+
+
+def test_resting_bias_does_not_block_real_demand():
+    # A genuine opposite demand still flips the mode regardless of the bias.
+    assert sm(HEAT, NEUTRAL, current=COOL, resting=COOL) == HEAT
+    assert sm(NEUTRAL, COOL, current=HEAT, resting=HEAT) == COOL
+
+
+def test_resting_bias_still_gated_by_hysteresis():
+    # The bias flip is gated by hysteresis like any other flip.
+    assert sm(NEUTRAL, NEUTRAL, current=HEAT, resting=COOL, allowed=False) == HEAT
 
 
 def test_single_room_cool():

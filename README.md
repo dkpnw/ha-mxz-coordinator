@@ -45,7 +45,9 @@ the primary engaged and ramped to ~460 W. Classic starvation.
 in ONE explicit mode at any instant** — auto-choosing `cool` or `heat` from each room's
 temperature vs. its target (a 3 °F delta flips the shared mode, with hysteresis), Tesla-style —
 and drives each room to its **own single target**. (When no room is calling, the shared mode
-simply rests at whatever was **last called** — preserved across restarts. No weather/season input.)
+simply rests at whatever was **last called** — preserved across restarts. No weather/season input.
+Optionally, a **resting-mode bias** can pin the idle mode to `cool` or `heat` so the system never
+sits in the wrong mode for the season; a real opposite demand still flips it.)
 A head that's satisfied doesn't
 switch to AUTO and stall the system — it idles in **`fan_only`**, closing its expansion valve
 (LEV) while the other head keeps conditioning. This embraces the one-mode physical constraint

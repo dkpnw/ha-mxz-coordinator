@@ -54,13 +54,25 @@ def room_call(
 
 
 def shared_mode(
-    *, primary_demand: str, secondary_demand: str, current: str, allowed: bool
+    *,
+    primary_demand: str,
+    secondary_demand: str,
+    current: str,
+    allowed: bool,
+    resting: str | None = None,
 ) -> str:
     """Choose the shared mode (cool|heat). Mirrors the mxz_plan state template.
 
     ``current`` must already be normalized to cool|heat (cold start -> cool).
     ``allowed`` is the hysteresis gate. The PRIMARY room wins a standoff.
+
+    ``resting`` biases the mode used when NO room is calling. ``None`` (or any
+    non cool|heat value) keeps the original behavior — rest at ``current`` (the
+    last called mode). Set it to cool|heat to always settle there when idle; a
+    genuine opposite demand still flips the mode (the bias only changes the
+    neutral fallback, gated by the same hysteresis as any other flip).
     """
+    rest = resting if resting in (MODE_COOL, MODE_HEAT) else current
     any_cool = primary_demand == MODE_COOL or secondary_demand == MODE_COOL
     any_heat = primary_demand == MODE_HEAT or secondary_demand == MODE_HEAT
     standoff = any_cool and any_heat
@@ -74,7 +86,7 @@ def shared_mode(
     elif any_heat:
         proposed = MODE_HEAT
     else:
-        proposed = current
+        proposed = rest
 
     still = (current == MODE_COOL and any_cool) or (current == MODE_HEAT and any_heat)
     if proposed != current and allowed and (standoff or not still):
