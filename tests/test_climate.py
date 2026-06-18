@@ -57,20 +57,27 @@ class MockHead(ClimateEntity):
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.COOL, HVACMode.HEAT, HVACMode.FAN_ONLY]
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+        | ClimateEntityFeature.FAN_MODE
         | ClimateEntityFeature.TURN_ON
         | ClimateEntityFeature.TURN_OFF
     )
+    _attr_fan_modes = ["auto", "low", "high"]
     _enable_turn_on_off_backwards_compatibility = False
 
     def __init__(self, suffix: str) -> None:
         self._attr_unique_id = f"mock_head_{suffix}"
         self._attr_name = f"Mock Head {suffix}"
         self._attr_hvac_mode = HVACMode.OFF
+        self._attr_fan_mode = "auto"
         self._attr_target_temperature_low = None
         self._attr_target_temperature_high = None
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         self._attr_hvac_mode = hvac_mode
+        self.async_write_ha_state()
+
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
+        self._attr_fan_mode = fan_mode
         self.async_write_ha_state()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -175,6 +182,36 @@ async def test_thermostats_created(hass: HomeAssistant) -> None:
         assert not (feats & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)
         # No vane configured -> no swing.
         assert not (feats & ClimateEntityFeature.SWING_MODE)
+
+
+async def test_band_clamp_and_fan(hass: HomeAssistant) -> None:
+    """The tile bounds to the firmware band and passes fan through to the head."""
+    entry, head_a, _ = await _setup(hass)
+    prim = _eid(hass, entry, "_primary_thermostat")
+    st = hass.states.get(prim)
+
+    # Setpoint slider clamps to the firmware operating band (defaults 59..88),
+    # not the old 55..85.
+    assert st.attributes["min_temp"] == 59
+    assert st.attributes["max_temp"] == 88
+    # And the underlying number entity matches, so the tile can set the full range.
+    num = hass.states.get(_eid(hass, entry, "_primary_target"))
+    assert num.attributes["min"] == 59
+    assert num.attributes["max"] == 88
+
+    # Fan is exposed and mirrors the head.
+    assert st.attributes["supported_features"] & ClimateEntityFeature.FAN_MODE
+    assert st.attributes["fan_modes"] == ["auto", "low", "high"]
+    assert st.attributes["fan_mode"] == "auto"
+
+    # Setting the fan drives the head directly (coordinator owns mode, not fan).
+    await hass.services.async_call(
+        "climate", "set_fan_mode", {"entity_id": prim, "fan_mode": "high"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+    assert hass.states.get(prim).attributes["fan_mode"] == "high"
 
 
 async def test_set_temperature_propagates(hass: HomeAssistant) -> None:

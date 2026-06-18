@@ -195,8 +195,10 @@ Each room is exposed as a **native single-target thermostat** (`climate.*_primar
 single-setpoint tile (never a dual threshold) that binds directly to HA/HomeKit/Google — instead of
 the raw `cool`/`heat`/`fan_only` firmware tile. It's a thin facade over the room's `number.*_target`
 and `switch.*_enable` entities; the coordinator stays the sole writer to your real heads. Expose only
-these `climate.*` thermostats (not the raw heads) to avoid two fighting tiles per room. Optional vane
-`select` entities, if configured, appear as swing modes on the tile.
+these `climate.*` thermostats (not the raw heads) to avoid two fighting tiles per room. The tile's
+**fan** passes through to the head, its setpoint slider is bounded to the firmware operating band
+(`clamp_min`–`clamp_max`, default 59–88 °F), and optional vane `select` entities, if configured, appear
+as swing modes.
 
 > **Older setups / the legacy YAML package** got this surface from the
 > [Mitsubishi Climate Proxy](https://github.com/echavet/MitsubishiCN105ESPHome)'s

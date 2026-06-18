@@ -25,9 +25,10 @@ from homeassistant.components.climate import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
@@ -40,8 +41,6 @@ from .const import (
     KEY_SECONDARY_THERMOSTAT,
     MODE_COOL,
     MODE_HEAT,
-    TARGET_MAX,
-    TARGET_MIN,
     TARGET_STEP,
     UNAVAILABLE_STATES,
 )
@@ -72,8 +71,6 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
 
     _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT_COOL]
-    _attr_min_temp = float(TARGET_MIN)
-    _attr_max_temp = float(TARGET_MAX)
     _attr_target_temperature_step = float(TARGET_STEP)
     _attr_icon = "mdi:home-thermometer"
     _enable_turn_on_off_backwards_compatibility = False
@@ -84,6 +81,19 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         MXZEntity.__init__(self, coordinator, key)
         CoordinatorEntity.__init__(self, coordinator)
         self._primary = primary
+
+        # Clamp the setpoint slider to the firmware operating band (the same
+        # [clamp_min, clamp_max] the coordinator clamps head setpoints to), so
+        # HomeKit/Google won't offer targets the heads can't actually reach.
+        self._attr_min_temp = float(coordinator.clamp_min)
+        self._attr_max_temp = float(coordinator.clamp_max)
+
+        # The underlying head this tile passes fan/vane control through to.
+        self._head_id = (
+            coordinator.primary_climate_id
+            if primary
+            else coordinator.secondary_climate_id
+        )
 
         self._vane_vertical_id = (
             coordinator.primary_vane_vertical_id
@@ -98,6 +108,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
 
         features = (
             ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.FAN_MODE
             | ClimateEntityFeature.TURN_ON
             | ClimateEntityFeature.TURN_OFF
         )
@@ -106,6 +117,19 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         if self._vane_horizontal_id and _HAS_HORIZONTAL_SWING:
             features |= ClimateEntityFeature.SWING_HORIZONTAL_MODE
         self._attr_supported_features = features
+
+    async def async_added_to_hass(self) -> None:
+        """Re-render when the underlying head changes (fan/vane reflected live)."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self._head_id], self._handle_head_change
+            )
+        )
+
+    @callback
+    def _handle_head_change(self, _event: Event) -> None:
+        self.async_write_ha_state()
 
     def _sibling_eid(self, platform: str, key: str) -> str | None:
         """Resolve a sibling number/switch entity_id by its unique_id suffix.
@@ -219,6 +243,26 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
             "select",
             "select_option",
             {"entity_id": vane_id, "option": option},
+            blocking=True,
+        )
+
+    # -- fan (passthrough to the underlying head) ---------------------------
+    @property
+    def fan_modes(self) -> list[str] | None:
+        state = self.hass.states.get(self._head_id)
+        return state.attributes.get("fan_modes") if state else None
+
+    @property
+    def fan_mode(self) -> str | None:
+        state = self.hass.states.get(self._head_id)
+        return state.attributes.get("fan_mode") if state else None
+
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
+        """Fan is independent of the coordinator's mode/setpoints -> drive the head."""
+        await self.hass.services.async_call(
+            "climate",
+            "set_fan_mode",
+            {"entity_id": self._head_id, "fan_mode": fan_mode},
             blocking=True,
         )
 

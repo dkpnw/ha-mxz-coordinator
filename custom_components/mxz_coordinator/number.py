@@ -12,8 +12,6 @@ from .const import (
     KEY_PRIMARY_TARGET,
     KEY_SECONDARY_TARGET,
     TARGET_DEFAULT,
-    TARGET_MAX,
-    TARGET_MIN,
     TARGET_STEP,
 )
 from .coordinator import MXZCoordinator
@@ -36,10 +34,8 @@ async def async_setup_entry(
 
 
 class MXZTargetNumber(MXZEntity, RestoreNumber):
-    """A restorable comfort-target setpoint (55–85 °F)."""
+    """A restorable comfort-target setpoint, bounded to the firmware band."""
 
-    _attr_native_min_value = float(TARGET_MIN)
-    _attr_native_max_value = float(TARGET_MAX)
     _attr_native_step = float(TARGET_STEP)
     _attr_native_unit_of_measurement = UnitOfTemperature.FAHRENHEIT
     _attr_mode = NumberMode.BOX
@@ -48,6 +44,11 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
     def __init__(self, coordinator: MXZCoordinator, key: str, *, primary: bool) -> None:
         super().__init__(coordinator, key)
         self._primary = primary
+        # Match the climate tile: bound the target to the firmware operating
+        # band [clamp_min, clamp_max] so the slider can't request the
+        # unreachable, and the tile (same bounds) can set the full range.
+        self._attr_native_min_value = float(coordinator.clamp_min)
+        self._attr_native_max_value = float(coordinator.clamp_max)
         self._attr_native_value = float(TARGET_DEFAULT)
 
     async def async_added_to_hass(self) -> None:
