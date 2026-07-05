@@ -48,7 +48,9 @@ input_number:
     min: 55
     max: 85
     step: 1
-    initial: 70
+    # `initial` omitted -> the target is RESTORED across restarts (same convention as the
+    # input_booleans below). A prior `initial: 70` reset the target to 70 on every HA restart,
+    # which the plan/actuator then drove the heads to -> rooms silently baked/froze at 70.
     unit_of_measurement: "°F"
     mode: box
     icon: mdi:thermostat
@@ -57,7 +59,9 @@ input_number:
     min: 55
     max: 85
     step: 1
-    initial: 70
+    # `initial` omitted -> the target is RESTORED across restarts (same convention as the
+    # input_booleans below). A prior `initial: 70` reset the target to 70 on every HA restart,
+    # which the plan/actuator then drove the heads to -> rooms silently baked/froze at 70.
     unit_of_measurement: "°F"
     mode: box
     icon: mdi:thermostat
