@@ -31,10 +31,17 @@ def room_call(
     eco_cool_max: float,
     eco_heat_min: float,
     neutral: str,
+    heat_lockout: bool = False,
+    heat_lockout_floor: float = 0.0,
 ) -> str:
     """Per-room call for one band (demand uses S/'neutral', engage uses D/'satisfied').
 
     Mirrors the primary/secondary_demand and primary/secondary_engage attributes.
+
+    ``heat_lockout`` holds off the heat call (the room idles instead of heating — e.g.
+    to let passive solar warm it in summer) UNLESS the room has dropped below
+    ``heat_lockout_floor``, a safety floor so a genuinely cold room still gets heat.
+    Cooling and the eco extremes are unaffected.
     """
     if not enabled:
         return MODE_OFF
@@ -49,6 +56,8 @@ def room_call(
     if temp > target + band:
         return MODE_COOL
     if temp < target - band:
+        if heat_lockout and temp >= heat_lockout_floor:
+            return neutral
         return MODE_HEAT
     return neutral
 

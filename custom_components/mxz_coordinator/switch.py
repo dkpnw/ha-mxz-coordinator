@@ -18,6 +18,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .const import (
     KEY_COORDINATOR_ENABLE,
     KEY_ECO_IDLE,
+    KEY_HEAT_LOCKOUT,
     KEY_PRIMARY_ENABLE,
     KEY_SECONDARY_ENABLE,
 )
@@ -29,6 +30,7 @@ _ICONS = {
     KEY_SECONDARY_ENABLE: "mdi:sofa",
     KEY_COORDINATOR_ENABLE: "mdi:hvac",
     KEY_ECO_IDLE: "mdi:leaf",
+    KEY_HEAT_LOCKOUT: "mdi:fire-off",
 }
 
 
@@ -37,7 +39,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the four switches."""
+    """Set up the room/coordinator switches."""
     coordinator: MXZCoordinator = entry.runtime_data
     async_add_entities(
         MXZSwitch(coordinator, key)
@@ -46,6 +48,7 @@ async def async_setup_entry(
             KEY_SECONDARY_ENABLE,
             KEY_COORDINATOR_ENABLE,
             KEY_ECO_IDLE,
+            KEY_HEAT_LOCKOUT,
         )
     )
 

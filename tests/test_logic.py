@@ -41,10 +41,14 @@ FAN, NEUTRAL, SAT = const.MODE_FAN_ONLY, const.DEMAND_NEUTRAL, const.ENGAGE_SATI
 S, D = const.DEFAULT_DEMAND_THRESHOLD, const.DEFAULT_ENGAGE_DEADBAND
 
 
-def demand(temp, target, *, enabled=True, eco=False, sensor_ok=True):
+def demand(
+    temp, target, *, enabled=True, eco=False, sensor_ok=True,
+    heat_lockout=False, heat_lockout_floor=58.0,
+):
     return logic.room_call(
         temp=temp, target=target, enabled=enabled, eco=eco, sensor_ok=sensor_ok,
         band=S, eco_cool_max=78.0, eco_heat_min=50.0, neutral=NEUTRAL,
+        heat_lockout=heat_lockout, heat_lockout_floor=heat_lockout_floor,
     )
 
 
@@ -81,6 +85,27 @@ def test_demand_eco_extremes():
     assert demand(79, 70, eco=True) == COOL  # > 78
     assert demand(49, 70, eco=True) == HEAT  # < 50
     assert demand(70, 70, eco=True) == NEUTRAL
+
+
+# --- heat lockout (summer passive-solar) ---------------------------------------
+def test_heat_lockout_suppresses_heat_above_floor():
+    # 66 is 4 °F below target (would normally HEAT) but above the 58 floor -> idle.
+    assert demand(66, 70, heat_lockout=True, heat_lockout_floor=58.0) == NEUTRAL
+
+
+def test_heat_lockout_still_heats_below_floor():
+    # Genuinely cold: below the safety floor -> heat regardless of the lockout.
+    assert demand(57, 70, heat_lockout=True, heat_lockout_floor=58.0) == HEAT
+
+
+def test_heat_lockout_does_not_touch_cooling():
+    # Cooling is unaffected by the heat lockout.
+    assert demand(74, 70, heat_lockout=True, heat_lockout_floor=58.0) == COOL
+
+
+def test_heat_lockout_off_heats_normally():
+    # Default (unlocked) behaviour is unchanged.
+    assert demand(66, 70, heat_lockout=False) == HEAT
 
 
 # --- per-room engage (D = 1 °F) -------------------------------------------------

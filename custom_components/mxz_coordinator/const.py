@@ -30,6 +30,7 @@ CONF_ECO_HEAT_MIN = "eco_heat_min"
 CONF_CLAMP_MIN = "clamp_min"
 CONF_CLAMP_MAX = "clamp_max"
 CONF_RESTING_MODE_BIAS = "resting_mode_bias"
+CONF_HEAT_LOCKOUT_FLOOR = "heat_lockout_floor"
 
 # --- Defaults (match packages/mxz_coordinator.yaml exactly) ---
 DEFAULT_DEMAND_THRESHOLD = 3.0  # S — off-target °F before the SHARED MODE may flip
@@ -39,6 +40,7 @@ DEFAULT_ECO_COOL_MAX = 78.0  # away/eco cool extreme
 DEFAULT_ECO_HEAT_MIN = 50.0  # away/eco heat extreme
 DEFAULT_CLAMP_MIN = 59  # firmware min setpoint
 DEFAULT_CLAMP_MAX = 88  # firmware max setpoint
+DEFAULT_HEAT_LOCKOUT_FLOOR = 58.0  # heat-lockout safety floor: heat below this even if locked
 
 # Resting-mode bias: which shared mode to settle on when NO room is calling.
 #   "last" (default) -> hold whatever was last called (original behavior).
@@ -94,6 +96,7 @@ KEY_PRIMARY_ENABLE = "primary_enable"
 KEY_SECONDARY_ENABLE = "secondary_enable"
 KEY_COORDINATOR_ENABLE = "coordinator_enable"
 KEY_ECO_IDLE = "eco_idle"
+KEY_HEAT_LOCKOUT = "heat_lockout"
 KEY_SHARED_MODE = "shared_mode"
 KEY_PLAN = "plan"
 KEY_PRIMARY_THERMOSTAT = "primary_thermostat"

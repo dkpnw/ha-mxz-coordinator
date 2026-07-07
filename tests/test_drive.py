@@ -213,3 +213,46 @@ async def test_coordinator_drives_heads(hass: HomeAssistant) -> None:
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "heat_cool"  # untouched while disabled
     print("S4 (kill-switch off) primary stayed heat_cool -> coordinator did not write")
+
+
+async def test_heat_lockout_suppresses_then_floors(hass: HomeAssistant) -> None:
+    """heat_lockout: a below-target room idles (fan_only) unless below the safety floor."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MXZ Coordinator",
+        data={
+            CONF_PRIMARY_CLIMATE: head_a,
+            CONF_SECONDARY_CLIMATE: head_b,
+            CONF_PRIMARY_SENSOR: SENSOR_A,
+            CONF_SECONDARY_SENSOR: SENSOR_B,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    for suffix in (
+        "_primary_enable", "_secondary_enable", "_coordinator_enable", "_heat_lockout",
+    ):
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": _eid(hass, entry, suffix)}, blocking=True
+        )
+    await hass.async_block_till_done()
+
+    # Primary 64 (well below its 70 target -> would HEAT) but above the 58 floor.
+    await _set_temp(hass, SENSOR_A, 64)
+    await _recompute(hass, entry)
+    assert hass.states.get(_eid(hass, entry, "_plan")).attributes["primary_demand"] == "neutral"
+    assert hass.states.get(head_a).state == "fan_only"  # locked out -> idles, no heat
+
+    # Drop below the safety floor -> heat kicks in regardless of the lockout.
+    await _set_temp(hass, SENSOR_A, 57)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "heat"
+    print("HEAT-LOCKOUT: 64F idled fan_only, 57F (< 58 floor) heated")

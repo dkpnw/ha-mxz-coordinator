@@ -37,7 +37,8 @@
           "eco_heat_min": "Eco heat extreme (°F)",
           "clamp_min": "Firmware minimum setpoint (°F)",
           "clamp_max": "Firmware maximum setpoint (°F)",
-          "resting_mode_bias": "Resting mode when no room is calling"
+          "resting_mode_bias": "Resting mode when no room is calling",
+          "heat_lockout_floor": "Heat-lockout safety floor (°F — heat below this even when locked out)"
         }
       }
     }
@@ -66,7 +67,8 @@
       "primary_enable": { "name": "Primary enable" },
       "secondary_enable": { "name": "Secondary enable" },
       "coordinator_enable": { "name": "Coordinator enable" },
-      "eco_idle": { "name": "Eco idle" }
+      "eco_idle": { "name": "Eco idle" },
+      "heat_lockout": { "name": "Heat lockout" }
     },
     "select": {
       "shared_mode": { "name": "Shared mode" }

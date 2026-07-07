@@ -38,6 +38,7 @@ from .const import (
     CONF_ECO_COOL_MAX,
     CONF_ECO_HEAT_MIN,
     CONF_ENGAGE_DEADBAND,
+    CONF_HEAT_LOCKOUT_FLOOR,
     CONF_MODE_HYSTERESIS,
     CONF_NOTIFY_SERVICE,
     CONF_PRIMARY_CLIMATE,
@@ -55,6 +56,7 @@ from .const import (
     DEFAULT_ECO_COOL_MAX,
     DEFAULT_ECO_HEAT_MIN,
     DEFAULT_ENGAGE_DEADBAND,
+    DEFAULT_HEAT_LOCKOUT_FLOOR,
     DEFAULT_MODE_HYSTERESIS,
     DEFAULT_RESTING_MODE_BIAS,
     DEMAND_NEUTRAL,
@@ -136,6 +138,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.resting_mode_bias: str = conf.get(
             CONF_RESTING_MODE_BIAS, DEFAULT_RESTING_MODE_BIAS
         )
+        self.heat_lockout_floor: float = conf.get(
+            CONF_HEAT_LOCKOUT_FLOOR, DEFAULT_HEAT_LOCKOUT_FLOOR
+        )
 
         # Helper values (owned by the number/switch/select entities; seeded on
         # restore, mutated on user action). Kill-switch defaults OFF for safety.
@@ -145,6 +150,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.secondary_enable: bool = False
         self.coordinator_enable: bool = False
         self.eco_idle: bool = False
+        self.heat_lockout: bool = False
         self.current_shared_mode: str = MODE_COOL  # restored by the select entity
 
         self._last_mode_change_ts: float = 0.0  # epoch -> first flip always allowed
@@ -201,6 +207,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "eco": self.eco_idle,
             "eco_cool_max": self.eco_cool_max,
             "eco_heat_min": self.eco_heat_min,
+            "heat_lockout": self.heat_lockout,
+            "heat_lockout_floor": self.heat_lockout_floor,
         }
         pd = room_call(
             temp=pt, target=self.primary_target, enabled=self.primary_enable,

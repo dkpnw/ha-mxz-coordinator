@@ -47,7 +47,10 @@ temperature vs. its target (a 3 °F delta flips the shared mode, with hysteresis
 and drives each room to its **own single target**. (When no room is calling, the shared mode
 simply rests at whatever was **last called** — preserved across restarts. No weather/season input.
 Optionally, a **resting-mode bias** can pin the idle mode to `cool` or `heat` so the system never
-sits in the wrong mode for the season; a real opposite demand still flips it.)
+sits in the wrong mode for the season; a real opposite demand still flips it. A **heat-lockout**
+switch (`switch.*_heat_lockout`) further holds off *heating* — a below-target room just idles in
+`fan_only` and lets passive solar warm it — while cooling still tracks the target and a configurable
+safety floor still heats a genuinely cold room; automate it on in summer.)
 A head that's satisfied doesn't
 switch to AUTO and stall the system — it idles in **`fan_only`**, closing its expansion valve
 (LEV) while the other head keeps conditioning. This embraces the one-mode physical constraint
