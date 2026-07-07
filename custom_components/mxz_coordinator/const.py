@@ -31,6 +31,11 @@ CONF_CLAMP_MIN = "clamp_min"
 CONF_CLAMP_MAX = "clamp_max"
 CONF_RESTING_MODE_BIAS = "resting_mode_bias"
 CONF_HEAT_LOCKOUT_FLOOR = "heat_lockout_floor"
+CONF_COOL_LOCKOUT_CEILING = "cool_lockout_ceiling"
+# Optional local-weather seasonal changeover (auto-drives the lockout switches).
+CONF_CHANGEOVER_ENTITY = "changeover_entity"
+CONF_CHANGEOVER_HEAT_ABOVE = "changeover_heat_above"
+CONF_CHANGEOVER_COOL_BELOW = "changeover_cool_below"
 
 # --- Defaults (match packages/mxz_coordinator.yaml exactly) ---
 DEFAULT_DEMAND_THRESHOLD = 3.0  # S — off-target °F before the SHARED MODE may flip
@@ -41,6 +46,10 @@ DEFAULT_ECO_HEAT_MIN = 50.0  # away/eco heat extreme
 DEFAULT_CLAMP_MIN = 59  # firmware min setpoint
 DEFAULT_CLAMP_MAX = 88  # firmware max setpoint
 DEFAULT_HEAT_LOCKOUT_FLOOR = 58.0  # heat-lockout safety floor: heat below this even if locked
+DEFAULT_COOL_LOCKOUT_CEILING = 80.0  # cool-lockout safety ceiling: cool above this even if locked
+DEFAULT_CHANGEOVER_HEAT_ABOVE = 68.0  # forecast daily high (°F) at/above -> heat-lockout on
+DEFAULT_CHANGEOVER_COOL_BELOW = 50.0  # forecast daily high (°F) at/below -> cool-lockout on
+CHANGEOVER_INTERVAL_MINUTES = 60  # how often to re-read the changeover weather signal
 
 # Resting-mode bias: which shared mode to settle on when NO room is calling.
 #   "last" (default) -> hold whatever was last called (original behavior).
@@ -97,6 +106,7 @@ KEY_SECONDARY_ENABLE = "secondary_enable"
 KEY_COORDINATOR_ENABLE = "coordinator_enable"
 KEY_ECO_IDLE = "eco_idle"
 KEY_HEAT_LOCKOUT = "heat_lockout"
+KEY_COOL_LOCKOUT = "cool_lockout"
 KEY_SHARED_MODE = "shared_mode"
 KEY_PLAN = "plan"
 KEY_PRIMARY_THERMOSTAT = "primary_thermostat"

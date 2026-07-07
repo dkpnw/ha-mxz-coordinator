@@ -38,7 +38,11 @@
           "clamp_min": "Firmware minimum setpoint (°F)",
           "clamp_max": "Firmware maximum setpoint (°F)",
           "resting_mode_bias": "Resting mode when no room is calling",
-          "heat_lockout_floor": "Heat-lockout safety floor (°F — heat below this even when locked out)"
+          "heat_lockout_floor": "Heat-lockout safety floor (°F — heat below this even when locked out)",
+          "cool_lockout_ceiling": "Cool-lockout safety ceiling (°F — cool above this even when locked out)",
+          "changeover_entity": "Seasonal changeover weather/temperature entity (optional — auto-drives the lockouts from local weather)",
+          "changeover_heat_above": "Heat-lockout when forecast daily high ≥ (°F)",
+          "changeover_cool_below": "Cool-lockout when forecast daily high ≤ (°F)"
         }
       }
     }
@@ -68,7 +72,8 @@
       "secondary_enable": { "name": "Secondary enable" },
       "coordinator_enable": { "name": "Coordinator enable" },
       "eco_idle": { "name": "Eco idle" },
-      "heat_lockout": { "name": "Heat lockout" }
+      "heat_lockout": { "name": "Heat lockout" },
+      "cool_lockout": { "name": "Cool lockout" }
     },
     "select": {
       "shared_mode": { "name": "Shared mode" }

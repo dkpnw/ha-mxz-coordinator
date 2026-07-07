@@ -16,6 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
+    KEY_COOL_LOCKOUT,
     KEY_COORDINATOR_ENABLE,
     KEY_ECO_IDLE,
     KEY_HEAT_LOCKOUT,
@@ -31,6 +32,7 @@ _ICONS = {
     KEY_COORDINATOR_ENABLE: "mdi:hvac",
     KEY_ECO_IDLE: "mdi:leaf",
     KEY_HEAT_LOCKOUT: "mdi:fire-off",
+    KEY_COOL_LOCKOUT: "mdi:snowflake-off",
 }
 
 
@@ -49,6 +51,7 @@ async def async_setup_entry(
             KEY_COORDINATOR_ENABLE,
             KEY_ECO_IDLE,
             KEY_HEAT_LOCKOUT,
+            KEY_COOL_LOCKOUT,
         )
     )
 

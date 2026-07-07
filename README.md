@@ -47,10 +47,18 @@ temperature vs. its target (a 3 °F delta flips the shared mode, with hysteresis
 and drives each room to its **own single target**. (When no room is calling, the shared mode
 simply rests at whatever was **last called** — preserved across restarts. No weather/season input.
 Optionally, a **resting-mode bias** can pin the idle mode to `cool` or `heat` so the system never
-sits in the wrong mode for the season; a real opposite demand still flips it. A **heat-lockout**
-switch (`switch.*_heat_lockout`) further holds off *heating* — a below-target room just idles in
-`fan_only` and lets passive solar warm it — while cooling still tracks the target and a configurable
-safety floor still heats a genuinely cold room; automate it on in summer.)
+sits in the wrong mode for the season; a real opposite demand still flips it. Two **seasonal lockout**
+switches make one direction *reluctant*: **heat-lockout** (`switch.*_heat_lockout`) holds off heating
+so a below-target room idles in `fan_only` and lets passive solar warm it, and **cool-lockout**
+(`switch.*_cool_lockout`) is the winter mirror (let a warm room drift down on its own). Cooling/heating
+in the other direction is untouched, and configurable **safety floor/ceiling** still act at the
+extremes. Drive them however you like — or point the integration at a **weather entity** (any
+`weather.*`, e.g. a Tempest/WeatherFlow forecast, or an outdoor temperature `sensor`) and it runs a
+**local-weather seasonal changeover** automatically: forecast daily high ≥ your warm threshold → heat
+locked; ≤ your cold threshold → cool locked; in between → both free. No calendar, no cloud — your
+local weather decides. Configure it under **Configure → options**. No weather entity? Add Home
+Assistant's built-in **Met.no** integration (one click, uses your Home location — no ZIP needed) and
+point the changeover at it.)
 A head that's satisfied doesn't
 switch to AUTO and stall the system — it idles in **`fan_only`**, closing its expansion valve
 (LEV) while the other head keeps conditioning. This embraces the one-mode physical constraint

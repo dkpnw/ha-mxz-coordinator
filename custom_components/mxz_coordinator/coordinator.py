@@ -20,6 +20,8 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
@@ -32,8 +34,13 @@ from homeassistant.util import dt as dt_util
 from .const import (
     BAND_DRIFT_DELAY,
     BANNED_MODES,
+    CHANGEOVER_INTERVAL_MINUTES,
+    CONF_CHANGEOVER_COOL_BELOW,
+    CONF_CHANGEOVER_ENTITY,
+    CONF_CHANGEOVER_HEAT_ABOVE,
     CONF_CLAMP_MAX,
     CONF_CLAMP_MIN,
+    CONF_COOL_LOCKOUT_CEILING,
     CONF_DEMAND_THRESHOLD,
     CONF_ECO_COOL_MAX,
     CONF_ECO_HEAT_MIN,
@@ -50,8 +57,11 @@ from .const import (
     CONF_SECONDARY_SENSOR,
     CONF_SECONDARY_VANE_HORIZONTAL,
     CONF_SECONDARY_VANE_VERTICAL,
+    DEFAULT_CHANGEOVER_COOL_BELOW,
+    DEFAULT_CHANGEOVER_HEAT_ABOVE,
     DEFAULT_CLAMP_MAX,
     DEFAULT_CLAMP_MIN,
+    DEFAULT_COOL_LOCKOUT_CEILING,
     DEFAULT_DEMAND_THRESHOLD,
     DEFAULT_ECO_COOL_MAX,
     DEFAULT_ECO_HEAT_MIN,
@@ -60,8 +70,11 @@ from .const import (
     DEFAULT_MODE_HYSTERESIS,
     DEFAULT_RESTING_MODE_BIAS,
     DEMAND_NEUTRAL,
+    DOMAIN,
     ENGAGE_SATISFIED,
     EVENT_RECOMPUTE,
+    KEY_COOL_LOCKOUT,
+    KEY_HEAT_LOCKOUT,
     MODE_COOL,
     MODE_HEAT,
     MODE_OFF,
@@ -70,7 +83,7 @@ from .const import (
     TARGET_DEFAULT,
     UNAVAILABLE_STATES,
 )
-from .logic import head_action, room_call, setpoints, shared_mode
+from .logic import head_action, room_call, season_lockouts, setpoints, shared_mode
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -141,6 +154,17 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.heat_lockout_floor: float = conf.get(
             CONF_HEAT_LOCKOUT_FLOOR, DEFAULT_HEAT_LOCKOUT_FLOOR
         )
+        self.cool_lockout_ceiling: float = conf.get(
+            CONF_COOL_LOCKOUT_CEILING, DEFAULT_COOL_LOCKOUT_CEILING
+        )
+        # Optional local-weather seasonal changeover (auto-drives the lockouts).
+        self.changeover_entity: str | None = conf.get(CONF_CHANGEOVER_ENTITY) or None
+        self.changeover_heat_above: float = conf.get(
+            CONF_CHANGEOVER_HEAT_ABOVE, DEFAULT_CHANGEOVER_HEAT_ABOVE
+        )
+        self.changeover_cool_below: float = conf.get(
+            CONF_CHANGEOVER_COOL_BELOW, DEFAULT_CHANGEOVER_COOL_BELOW
+        )
 
         # Helper values (owned by the number/switch/select entities; seeded on
         # restore, mutated on user action). Kill-switch defaults OFF for safety.
@@ -151,6 +175,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.coordinator_enable: bool = False
         self.eco_idle: bool = False
         self.heat_lockout: bool = False
+        self.cool_lockout: bool = False
         self.current_shared_mode: str = MODE_COOL  # restored by the select entity
 
         self._last_mode_change_ts: float = 0.0  # epoch -> first flip always allowed
@@ -185,6 +210,22 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsubs.append(
             self.hass.bus.async_listen(EVENT_RECOMPUTE, self._on_recompute_event)
         )
+        # Optional local-weather seasonal changeover: re-read on the weather entity's
+        # own updates + hourly, and drive the lockout switches from it.
+        if self.changeover_entity:
+            self._unsubs.append(
+                async_track_state_change_event(
+                    self.hass, [self.changeover_entity], self._on_changeover_change
+                )
+            )
+            self._unsubs.append(
+                async_track_time_interval(
+                    self.hass,
+                    self._on_changeover_timer,
+                    timedelta(minutes=CHANGEOVER_INTERVAL_MINUTES),
+                )
+            )
+            self.hass.async_create_task(self._evaluate_changeover())
         self._unsubs.append(async_at_start(self.hass, self._on_ha_start))
         await self.async_refresh()
 
@@ -209,6 +250,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "eco_heat_min": self.eco_heat_min,
             "heat_lockout": self.heat_lockout,
             "heat_lockout_floor": self.heat_lockout_floor,
+            "cool_lockout": self.cool_lockout,
+            "cool_lockout_ceiling": self.cool_lockout_ceiling,
         }
         pd = room_call(
             temp=pt, target=self.primary_target, enabled=self.primary_enable,
@@ -454,6 +497,76 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.current_shared_mode = mode
             self._last_mode_change_ts = dt_util.utcnow().timestamp()
         await self.async_request_refresh()
+
+    # -- seasonal changeover (optional, from local weather) -----------------
+    @callback
+    def _on_changeover_change(self, _event: Event) -> None:
+        """The changeover weather entity updated -> re-evaluate the season."""
+        self.hass.async_create_task(self._evaluate_changeover())
+
+    @callback
+    def _on_changeover_timer(self, _now: Any) -> None:
+        """Hourly changeover re-read (forecasts refresh slowly)."""
+        self.hass.async_create_task(self._evaluate_changeover())
+
+    async def _evaluate_changeover(self) -> None:
+        """Read local weather and auto-drive the heat/cool lockout switches."""
+        if not self.changeover_entity:
+            return
+        outdoor_high = await self._read_outdoor_high()
+        heat_lock, cool_lock = season_lockouts(
+            outdoor_high=outdoor_high,
+            heat_above=self.changeover_heat_above,
+            cool_below=self.changeover_cool_below,
+        )
+        await self._drive_lockout(KEY_HEAT_LOCKOUT, heat_lock)
+        await self._drive_lockout(KEY_COOL_LOCKOUT, cool_lock)
+
+    async def _read_outdoor_high(self) -> float | None:
+        """Local daily-high °F: a weather entity's forecast, or a temp entity's state."""
+        entity_id = self.changeover_entity
+        state = self.hass.states.get(entity_id) if entity_id else None
+        if state is None or state.state in UNAVAILABLE_STATES:
+            return None
+        if entity_id.startswith("weather."):
+            try:
+                resp = await self.hass.services.async_call(
+                    "weather",
+                    "get_forecasts",
+                    {"entity_id": entity_id, "type": "daily"},
+                    blocking=True,
+                    return_response=True,
+                )
+                forecast = (resp or {}).get(entity_id, {}).get("forecast") or []
+                return float(forecast[0]["temperature"])
+            except (HomeAssistantError, KeyError, IndexError, ValueError, TypeError):
+                _LOGGER.warning(
+                    "MXZ changeover: could not read a daily forecast from %s", entity_id
+                )
+                return None
+        try:
+            return float(state.state)
+        except (ValueError, TypeError):
+            return None
+
+    async def _drive_lockout(self, key: str, desired: bool) -> None:
+        """Set a lockout switch to ``desired`` (idempotent — only on a change)."""
+        registry = er.async_get(self.hass)
+        eid = registry.async_get_entity_id(
+            "switch", DOMAIN, f"{self.config_entry.entry_id}_{key}"
+        )
+        if eid is None:
+            return
+        state = self.hass.states.get(eid)
+        is_on = state is not None and state.state == "on"
+        if is_on == desired:
+            return
+        await self.hass.services.async_call(
+            "switch",
+            "turn_on" if desired else "turn_off",
+            {"entity_id": eid},
+            blocking=True,
+        )
 
 
 def _as_int(value: Any) -> int | None:

@@ -15,8 +15,12 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_CHANGEOVER_COOL_BELOW,
+    CONF_CHANGEOVER_ENTITY,
+    CONF_CHANGEOVER_HEAT_ABOVE,
     CONF_CLAMP_MAX,
     CONF_CLAMP_MIN,
+    CONF_COOL_LOCKOUT_CEILING,
     CONF_DEMAND_THRESHOLD,
     CONF_ECO_COOL_MAX,
     CONF_ECO_HEAT_MIN,
@@ -33,8 +37,11 @@ from .const import (
     CONF_SECONDARY_SENSOR,
     CONF_SECONDARY_VANE_HORIZONTAL,
     CONF_SECONDARY_VANE_VERTICAL,
+    DEFAULT_CHANGEOVER_COOL_BELOW,
+    DEFAULT_CHANGEOVER_HEAT_ABOVE,
     DEFAULT_CLAMP_MAX,
     DEFAULT_CLAMP_MIN,
+    DEFAULT_COOL_LOCKOUT_CEILING,
     DEFAULT_DEMAND_THRESHOLD,
     DEFAULT_ECO_COOL_MAX,
     DEFAULT_ECO_HEAT_MIN,
@@ -127,6 +134,30 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
                 CONF_HEAT_LOCKOUT_FLOOR,
                 default=current.get(
                     CONF_HEAT_LOCKOUT_FLOOR, DEFAULT_HEAT_LOCKOUT_FLOOR
+                ),
+            ): _num(),
+            vol.Optional(
+                CONF_COOL_LOCKOUT_CEILING,
+                default=current.get(
+                    CONF_COOL_LOCKOUT_CEILING, DEFAULT_COOL_LOCKOUT_CEILING
+                ),
+            ): _num(),
+            vol.Optional(
+                CONF_CHANGEOVER_ENTITY,
+                description={"suggested_value": current.get(CONF_CHANGEOVER_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["weather", "sensor"])
+            ),
+            vol.Optional(
+                CONF_CHANGEOVER_HEAT_ABOVE,
+                default=current.get(
+                    CONF_CHANGEOVER_HEAT_ABOVE, DEFAULT_CHANGEOVER_HEAT_ABOVE
+                ),
+            ): _num(),
+            vol.Optional(
+                CONF_CHANGEOVER_COOL_BELOW,
+                default=current.get(
+                    CONF_CHANGEOVER_COOL_BELOW, DEFAULT_CHANGEOVER_COOL_BELOW
                 ),
             ): _num(),
         }

@@ -44,11 +44,13 @@ S, D = const.DEFAULT_DEMAND_THRESHOLD, const.DEFAULT_ENGAGE_DEADBAND
 def demand(
     temp, target, *, enabled=True, eco=False, sensor_ok=True,
     heat_lockout=False, heat_lockout_floor=58.0,
+    cool_lockout=False, cool_lockout_ceiling=80.0,
 ):
     return logic.room_call(
         temp=temp, target=target, enabled=enabled, eco=eco, sensor_ok=sensor_ok,
         band=S, eco_cool_max=78.0, eco_heat_min=50.0, neutral=NEUTRAL,
         heat_lockout=heat_lockout, heat_lockout_floor=heat_lockout_floor,
+        cool_lockout=cool_lockout, cool_lockout_ceiling=cool_lockout_ceiling,
     )
 
 
@@ -106,6 +108,79 @@ def test_heat_lockout_does_not_touch_cooling():
 def test_heat_lockout_off_heats_normally():
     # Default (unlocked) behaviour is unchanged.
     assert demand(66, 70, heat_lockout=False) == HEAT
+
+
+# --- cool lockout (winter, mirror of heat lockout) -----------------------------
+def test_cool_lockout_suppresses_cool_below_ceiling():
+    # 74 is 4 °F above target (would normally COOL) but below the 80 ceiling -> idle.
+    assert demand(74, 70, cool_lockout=True, cool_lockout_ceiling=80.0) == NEUTRAL
+
+
+def test_cool_lockout_still_cools_above_ceiling():
+    # Genuinely hot: above the safety ceiling -> cool regardless of the lockout.
+    assert demand(82, 70, cool_lockout=True, cool_lockout_ceiling=80.0) == COOL
+
+
+def test_cool_lockout_does_not_touch_heating():
+    # Heating is unaffected by the cool lockout.
+    assert demand(66, 70, cool_lockout=True, cool_lockout_ceiling=80.0) == HEAT
+
+
+def test_cool_lockout_off_cools_normally():
+    assert demand(74, 70, cool_lockout=False) == COOL
+
+
+def test_both_lockouts_idle_the_middle_band():
+    # With both locked, a room just off target in either direction idles; the
+    # safety floor/ceiling still act at the extremes.
+    assert demand(66, 70, heat_lockout=True, cool_lockout=True) == NEUTRAL  # 4 below
+    assert demand(74, 70, heat_lockout=True, cool_lockout=True) == NEUTRAL  # 4 above
+    assert demand(57, 70, heat_lockout=True, cool_lockout=True,
+                  heat_lockout_floor=58.0) == HEAT  # below floor
+    assert demand(82, 70, heat_lockout=True, cool_lockout=True,
+                  cool_lockout_ceiling=80.0) == COOL  # above ceiling
+
+
+# --- seasonal changeover from local weather ------------------------------------
+def sl(high, *, heat_above=68.0, cool_below=50.0):
+    return logic.season_lockouts(
+        outdoor_high=high, heat_above=heat_above, cool_below=cool_below
+    )
+
+
+def test_changeover_warm_season_locks_heat():
+    assert sl(85) == (True, False)  # hot day -> suppress heat
+    assert sl(68) == (True, False)  # exactly at the threshold
+
+
+def test_changeover_cold_season_locks_cool():
+    assert sl(40) == (False, True)  # cold day -> suppress cool
+    assert sl(50) == (False, True)  # exactly at the threshold
+
+
+def test_changeover_shoulder_season_locks_neither():
+    assert sl(60) == (False, False)  # spring/fall -> normal heat + cool
+    assert sl(51) == (False, False)
+    assert sl(67) == (False, False)
+
+
+def test_changeover_no_signal_is_safe():
+    assert sl(None) == (False, False)  # weather unavailable -> no lockout
+
+
+def test_changeover_season_sweep():
+    # Walk a year of forecast highs and assert the lockout pair each step.
+    sweep = [
+        (30, (False, True)),   # deep winter -> cool locked
+        (48, (False, True)),   # late winter
+        (58, (False, False)),  # spring shoulder -> both free
+        (72, (True, False)),   # early summer -> heat locked
+        (92, (True, False)),   # midsummer
+        (64, (False, False)),  # fall shoulder
+        (44, (False, True)),   # back to winter
+    ]
+    for high, expected in sweep:
+        assert sl(high) == expected, f"high={high}"
 
 
 # --- per-room engage (D = 1 °F) -------------------------------------------------

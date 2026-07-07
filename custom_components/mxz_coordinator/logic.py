@@ -33,6 +33,8 @@ def room_call(
     neutral: str,
     heat_lockout: bool = False,
     heat_lockout_floor: float = 0.0,
+    cool_lockout: bool = False,
+    cool_lockout_ceiling: float = 200.0,
 ) -> str:
     """Per-room call for one band (demand uses S/'neutral', engage uses D/'satisfied').
 
@@ -41,7 +43,9 @@ def room_call(
     ``heat_lockout`` holds off the heat call (the room idles instead of heating — e.g.
     to let passive solar warm it in summer) UNLESS the room has dropped below
     ``heat_lockout_floor``, a safety floor so a genuinely cold room still gets heat.
-    Cooling and the eco extremes are unaffected.
+    ``cool_lockout`` is the mirror for the cold season: it holds off the cool call
+    (let the room drift down on its own) UNLESS it rises above ``cool_lockout_ceiling``.
+    The eco extremes are unaffected; the two lockouts are independent.
     """
     if not enabled:
         return MODE_OFF
@@ -54,12 +58,39 @@ def room_call(
     if not sensor_ok:
         return neutral
     if temp > target + band:
+        if cool_lockout and temp <= cool_lockout_ceiling:
+            return neutral
         return MODE_COOL
     if temp < target - band:
         if heat_lockout and temp >= heat_lockout_floor:
             return neutral
         return MODE_HEAT
     return neutral
+
+
+def season_lockouts(
+    *, outdoor_high: float | None, heat_above: float, cool_below: float
+) -> tuple[bool, bool]:
+    """Derive (heat_lockout, cool_lockout) from the local outdoor daily-high temp.
+
+    The decision is driven by *local weather*, not the calendar: pass the forecast
+    daily high (from a weather entity) or an outdoor temperature reading.
+
+    * high >= ``heat_above`` -> warm season -> heat_lockout on (don't actively heat).
+    * high <= ``cool_below`` -> cold season -> cool_lockout on (don't actively cool).
+    * in between (shoulder season) -> neither -> normal heat + cool.
+
+    The gap between the two thresholds is the hysteresis band — the forecast has to
+    swing across the whole shoulder zone to flip a lockout, so it won't chatter.
+    ``None`` (no signal — weather unavailable) yields no lockout (safe: normal auto).
+    """
+    if outdoor_high is None:
+        return (False, False)
+    if outdoor_high >= heat_above:
+        return (True, False)
+    if outdoor_high <= cool_below:
+        return (False, True)
+    return (False, False)
 
 
 def shared_mode(
