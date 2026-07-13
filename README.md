@@ -69,6 +69,11 @@ is off target — Tesla-style, big delta → max fan, easing down (with hysteres
 overriding the firmware's weak `auto` ramp (true airflow order `quiet < low < medium < middle < high`;
 note `middle` is faster than `medium`). Configure it under **Configure → options** (enable + max speed).
 
+All of the above live in the options entry. Saving them **merges** onto your existing settings (a
+partial save never wipes the rest) and **mirrors** the config into the entry's data, so if something
+ever clears the options out-of-band the coordinator keeps running from the mirror (and logs a warning)
+rather than silently snapping back to defaults.
+
 This is confirmed by the outdoor unit's service manual (OCH573E): there's one independently
 metered LEV per head, and the unit *"fully closes the LEV on the indoor unit which is in FAN,
 COOL, STOP, or thermo-OFF."* A satisfied head in the same explicit mode closes its LEV and

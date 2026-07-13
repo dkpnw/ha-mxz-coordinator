@@ -18,7 +18,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 
-from .const import DOMAIN, PLATFORMS, SERVICE_RECOMPUTE
+from .const import CONF_DEMAND_THRESHOLD, DOMAIN, PLATFORMS, SERVICE_RECOMPUTE
 from .coordinator import MXZCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,6 +29,17 @@ MXZConfigEntry = ConfigEntry[MXZCoordinator]
 
 async def async_setup_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
     """Set up MXZ Coordinator from a config entry."""
+    # Visibility: options should carry the tunables, but the options flow mirrors
+    # them into entry.data too (the coordinator reads {**data, **options}). If
+    # options is empty yet the data mirror holds tunables, something cleared the
+    # options out-of-band — surface it rather than silently running on defaults.
+    if not entry.options and CONF_DEMAND_THRESHOLD in entry.data:
+        _LOGGER.warning(
+            "MXZ Coordinator options are empty but the data mirror has the config; "
+            "recovering from the mirror. Something cleared this entry's options "
+            "out-of-band — re-save the options once to re-populate them."
+        )
+
     coordinator = MXZCoordinator(hass, entry)
     entry.runtime_data = coordinator
 

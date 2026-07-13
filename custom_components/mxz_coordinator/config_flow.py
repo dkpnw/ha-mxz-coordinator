@@ -224,7 +224,19 @@ class MXZOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            # Resilience: MERGE onto the existing options (a partial/empty submit
+            # must never wipe the rest) and refuse to persist an empty set. Also
+            # MIRROR the tuned config into entry.data — the coordinator reads
+            # {**data, **options}, so if anything clears options out-of-band the
+            # config self-recovers from the data mirror instead of silently
+            # reverting to defaults.
+            merged = {**self.config_entry.options, **user_input}
+            if not merged:
+                return self.async_abort(reason="empty_options")
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, data={**self.config_entry.data, **merged}
+            )
+            return self.async_create_entry(title="", data=merged)
         current = {**self.config_entry.data, **self.config_entry.options}
         return self.async_show_form(
             step_id="init", data_schema=_options_schema(current)
