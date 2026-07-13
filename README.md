@@ -64,6 +64,11 @@ switch to AUTO and stall the system — it idles in **`fan_only`**, closing its 
 (LEV) while the other head keeps conditioning. This embraces the one-mode physical constraint
 instead of fighting it.
 
+Optionally, an opt-in **fan boost** (default off) drives each head's fan speed by how far the room
+is off target — Tesla-style, big delta → max fan, easing down (with hysteresis) as it closes —
+overriding the firmware's weak `auto` ramp (true airflow order `quiet < low < medium < middle < high`;
+note `middle` is faster than `medium`). Configure it under **Configure → options** (enable + max speed).
+
 This is confirmed by the outdoor unit's service manual (OCH573E): there's one independently
 metered LEV per head, and the unit *"fully closes the LEV on the indoor unit which is in FAN,
 COOL, STOP, or thermo-OFF."* A satisfied head in the same explicit mode closes its LEV and

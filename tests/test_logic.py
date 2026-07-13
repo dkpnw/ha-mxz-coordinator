@@ -325,3 +325,53 @@ def test_eco_setpoints():
 )
 def test_head_action(engage_state, mode, eco, expected):
     assert logic.head_action(engage=engage_state, mode=mode, eco=eco) == expected
+
+
+# --- fan boost: delta -> ladder INDEX (pure) -----------------------------------
+UP_AT = const.FAN_BOOST_UP_AT       # (1.0, 2.0, 3.0, 4.0)
+DOWN_AT = const.FAN_BOOST_DOWN_AT   # (0.5, 1.5, 2.5, 3.5)
+
+
+def fan(delta, cur, *, max_idx=4):
+    return logic.fan_for_delta(
+        delta=delta, cur_idx=cur, up_at=UP_AT, down_at=DOWN_AT, max_idx=max_idx
+    )
+
+
+def test_fan_big_delta_goes_max():
+    # delta 5 from idle climbs all the way to the top rung (index 4 = "high").
+    assert fan(5.0, 0) == 4
+
+
+@pytest.mark.parametrize(
+    ("delta", "expected"),
+    [(4.5, 4), (3.6, 4), (3.4, 3)],  # from the top rung, hysteresis holds until < 3.5
+)
+def test_fan_hysteresis_from_top(delta, expected):
+    assert fan(delta, 4) == expected
+
+
+def test_fan_full_step_down_chain():
+    # Starting at the top, walk the delta down; the fan eases one rung at a time.
+    expected = [4, 4, 3, 2, 1, 0]
+    deltas = [5.0, 4.5, 3.4, 2.4, 1.4, 0.4]
+    cur = 4
+    got = []
+    for d in deltas:
+        cur = fan(d, cur)
+        got.append(cur)
+    assert got == expected
+
+
+def test_fan_max_idx_clamp():
+    # A large delta cannot climb past the configured max rung.
+    assert fan(9.0, 0, max_idx=2) == 2
+
+
+@pytest.mark.parametrize("cur", [0])
+def test_fan_monotonic_non_decreasing_in_delta(cur):
+    prev = -1
+    for tenths in range(0, 61):  # delta 0.0 .. 6.0
+        idx = fan(tenths / 10.0, cur)
+        assert idx >= prev
+        prev = idx

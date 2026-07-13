@@ -25,6 +25,8 @@ from .const import (
     CONF_ECO_COOL_MAX,
     CONF_ECO_HEAT_MIN,
     CONF_ENGAGE_DEADBAND,
+    CONF_FAN_BOOST_ENABLE,
+    CONF_FAN_BOOST_MAX,
     CONF_HEAT_LOCKOUT_FLOOR,
     CONF_MODE_HYSTERESIS,
     CONF_NOTIFY_SERVICE,
@@ -46,10 +48,13 @@ from .const import (
     DEFAULT_ECO_COOL_MAX,
     DEFAULT_ECO_HEAT_MIN,
     DEFAULT_ENGAGE_DEADBAND,
+    DEFAULT_FAN_BOOST_ENABLE,
+    DEFAULT_FAN_BOOST_MAX,
     DEFAULT_HEAT_LOCKOUT_FLOOR,
     DEFAULT_MODE_HYSTERESIS,
     DEFAULT_RESTING_MODE_BIAS,
     DOMAIN,
+    FAN_LADDER,
     RESTING_BIAS_OPTIONS,
 )
 
@@ -160,6 +165,21 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
                     CONF_CHANGEOVER_COOL_BELOW, DEFAULT_CHANGEOVER_COOL_BELOW
                 ),
             ): _num(),
+            vol.Optional(
+                CONF_FAN_BOOST_ENABLE,
+                default=current.get(
+                    CONF_FAN_BOOST_ENABLE, DEFAULT_FAN_BOOST_ENABLE
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_FAN_BOOST_MAX,
+                default=current.get(CONF_FAN_BOOST_MAX, DEFAULT_FAN_BOOST_MAX),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(FAN_LADDER),
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
         }
     )
 

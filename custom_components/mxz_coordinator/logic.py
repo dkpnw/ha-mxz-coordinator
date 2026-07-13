@@ -148,6 +148,30 @@ def setpoints(
     return (tc, min(tc + 2, clamp_max))
 
 
+def fan_for_delta(
+    *,
+    delta: float,
+    cur_idx: int,
+    up_at: tuple[float, ...],
+    down_at: tuple[float, ...],
+    max_idx: int,
+) -> int:
+    """Pick a fan-ladder INDEX (0..) from how far the room is off-target.
+
+    Tesla-style: a big ``delta`` steps the fan up toward ``max_idx``; as the room
+    closes on target the fan eases down. ``up_at``/``down_at`` carry a 0.5 °F
+    hysteresis band so the speed doesn't chatter on the boundary. The caller owns
+    persisting ``cur_idx`` between calls (per head).
+    """
+    # step UP as far as delta allows, never above max_idx
+    while cur_idx < len(up_at) and cur_idx < max_idx and delta >= up_at[cur_idx]:
+        cur_idx += 1
+    # step DOWN only once delta clears the lower rung's down-threshold
+    while cur_idx > 0 and delta < down_at[cur_idx - 1]:
+        cur_idx -= 1
+    return min(cur_idx, max_idx)
+
+
 def head_action(*, engage: str, mode: str, eco: bool) -> str:
     """Map a head's engage state to the mode to command. Mirrors p_act/s_act."""
     if engage == MODE_OFF:

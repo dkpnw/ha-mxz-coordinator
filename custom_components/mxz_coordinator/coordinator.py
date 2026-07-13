@@ -45,6 +45,8 @@ from .const import (
     CONF_ECO_COOL_MAX,
     CONF_ECO_HEAT_MIN,
     CONF_ENGAGE_DEADBAND,
+    CONF_FAN_BOOST_ENABLE,
+    CONF_FAN_BOOST_MAX,
     CONF_HEAT_LOCKOUT_FLOOR,
     CONF_MODE_HYSTERESIS,
     CONF_NOTIFY_SERVICE,
@@ -66,6 +68,8 @@ from .const import (
     DEFAULT_ECO_COOL_MAX,
     DEFAULT_ECO_HEAT_MIN,
     DEFAULT_ENGAGE_DEADBAND,
+    DEFAULT_FAN_BOOST_ENABLE,
+    DEFAULT_FAN_BOOST_MAX,
     DEFAULT_HEAT_LOCKOUT_FLOOR,
     DEFAULT_MODE_HYSTERESIS,
     DEFAULT_RESTING_MODE_BIAS,
@@ -73,9 +77,14 @@ from .const import (
     DOMAIN,
     ENGAGE_SATISFIED,
     EVENT_RECOMPUTE,
+    FAN_AUTO,
+    FAN_BOOST_DOWN_AT,
+    FAN_BOOST_UP_AT,
+    FAN_LADDER,
     KEY_COOL_LOCKOUT,
     KEY_HEAT_LOCKOUT,
     MODE_COOL,
+    MODE_FAN_ONLY,
     MODE_HEAT,
     MODE_OFF,
     OFF_WHILE_ENABLED_DELAY,
@@ -83,7 +92,14 @@ from .const import (
     TARGET_DEFAULT,
     UNAVAILABLE_STATES,
 )
-from .logic import head_action, room_call, season_lockouts, setpoints, shared_mode
+from .logic import (
+    fan_for_delta,
+    head_action,
+    room_call,
+    season_lockouts,
+    setpoints,
+    shared_mode,
+)
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -165,6 +181,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.changeover_cool_below: float = conf.get(
             CONF_CHANGEOVER_COOL_BELOW, DEFAULT_CHANGEOVER_COOL_BELOW
         )
+        # Delta-proportional fan boost (overrides the firmware's weak "auto").
+        self.fan_boost_enable: bool = bool(
+            conf.get(CONF_FAN_BOOST_ENABLE, DEFAULT_FAN_BOOST_ENABLE)
+        )
+        self.fan_boost_max: str = conf.get(CONF_FAN_BOOST_MAX, DEFAULT_FAN_BOOST_MAX)
+        self._fan_idx: dict[str, int] = {}  # per-head ladder index (hysteresis state)
 
         # Helper values (owned by the number/switch/select entities; seeded on
         # restore, mutated on user action). Kill-switch defaults OFF for safety.
@@ -307,6 +329,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "sensors_ok": pt_ok and st_ok,
             "seconds_since_mode_change": int(elapsed),
             "mode_change_allowed": allowed,
+            "primary_temp": pt,
+            "secondary_temp": st,
         }
 
     async def _async_update_data(self) -> dict[str, Any]:
@@ -330,9 +354,14 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if p_eng not in valid_eng or s_eng not in valid_eng:
             return
 
-        for climate_id, target, engage in (
-            (self.primary_climate_id, self.primary_target, p_eng),
-            (self.secondary_climate_id, self.secondary_target, s_eng),
+        for climate_id, target, engage, temp in (
+            (self.primary_climate_id, self.primary_target, p_eng, plan["primary_temp"]),
+            (
+                self.secondary_climate_id,
+                self.secondary_target,
+                s_eng,
+                plan["secondary_temp"],
+            ),
         ):
             act = head_action(engage=engage, mode=state, eco=self.eco_idle)
             low, high = setpoints(
@@ -343,6 +372,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 clamp_max=self.clamp_max,
             )
             await self._apply_head(climate_id, act, low, high)
+            await self._apply_fan(climate_id, act, abs(temp - float(target)))
 
         # Stamp the flip only on a real mode change (cool<->heat).
         if state != self.current_shared_mode:
@@ -384,6 +414,53 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "climate",
             "set_hvac_mode",
             {"entity_id": climate_id, "hvac_mode": act},
+            blocking=True,
+        )
+
+    async def _apply_fan(self, climate_id: str, act: str, delta: float) -> None:
+        """Drive the head's fan speed from ``delta`` (°F off-target). Idempotent.
+
+        Only active when fan boost is enabled. An actively-conditioning head
+        (cool/heat, not eco-idle) gets a ladder speed proportional to how far the
+        room is off target; a satisfied/fan_only head (or eco-idle) is returned to
+        the firmware's own "auto"; an off head is left alone.
+        """
+        if not self.fan_boost_enable:
+            return
+        if act in (MODE_COOL, MODE_HEAT) and not self.eco_idle:
+            max_idx = (
+                FAN_LADDER.index(self.fan_boost_max)
+                if self.fan_boost_max in FAN_LADDER
+                else len(FAN_LADDER) - 1
+            )
+            idx = fan_for_delta(
+                delta=delta,
+                cur_idx=self._fan_idx.get(climate_id, 0),
+                up_at=FAN_BOOST_UP_AT,
+                down_at=FAN_BOOST_DOWN_AT,
+                max_idx=max_idx,
+            )
+            self._fan_idx[climate_id] = idx
+            token = FAN_LADDER[idx]
+        elif act == MODE_FAN_ONLY or self.eco_idle:
+            self._fan_idx.pop(climate_id, None)
+            token = FAN_AUTO
+        else:  # MODE_OFF
+            self._fan_idx.pop(climate_id, None)
+            return
+
+        state = self.hass.states.get(climate_id)
+        if state is None:
+            return
+        modes = state.attributes.get("fan_modes")
+        if modes and token not in modes:
+            return  # unit lacks this token -> skip safely
+        if state.attributes.get("fan_mode") == token:
+            return  # idempotent
+        await self.hass.services.async_call(
+            "climate",
+            "set_fan_mode",
+            {"entity_id": climate_id, "fan_mode": token},
             blocking=True,
         )
 

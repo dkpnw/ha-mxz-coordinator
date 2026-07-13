@@ -36,6 +36,9 @@ CONF_COOL_LOCKOUT_CEILING = "cool_lockout_ceiling"
 CONF_CHANGEOVER_ENTITY = "changeover_entity"
 CONF_CHANGEOVER_HEAT_ABOVE = "changeover_heat_above"
 CONF_CHANGEOVER_COOL_BELOW = "changeover_cool_below"
+# Optional delta-proportional "fan boost" (Tesla-style: bigger off-target -> faster fan).
+CONF_FAN_BOOST_ENABLE = "fan_boost_enable"
+CONF_FAN_BOOST_MAX = "fan_boost_max"
 
 # --- Defaults (match packages/mxz_coordinator.yaml exactly) ---
 DEFAULT_DEMAND_THRESHOLD = 3.0  # S — off-target °F before the SHARED MODE may flip
@@ -50,6 +53,25 @@ DEFAULT_COOL_LOCKOUT_CEILING = 80.0  # cool-lockout safety ceiling: cool above t
 DEFAULT_CHANGEOVER_HEAT_ABOVE = 68.0  # forecast daily high (°F) at/above -> heat-lockout on
 DEFAULT_CHANGEOVER_COOL_BELOW = 50.0  # forecast daily high (°F) at/below -> cool-lockout on
 CHANGEOVER_INTERVAL_MINUTES = 60  # how often to re-read the changeover weather signal
+
+# --- Fan boost: drive the head's fan speed by how far the room is off-target ---
+# The head's raw HA fan_modes list is UNSORTED. True airflow slowest->fastest is
+#   quiet < low < medium < MIDDLE < high   (trap: "middle" is FASTER than "medium").
+# "auto" is the firmware's own weak ramp we override. MAX = "high".
+FAN_AUTO = "auto"
+FAN_QUIET = "quiet"
+FAN_LOW = "low"
+FAN_MEDIUM = "medium"
+FAN_MIDDLE = "middle"
+FAN_HIGH = "high"
+# Ascending true airflow speed; idx 0..4.
+FAN_LADDER = (FAN_QUIET, FAN_LOW, FAN_MEDIUM, FAN_MIDDLE, FAN_HIGH)
+# delta (°F off-target) >= up_at[i] to step UP into rung i+1
+FAN_BOOST_UP_AT = (1.0, 2.0, 3.0, 4.0)
+# up_at - 0.5 hysteresis; leave rung i once delta < down_at[i-1]
+FAN_BOOST_DOWN_AT = (0.5, 1.5, 2.5, 3.5)
+DEFAULT_FAN_BOOST_ENABLE = False
+DEFAULT_FAN_BOOST_MAX = FAN_HIGH
 
 # Resting-mode bias: which shared mode to settle on when NO room is calling.
 #   "last" (default) -> hold whatever was last called (original behavior).

@@ -42,7 +42,9 @@
           "cool_lockout_ceiling": "Cool-lockout safety ceiling (°F — cool above this even when locked out)",
           "changeover_entity": "Seasonal changeover weather/temperature entity (optional — auto-drives the lockouts from local weather)",
           "changeover_heat_above": "Heat-lockout when forecast daily high ≥ (°F)",
-          "changeover_cool_below": "Cool-lockout when forecast daily high ≤ (°F)"
+          "changeover_cool_below": "Cool-lockout when forecast daily high ≤ (°F)",
+          "fan_boost_enable": "Fan boost: drive fan speed by how far the room is from target",
+          "fan_boost_max": "Fan boost maximum speed"
         }
       }
     }

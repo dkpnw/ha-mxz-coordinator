@@ -33,6 +33,7 @@ from pytest_homeassistant_custom_component.common import (  # noqa: E402
 )
 
 from custom_components.mxz_coordinator.const import (  # noqa: E402
+    CONF_FAN_BOOST_ENABLE,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
     CONF_SECONDARY_CLIMATE,
@@ -51,8 +52,11 @@ class MockHead(ClimateEntity):
     _attr_has_entity_name = False
     _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.COOL, HVACMode.HEAT, HVACMode.FAN_ONLY]
+    # RAW/unsorted order, as reported by the real head (includes "middle" and "high").
+    _attr_fan_modes = ["auto", "low", "medium", "middle", "high", "quiet"]
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+        | ClimateEntityFeature.FAN_MODE
         | ClimateEntityFeature.TURN_ON
         | ClimateEntityFeature.TURN_OFF
     )
@@ -64,9 +68,14 @@ class MockHead(ClimateEntity):
         self._attr_hvac_mode = HVACMode.OFF
         self._attr_target_temperature_low = None
         self._attr_target_temperature_high = None
+        self._attr_fan_mode = "auto"
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         self._attr_hvac_mode = hvac_mode
+        self.async_write_ha_state()
+
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
+        self._attr_fan_mode = fan_mode
         self.async_write_ha_state()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -299,3 +308,104 @@ async def test_cool_lockout_suppresses_then_ceilings(hass: HomeAssistant) -> Non
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "cool"
     print("COOL-LOCKOUT: 75F idled fan_only, 82F (> 80 ceiling) cooled")
+
+
+async def _set_target(hass: HomeAssistant, entity_id: str, value: float) -> None:
+    await hass.services.async_call(
+        "number", "set_value", {"entity_id": entity_id, "value": value}, blocking=True
+    )
+    await hass.async_block_till_done()
+
+
+async def test_fan_boost_drives_speed(hass: HomeAssistant) -> None:
+    """fan boost: a conditioning head's fan tracks how far the room is off-target."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MXZ Coordinator",
+        data={
+            CONF_PRIMARY_CLIMATE: head_a,
+            CONF_SECONDARY_CLIMATE: head_b,
+            CONF_PRIMARY_SENSOR: SENSOR_A,
+            CONF_SECONDARY_SENSOR: SENSOR_B,
+            CONF_FAN_BOOST_ENABLE: True,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    for suffix in ("_primary_enable", "_secondary_enable", "_coordinator_enable"):
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": _eid(hass, entry, suffix)}, blocking=True
+        )
+    await hass.async_block_till_done()
+
+    # Primary target 62; secondary stays at its 70 default (satisfied).
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 62)
+
+    # --- Big delta: room 67 vs target 62 (delta 5, cooling) -> MAX fan "high". ---
+    await _set_temp(hass, SENSOR_A, 67)
+    await _set_temp(hass, SENSOR_B, 70)
+    await _recompute(hass, entry)
+    a = hass.states.get(head_a)
+    b = hass.states.get(head_b)
+    print(f"FAN-BOOST big-delta: primary={a.state} fan={a.attributes.get('fan_mode')} "
+          f"| secondary={b.state} fan={b.attributes.get('fan_mode')}")
+    assert a.state == "cool"
+    assert a.attributes["fan_mode"] == "high"
+    # Satisfied/fan_only secondary -> firmware "auto".
+    assert b.state == "fan_only"
+    assert b.attributes["fan_mode"] == "auto"
+
+    # --- Room closes to 63.4 (delta 1.4, still cooling past the 1F deadband) ->
+    # the fan eases down the ladder toward "low" via the hysteresis walk 4->1. ---
+    await _set_temp(hass, SENSOR_A, 63.4)
+    await _recompute(hass, entry)
+    a = hass.states.get(head_a)
+    print(f"FAN-BOOST small-delta: primary={a.state} fan={a.attributes.get('fan_mode')}")
+    assert a.state == "cool"
+    assert a.attributes["fan_mode"] == "low"  # hysteresis walk 4->1
+
+
+async def test_fan_boost_disabled_leaves_fan_alone(hass: HomeAssistant) -> None:
+    """With fan boost off (default), the coordinator never touches the fan mode."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MXZ Coordinator",
+        data={
+            CONF_PRIMARY_CLIMATE: head_a,
+            CONF_SECONDARY_CLIMATE: head_b,
+            CONF_PRIMARY_SENSOR: SENSOR_A,
+            CONF_SECONDARY_SENSOR: SENSOR_B,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    for suffix in ("_primary_enable", "_secondary_enable", "_coordinator_enable"):
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": _eid(hass, entry, suffix)}, blocking=True
+        )
+    await hass.async_block_till_done()
+
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 62)
+    # Big delta that WOULD boost to "high" if the feature were on.
+    await _set_temp(hass, SENSOR_A, 67)
+    await _recompute(hass, entry)
+    a = hass.states.get(head_a)
+    assert a.state == "cool"
+    assert a.attributes["fan_mode"] == "auto"  # untouched -> stays at the default
+    print("FAN-BOOST disabled: fan stayed 'auto' despite a 5F delta")
