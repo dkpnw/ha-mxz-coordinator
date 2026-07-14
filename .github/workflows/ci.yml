@@ -2,6 +2,13 @@ name: CI
 
 on:
   push:
+    # Branches only — a tag push points at a commit already validated on its
+    # branch (checks attach to the SHA, so the release still shows green). This
+    # avoids a redundant second run that only re-rolls transient HACS-action /
+    # GitHub-API flakiness. NOTE: keep hacs/action@main (HACS validates against
+    # its live ruleset; the only pinnable tag, 22.5.0, is 4+ years stale).
+    branches:
+      - '**'
   pull_request:
   workflow_dispatch:
 
