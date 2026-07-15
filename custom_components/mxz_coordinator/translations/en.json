@@ -9,7 +9,10 @@
           "secondary_climate": "Secondary indoor head (climate entity)",
           "primary_sensor": "Primary room temperature sensor",
           "secondary_sensor": "Secondary room temperature sensor",
-          "notify_service": "Drift-alert notifications (optional) — where to ping you when a head is knocked off its coordinated mode and the coordinator has to put it back"
+          "notify_service": "Drift-alert notifications (optional)"
+        },
+        "data_description": {
+          "notify_service": "Who to notify when a head is knocked off its coordinated mode and the coordinator puts it back — e.g. notify.mobile_app_phone."
         }
       }
     },
