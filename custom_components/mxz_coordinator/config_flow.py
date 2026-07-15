@@ -283,6 +283,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._heads: list[str] = []
         self._notify: str | None = None
+        self._zones: list[dict[str, Any]] = []
 
     def _head_name(self, entity_id: str) -> str:
         """Friendly display name for a head (used as the zone name)."""
@@ -336,10 +337,8 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                         ZONE_VANE_HORIZONTAL: vanes.get("horizontal"),
                     }
                 )
-            data: dict[str, Any] = {CONF_ZONES: zones}
-            if self._notify:
-                data[CONF_NOTIFY_SERVICE] = self._notify
-            return self.async_create_entry(title="MXZ Coordinator", data=data)
+            self._zones = zones
+            return await self.async_step_tuning()
 
         heads_list = "\n".join(
             f"{i + 1}. {self._head_name(h)}" for i, h in enumerate(self._heads)
@@ -348,6 +347,31 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="sensors",
             data_schema=_sensors_schema(len(self._heads)),
             description_placeholders={"heads": heads_list},
+        )
+
+    async def async_step_tuning(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Step 3: every tunable, pre-filled with unit-appropriate defaults.
+
+        Nothing here is required — Submit as-is accepts the defaults. The same
+        values stay editable later via the integration's Configure dialog.
+        """
+        if user_input is not None:
+            data: dict[str, Any] = {CONF_ZONES: self._zones, **user_input}
+            if self._notify:
+                data[CONF_NOTIFY_SERVICE] = self._notify
+            # Tunables live in options (with the data mirror above), exactly as
+            # an options-flow save would leave them.
+            return self.async_create_entry(
+                title="MXZ Coordinator", data=data, options=dict(user_input)
+            )
+        celsius = (
+            self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+        )
+        eff = unit_profile(celsius)["defaults"]
+        return self.async_show_form(
+            step_id="tuning", data_schema=_tunables_schema(eff)
         )
 
     @staticmethod

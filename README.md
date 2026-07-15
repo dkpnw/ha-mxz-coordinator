@@ -290,7 +290,9 @@ v2.8.0 — earlier versions assumed °F.)*
    is standoff priority — first wins), then one **room temperature sensor** per head.
    Optionally choose a **notify target** for drift alerts (a dropdown of your `notify.*`
    services). Each head's **vane selects are auto-detected** from its device — no need to
-   pick them (you can override them later under **Configure**).
+   pick them. A final **tuning step shows every option** (thresholds, weather changeover,
+   fan boost, eco extremes…) pre-filled with sensible defaults — Submit as-is or adjust;
+   everything stays editable later via **Configure**.
 5. The integration creates the helpers (`number.*_target`, `switch.*_enable`,
    `switch.*_coordinator_enable`, `switch.*_eco_idle`, `select.*_shared_mode`) and
    `sensor.*_plan`. Turn on **Coordinator enable**, set each room's target, and enable

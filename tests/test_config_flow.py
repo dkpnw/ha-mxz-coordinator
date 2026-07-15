@@ -10,6 +10,7 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 from homeassistant import config_entries  # noqa: E402
 from homeassistant.core import HomeAssistant  # noqa: E402
 from homeassistant.data_entry_flow import FlowResultType  # noqa: E402
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM  # noqa: E402
 from pytest_homeassistant_custom_component.common import MockConfigEntry  # noqa: E402
 
 from homeassistant.helpers import device_registry as dr  # noqa: E402
@@ -78,7 +79,8 @@ def test_detect_vanes_no_device_is_safe(hass: HomeAssistant) -> None:
 
 
 async def test_user_flow_creates_entry(hass: HomeAssistant) -> None:
-    """Two-step flow: pick N heads, then one sensor per head -> zones list."""
+    """Three-step flow: heads -> sensors -> tuning (defaults) -> zones entry."""
+    hass.config.units = US_CUSTOMARY_SYSTEM  # °F defaults on the tuning step
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
@@ -99,12 +101,38 @@ async def test_user_flow_creates_entry(hass: HomeAssistant) -> None:
             "sensor_3": "sensor.office_temp",
         },
     )
+    # Step 3: the full tuning form, pre-filled — submit as-is accepts defaults.
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "tuning"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     zones = result["data"][CONF_ZONES]
     assert [z[ZONE_CLIMATE] for z in zones] == [
         "climate.primary", "climate.secondary", "climate.office",
     ]
     assert zones[2][ZONE_SENSOR] == "sensor.office_temp"
+    # defaults flowed into options (and mirrored into data)
+    assert result["options"][CONF_DEMAND_THRESHOLD] == 3.0
+    assert result["data"][CONF_DEMAND_THRESHOLD] == 3.0
+
+
+async def test_setup_tuning_accepts_overrides(hass: HomeAssistant) -> None:
+    """A value changed on the setup tuning step lands in the entry."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"heads": ["climate.primary", "climate.secondary"]}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"sensor_1": "sensor.primary_temp", "sensor_2": "sensor.secondary_temp"},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_DEMAND_THRESHOLD: 5.0}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["options"][CONF_DEMAND_THRESHOLD] == 5.0
 
 
 async def test_rejects_duplicate_heads(hass: HomeAssistant) -> None:
