@@ -176,6 +176,12 @@ changeover); sensors and setpoints are read and written in your HA unit througho
 
 Example day/night/away presets: [`examples/presets.yaml`](examples/presets.yaml).
 
+**No HACS?** The original YAML package still ships
+([`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml) +
+[`docs/ENTITY-MAP.md`](docs/ENTITY-MAP.md)). Migrating from it to the integration is a
+breaking change — see [`docs/MIGRATION.md`](docs/MIGRATION.md), and remove the package so
+the two don't fight over the heads.
+
 ### Removing
 
 Delete the **config entry**, not the device: **Settings → Devices & Services →
@@ -186,12 +192,6 @@ button by design: the device *is* the config entry.) Then remove the download fr
 
 Your heads keep their last commanded state after removal — if they were parked `off` or
 `fan_only`, set them how you want them via their own controls.
-
-**No HACS?** The original YAML package still ships
-([`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml) +
-[`docs/ENTITY-MAP.md`](docs/ENTITY-MAP.md)). Migrating from it to the integration is a
-breaking change — see [`docs/MIGRATION.md`](docs/MIGRATION.md), and remove the package so
-the two don't fight over the heads.
 
 ---
 
