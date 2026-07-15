@@ -58,6 +58,9 @@ the validated, recommended path.
   wall unit, or it powers off while enabled), the coordinator puts it back — and can ping
   your phone so you know it happened.
 
+*That's the short version — the [full feature list](#everything-it-does--the-full-list) has
+all the quality-of-life details.*
+
 ---
 
 ## The problem: don't run AUTO on an MXZ
@@ -146,6 +149,90 @@ and left **on**:
 A satisfied secondary head in explicit COOL **never blocked the primary** — it held
 cool/high the whole time and ramped to ~600 W within minutes, versus **>1 h of starvation**
 under AUTO in the same conditions.
+
+---
+
+## Everything it does — the full list
+
+The headline features above get the attention, but a lot of this project is
+quality-of-life engineering you'd otherwise discover one surprise at a time. The
+full inventory, scannable:
+
+### Comfort & control
+- **One temperature per room** — the coordinator picks heat vs. cool to reach it (dual
+  setpoints stay under the hood). Change it from HA, HomeKit, Google, or Assist.
+- **Per-room enable switches** — turn a room's conditioning off without touching the others.
+- **Priority-aware standoffs** — when rooms disagree (one wants heat, one wants cool), the
+  highest-priority room wins and the other idles; nobody oscillates.
+- **Engage deadband** — a room within ~1° of its target coasts in `fan_only` instead of
+  being dragged along by its neighbor's demand. Satisfied means satisfied.
+- **Resting-mode bias** — choose what the system settles into when nobody's calling: last
+  mode used (default), or always cool / always heat for one-sided climates.
+
+### Fan & vanes
+- **Delta-proportional fan (on by default)** — fan ramps toward max when far from target,
+  steps down with hysteresis as the room closes in; hands back to the firmware's `auto`
+  when satisfied. Max speed configurable; opt out anytime.
+- **Correct Mitsubishi fan ladder** — knows that `middle` is *faster* than `medium` (a real
+  CN105 naming trap) and never commands a speed your unit doesn't support.
+- **Vane auto-detection** — vertical/horizontal vane controls are found automatically from
+  each head's own device at setup; no manual picking.
+- **Vane & swing on the tile** — full louvre control from the native thermostat, passed
+  through to the head.
+- **Vane kick** — change a vane while the head is off (eco/away) and the coordinator briefly
+  wakes the head to physically apply it, then goes right back to sleep. No stuck louvres.
+
+### Weather & seasons
+- **Local-weather changeover** — point it at any `weather.*` entity or outdoor temperature
+  sensor; it locks out heating in the warm season and cooling in the cold one, from *your*
+  forecast, with a hysteresis band so shoulder seasons don't flap. No calendar guessing.
+- **Passive-solar heat lockout** — in summer, a slightly-cool room waits for the sun instead
+  of burning compressor energy, protected by a configurable safety floor that still heats a
+  genuinely cold room.
+- **Cool lockout** — the winter mirror: let a warm room drift down on its own, with a safety
+  ceiling for genuinely hot days.
+- **Away/eco mode** — one switch parks every head OFF unless a room crosses wide protection
+  extremes (default 78 °F / 50 °F). Real energy savings while you're gone, with a safety net.
+
+### Hardware protection
+- **Mode-flip hysteresis** — a minimum dwell (default 10 min) before any heat↔cool change,
+  so the shared compressor is never rapid-cycled.
+- **Firmware-band clamping** — every setpoint is clamped to your unit's real operating range
+  before it's sent; no rejected commands, no error loops.
+- **Idempotent writes** — the coordinator only sends a command when something actually needs
+  to change. Your heads aren't spammed.
+- **`fan_only` idling closes the valve** — a satisfied head stops drawing refrigerant
+  instead of holding the outdoor unit hostage.
+
+### Reliability & trust
+- **Self-healing** — a head knocked into `heat_cool`/`auto`/`dry` (wall remote, curious
+  guest) or switched off while enabled is put back on plan, after a debounce so transient
+  states don't trigger it.
+- **Drift alerts** — optionally pings your phone whenever a self-heal fires, so silent
+  corrections aren't silent.
+- **Restart-proof** — every target, enable, mode, and switch restores across Home Assistant
+  restarts. No surprise defaults at 3 AM.
+- **Sensor-dropout fail-safe** — if a room sensor goes unavailable, that room fails to
+  *neutral* (no heating/cooling on garbage data) and recovers automatically.
+- **Config that can't quietly vanish** — options saves merge instead of replace, and the
+  tuning is mirrored so a corrupted save self-recovers instead of resetting to defaults.
+- **One-switch kill** — flip the coordinator off and your heads are instantly yours again,
+  frozen exactly where they were. The escape hatch is always there.
+- **A transparent brain** — the plan sensor exposes every decision input live (per-room
+  demand/engage, standoff state, hysteresis countdown), so "why did it do that?" always has
+  an answer.
+
+### Fit & finish
+- **One-click install** — HACS + a two-step config flow. No YAML, no helpers to create, no
+  automations to copy.
+- **°C and °F, automatically** — adapts to your Home Assistant unit with sensible defaults
+  for each (and 0.5° resolution on metric).
+- **Native HomeKit / Google / Assist tiles** — one clean dial per room, not a raw
+  dual-setpoint firmware control.
+- **2–8 zones per outdoor unit** *(v3 beta)* — and multiple outdoor units via one entry
+  each. Existing 2-zone installs migrate automatically with no entity changes.
+- **Automation-friendly** — a `recompute` service and an event hook for driving it from
+  your own scenes/schedules; every threshold tunable in the UI.
 
 ---
 
