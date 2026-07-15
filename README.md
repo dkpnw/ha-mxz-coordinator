@@ -8,6 +8,9 @@ shared compressor. Set **one comfort temperature per room**; it figures out the 
 
 > Shared as-is. Issues and PRs welcome, but support is best-effort — this was built and
 > validated on one real two-zone system (see [Caveats](#caveats)).
+>
+> Built with AI assistance (Claude); every line reviewed, tested, and run in production on my
+> own system by me.
 
 [![Open your Home Assistant instance and open this repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration)
 [![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)
