@@ -4,6 +4,8 @@
 indoor heads share one outdoor unit — this coordinates them so they stop fighting over the
 shared compressor. Set **one comfort temperature per room**; it figures out the rest.
 
+![Two rooms as single-target "Auto" dials alongside the coordinator's live decision state — shared mode, plan, lockouts, and per-room targets.](images/dashboard.png)
+
 > Shared as-is. Issues and PRs welcome, but support is best-effort — this was built and
 > validated on one real two-zone system (see [Caveats](#caveats)).
 
@@ -95,6 +97,13 @@ is off target — Tesla-style, big delta → max fan, easing down (with hysteres
 overriding the firmware's weak `auto` ramp (true airflow order `quiet < low < medium < middle < high`;
 note `middle` is faster than `medium`). Configure it under **Configure → options** (enable + max speed).
 
+<p align="center">
+  <img src="images/thermostat-bedroom.png" width="45%" alt="Bedroom ~2° from target — fan boosted to Medium" />
+  <img src="images/thermostat-recroom.png" width="45%" alt="Rec Room ~1° from target — fan eased to Low" />
+</p>
+
+<sub>Fan boost in action: the bedroom (~2° from target) runs **Medium** while the rec room (~1° away) has eased to **Low** — same single-target dial per room.</sub>
+
 All of the above live in the options entry. Saving them **merges** onto your existing settings (a
 partial save never wipes the rest) and **mirrors** the config into the entry's data, so if something
 ever clears the options out-of-band the coordinator keeps running from the mirror (and logs a warning)
@@ -184,6 +193,13 @@ v2.8.0 — earlier versions assumed °F.)*
    `switch.*_coordinator_enable`, `switch.*_eco_idle`, `select.*_shared_mode`) and
    `sensor.*_plan`. Turn on **Coordinator enable**, set each room's target, and enable
    the rooms. Tune the thresholds anytime via the integration's **Configure** dialog.
+
+<p align="center">
+  <img src="images/setup.png" width="48%" alt="The add-integration form: two heads, two sensors, optional drift-alert notifications" />
+  <img src="images/options.png" width="48%" alt="The Configure dialog: comfort thresholds, eco extremes, firmware clamps, and local-weather seasonal changeover" />
+</p>
+
+<sub>Left: initial setup — just the two heads and two sensors (vanes auto-detect). Right: **Configure** — thresholds, eco extremes, clamps, and local-weather changeover.</sub>
 
 Adapt the example presets in [`examples/presets.yaml`](examples/presets.yaml) (day /
 night / away) to the new entity IDs if you want scheduled comfort changes.
