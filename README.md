@@ -1,404 +1,235 @@
 # MXZ Coordinator
 
-**Tesla-style, single-target control for Mitsubishi MXZ multi-zone mini-splits.** Several
-indoor heads share one outdoor unit — this coordinates them so they stop fighting over the
-shared compressor. Set **one comfort temperature per room**; it figures out the rest.
+**Single-target control for Mitsubishi MXZ multi-zone mini-splits.** Several indoor heads
+share one outdoor unit; this coordinates them so they stop fighting over the shared
+compressor. Set **one temperature per room** — like a Tesla, it handles mode, fan, and
+arbitration in the background.
 
-![Two rooms as single-target "Auto" dials alongside the coordinator's live decision state — shared mode, plan, lockouts, and per-room targets.](images/dashboard.png)
+![Two rooms as single-target "Auto" dials alongside the coordinator's live decision state.](images/dashboard.png)
 
-> Shared as-is. Issues and PRs welcome, but support is best-effort — this was built and
-> validated on one real two-zone system (see [Caveats](#caveats)).
->
-> Built with AI assistance (Claude); every line reviewed, tested, and run in production on my
-> own system by me.
+> Shared as-is; support is best-effort ([Caveats](#caveats)). Built with AI assistance
+> (Claude); every line reviewed, tested, and run in production on my own system.
 
 [![Open your Home Assistant instance and open this repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration)
 [![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)
 
-**One-click HACS install:** click **Add to HACS** above → download → restart HA → click
-**Add Integration** → pick your heads (2–8, first = priority) and one temperature sensor per
-room. Vane controls are detected automatically; everything else has sensible defaults. No
-YAML editing. One outdoor unit per entry — add the integration again for a second compressor.
+**Install:** Add to HACS → download → restart → Add Integration → pick your heads and one
+temperature sensor per room. No YAML, no helpers. [Details below.](#install)
 
-## Works with your existing head control
-
-The coordinator sits **on top of** whatever already exposes your indoor heads to Home
-Assistant — it doesn't replace your firmware and needs no new hardware. It was built on, and
-is battle-tested against, **[echavet/MitsubishiCN105ESPHome](https://github.com/echavet/MitsubishiCN105ESPHome)**
-— the gold-standard open-source ESP32/CN105 firmware for Mitsubishi heads. If you're already
-running CN105/ESPHome, this drops straight onto your existing setup and only upgrades the
-*decision-making* layer above it.
-
-More generally, any integration that exposes your heads as standard Home Assistant `climate`
-entities with heat/cool modes should work (Kumo Cloud, MELCloud, …) — CN105/ESPHome is simply
-the validated, recommended path.
+**Works with your existing setup.** The coordinator sits on top of whatever already exposes
+your heads to Home Assistant — no firmware changes, no new hardware. Built and validated
+against [echavet/MitsubishiCN105ESPHome](https://github.com/echavet/MitsubishiCN105ESPHome),
+the reference open-source ESP32/CN105 firmware for Mitsubishi heads; any integration that
+exposes standard `climate` entities with heat/cool modes (Kumo Cloud, MELCloud, …) should
+work too.
 
 ---
 
-## Highlights
+## Why: the MXZ AUTO deadlock
 
-- 🎯 **One target per room, Tesla-style.** Set a single temperature and the coordinator
-  decides whether the shared system heats or cools to reach it — no dual setpoints, no
-  hardware AUTO, no mode-juggling.
-- 🚫 **No more zone starvation.** It keeps both heads in one explicit shared mode, so an
-  idle head can't hold the compressor neutral and starve the room that's actually calling
-  (the classic MXZ-on-AUTO failure). A satisfied head idles in `fan_only` instead of
-  parking the other room in standby.
-- 🌀 **Dynamic fan speed.** "Fan boost" (on by default) ramps the fan toward max when a room is far
-  from target and eases it back as the room closes in — Tesla-style — instead of the
-  firmware's weak `auto` ramp.
-- 🌦️ **Local-weather seasonal changeover.** Point it at any `weather.*` entity (or an
-  outdoor temp sensor) and it auto-locks out heating in summer / cooling in winter from
-  your own forecast. No calendar, no cloud.
-- 🌡️ **Works in °C and °F.** Adapts to your Home Assistant unit automatically, with 0.5°
-  resolution and clean metric defaults on °C.
-- 🍎 **Native thermostat tiles** for HomeKit / Google / Assist — a clean single-setpoint
-  dial per room, with vane/swing control passed through.
-- 🛟 **Self-healing.** If a head gets bumped off its coordinated mode (someone hits the
-  wall unit, or it powers off while enabled), the coordinator puts it back — and can ping
-  your phone so you know it happened.
+An MXZ outdoor unit has **one compressor and one reversing valve** — it can heat or cool at
+any instant, never both. In hardware **AUTO**, each head votes from its own room and the
+lowest-address head is the mode master, so an idle head sitting in its deadband can hold
+the outdoor unit neutral while the room that's actually calling is parked in standby.
+Mitsubishi's own manuals say so: AUTO is *"not recommended if this indoor unit is connected
+to a MXZ type outdoor unit… the indoor unit becomes standby mode"* (MSZ-SF); *"cooling and
+heating cannot be done at the same time… the unit selected last goes into standby mode"*
+(MSZ-GE).
 
-*That's the short version — the [full feature list](#everything-it-does--the-full-list) has
-all the quality-of-life details.*
+Measured on real hardware: a room 6 °F from its cooling target sat at **~26 W for over an
+hour** because the other head was satisfied. The moment that head was turned off, the
+starved one ramped to ~460 W.
+
+**The fix:** never run hardware AUTO. The coordinator keeps every head in **one explicit
+mode** (`cool` or `heat`), chosen from actual room temperatures vs. their targets, and a
+satisfied head idles in **`fan_only`** — which the outdoor unit's service manual (OCH573E)
+confirms *fully closes that head's LEV* — so it stops drawing refrigerant instead of
+blocking its neighbors. The same scenario, coordinated:
+
+```
+ 20s  675W  primary cool/high | secondary idle (satisfied)
+ 80–220s 45W  compressor short-cycle off (~2.5 min, normal)
+240–380s 101→609W  both rooms served, sustained
+```
+
+Over an hour of starvation under AUTO; both rooms served within minutes under the
+coordinator.
 
 ---
 
-## The problem: don't run AUTO on an MXZ
+## Features
 
-If you have several indoor heads on a single Mitsubishi MXZ outdoor unit and you set them
-to **AUTO** (heat/cool) in Home Assistant, you've probably seen this: one room sits a
-degree from its setpoint while the *other* room — which is way off target — does **nothing**.
-The system looks broken. It isn't.
+### Comfort & control
+- **One temperature per room** — the coordinator picks heat vs. cool to reach it. Change it
+  from HA, HomeKit, Google, or Assist.
+- **Per-room enable switches** — turn one room off without touching the others.
+- **Priority-aware standoffs** — when rooms disagree, the highest-priority room wins and the
+  other idles; nobody oscillates. A 10-minute hysteresis gates every mode flip.
+- **Engage deadband** — a room within ~1° of target coasts in `fan_only` instead of being
+  dragged along by its neighbor's demand.
+- **Resting-mode bias** — what the system settles into when nobody's calling: last mode used
+  (default), or pinned cool/heat for one-sided climates.
 
-**Mitsubishi's own manuals tell you not to do this.** The MSZ-SF indoor-unit manual says
-AUTO mode is *"not recommended if this indoor unit is connected to a MXZ type outdoor unit…
-the indoor unit becomes standby mode."* The mechanism:
-
-- One outdoor unit = **one compressor + one reversing valve** = it can only do **one mode at
-  a time** (the same-mode restriction is architectural). The MSZ-GE manual: *"cooling and
-  heating cannot be done at the same time… the unit selected last goes into standby mode."*
-- In AUTO, each head decides heat-vs-cool from **its own room**, not the aggregate. The
-  **lowest-address head is the mode master** and forces the others to follow. An idle head
-  sitting in its deadband holds the shared outdoor unit neutral and parks the demanding head
-  in standby.
-
-We reproduced exactly this on real hardware: with both heads in `heat_cool`, the primary
-room at 70 °F against a 64 °F cooling target sat **idle / ~26 W for over an hour** while the
-secondary room (1 °F from its band) was on. The instant the secondary head was turned **off**,
-the primary engaged and ramped to ~460 W. Classic starvation.
-
-## The fix: one explicit shared mode + per-room targets + `fan_only` idling
-
-**Never run the heads in hardware AUTO.** Instead, a software coordinator keeps **both heads
-in ONE explicit mode at any instant** — auto-choosing `cool` or `heat` from each room's
-temperature vs. its target (a 3 °F delta flips the shared mode, with hysteresis), Tesla-style —
-and drives each room to its **own single target**. (When no room is calling, the shared mode
-simply rests at whatever was **last called** — preserved across restarts. No weather/season input.
-Optionally, a **resting-mode bias** can pin the idle mode to `cool` or `heat` so the system never
-sits in the wrong mode for the season; a real opposite demand still flips it. Two **seasonal lockout**
-switches make one direction *reluctant*: **heat-lockout** (`switch.*_heat_lockout`) holds off heating
-so a below-target room idles in `fan_only` and lets passive solar warm it, and **cool-lockout**
-(`switch.*_cool_lockout`) is the winter mirror (let a warm room drift down on its own). Cooling/heating
-in the other direction is untouched, and configurable **safety floor/ceiling** still act at the
-extremes. Drive them however you like — or point the integration at a **weather entity** (any
-`weather.*`, e.g. a Tempest/WeatherFlow forecast, or an outdoor temperature `sensor`) and it runs a
-**local-weather seasonal changeover** automatically: forecast daily high ≥ your warm threshold → heat
-locked; ≤ your cold threshold → cool locked; in between → both free. No calendar, no cloud — your
-local weather decides. Configure it under **Configure → options**. No weather entity? Add Home
-Assistant's built-in **Met.no** integration (one click, uses your Home location — no ZIP needed) and
-point the changeover at it.)
-A head that's satisfied doesn't
-switch to AUTO and stall the system — it idles in **`fan_only`**, closing its expansion valve
-(LEV) while the other head keeps conditioning. This embraces the one-mode physical constraint
-instead of fighting it.
-
-A **fan boost** (on by default; opt out under Configure) drives each head's fan speed by how far the room
-is off target — Tesla-style, big delta → max fan, easing down (with hysteresis) as it closes —
-overriding the firmware's weak `auto` ramp (true airflow order `quiet < low < medium < middle < high`;
-note `middle` is faster than `medium`). Configure it under **Configure → options** (enable + max speed).
+### Fan & vanes
+- **Delta-proportional fan** (on by default) — ramps toward max when far from target, steps
+  down with hysteresis as the room closes in, returns to the firmware's `auto` when
+  satisfied. Max speed configurable; opt out anytime.
+- **Correct Mitsubishi fan ladder** — knows `middle` is *faster* than `medium` (a real CN105
+  naming trap) and never commands a speed your unit lacks.
+- **Vane & swing on the tile** — full louvre control from the native thermostat.
+- **Vane kick** — change a vane while the head is off (eco/away) and the coordinator briefly
+  wakes it to physically apply the position, then puts it back to sleep.
 
 <p align="center">
   <img src="images/thermostat-bedroom.png" width="45%" alt="Bedroom ~2° from target — fan boosted to Medium" />
   <img src="images/thermostat-recroom.png" width="45%" alt="Rec Room ~1° from target — fan eased to Low" />
 </p>
-
-<sub>Fan boost in action: the bedroom (~2° from target) runs **Medium** while the rec room (~1° away) has eased to **Low** — same single-target dial per room.</sub>
-
-All of the above live in the options entry. Saving them **merges** onto your existing settings (a
-partial save never wipes the rest) and **mirrors** the config into the entry's data, so if something
-ever clears the options out-of-band the coordinator keeps running from the mirror (and logs a warning)
-rather than silently snapping back to defaults.
-
-This is confirmed by the outdoor unit's service manual (OCH573E): there's one independently
-metered LEV per head, and the unit *"fully closes the LEV on the indoor unit which is in FAN,
-COOL, STOP, or thermo-OFF."* A satisfied head in the same explicit mode closes its LEV and
-idles — **no deadlock.**
-
-### Live evidence (the test that greenlit this)
-
-Both heads explicit `cool`; primary @ a low target (room → wants cool), secondary satisfied
-and left **on**:
-
-```
- 20s  675W  primary cool/high | secondary idle (satisfied)
- 60s  255W  primary cool/high | secondary idle
- 80–220s 45W primary cool/high | secondary idle    ← compressor short-cycled off ~2.5 min
-240–380s 101→609W primary cool/high | secondary cool  ← both served, sustained
-```
-
-A satisfied secondary head in explicit COOL **never blocked the primary** — it held
-cool/high the whole time and ramped to ~600 W within minutes, versus **>1 h of starvation**
-under AUTO in the same conditions.
-
----
-
-## Everything it does — the full list
-
-The headline features above get the attention, but a lot of this project is
-quality-of-life engineering you'd otherwise discover one surprise at a time. The
-full inventory, scannable:
-
-### Comfort & control
-- **One temperature per room** — the coordinator picks heat vs. cool to reach it (dual
-  setpoints stay under the hood). Change it from HA, HomeKit, Google, or Assist.
-- **Per-room enable switches** — turn a room's conditioning off without touching the others.
-- **Priority-aware standoffs** — when rooms disagree (one wants heat, one wants cool), the
-  highest-priority room wins and the other idles; nobody oscillates.
-- **Engage deadband** — a room within ~1° of its target coasts in `fan_only` instead of
-  being dragged along by its neighbor's demand. Satisfied means satisfied.
-- **Resting-mode bias** — choose what the system settles into when nobody's calling: last
-  mode used (default), or always cool / always heat for one-sided climates.
-
-### Fan & vanes
-- **Delta-proportional fan (on by default)** — fan ramps toward max when far from target,
-  steps down with hysteresis as the room closes in; hands back to the firmware's `auto`
-  when satisfied. Max speed configurable; opt out anytime.
-- **Correct Mitsubishi fan ladder** — knows that `middle` is *faster* than `medium` (a real
-  CN105 naming trap) and never commands a speed your unit doesn't support.
-- **Vane & swing on the tile** — full louvre control from the native thermostat, passed
-  through to the head.
-- **Vane kick** — change a vane while the head is off (eco/away) and the coordinator briefly
-  wakes the head to physically apply it, then goes right back to sleep. No stuck louvres.
+<sub>Fan dynamics live: the bedroom (~2° out) at <b>Medium</b> while the rec room (~1° out) has eased to <b>Low</b>.</sub>
 
 ### Weather & seasons
 - **Local-weather changeover** — point it at any `weather.*` entity or outdoor temperature
-  sensor; it locks out heating in the warm season and cooling in the cold one, from *your*
-  forecast, with a hysteresis band so shoulder seasons don't flap. No calendar guessing.
-- **Passive-solar heat lockout** — in summer, a slightly-cool room waits for the sun instead
-  of burning compressor energy, protected by a configurable safety floor that still heats a
-  genuinely cold room.
-- **Cool lockout** — the winter mirror: let a warm room drift down on its own, with a safety
-  ceiling for genuinely hot days.
+  sensor and it locks out heating in the warm season / cooling in the cold one from *your*
+  forecast, with a hysteresis band so shoulder seasons don't flap. No weather entity? HA's
+  built-in Met.no is one click.
+- **Passive-solar heat lockout** — a slightly-cool room waits for the sun instead of burning
+  compressor energy; a safety floor still heats a genuinely cold room.
+- **Cool lockout** — the winter mirror, with a safety ceiling for genuinely hot days.
 - **Away/eco mode** — one switch parks every head OFF unless a room crosses wide protection
-  extremes (default 78 °F / 50 °F). Real energy savings while you're gone, with a safety net.
+  extremes (default 78/50 °F).
 
 ### Hardware protection
-- **Mode-flip hysteresis** — a minimum dwell (default 10 min) before any heat↔cool change,
-  so the shared compressor is never rapid-cycled.
-- **Firmware-band clamping** — every setpoint is clamped to your unit's real operating range
-  before it's sent; no rejected commands, no error loops.
-- **Idempotent writes** — the coordinator only sends a command when something actually needs
-  to change. Your heads aren't spammed.
-- **`fan_only` idling closes the valve** — a satisfied head stops drawing refrigerant
-  instead of holding the outdoor unit hostage.
+- **Mode-flip hysteresis** (default 10 min) — the shared compressor is never rapid-cycled.
+- **Firmware-band clamping** — every setpoint clamped to the unit's real range before
+  sending; no rejected commands.
+- **Idempotent writes** — commands only when something actually needs to change.
+- **`fan_only` idling closes the valve** — satisfied heads stop drawing refrigerant.
 
 ### Reliability & trust
 - **Self-healing** — a head knocked into `heat_cool`/`auto`/`dry` (wall remote, curious
-  guest) or switched off while enabled is put back on plan, after a debounce so transient
-  states don't trigger it.
-- **Drift alerts** — optionally pings your phone whenever a self-heal fires, so silent
-  corrections aren't silent.
-- **Restart-proof** — every target, enable, mode, and switch restores across Home Assistant
-  restarts. No surprise defaults at 3 AM.
-- **Sensor-dropout fail-safe** — if a room sensor goes unavailable, that room fails to
-  *neutral* (no heating/cooling on garbage data) and recovers automatically.
-- **Config that can't quietly vanish** — options saves merge instead of replace, and the
-  tuning is mirrored so a corrupted save self-recovers instead of resetting to defaults.
+  guest) or off-while-enabled is put back on plan, after a debounce.
+- **Drift alerts** — optional phone notification whenever a self-heal fires.
+- **Restart-proof** — every target, enable, mode, and switch restores across HA restarts.
+- **Sensor-dropout fail-safe** — a room whose sensor goes unavailable fails to *neutral*
+  (no conditioning on garbage data) and recovers automatically.
+- **Durable config** — options saves merge instead of replace, and settings are mirrored so
+  a corrupted save self-recovers instead of resetting to defaults.
 - **One-switch kill** — flip the coordinator off and your heads are instantly yours again,
-  frozen exactly where they were. The escape hatch is always there.
+  frozen where they were.
 - **A transparent brain** — the plan sensor exposes every decision input live (per-room
-  demand/engage, standoff state, hysteresis countdown), so "why did it do that?" always has
-  an answer.
+  demand/engage, standoff, hysteresis countdown), so "why did it do that?" has an answer.
 
 ### Fit & finish
-- **One-click install** — HACS + a two-step config flow. No YAML, no helpers to create, no
-  automations to copy.
-- **°C and °F, automatically** — adapts to your Home Assistant unit with sensible defaults
-  for each (and 0.5° resolution on metric).
-- **Native HomeKit / Google / Assist tiles** — one clean dial per room, not a raw
+- **One-click install** — HACS + config flow; every option shown at setup with sensible
+  defaults.
+- **°C and °F, automatically** — adapts to your HA unit, with 0.5° resolution and clean
+  metric defaults on °C.
+- **Native HomeKit / Google / Assist tiles** — one clean dial per room, never a raw
   dual-setpoint firmware control.
-- **2–8 zones per outdoor unit** *(v3 beta)* — and multiple outdoor units via one entry
-  each. Existing 2-zone installs migrate automatically with no entity changes.
-- **Automation-friendly** — a `recompute` service and an event hook for driving it from
-  your own scenes/schedules; every threshold tunable in the UI.
+- **2–8 zones per outdoor unit** *(v3 beta)* — plus multiple outdoor units, one entry each.
+  Existing 2-zone installs migrate automatically with no entity changes.
+- **Automation-friendly** — a `recompute` service and event hook; every threshold tunable
+  in the UI.
 
 ---
 
-## Architecture: decide → act → trigger
+## How it works
 
-The coordinator is the **sole writer** of the heads. You set helper inputs (target / enable /
-eco); the coordinator translates them into safe firmware commands. Three pieces — implemented in
-Python by the HACS integration (`custom_components/mxz_coordinator/`) and mirrored 1:1 by the
-legacy package ([`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml)):
+The coordinator is the **sole writer** of the heads, in three parts (Python in
+`custom_components/mxz_coordinator/`; mirrored 1:1 by the legacy
+[`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml)):
 
-1. **Decide — the plan** (`sensor.*_plan`; the package's `sensor.mxz_plan` `template` sensor). No
-   side effects; its state is the chosen shared mode (`cool`/`heat`). Two thresholds:
-   - **demand** (`S = 3 °F`): how far a room must be off-target before the **shared mode** may
-     flip. The **primary** room wins a standoff (one wants heat, the other cool); a **600 s
-     hysteresis** stops flapping.
-   - **engage** (`D = 1 °F`): how far off-target before a head **actively runs**. Within the
-     deadband it idles in `fan_only`, so a satisfied room is **not** dragged along when the
-     other room forces the mode.
-   - Eco/away → wide `78 / 50 °F` protection extremes only (system sits off unless extreme).
-2. **Act — the actuator** (the integration's coordinator; the package's `script.mxz_coordinate`) —
-   the only thing that commands the heads. Reaches each room's target (`cool → high=target,
-   low=target−2`; `heat → low=target, high=target+2`), **both edges clamped to `[59, 88] °F`**.
-   Satisfied head or standoff-loser → `fan_only`; disabled or eco-satisfied → `off`. Idempotent
-   (skips a head already correct); never `heat_cool`/`auto`; always sends both setpoint edges
-   **with** the mode. Gated on the kill-switch (`switch.*_coordinator_enable`; the package's
-   `input_boolean.hvac_coordinator_enable`).
-3. **Trigger** fires the actuator on a real decision change (mode flip, demand/engage change), a
-   `/15 min` heartbeat, and the `mxz_recompute` event. Two self-heal paths cover drift (a head
-   reverting to `heat_cool/auto/dry`, or going `off` while enabled) and a recompute after HA restart.
+1. **Decide** — `sensor.*_plan`, side-effect-free. Two thresholds: **demand** (default 3 °F
+   off-target) before the shared mode may flip, primary wins standoffs, 600 s hysteresis;
+   **engage** (default 1 °F) before a head actively runs — inside it, `fan_only`. Eco/away
+   swaps both for the wide protection extremes.
+2. **Act** — the only component that commands heads. Derives each room's setpoint band from
+   its single target (`cool → [target−2, target]`, `heat → [target, target+2]`), clamps to
+   the firmware range (default `[59, 88] °F` / `[15, 31] °C`), always sends both edges with
+   the mode, never `heat_cool`. Idempotent. Gated on the kill-switch.
+3. **Trigger** — recompute on any decision-relevant change, a 15-min heartbeat, HA start,
+   and the `mxz_recompute` event; plus the two self-heal paths.
 
-> The thresholds (3 °F demand, 1 °F engage, 600 s hysteresis, `[59,88]` clamp) are the integration's
-> **option defaults** (editable via its *Configure* dialog) and are marked inline in the legacy package.
-
-### Units (°C and °F)
-
-The integration works in **your Home Assistant temperature unit** — no configuration needed. On a
-metric (°C) system it adopts clean metric defaults (1.5° demand, 0.5° engage, `[15, 31] °C` clamp,
-20/10 °C changeover, 21 °C target default) and **0.5° setpoint resolution**; on a °F system it uses the
-values shown throughout this README (the °F examples above are just that — examples). Room sensors and
-head setpoints are read/written in the system unit, so nothing is hard-coded to Fahrenheit. *(New in
-v2.8.0 — earlier versions assumed °F.)*
+All thresholds are option defaults, editable at setup or later under **Configure**. On a
+metric system the defaults adapt (1.5° demand, 0.5° engage, 21 °C target, 20/10 °C
+changeover); sensors and setpoints are read and written in your HA unit throughout.
 
 ---
 
 ## Install
 
-### HACS (recommended — one click)
-
-1. Click **[Add to HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration)**
-   (the badge at the top), then **Download** in the dialog. If the badge doesn't open,
-   add `https://github.com/dkpnw/ha-mxz-coordinator` as a HACS **custom repository**
-   with category **Integration**, then download "MXZ Coordinator".
+1. **[Add to HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration)**
+   → **Download**. (If the badge doesn't open: add this repo as a HACS custom repository,
+   category *Integration*.)
 2. **Restart Home Assistant.**
-3. Click **[Add Integration](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)**
-   (or **Settings → Devices & Services → Add Integration → MXZ Coordinator**).
-4. In the config form, pick **all the indoor heads on this outdoor unit** (2–8; the order
-   is standoff priority — first wins), then one **room temperature sensor** per head.
-   Optionally choose a **notify target** for drift alerts (a dropdown of your `notify.*`
-   services). Each head's **vane selects are auto-detected** from its device — no need to
-   pick them. A final **tuning step shows every option** (thresholds, weather changeover,
-   fan boost, eco extremes…) pre-filled with sensible defaults — Submit as-is or adjust;
-   everything stays editable later via **Configure**.
-5. The integration creates the helpers (`number.*_target`, `switch.*_enable`,
-   `switch.*_coordinator_enable`, `switch.*_eco_idle`, `select.*_shared_mode`) and
-   `sensor.*_plan`. Turn on **Coordinator enable**, set each room's target, and enable
-   the rooms. Tune the thresholds anytime via the integration's **Configure** dialog.
+3. **[Add Integration](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)**
+   → *MXZ Coordinator*.
+4. Pick **all the heads on this outdoor unit** (2–8; selection order = standoff priority),
+   then one **room temperature sensor** per head, and optionally a notify target for drift
+   alerts. Vane controls are detected automatically. A final tuning step shows every option
+   pre-filled — Submit as-is or adjust.
+5. Turn on **Coordinator enable**, set each room's target, enable the rooms. Done.
 
 <p align="center">
-  <img src="images/setup.png" width="48%" alt="The add-integration form: two heads, two sensors, optional drift-alert notifications" />
-  <img src="images/options.png" width="48%" alt="The Configure dialog: comfort thresholds, eco extremes, firmware clamps, and local-weather seasonal changeover" />
+  <img src="images/setup.png" width="48%" alt="Setup: heads, sensors, optional drift alerts" />
+  <img src="images/options.png" width="48%" alt="Tuning: thresholds, eco extremes, clamps, weather changeover" />
 </p>
 
-<sub>Left: initial setup — just the two heads and two sensors (vanes auto-detect). Right: **Configure** — thresholds, eco extremes, clamps, and local-weather changeover.</sub>
+Example day/night/away presets: [`examples/presets.yaml`](examples/presets.yaml).
 
-Adapt the example presets in [`examples/presets.yaml`](examples/presets.yaml) (day /
-night / away) to the new entity IDs if you want scheduled comfort changes.
-
-### Legacy / manual (YAML package)
-
-Prefer not to use HACS? The original drop-in package still ships in
-[`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml): copy it to
-`config/packages/`, enable `homeassistant: packages: !include_dir_named packages`, edit
-the entity IDs per [`docs/ENTITY-MAP.md`](docs/ENTITY-MAP.md), and reload YAML. This path
-uses `input_*` helpers instead of the integration's entities and is **not** one-click.
-
-> **Already on the YAML package?** See [`docs/MIGRATION.md`](docs/MIGRATION.md) for the
-> entity-ID mapping and upgrade steps (it's a breaking change — remove the package so the
-> two don't fight over the heads).
+**No HACS?** The original YAML package still ships
+([`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml) +
+[`docs/ENTITY-MAP.md`](docs/ENTITY-MAP.md)). Migrating from it to the integration is a
+breaking change — see [`docs/MIGRATION.md`](docs/MIGRATION.md), and remove the package so
+the two don't fight over the heads.
 
 ---
 
-## Gotchas (read these before you debug)
+## Gotchas (read before you debug)
 
-- **Per-zone power is shared, not per-head.** On a multi-zone outdoor unit, only the
-  lowest-address head reports the real outdoor-unit draw. The other head's power/frequency
-  read near-zero **even while it's actively being served.** Never declare a head "dead" from
-  its own power sensor.
-- **Anti-short-cycle timing.** The compressor has a ~3-minute minimum off-time in cooling, and
-  after a **cool → heat** reversal it takes **~6 minutes** to engage (reversing-valve delay).
-  `hvac_action` flips instantly; the actual draw lags. This is normal.
-- **`fan_only` is correct, not a fault.** A satisfied head parked in `fan_only` is the design
-  working — that's what keeps it from starving the other room.
-- **Setpoint clamp `[59, 88] °F`.** A low setpoint below 59 made `climate.set_temperature`
-  throw **HTTP 500** and abort on our heads — hence the clamp. Adjust to your firmware's range.
-- **Minimum-capacity floor.** The compressor can't modulate below ~1/2.5 of nameplate; excess
+- **Per-zone power is shared, not per-head.** Only the lowest-address head reports the real
+  outdoor-unit draw; the others read near-zero even while actively served. Never declare a
+  head dead from its own power sensor.
+- **Anti-short-cycle timing.** ~3-minute minimum compressor off-time in cooling; ~6 minutes
+  to engage after a cool→heat reversal. `hvac_action` flips instantly; the draw lags. Normal.
+- **`fan_only` is the design working**, not a fault — it's what keeps a satisfied head from
+  starving the other room.
+- **Respect the setpoint clamp.** Below-range setpoints made `climate.set_temperature` throw
+  HTTP 500 on our heads — hence the clamp. Adjust it to your firmware's range.
+- **Minimum-capacity floor.** The compressor can't modulate below ~40% of nameplate; excess
   can bleed into a satisfied head as mild overshoot. Not a deadlock.
 
 ---
 
 ## N zones (v3, beta)
 
-As of **v3.0.0** the coordinator supports **2–8 heads on one outdoor unit**. Setup picks all
-your heads at once — **order is priority**: in a heat-vs-cool standoff, the highest-priority
-zone that's actively calling wins (the generalization of "the primary room wins"). Every zone
-gets its own target `number`, enable `switch`, and single-target thermostat tile; the losing /
-satisfied zones idle in `fan_only` as always.
-
-- **Existing 2-zone installs migrate automatically** — same entity IDs, history, and
-  dashboards; nothing to reconfigure.
-- **Two (or more) outdoor units?** Add the integration once **per outdoor unit** — each entry
-  is an independent coordinator with its own shared mode, hysteresis, weather changeover, and
-  kill-switch. There's nothing to coordinate *between* compressors, so this composes cleanly.
-- Status: the 2-zone path is validated on real hardware; **>2-zone is validated in simulation**
-  (6-zone standoff/priority tests) and is being beta-tested on real 6-zone and 2×3-zone
-  systems — see [issue #4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4). Feedback
-  welcome there.
-
-Out of scope: simultaneous heat+cool (a single-compressor MXZ physically can't; that's
-branch-box VRF territory).
-
----
+v3 coordinates **2–8 heads on one outdoor unit** — selection order is standoff priority,
+every zone gets its own target/enable/thermostat, and existing 2-zone installs migrate
+automatically with no entity changes. Multiple outdoor units: one entry each (independent
+mode, hysteresis, changeover, kill-switch — there's nothing to coordinate between
+compressors). The 2-zone path is validated on real hardware; >2-zone is simulation-validated
+and being beta-tested on real 6-zone and 2×3-zone systems —
+[issue #4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4). Out of scope: simultaneous
+heat+cool (single-compressor MXZ hardware can't; that's branch-box VRF).
 
 ## Caveats
 
-- Built and validated on **one** real setup (MSZ indoor heads on a single MXZ outdoor unit).
-  Other MXZ models/firmware may behave differently — especially the ~6-minute cool→heat
-  reversal lag and the per-zone-power blindness.
-- The coordinator alone works on **any** HA `climate` heads. The single-target
-  *thermostat surface* (one number + Heat/Cool, exposed to HomeKit/Google) ships natively as
-  two `climate.*` entities — see **[Related](#related--the-single-target-thermostat-surface)**.
-  It's optional; you don't need it to use the coordinator.
-- Public release means issues will come in; scope is intentionally tight (2-zone integration +
-  legacy package).
+- Built and validated on one real setup (MSZ heads on a single MXZ). Other models/firmware
+  may differ — especially the reversal lag and the per-zone power blindness.
+- The coordinator drives **any** HA `climate` heads; the native single-target thermostats
+  are optional on top.
 
----
+## The single-target thermostat surface
 
-## Related — the single-target thermostat surface
+Each room ships as a native thermostat (`climate.*_thermostat`): one number + Heat/Cool
+auto, rendered as a clean single-setpoint tile in HA/HomeKit/Google. It's a thin facade over
+the room's `number.*_target` and `switch.*_enable` — the coordinator remains the sole writer
+of the real heads. Expose these tiles (not the raw heads) to avoid two fighting controls per
+room; fan and vanes pass through, bounded to the firmware band.
 
-Each room is exposed as a **native single-target thermostat** (`climate.*_primary_thermostat` /
-`climate.*_secondary_thermostat`, **v2.1.0+**): one number + Heat/Cool auto, rendered as a clean
-single-setpoint tile (never a dual threshold) that binds directly to HA/HomeKit/Google — instead of
-the raw `cool`/`heat`/`fan_only` firmware tile. It's a thin facade over the room's `number.*_target`
-and `switch.*_enable` entities; the coordinator stays the sole writer to your real heads. Expose only
-these `climate.*` thermostats (not the raw heads) to avoid two fighting tiles per room. The tile's
-**fan** passes through to the head, its setpoint slider is bounded to the firmware operating band
-(`clamp_min`–`clamp_max`, default 59–88 °F / 15–31 °C), and optional vane `select` entities, if
-configured, appear as swing modes. Changing a vane while its head is **off** (eco/away)
-triggers an automatic **vane kick**: the coordinator briefly runs the head in `fan_only` so the
-louvre physically moves, then hands the head back to the plan — adjust your vanes whenever you
-like, it just works.
-
-> **Older setups / the legacy YAML package** got this surface from the
-> [Mitsubishi Climate Proxy](https://github.com/echavet/MitsubishiCN105ESPHome)'s
-> `coordinator_single_target` option, which redirects a thermostat's writes to the package's
-> `input_*` helpers and fires `mxz_recompute`. That still works with the **YAML package**, but the
-> HACS integration no longer needs the proxy — its native thermostats own the surface. (The
-> `mxz_recompute` event is still honored, so existing proxy/automation nudges keep working.) The
-> proxy's tile assumes dual-setpoint CN105 firmware; the coordinator itself does not.
+Legacy note: the YAML package got this surface from the CN105 proxy's
+`coordinator_single_target` option. The integration no longer needs the proxy — its native
+thermostats own the surface, and the `mxz_recompute` event is still honored so existing
+proxy/automation nudges keep working.
 
 ## Credits & prior art
 
