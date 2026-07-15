@@ -176,6 +176,17 @@ changeover); sensors and setpoints are read and written in your HA unit througho
 
 Example day/night/away presets: [`examples/presets.yaml`](examples/presets.yaml).
 
+### Removing
+
+Delete the **config entry**, not the device: **Settings → Devices & Services →
+MXZ Coordinator → ⋮ → Delete**. That removes the device, all of its entities, and the
+`recompute` service cleanly — no restart needed. (The device page itself has no Delete
+button by design: the device *is* the config entry.) Then remove the download from HACS —
+**in that order**; removing from HACS first leaves a broken entry behind.
+
+Your heads keep their last commanded state after removal — if they were parked `off` or
+`fan_only`, set them how you want them via their own controls.
+
 **No HACS?** The original YAML package still ships
 ([`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml) +
 [`docs/ENTITY-MAP.md`](docs/ENTITY-MAP.md)). Migrating from it to the integration is a
