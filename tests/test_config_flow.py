@@ -12,7 +12,13 @@ from homeassistant.core import HomeAssistant  # noqa: E402
 from homeassistant.data_entry_flow import FlowResultType  # noqa: E402
 from pytest_homeassistant_custom_component.common import MockConfigEntry  # noqa: E402
 
-from custom_components.mxz_coordinator.config_flow import MXZOptionsFlow  # noqa: E402
+from homeassistant.helpers import device_registry as dr  # noqa: E402
+from homeassistant.helpers import entity_registry as er  # noqa: E402
+
+from custom_components.mxz_coordinator.config_flow import (  # noqa: E402
+    MXZOptionsFlow,
+    _detect_vanes,
+)
 from custom_components.mxz_coordinator.const import (  # noqa: E402
     CONF_CHANGEOVER_ENTITY,
     CONF_DEMAND_THRESHOLD,
@@ -29,6 +35,43 @@ _VALID = {
     CONF_PRIMARY_SENSOR: "sensor.primary_temp",
     CONF_SECONDARY_SENSOR: "sensor.secondary_temp",
 }
+
+
+async def test_detect_vanes_from_head_device(hass: HomeAssistant) -> None:
+    """The head's vertical/horizontal vane selects are inferred from its device."""
+    src = MockConfigEntry(domain="test")
+    src.add_to_hass(hass)
+    dev_reg = dr.async_get(hass)
+    device = dev_reg.async_get_or_create(
+        config_entry_id=src.entry_id, identifiers={("test", "head_a")}
+    )
+    ent_reg = er.async_get(hass)
+    climate = ent_reg.async_get_or_create(
+        "climate", "test", "head_a", device_id=device.id,
+        suggested_object_id="head_a_heat_pump",
+    )
+    vv = ent_reg.async_get_or_create(
+        "select", "test", "head_a_vv", device_id=device.id,
+        suggested_object_id="head_a_vertical_vane",
+    )
+    hv = ent_reg.async_get_or_create(
+        "select", "test", "head_a_hv", device_id=device.id,
+        suggested_object_id="head_a_horizontal_vane",
+    )
+    # an unrelated select on the same device must be ignored
+    ent_reg.async_get_or_create(
+        "select", "test", "head_a_pre", device_id=device.id,
+        suggested_object_id="head_a_preset",
+    )
+
+    found = _detect_vanes(hass, climate.entity_id)
+    assert found["vertical"] == vv.entity_id
+    assert found["horizontal"] == hv.entity_id
+
+
+def test_detect_vanes_no_device_is_safe(hass: HomeAssistant) -> None:
+    """A head with no registry/device entry just yields nothing (no crash)."""
+    assert _detect_vanes(hass, "climate.not_registered") == {}
 
 
 async def test_user_flow_creates_entry(hass: HomeAssistant) -> None:

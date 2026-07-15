@@ -1,8 +1,8 @@
 # MXZ Coordinator
 
-**A Home Assistant control layer for Mitsubishi MXZ multi-zone mini-splits (multiple
-indoor heads on ONE outdoor unit) that fixes the "idle head starves the other / nothing
-turns on" deadlock — and gives each room a single, Tesla-style comfort target.**
+**Tesla-style, single-target control for Mitsubishi MXZ multi-zone mini-splits.** Several
+indoor heads share one outdoor unit — this coordinates them so they stop fighting over the
+shared compressor. Set **one comfort temperature per room**; it figures out the rest.
 
 > Shared as-is. Issues and PRs welcome, but support is best-effort — this was built and
 > validated on one real two-zone system (see [Caveats](#caveats)).
@@ -11,7 +11,33 @@ turns on" deadlock — and gives each room a single, Tesla-style comfort target.
 [![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)
 
 **One-click HACS install:** click **Add to HACS** above → download → restart HA → click
-**Add Integration** → pick your two heads and two temperature sensors. No YAML editing.
+**Add Integration** → pick your two heads and two temperature sensors. Vane controls are
+detected automatically; everything else has sensible defaults. No YAML editing.
+
+---
+
+## Highlights
+
+- 🎯 **One target per room, Tesla-style.** Set a single temperature and the coordinator
+  decides whether the shared system heats or cools to reach it — no dual setpoints, no
+  hardware AUTO, no mode-juggling.
+- 🚫 **No more zone starvation.** It keeps both heads in one explicit shared mode, so an
+  idle head can't hold the compressor neutral and starve the room that's actually calling
+  (the classic MXZ-on-AUTO failure). A satisfied head idles in `fan_only` instead of
+  parking the other room in standby.
+- 🌀 **Dynamic fan speed.** Opt-in "fan boost" ramps the fan toward max when a room is far
+  from target and eases it back as the room closes in — Tesla-style — instead of the
+  firmware's weak `auto` ramp.
+- 🌦️ **Local-weather seasonal changeover.** Point it at any `weather.*` entity (or an
+  outdoor temp sensor) and it auto-locks out heating in summer / cooling in winter from
+  your own forecast. No calendar, no cloud.
+- 🌡️ **Works in °C and °F.** Adapts to your Home Assistant unit automatically, with 0.5°
+  resolution and clean metric defaults on °C.
+- 🍎 **Native thermostat tiles** for HomeKit / Google / Assist — a clean single-setpoint
+  dial per room, with vane/swing control passed through.
+- 🛟 **Self-healing.** If a head gets bumped off its coordinated mode (someone hits the
+  wall unit, or it powers off while enabled), the coordinator puts it back — and can ping
+  your phone so you know it happened.
 
 ---
 
@@ -150,8 +176,10 @@ v2.8.0 — earlier versions assumed °F.)*
 3. Click **[Add Integration](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)**
    (or **Settings → Devices & Services → Add Integration → MXZ Coordinator**).
 4. In the config form, pick your **primary** and **secondary** heads (the primary wins a
-   mode standoff), your two **room temperature sensors**, and optionally a **notify
-   service** for drift alerts.
+   mode standoff) and your two **room temperature sensors**. Optionally choose a **notify
+   target** for drift alerts (a dropdown of your `notify.*` services). Each head's
+   **vane selects are auto-detected** from its device — no need to pick them (you can
+   override them later under **Configure**).
 5. The integration creates the helpers (`number.*_target`, `switch.*_enable`,
    `switch.*_coordinator_enable`, `switch.*_eco_idle`, `select.*_shared_mode`) and
    `sensor.*_plan`. Turn on **Coordinator enable**, set each room's target, and enable

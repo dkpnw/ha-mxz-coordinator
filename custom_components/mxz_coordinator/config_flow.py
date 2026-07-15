@@ -12,8 +12,8 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.const import UnitOfTemperature
-from homeassistant.core import callback
-from homeassistant.helpers import selector
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er, selector
 
 from .const import (
     CONF_CHANGEOVER_COOL_BELOW,
@@ -71,18 +71,57 @@ _VANE_SELECTOR = selector.EntitySelector(
 )
 
 
-def _user_schema() -> vol.Schema:
+def _notify_options(hass: HomeAssistant) -> list[str]:
+    """Available `notify.*` targets, for a friendly drift-alert dropdown."""
+    return sorted(f"notify.{name}" for name in hass.services.async_services().get("notify", {}))
+
+
+def _detect_vanes(hass: HomeAssistant, climate_id: str) -> dict[str, str]:
+    """Best-effort vane `select` entities on the SAME device as ``climate_id``.
+
+    The CN105/ESPHome head and its vertical/horizontal vane selects live on one
+    device, so we can infer them from the chosen head instead of asking the user.
+    Returns {"vertical": eid, "horizontal": eid} for whatever is found.
+    """
+    reg = er.async_get(hass)
+    entry = reg.async_get(climate_id)
+    if entry is None or entry.device_id is None:
+        return {}
+    found: dict[str, str] = {}
+    for e in er.async_entries_for_device(reg, entry.device_id, include_disabled_entities=True):
+        if e.domain != "select":
+            continue
+        text = f"{e.entity_id} {e.original_name or ''} {e.name or ''}".lower()
+        if "vane" not in text and "swing" not in text:
+            continue
+        if "horizontal" in text:
+            found.setdefault("horizontal", e.entity_id)
+        elif "vertical" in text:
+            found.setdefault("vertical", e.entity_id)
+        else:
+            found.setdefault("vertical", e.entity_id)  # lone unlabeled vane -> vertical
+    return found
+
+
+def _user_schema(notify_options: list[str]) -> vol.Schema:
+    notify_selector: selector.Selector = (
+        selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=notify_options,
+                custom_value=True,
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        )
+        if notify_options
+        else selector.TextSelector()
+    )
     return vol.Schema(
         {
             vol.Required(CONF_PRIMARY_CLIMATE): _CLIMATE_SELECTOR,
             vol.Required(CONF_SECONDARY_CLIMATE): _CLIMATE_SELECTOR,
             vol.Required(CONF_PRIMARY_SENSOR): _SENSOR_SELECTOR,
             vol.Required(CONF_SECONDARY_SENSOR): _SENSOR_SELECTOR,
-            vol.Optional(CONF_NOTIFY_SERVICE): selector.TextSelector(),
-            vol.Optional(CONF_PRIMARY_VANE_VERTICAL): _VANE_SELECTOR,
-            vol.Optional(CONF_PRIMARY_VANE_HORIZONTAL): _VANE_SELECTOR,
-            vol.Optional(CONF_SECONDARY_VANE_VERTICAL): _VANE_SELECTOR,
-            vol.Optional(CONF_SECONDARY_VANE_HORIZONTAL): _VANE_SELECTOR,
+            vol.Optional(CONF_NOTIFY_SERVICE): notify_selector,
         }
     )
 
@@ -188,6 +227,24 @@ def _options_schema(current: dict[str, Any], celsius: bool) -> vol.Schema:
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
+            # Vane selects are auto-detected at setup; expose them here for
+            # override/correction (suggested_value shows what's currently wired).
+            vol.Optional(
+                CONF_PRIMARY_VANE_VERTICAL,
+                description={"suggested_value": current.get(CONF_PRIMARY_VANE_VERTICAL)},
+            ): _VANE_SELECTOR,
+            vol.Optional(
+                CONF_PRIMARY_VANE_HORIZONTAL,
+                description={"suggested_value": current.get(CONF_PRIMARY_VANE_HORIZONTAL)},
+            ): _VANE_SELECTOR,
+            vol.Optional(
+                CONF_SECONDARY_VANE_VERTICAL,
+                description={"suggested_value": current.get(CONF_SECONDARY_VANE_VERTICAL)},
+            ): _VANE_SELECTOR,
+            vol.Optional(
+                CONF_SECONDARY_VANE_HORIZONTAL,
+                description={"suggested_value": current.get(CONF_SECONDARY_VANE_HORIZONTAL)},
+            ): _VANE_SELECTOR,
         }
     )
 
@@ -211,12 +268,26 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                     f"{user_input[CONF_SECONDARY_CLIMATE]}"
                 )
                 self._abort_if_unique_id_configured()
-                return self.async_create_entry(
-                    title="MXZ Coordinator", data=user_input
-                )
+                # Auto-detect each head's vane selects from its own device so the
+                # user never has to pick them (overridable later via Configure).
+                data = dict(user_input)
+                for climate_key, vkey, hkey in (
+                    (CONF_PRIMARY_CLIMATE, CONF_PRIMARY_VANE_VERTICAL,
+                     CONF_PRIMARY_VANE_HORIZONTAL),
+                    (CONF_SECONDARY_CLIMATE, CONF_SECONDARY_VANE_VERTICAL,
+                     CONF_SECONDARY_VANE_HORIZONTAL),
+                ):
+                    vanes = _detect_vanes(self.hass, user_input[climate_key])
+                    if "vertical" in vanes:
+                        data[vkey] = vanes["vertical"]
+                    if "horizontal" in vanes:
+                        data[hkey] = vanes["horizontal"]
+                return self.async_create_entry(title="MXZ Coordinator", data=data)
 
         return self.async_show_form(
-            step_id="user", data_schema=_user_schema(), errors=errors
+            step_id="user",
+            data_schema=_user_schema(_notify_options(self.hass)),
+            errors=errors,
         )
 
     @staticmethod
