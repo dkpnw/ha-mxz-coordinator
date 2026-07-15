@@ -14,6 +14,7 @@ can be unit-tested directly against the package's validated truth table.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -81,6 +82,8 @@ from .const import (
     OFF_WHILE_ENABLED_DELAY,
     STARTUP_RECOVER_DELAY,
     UNAVAILABLE_STATES,
+    VANE_KICK_APPLY,
+    VANE_KICK_SPINUP,
     ZONE_CLIMATE,
     ZONE_NAME,
     ZONE_SENSOR,
@@ -267,6 +270,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.fan_boost_max: str = conf.get(CONF_FAN_BOOST_MAX, DEFAULT_FAN_BOOST_MAX)
         self._fan_idx: dict[str, int] = {}  # per-head ladder index (hysteresis state)
 
+        # Vane-kick bookkeeping: heads mid-kick are skipped by _apply so the
+        # plan doesn't turn them back off while the louvre is still traveling.
+        self._vane_kicks: set[str] = set()
+        self._vane_pending: dict[str, tuple[str, str]] = {}
+        self._vane_kick_spinup: float = VANE_KICK_SPINUP
+        self._vane_kick_apply: float = VANE_KICK_APPLY
+
         # Helper values (owned by the switch/select entities; seeded on
         # restore, mutated on user action). Kill-switch defaults OFF for safety.
         # Per-zone target/enable live on the Zone objects.
@@ -441,6 +451,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         for zone, engage in zip(self.zones, engages):
+            if zone.climate_id in self._vane_kicks:
+                continue  # mid vane-kick: leave the head alone until it finishes
             act = head_action(engage=engage, mode=state, eco=self.eco_idle)
             low, high = setpoints(
                 mode=state,
@@ -556,6 +568,63 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "climate",
             "set_fan_mode",
             {"entity_id": climate_id, "fan_mode": token},
+            blocking=True,
+        )
+
+    # -- vane apply / kick ----------------------------------------------------
+    async def async_apply_vane(self, climate_id: str, vane_id: str, option: str) -> None:
+        """Apply a vane option for a head, kicking an OFF head awake to do it.
+
+        A powered-off head can't move its louvre and forgets vane commands on
+        power-up, so when the head is off (eco/away, or a disabled zone) the
+        coordinator briefly runs it in fan_only, commands the vane, then hands
+        the head back to the plan. A running head just gets the select write
+        (the firmware applies it live). With the kill-switch off we never touch
+        the head — best-effort select write only.
+        """
+        state = self.hass.states.get(climate_id)
+        running = state is not None and state.state not in (
+            MODE_OFF,
+            *UNAVAILABLE_STATES,
+        )
+        if running or not self.coordinator_enable:
+            await self._select_option(vane_id, option)
+            return
+        self._vane_pending[climate_id] = (vane_id, option)
+        if climate_id in self._vane_kicks:
+            return  # the in-flight kick will pick up the newest pending option
+        self._vane_kicks.add(climate_id)
+        self.hass.async_create_task(self._vane_kick(climate_id))
+
+    async def _vane_kick(self, climate_id: str) -> None:
+        """fan_only -> apply pending vane option(s) -> off -> re-assert plan."""
+        try:
+            await self.hass.services.async_call(
+                "climate",
+                "set_hvac_mode",
+                {"entity_id": climate_id, "hvac_mode": MODE_FAN_ONLY},
+                blocking=True,
+            )
+            await asyncio.sleep(self._vane_kick_spinup)
+            while (pending := self._vane_pending.pop(climate_id, None)) is not None:
+                await self._select_option(*pending)
+                await asyncio.sleep(self._vane_kick_apply)
+            await self.hass.services.async_call(
+                "climate",
+                "set_hvac_mode",
+                {"entity_id": climate_id, "hvac_mode": MODE_OFF},
+                blocking=True,
+            )
+        finally:
+            self._vane_kicks.discard(climate_id)
+            self._vane_pending.pop(climate_id, None)
+        await self.async_request_refresh()
+
+    async def _select_option(self, vane_id: str, option: str) -> None:
+        await self.hass.services.async_call(
+            "select",
+            "select_option",
+            {"entity_id": vane_id, "option": option},
             blocking=True,
         )
 

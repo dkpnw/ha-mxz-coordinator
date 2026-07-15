@@ -207,12 +207,10 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
     async def _set_vane(self, vane_id: str | None, option: str) -> None:
         if not vane_id:
             return
-        await self.hass.services.async_call(
-            "select",
-            "select_option",
-            {"entity_id": vane_id, "option": option},
-            blocking=True,
-        )
+        # The coordinator applies it — and if the head is OFF (eco/away), it
+        # briefly kicks the head into fan_only so the louvre physically moves,
+        # then hands the head back to the plan.
+        await self.coordinator.async_apply_vane(self._head_id, vane_id, option)
 
     # -- fan (passthrough to the underlying head) ---------------------------
     @property

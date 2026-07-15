@@ -287,7 +287,10 @@ and `switch.*_enable` entities; the coordinator stays the sole writer to your re
 these `climate.*` thermostats (not the raw heads) to avoid two fighting tiles per room. The tile's
 **fan** passes through to the head, its setpoint slider is bounded to the firmware operating band
 (`clamp_min`–`clamp_max`, default 59–88 °F / 15–31 °C), and optional vane `select` entities, if
-configured, appear as swing modes.
+configured, appear as swing modes. Changing a vane while its head is **off** (eco/away)
+triggers an automatic **vane kick**: the coordinator briefly runs the head in `fan_only` so the
+louvre physically moves, then hands the head back to the plan — adjust your vanes whenever you
+like, it just works.
 
 > **Older setups / the legacy YAML package** got this surface from the
 > [Mitsubishi Climate Proxy](https://github.com/echavet/MitsubishiCN105ESPHome)'s

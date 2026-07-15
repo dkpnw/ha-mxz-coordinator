@@ -182,6 +182,13 @@ def unit_profile(celsius: bool) -> dict:
     """Return the tunable/resolution profile for the HA system temperature unit."""
     return _UNIT_PROFILE_CELSIUS if celsius else _UNIT_PROFILE_FAHRENHEIT
 
+# Vane "kick": a vane change while a head is OFF can't physically move the
+# louvre (and the firmware forgets the position on power-up), so the
+# coordinator briefly runs the head in fan_only to apply it, then hands the
+# head back to the plan (off again in eco/away).
+VANE_KICK_SPINUP = 8  # s after fan_only before commanding the vane
+VANE_KICK_APPLY = 20  # s for the louvre to travel before switching back off
+
 # Heartbeat / drift re-assert interval (time_pattern "/15" in the YAML)
 HEARTBEAT_MINUTES = 15
 
