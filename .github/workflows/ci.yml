@@ -28,9 +28,9 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # Not (yet) in the home-assistant/brands repo; this is a custom-repo
-          # integration, so skip the brands check rather than fail CI on it.
-          ignore: brands
+          # Brand icons ship locally in custom_components/mxz_coordinator/brand/
+          # (HA 2026.3+ self-serves custom-integration brands; the brands repo no
+          # longer accepts custom PRs), so the brands check runs with no ignore.
 
   ruff:
     name: ruff
