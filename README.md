@@ -20,6 +20,19 @@ shared compressor. Set **one comfort temperature per room**; it figures out the 
 room. Vane controls are detected automatically; everything else has sensible defaults. No
 YAML editing. One outdoor unit per entry — add the integration again for a second compressor.
 
+## Works with your existing head control
+
+The coordinator sits **on top of** whatever already exposes your indoor heads to Home
+Assistant — it doesn't replace your firmware and needs no new hardware. It was built on, and
+is battle-tested against, **[echavet/MitsubishiCN105ESPHome](https://github.com/echavet/MitsubishiCN105ESPHome)**
+— the gold-standard open-source ESP32/CN105 firmware for Mitsubishi heads. If you're already
+running CN105/ESPHome, this drops straight onto your existing setup and only upgrades the
+*decision-making* layer above it.
+
+More generally, any integration that exposes your heads as standard Home Assistant `climate`
+entities with heat/cool modes should work (Kumo Cloud, MELCloud, …) — CN105/ESPHome is simply
+the validated, recommended path.
+
 ---
 
 ## Highlights
