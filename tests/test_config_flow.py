@@ -26,7 +26,10 @@ from custom_components.mxz_coordinator.const import (  # noqa: E402
     CONF_PRIMARY_SENSOR,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
+    CONF_ZONES,
     DOMAIN,
+    ZONE_CLIMATE,
+    ZONE_SENSOR,
 )
 
 _VALID = {
@@ -75,26 +78,56 @@ def test_detect_vanes_no_device_is_safe(hass: HomeAssistant) -> None:
 
 
 async def test_user_flow_creates_entry(hass: HomeAssistant) -> None:
+    """Two-step flow: pick N heads, then one sensor per head -> zones list."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
     assert result["type"] is FlowResultType.FORM
 
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], _VALID)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"heads": ["climate.primary", "climate.secondary", "climate.office"]},
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "sensors"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "sensor_1": "sensor.primary_temp",
+            "sensor_2": "sensor.secondary_temp",
+            "sensor_3": "sensor.office_temp",
+        },
+    )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_PRIMARY_CLIMATE] == "climate.primary"
+    zones = result["data"][CONF_ZONES]
+    assert [z[ZONE_CLIMATE] for z in zones] == [
+        "climate.primary", "climate.secondary", "climate.office",
+    ]
+    assert zones[2][ZONE_SENSOR] == "sensor.office_temp"
 
 
-async def test_rejects_same_head(hass: HomeAssistant) -> None:
+async def test_rejects_duplicate_heads(hass: HomeAssistant) -> None:
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {**_VALID, CONF_SECONDARY_CLIMATE: "climate.primary"},
+        {"heads": ["climate.primary", "climate.primary"]},
     )
     assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": "same_head"}
+    assert result["errors"] == {"base": "duplicate_heads"}
+
+
+async def test_rejects_single_head(hass: HomeAssistant) -> None:
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"heads": ["climate.primary"]}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "need_two_heads"}
 
 
 async def test_options_flow_round_trips(hass: HomeAssistant) -> None:

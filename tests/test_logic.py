@@ -200,8 +200,7 @@ def test_engage_dropout_is_satisfied():
 # --- shared-mode selection (the 12-case heart) ---------------------------------
 def sm(pd, sd, current=COOL, allowed=True, resting=None):
     return logic.shared_mode(
-        primary_demand=pd,
-        secondary_demand=sd,
+        demands=[pd, sd],
         current=current,
         allowed=allowed,
         resting=resting,
@@ -375,3 +374,40 @@ def test_fan_monotonic_non_decreasing_in_delta(cur):
         idx = fan(tenths / 10.0, cur)
         assert idx >= prev
         prev = idx
+
+
+# --- N-zone shared-mode (priority-ordered demands) -------------------------------
+def test_nzone_standoff_highest_priority_wins():
+    # zone2 wants heat, zone5 wants cool; zone0/1 neutral -> first CALLING zone wins.
+    assert logic.shared_mode(
+        demands=[NEUTRAL, NEUTRAL, HEAT, NEUTRAL, NEUTRAL, COOL],
+        current=COOL, allowed=True,
+    ) == HEAT
+
+
+def test_nzone_single_caller_flips():
+    assert logic.shared_mode(
+        demands=[NEUTRAL] * 5 + [HEAT], current=COOL, allowed=True
+    ) == HEAT
+
+
+def test_nzone_hysteresis_blocks_flip():
+    assert logic.shared_mode(
+        demands=[NEUTRAL, NEUTRAL, HEAT, NEUTRAL, NEUTRAL, COOL],
+        current=COOL, allowed=False,
+    ) == COOL
+
+
+def test_nzone_still_serving_blocks_minority_flip():
+    # current=cool still has a cool caller; a lower-priority heat caller can't flip
+    # unless it's a standoff won by priority — here priority-0 calls COOL, so cool wins.
+    assert logic.shared_mode(
+        demands=[COOL, NEUTRAL, HEAT], current=COOL, allowed=True
+    ) == COOL
+
+
+def test_nzone_all_neutral_rests():
+    assert logic.shared_mode(demands=[NEUTRAL] * 6, current=HEAT, allowed=True) == HEAT
+    assert logic.shared_mode(
+        demands=[NEUTRAL] * 6, current=HEAT, allowed=True, resting=COOL
+    ) == COOL

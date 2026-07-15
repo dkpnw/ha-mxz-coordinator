@@ -31,15 +31,8 @@ from .const import (
     CONF_HEAT_LOCKOUT_FLOOR,
     CONF_MODE_HYSTERESIS,
     CONF_NOTIFY_SERVICE,
-    CONF_PRIMARY_CLIMATE,
-    CONF_PRIMARY_SENSOR,
-    CONF_PRIMARY_VANE_HORIZONTAL,
-    CONF_PRIMARY_VANE_VERTICAL,
     CONF_RESTING_MODE_BIAS,
-    CONF_SECONDARY_CLIMATE,
-    CONF_SECONDARY_SENSOR,
-    CONF_SECONDARY_VANE_HORIZONTAL,
-    CONF_SECONDARY_VANE_VERTICAL,
+    CONF_ZONES,
     DEFAULT_CHANGEOVER_COOL_BELOW,
     DEFAULT_CHANGEOVER_HEAT_ABOVE,
     DEFAULT_CLAMP_MAX,
@@ -56,8 +49,16 @@ from .const import (
     DEFAULT_RESTING_MODE_BIAS,
     DOMAIN,
     FAN_LADDER,
+    MAX_ZONES,
+    MIN_ZONES,
     RESTING_BIAS_OPTIONS,
+    ZONE_CLIMATE,
+    ZONE_NAME,
+    ZONE_SENSOR,
+    ZONE_VANE_HORIZONTAL,
+    ZONE_VANE_VERTICAL,
     unit_profile,
+    zone_slug,
 )
 
 _CLIMATE_SELECTOR = selector.EntitySelector(
@@ -103,6 +104,10 @@ def _detect_vanes(hass: HomeAssistant, climate_id: str) -> dict[str, str]:
     return found
 
 
+# Flow-local key for the multi-head picker on the first step.
+_CONF_HEADS = "heads"
+
+
 def _user_schema(notify_options: list[str]) -> vol.Schema:
     notify_selector: selector.Selector = (
         selector.SelectSelector(
@@ -117,29 +122,68 @@ def _user_schema(notify_options: list[str]) -> vol.Schema:
     )
     return vol.Schema(
         {
-            vol.Required(CONF_PRIMARY_CLIMATE): _CLIMATE_SELECTOR,
-            vol.Required(CONF_SECONDARY_CLIMATE): _CLIMATE_SELECTOR,
-            vol.Required(CONF_PRIMARY_SENSOR): _SENSOR_SELECTOR,
-            vol.Required(CONF_SECONDARY_SENSOR): _SENSOR_SELECTOR,
+            vol.Required(_CONF_HEADS): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="climate", multiple=True)
+            ),
             vol.Optional(CONF_NOTIFY_SERVICE): notify_selector,
         }
     )
 
 
-def _options_schema(current: dict[str, Any], celsius: bool) -> vol.Schema:
-    def _num() -> selector.NumberSelector:
-        return selector.NumberSelector(
-            selector.NumberSelectorConfig(
-                mode=selector.NumberSelectorMode.BOX, step="any"
-            )
-        )
+def _sensors_schema(count: int) -> vol.Schema:
+    """One room-temperature picker per chosen head (sensor_1..sensor_N)."""
+    return vol.Schema(
+        {vol.Required(f"sensor_{i + 1}"): _SENSOR_SELECTOR for i in range(count)}
+    )
 
+
+def _vane_field_keys() -> set[str]:
+    """Every possible per-zone vane override key (flow-input-only, never stored flat)."""
+    keys: set[str] = set()
+    for i in range(MAX_ZONES):
+        slug = zone_slug(i)
+        keys.add(f"{slug}_vane_vertical")
+        keys.add(f"{slug}_vane_horizontal")
+    return keys
+
+
+def _num() -> selector.NumberSelector:
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
+    )
+
+
+def _options_schema(
+    current: dict[str, Any], celsius: bool, zones: list[dict[str, Any]]
+) -> vol.Schema:
     # Unset temperature tunables fall back to the system-unit profile (clean
     # metric values on a °C system, the legacy °F values otherwise); an
     # already-saved value always wins. Non-temperature keys aren't in the
     # profile, so they fall through to their plain DEFAULT_* below.
     eff = {**unit_profile(celsius)["defaults"], **current}
 
+    # Vane selects are auto-detected at setup; expose per-zone overrides
+    # (suggested_value shows what's currently wired).
+    vane_fields: dict[Any, Any] = {}
+    for i, zone in enumerate(zones):
+        slug = zone_slug(i)
+        vane_fields[
+            vol.Optional(
+                f"{slug}_vane_vertical",
+                description={"suggested_value": zone.get(ZONE_VANE_VERTICAL)},
+            )
+        ] = _VANE_SELECTOR
+        vane_fields[
+            vol.Optional(
+                f"{slug}_vane_horizontal",
+                description={"suggested_value": zone.get(ZONE_VANE_HORIZONTAL)},
+            )
+        ] = _VANE_SELECTOR
+
+    return _tunables_schema(eff).extend(vane_fields)
+
+
+def _tunables_schema(eff: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
             vol.Optional(
@@ -227,24 +271,6 @@ def _options_schema(current: dict[str, Any], celsius: bool) -> vol.Schema:
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
-            # Vane selects are auto-detected at setup; expose them here for
-            # override/correction (suggested_value shows what's currently wired).
-            vol.Optional(
-                CONF_PRIMARY_VANE_VERTICAL,
-                description={"suggested_value": current.get(CONF_PRIMARY_VANE_VERTICAL)},
-            ): _VANE_SELECTOR,
-            vol.Optional(
-                CONF_PRIMARY_VANE_HORIZONTAL,
-                description={"suggested_value": current.get(CONF_PRIMARY_VANE_HORIZONTAL)},
-            ): _VANE_SELECTOR,
-            vol.Optional(
-                CONF_SECONDARY_VANE_VERTICAL,
-                description={"suggested_value": current.get(CONF_SECONDARY_VANE_VERTICAL)},
-            ): _VANE_SELECTOR,
-            vol.Optional(
-                CONF_SECONDARY_VANE_HORIZONTAL,
-                description={"suggested_value": current.get(CONF_SECONDARY_VANE_HORIZONTAL)},
-            ): _VANE_SELECTOR,
         }
     )
 
@@ -252,42 +278,76 @@ def _options_schema(current: dict[str, Any], celsius: bool) -> vol.Schema:
 class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the initial config (household entity IDs)."""
 
-    VERSION = 1
+    VERSION = 2
+
+    def __init__(self) -> None:
+        self._heads: list[str] = []
+        self._notify: str | None = None
+
+    def _head_name(self, entity_id: str) -> str:
+        """Friendly display name for a head (used as the zone name)."""
+        state = self.hass.states.get(entity_id)
+        if state is not None and state.name:
+            return str(state.name)
+        return entity_id.split(".", 1)[-1].replace("_", " ").title()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Collect the two heads, two temp sensors, and an optional notify service."""
+        """Step 1: pick 2..MAX_ZONES heads (first = highest standoff priority)."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            if user_input[CONF_PRIMARY_CLIMATE] == user_input[CONF_SECONDARY_CLIMATE]:
-                errors["base"] = "same_head"
+            heads: list[str] = user_input.get(_CONF_HEADS) or []
+            if len(set(heads)) != len(heads):
+                errors["base"] = "duplicate_heads"
+            elif len(heads) < MIN_ZONES:
+                errors["base"] = "need_two_heads"
+            elif len(heads) > MAX_ZONES:
+                errors["base"] = "too_many_heads"
             else:
-                await self.async_set_unique_id(
-                    f"{user_input[CONF_PRIMARY_CLIMATE]}|"
-                    f"{user_input[CONF_SECONDARY_CLIMATE]}"
-                )
+                await self.async_set_unique_id("|".join(heads))
                 self._abort_if_unique_id_configured()
-                # Auto-detect each head's vane selects from its own device so the
-                # user never has to pick them (overridable later via Configure).
-                data = dict(user_input)
-                for climate_key, vkey, hkey in (
-                    (CONF_PRIMARY_CLIMATE, CONF_PRIMARY_VANE_VERTICAL,
-                     CONF_PRIMARY_VANE_HORIZONTAL),
-                    (CONF_SECONDARY_CLIMATE, CONF_SECONDARY_VANE_VERTICAL,
-                     CONF_SECONDARY_VANE_HORIZONTAL),
-                ):
-                    vanes = _detect_vanes(self.hass, user_input[climate_key])
-                    if "vertical" in vanes:
-                        data[vkey] = vanes["vertical"]
-                    if "horizontal" in vanes:
-                        data[hkey] = vanes["horizontal"]
-                return self.async_create_entry(title="MXZ Coordinator", data=data)
+                self._heads = heads
+                self._notify = user_input.get(CONF_NOTIFY_SERVICE) or None
+                return await self.async_step_sensors()
 
         return self.async_show_form(
             step_id="user",
             data_schema=_user_schema(_notify_options(self.hass)),
             errors=errors,
+        )
+
+    async def async_step_sensors(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Step 2: one room temperature sensor per chosen head."""
+        if user_input is not None:
+            zones: list[dict[str, Any]] = []
+            for i, head in enumerate(self._heads):
+                # Auto-detect each head's vane selects from its own device so
+                # the user never has to pick them (overridable via Configure).
+                vanes = _detect_vanes(self.hass, head)
+                zones.append(
+                    {
+                        ZONE_NAME: self._head_name(head),
+                        ZONE_CLIMATE: head,
+                        ZONE_SENSOR: user_input[f"sensor_{i + 1}"],
+                        ZONE_VANE_VERTICAL: vanes.get("vertical"),
+                        ZONE_VANE_HORIZONTAL: vanes.get("horizontal"),
+                    }
+                )
+            data: dict[str, Any] = {CONF_ZONES: zones}
+            if self._notify:
+                data[CONF_NOTIFY_SERVICE] = self._notify
+            return self.async_create_entry(title="MXZ Coordinator", data=data)
+
+        heads_list = "\n".join(
+            f"{i + 1}. {self._head_name(h)}" for i, h in enumerate(self._heads)
+        )
+        return self.async_show_form(
+            step_id="sensors",
+            data_schema=_sensors_schema(len(self._heads)),
+            description_placeholders={"heads": heads_list},
         )
 
     @staticmethod
@@ -302,24 +362,51 @@ class MXZOptionsFlow(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        zones = [dict(z) for z in self.config_entry.data.get(CONF_ZONES, [])]
+        vane_keys = _vane_field_keys()
         if user_input is not None:
+            # Per-zone vane overrides are flow-input-only: fold them into the
+            # zones list in entry.data, never store them as flat keys (a stale
+            # flat key would shadow the zones list in the coordinator's
+            # {**data, **options} merge).
+            for i, zone in enumerate(zones):
+                slug = zone_slug(i)
+                for suffix, zkey in (
+                    ("vane_vertical", ZONE_VANE_VERTICAL),
+                    ("vane_horizontal", ZONE_VANE_HORIZONTAL),
+                ):
+                    if (value := user_input.get(f"{slug}_{suffix}")) is not None:
+                        zone[zkey] = value or None
+            tunables = {
+                k: v for k, v in user_input.items() if k not in vane_keys
+            }
             # Resilience: MERGE onto the existing options (a partial/empty submit
             # must never wipe the rest) and refuse to persist an empty set. Also
             # MIRROR the tuned config into entry.data — the coordinator reads
             # {**data, **options}, so if anything clears options out-of-band the
             # config self-recovers from the data mirror instead of silently
-            # reverting to defaults.
-            merged = {**self.config_entry.options, **user_input}
-            if not merged:
+            # reverting to defaults. Legacy flat vane keys are scrubbed from
+            # both stores (the zones list is authoritative now).
+            merged = {
+                k: v
+                for k, v in {**self.config_entry.options, **tunables}.items()
+                if k not in vane_keys
+            }
+            if not merged and not zones:
                 return self.async_abort(reason="empty_options")
-            self.hass.config_entries.async_update_entry(
-                self.config_entry, data={**self.config_entry.data, **merged}
-            )
+            data = {
+                k: v
+                for k, v in {**self.config_entry.data, **merged}.items()
+                if k not in vane_keys
+            }
+            if zones:
+                data[CONF_ZONES] = zones
+            self.hass.config_entries.async_update_entry(self.config_entry, data=data)
             return self.async_create_entry(title="", data=merged)
         current = {**self.config_entry.data, **self.config_entry.options}
         celsius = (
             self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
         )
         return self.async_show_form(
-            step_id="init", data_schema=_options_schema(current, celsius)
+            step_id="init", data_schema=_options_schema(current, celsius, zones)
         )

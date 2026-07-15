@@ -1,4 +1,4 @@
-"""On/off helpers: per-room enables, eco-idle, and the coordinator kill-switch.
+"""On/off helpers: per-zone enables, eco-idle, lockouts, and the kill-switch.
 
 Replaces the input_boolean.* helpers from the YAML package. All default OFF on a
 fresh install (matching the package, where `initial` was omitted) and restore their
@@ -20,20 +20,17 @@ from .const import (
     KEY_COORDINATOR_ENABLE,
     KEY_ECO_IDLE,
     KEY_HEAT_LOCKOUT,
-    KEY_PRIMARY_ENABLE,
-    KEY_SECONDARY_ENABLE,
 )
-from .coordinator import MXZCoordinator
+from .coordinator import MXZCoordinator, Zone
 from .entity import MXZEntity
 
-_ICONS = {
-    KEY_PRIMARY_ENABLE: "mdi:bed",
-    KEY_SECONDARY_ENABLE: "mdi:sofa",
+_GLOBAL_ICONS = {
     KEY_COORDINATOR_ENABLE: "mdi:hvac",
     KEY_ECO_IDLE: "mdi:leaf",
     KEY_HEAT_LOCKOUT: "mdi:fire-off",
     KEY_COOL_LOCKOUT: "mdi:snowflake-off",
 }
+_ZONE_ICONS = ("mdi:bed", "mdi:sofa")  # legacy zone-0/1 icons; generic beyond
 
 
 async def async_setup_entry(
@@ -41,28 +38,20 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the room/coordinator switches."""
+    """Set up the per-zone enables and the coordinator-level switches."""
     coordinator: MXZCoordinator = entry.runtime_data
-    async_add_entities(
-        MXZSwitch(coordinator, key)
-        for key in (
-            KEY_PRIMARY_ENABLE,
-            KEY_SECONDARY_ENABLE,
-            KEY_COORDINATOR_ENABLE,
-            KEY_ECO_IDLE,
-            KEY_HEAT_LOCKOUT,
-            KEY_COOL_LOCKOUT,
-        )
-    )
+    entities: list[SwitchEntity] = [
+        MXZZoneEnableSwitch(coordinator, zone) for zone in coordinator.zones
+    ]
+    entities.extend(MXZSwitch(coordinator, key) for key in _GLOBAL_ICONS)
+    async_add_entities(entities)
 
 
-class MXZSwitch(MXZEntity, SwitchEntity, RestoreEntity):
-    """A restorable on/off helper that seeds a coordinator field."""
+class MXZBaseSwitch(MXZEntity, SwitchEntity, RestoreEntity):
+    """A restorable on/off helper that seeds coordinator state."""
 
     def __init__(self, coordinator: MXZCoordinator, key: str) -> None:
         super().__init__(coordinator, key)
-        self._key = key
-        self._attr_icon = _ICONS[key]
         self._attr_is_on = False
 
     async def async_added_to_hass(self) -> None:
@@ -73,7 +62,7 @@ class MXZSwitch(MXZEntity, SwitchEntity, RestoreEntity):
         self._seed()
 
     def _seed(self) -> None:
-        setattr(self.coordinator, self._key, self._attr_is_on)
+        raise NotImplementedError
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self._set(True)
@@ -86,3 +75,34 @@ class MXZSwitch(MXZEntity, SwitchEntity, RestoreEntity):
         self._seed()
         self.async_write_ha_state()
         await self.coordinator.async_user_changed()
+
+
+class MXZSwitch(MXZBaseSwitch):
+    """A coordinator-level flag (kill-switch, eco-idle, lockouts)."""
+
+    def __init__(self, coordinator: MXZCoordinator, key: str) -> None:
+        super().__init__(coordinator, key)
+        self._key = key
+        self._attr_icon = _GLOBAL_ICONS[key]
+
+    def _seed(self) -> None:
+        setattr(self.coordinator, self._key, self._attr_is_on)
+
+
+class MXZZoneEnableSwitch(MXZBaseSwitch):
+    """One zone's enable flag (seeds Zone.enable)."""
+
+    def __init__(self, coordinator: MXZCoordinator, zone: Zone) -> None:
+        super().__init__(coordinator, f"{zone.slug}_enable")
+        self._zone = zone
+        self._attr_icon = (
+            _ZONE_ICONS[zone.index]
+            if zone.index < len(_ZONE_ICONS)
+            else "mdi:home-thermometer-outline"
+        )
+        if zone.index >= 2:
+            self._attr_translation_key = "zone_enable"
+            self._attr_translation_placeholders = {"zone": zone.name}
+
+    def _seed(self) -> None:
+        self._zone.enable = self._attr_is_on

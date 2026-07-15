@@ -15,6 +15,7 @@ can be unit-tested directly against the package's validated truth table.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from datetime import timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any
@@ -60,6 +61,7 @@ from .const import (
     CONF_SECONDARY_SENSOR,
     CONF_SECONDARY_VANE_HORIZONTAL,
     CONF_SECONDARY_VANE_VERTICAL,
+    CONF_ZONES,
     DEFAULT_FAN_BOOST_ENABLE,
     DEFAULT_FAN_BOOST_MAX,
     DEFAULT_MODE_HYSTERESIS,
@@ -79,7 +81,13 @@ from .const import (
     OFF_WHILE_ENABLED_DELAY,
     STARTUP_RECOVER_DELAY,
     UNAVAILABLE_STATES,
+    ZONE_CLIMATE,
+    ZONE_NAME,
+    ZONE_SENSOR,
+    ZONE_VANE_HORIZONTAL,
+    ZONE_VANE_VERTICAL,
     unit_profile,
+    zone_slug,
 )
 from .logic import (
     fan_for_delta,
@@ -104,6 +112,80 @@ def _read_temp(state: Any, fallback: float) -> tuple[bool, float]:
         return (True, float(state.state))
     except (ValueError, TypeError):
         return (False, fallback)
+
+
+@dataclass
+class Zone:
+    """One indoor head + its room sensor (+ optional vanes) and runtime state.
+
+    ``index`` is the standoff priority (0 = highest); ``slug`` is the stable
+    unique-id fragment ("primary"/"secondary" for zones 0/1, zone_N beyond).
+    ``target``/``enable`` are owned by the zone's number/switch entities (seeded
+    on restore, mutated on user action).
+    """
+
+    index: int
+    slug: str
+    name: str
+    climate_id: str
+    sensor_id: str
+    vane_vertical_id: str | None = None
+    vane_horizontal_id: str | None = None
+    target: float = 70.0
+    enable: bool = field(default=False)
+
+
+def _parse_zones(conf: dict[str, Any], target_default: float) -> list[Zone]:
+    """Build the ordered Zone list from entry config.
+
+    Prefers the v2 ``zones`` list; falls back to the legacy flat
+    primary_*/secondary_* keys (pre-migration entries and old tests). Legacy
+    flat vane keys still override zones 0/1 when present (v2.9 options-flow
+    overrides live there on migrated entries).
+    """
+    raw = conf.get(CONF_ZONES)
+    if not raw:
+        raw = [
+            {
+                ZONE_NAME: "Primary",
+                ZONE_CLIMATE: conf[CONF_PRIMARY_CLIMATE],
+                ZONE_SENSOR: conf[CONF_PRIMARY_SENSOR],
+                ZONE_VANE_VERTICAL: conf.get(CONF_PRIMARY_VANE_VERTICAL),
+                ZONE_VANE_HORIZONTAL: conf.get(CONF_PRIMARY_VANE_HORIZONTAL),
+            },
+            {
+                ZONE_NAME: "Secondary",
+                ZONE_CLIMATE: conf[CONF_SECONDARY_CLIMATE],
+                ZONE_SENSOR: conf[CONF_SECONDARY_SENSOR],
+                ZONE_VANE_VERTICAL: conf.get(CONF_SECONDARY_VANE_VERTICAL),
+                ZONE_VANE_HORIZONTAL: conf.get(CONF_SECONDARY_VANE_HORIZONTAL),
+            },
+        ]
+    zones = [
+        Zone(
+            index=i,
+            slug=zone_slug(i),
+            name=z.get(ZONE_NAME) or zone_slug(i).replace("_", " ").title(),
+            climate_id=z[ZONE_CLIMATE],
+            sensor_id=z[ZONE_SENSOR],
+            vane_vertical_id=z.get(ZONE_VANE_VERTICAL) or None,
+            vane_horizontal_id=z.get(ZONE_VANE_HORIZONTAL) or None,
+            target=target_default,
+        )
+        for i, z in enumerate(raw)
+    ]
+    # Legacy flat vane overrides (options-flow writes on migrated entries).
+    _legacy_vanes = (
+        (0, CONF_PRIMARY_VANE_VERTICAL, CONF_PRIMARY_VANE_HORIZONTAL),
+        (1, CONF_SECONDARY_VANE_VERTICAL, CONF_SECONDARY_VANE_HORIZONTAL),
+    )
+    for idx, vkey, hkey in _legacy_vanes:
+        if idx < len(zones):
+            if conf.get(vkey):
+                zones[idx].vane_vertical_id = conf[vkey]
+            if conf.get(hkey):
+                zones[idx].vane_horizontal_id = conf[hkey]
+    return zones
 
 
 # ---------------------------------------------------------------------------
@@ -138,25 +220,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.fan_up_at: tuple[float, ...] = self._profile["fan_up_at"]
         self.fan_down_at: tuple[float, ...] = self._profile["fan_down_at"]
 
-        self.primary_climate_id: str = conf[CONF_PRIMARY_CLIMATE]
-        self.secondary_climate_id: str = conf[CONF_SECONDARY_CLIMATE]
-        self.primary_sensor_id: str = conf[CONF_PRIMARY_SENSOR]
-        self.secondary_sensor_id: str = conf[CONF_SECONDARY_SENSOR]
+        # Ordered zone list (index 0 = highest standoff priority). Each zone
+        # carries its head/sensor/vane ids plus the entity-owned target/enable.
+        self.zones: list[Zone] = _parse_zones(conf, self.target_default)
         self.notify_service: str | None = conf.get(CONF_NOTIFY_SERVICE) or None
-
-        # Optional vane `select` entities exposed through the native thermostats.
-        self.primary_vane_vertical_id: str | None = (
-            conf.get(CONF_PRIMARY_VANE_VERTICAL) or None
-        )
-        self.primary_vane_horizontal_id: str | None = (
-            conf.get(CONF_PRIMARY_VANE_HORIZONTAL) or None
-        )
-        self.secondary_vane_vertical_id: str | None = (
-            conf.get(CONF_SECONDARY_VANE_VERTICAL) or None
-        )
-        self.secondary_vane_horizontal_id: str | None = (
-            conf.get(CONF_SECONDARY_VANE_HORIZONTAL) or None
-        )
 
         # Unit-dependent tunables fall back to the system-unit profile default;
         # unit-free ones (hysteresis seconds, resting bias, fan boost) keep their
@@ -200,12 +267,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.fan_boost_max: str = conf.get(CONF_FAN_BOOST_MAX, DEFAULT_FAN_BOOST_MAX)
         self._fan_idx: dict[str, int] = {}  # per-head ladder index (hysteresis state)
 
-        # Helper values (owned by the number/switch/select entities; seeded on
+        # Helper values (owned by the switch/select entities; seeded on
         # restore, mutated on user action). Kill-switch defaults OFF for safety.
-        self.primary_target: float = self.target_default
-        self.secondary_target: float = self.target_default
-        self.primary_enable: bool = False
-        self.secondary_enable: bool = False
+        # Per-zone target/enable live on the Zone objects.
         self.coordinator_enable: bool = False
         self.eco_idle: bool = False
         self.heat_lockout: bool = False
@@ -224,14 +288,14 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsubs.append(
             async_track_state_change_event(
                 self.hass,
-                [self.primary_sensor_id, self.secondary_sensor_id],
+                [z.sensor_id for z in self.zones],
                 self._on_input_change,
             )
         )
         self._unsubs.append(
             async_track_state_change_event(
                 self.hass,
-                [self.primary_climate_id, self.secondary_climate_id],
+                [z.climate_id for z in self.zones],
                 self._on_head_change,
             )
         )
@@ -274,14 +338,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- decision (mirrors sensor.mxz_plan) ---------------------------------
     def _compute(self) -> dict[str, Any]:
-        """Recompute the plan dict from current inputs. No side effects."""
-        pt_ok, pt = _read_temp(
-            self.hass.states.get(self.primary_sensor_id), self.target_default
-        )
-        st_ok, st = _read_temp(
-            self.hass.states.get(self.secondary_sensor_id), self.target_default
-        )
+        """Recompute the plan dict from current inputs. No side effects.
 
+        The plan carries per-zone keys (``{slug}_demand`` / ``{slug}_engage`` /
+        ``{slug}_temp``) — zones 0/1 use the primary/secondary slugs, so the
+        legacy plan attributes are preserved verbatim — plus a compact ``zones``
+        list for display.
+        """
         common = {
             "eco": self.eco_idle,
             "eco_cool_max": self.eco_cool_max,
@@ -291,26 +354,30 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "cool_lockout": self.cool_lockout,
             "cool_lockout_ceiling": self.cool_lockout_ceiling,
         }
-        pd = room_call(
-            temp=pt, target=self.primary_target, enabled=self.primary_enable,
-            sensor_ok=pt_ok, band=self.demand_threshold, neutral=DEMAND_NEUTRAL,
-            **common,
-        )
-        sd = room_call(
-            temp=st, target=self.secondary_target, enabled=self.secondary_enable,
-            sensor_ok=st_ok, band=self.demand_threshold, neutral=DEMAND_NEUTRAL,
-            **common,
-        )
-        p_eng = room_call(
-            temp=pt, target=self.primary_target, enabled=self.primary_enable,
-            sensor_ok=pt_ok, band=self.engage_deadband, neutral=ENGAGE_SATISFIED,
-            **common,
-        )
-        s_eng = room_call(
-            temp=st, target=self.secondary_target, enabled=self.secondary_enable,
-            sensor_ok=st_ok, band=self.engage_deadband, neutral=ENGAGE_SATISFIED,
-            **common,
-        )
+        plan: dict[str, Any] = {}
+        demands: list[str] = []
+        engages: list[str] = []
+        all_ok = True
+        for zone in self.zones:
+            ok, temp = _read_temp(
+                self.hass.states.get(zone.sensor_id), self.target_default
+            )
+            all_ok = all_ok and ok
+            demand = room_call(
+                temp=temp, target=zone.target, enabled=zone.enable,
+                sensor_ok=ok, band=self.demand_threshold, neutral=DEMAND_NEUTRAL,
+                **common,
+            )
+            engage = room_call(
+                temp=temp, target=zone.target, enabled=zone.enable,
+                sensor_ok=ok, band=self.engage_deadband, neutral=ENGAGE_SATISFIED,
+                **common,
+            )
+            demands.append(demand)
+            engages.append(engage)
+            plan[f"{zone.slug}_demand"] = demand
+            plan[f"{zone.slug}_engage"] = engage
+            plan[f"{zone.slug}_temp"] = temp
 
         current = (
             self.current_shared_mode
@@ -326,28 +393,32 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else None
         )
         state = shared_mode(
-            primary_demand=pd,
-            secondary_demand=sd,
+            demands=demands,
             current=current,
             allowed=allowed,
             resting=resting,
         )
-        standoff = (pd == MODE_COOL or sd == MODE_COOL) and (
-            pd == MODE_HEAT or sd == MODE_HEAT
+        plan.update(
+            {
+                "state": state,
+                "zones": [
+                    {
+                        "name": zone.name,
+                        "demand": demands[i],
+                        "engage": engages[i],
+                        "temp": plan[f"{zone.slug}_temp"],
+                        "target": zone.target,
+                        "enabled": zone.enable,
+                    }
+                    for i, zone in enumerate(self.zones)
+                ],
+                "standoff": MODE_COOL in demands and MODE_HEAT in demands,
+                "sensors_ok": all_ok,
+                "seconds_since_mode_change": int(elapsed),
+                "mode_change_allowed": allowed,
+            }
         )
-        return {
-            "state": state,
-            "primary_demand": pd,
-            "secondary_demand": sd,
-            "primary_engage": p_eng,
-            "secondary_engage": s_eng,
-            "standoff": standoff,
-            "sensors_ok": pt_ok and st_ok,
-            "seconds_since_mode_change": int(elapsed),
-            "mode_change_allowed": allowed,
-            "primary_temp": pt,
-            "secondary_temp": st,
-        }
+        return plan
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Refresh entry point: recompute, then act on the new plan."""
@@ -362,27 +433,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return  # kill-switch: leave the heads untouched
 
         state = plan["state"]
-        p_eng = plan["primary_engage"]
-        s_eng = plan["secondary_engage"]
         valid_eng = (MODE_COOL, MODE_HEAT, ENGAGE_SATISFIED, MODE_OFF)
         if state not in (MODE_COOL, MODE_HEAT):
             return  # plan not ready
-        if p_eng not in valid_eng or s_eng not in valid_eng:
+        engages = [plan[f"{zone.slug}_engage"] for zone in self.zones]
+        if any(engage not in valid_eng for engage in engages):
             return
 
-        for climate_id, target, engage, temp in (
-            (self.primary_climate_id, self.primary_target, p_eng, plan["primary_temp"]),
-            (
-                self.secondary_climate_id,
-                self.secondary_target,
-                s_eng,
-                plan["secondary_temp"],
-            ),
-        ):
+        for zone, engage in zip(self.zones, engages):
             act = head_action(engage=engage, mode=state, eco=self.eco_idle)
             low, high = setpoints(
                 mode=state,
-                target=float(target),
+                target=float(zone.target),
                 eco=self.eco_idle,
                 clamp_min=self.clamp_min,
                 clamp_max=self.clamp_max,
@@ -391,8 +453,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 eco_cool=self.eco_cool,
                 eco_heat=self.eco_heat,
             )
-            await self._apply_head(climate_id, act, low, high)
-            await self._apply_fan(climate_id, act, abs(temp - float(target)))
+            await self._apply_head(zone.climate_id, act, low, high)
+            await self._apply_fan(
+                zone.climate_id,
+                act,
+                abs(plan[f"{zone.slug}_temp"] - float(zone.target)),
+            )
 
         # Stamp the flip only on a real mode change (cool<->heat).
         if state != self.current_shared_mode:
@@ -588,9 +654,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     def _enable_for(self, climate_id: str) -> bool:
-        if climate_id == self.primary_climate_id:
-            return self.primary_enable
-        return self.secondary_enable
+        return any(
+            zone.enable for zone in self.zones if zone.climate_id == climate_id
+        )
 
     # -- entity-driven mutations --------------------------------------------
     async def async_user_changed(self) -> None:

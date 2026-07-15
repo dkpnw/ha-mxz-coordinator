@@ -18,13 +18,64 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 
-from .const import CONF_DEMAND_THRESHOLD, DOMAIN, PLATFORMS, SERVICE_RECOMPUTE
+from .const import (
+    CONF_DEMAND_THRESHOLD,
+    CONF_PRIMARY_CLIMATE,
+    CONF_PRIMARY_SENSOR,
+    CONF_PRIMARY_VANE_HORIZONTAL,
+    CONF_PRIMARY_VANE_VERTICAL,
+    CONF_SECONDARY_CLIMATE,
+    CONF_SECONDARY_SENSOR,
+    CONF_SECONDARY_VANE_HORIZONTAL,
+    CONF_SECONDARY_VANE_VERTICAL,
+    CONF_ZONES,
+    DOMAIN,
+    PLATFORMS,
+    SERVICE_RECOMPUTE,
+    ZONE_CLIMATE,
+    ZONE_NAME,
+    ZONE_SENSOR,
+    ZONE_VANE_HORIZONTAL,
+    ZONE_VANE_VERTICAL,
+)
 from .coordinator import MXZCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 # Typed config entry: the coordinator lives on entry.runtime_data.
 MXZConfigEntry = ConfigEntry[MXZCoordinator]
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
+    """Migrate a v1 (flat primary/secondary) entry to the v2 zones-list shape.
+
+    Zones 0/1 keep the primary/secondary slugs, so no entity unique_id changes —
+    existing installs migrate with zero registry churn.
+    """
+    if entry.version > 2:
+        return False  # downgrade from a future version: bail
+    if entry.version == 1:
+        data = dict(entry.data)
+        if CONF_ZONES not in data:
+            data[CONF_ZONES] = [
+                {
+                    ZONE_NAME: "Primary",
+                    ZONE_CLIMATE: data[CONF_PRIMARY_CLIMATE],
+                    ZONE_SENSOR: data[CONF_PRIMARY_SENSOR],
+                    ZONE_VANE_VERTICAL: data.get(CONF_PRIMARY_VANE_VERTICAL),
+                    ZONE_VANE_HORIZONTAL: data.get(CONF_PRIMARY_VANE_HORIZONTAL),
+                },
+                {
+                    ZONE_NAME: "Secondary",
+                    ZONE_CLIMATE: data[CONF_SECONDARY_CLIMATE],
+                    ZONE_SENSOR: data[CONF_SECONDARY_SENSOR],
+                    ZONE_VANE_VERTICAL: data.get(CONF_SECONDARY_VANE_VERTICAL),
+                    ZONE_VANE_HORIZONTAL: data.get(CONF_SECONDARY_VANE_HORIZONTAL),
+                },
+            ]
+        hass.config_entries.async_update_entry(entry, data=data, version=2)
+        _LOGGER.info("Migrated MXZ Coordinator entry to the v2 zones format")
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:

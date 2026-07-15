@@ -21,6 +21,32 @@ CONF_PRIMARY_VANE_HORIZONTAL = "primary_vane_horizontal"
 CONF_SECONDARY_VANE_VERTICAL = "secondary_vane_vertical"
 CONF_SECONDARY_VANE_HORIZONTAL = "secondary_vane_horizontal"
 
+# --- N-zone config (entry VERSION 2) ---
+# entry.data["zones"] = ordered list of zone dicts; LIST ORDER = standoff priority
+# (index 0 = highest, the "primary wins" generalization).
+CONF_ZONES = "zones"
+ZONE_NAME = "name"
+ZONE_CLIMATE = "climate"
+ZONE_SENSOR = "sensor"
+ZONE_VANE_VERTICAL = "vane_vertical"
+ZONE_VANE_HORIZONTAL = "vane_horizontal"
+MIN_ZONES = 2
+MAX_ZONES = 8
+
+
+def zone_slug(index: int) -> str:
+    """Stable per-zone slug used in unique_ids and plan keys.
+
+    Zones 0/1 keep the legacy "primary"/"secondary" slugs so existing 2-zone
+    installs migrate with ZERO entity-registry churn; zones beyond get zone_N
+    (1-based, so the third zone is ``zone_3``).
+    """
+    if index == 0:
+        return "primary"
+    if index == 1:
+        return "secondary"
+    return f"zone_{index + 1}"
+
 # --- Options keys (tunable constants; were hardcoded in the YAML package) ---
 CONF_DEMAND_THRESHOLD = "demand_threshold"
 CONF_ENGAGE_DEADBAND = "engage_deadband"

@@ -16,8 +16,9 @@ shared compressor. Set **one comfort temperature per room**; it figures out the 
 [![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)
 
 **One-click HACS install:** click **Add to HACS** above → download → restart HA → click
-**Add Integration** → pick your two heads and two temperature sensors. Vane controls are
-detected automatically; everything else has sensible defaults. No YAML editing.
+**Add Integration** → pick your heads (2–8, first = priority) and one temperature sensor per
+room. Vane controls are detected automatically; everything else has sensible defaults. No
+YAML editing. One outdoor unit per entry — add the integration again for a second compressor.
 
 ---
 
@@ -187,11 +188,11 @@ v2.8.0 — earlier versions assumed °F.)*
 2. **Restart Home Assistant.**
 3. Click **[Add Integration](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)**
    (or **Settings → Devices & Services → Add Integration → MXZ Coordinator**).
-4. In the config form, pick your **primary** and **secondary** heads (the primary wins a
-   mode standoff) and your two **room temperature sensors**. Optionally choose a **notify
-   target** for drift alerts (a dropdown of your `notify.*` services). Each head's
-   **vane selects are auto-detected** from its device — no need to pick them (you can
-   override them later under **Configure**).
+4. In the config form, pick **all the indoor heads on this outdoor unit** (2–8; the order
+   is standoff priority — first wins), then one **room temperature sensor** per head.
+   Optionally choose a **notify target** for drift alerts (a dropdown of your `notify.*`
+   services). Each head's **vane selects are auto-detected** from its device — no need to
+   pick them (you can override them later under **Configure**).
 5. The integration creates the helpers (`number.*_target`, `switch.*_enable`,
    `switch.*_coordinator_enable`, `switch.*_eco_idle`, `select.*_shared_mode`) and
    `sensor.*_plan`. Turn on **Coordinator enable**, set each room's target, and enable
@@ -239,15 +240,26 @@ uses `input_*` helpers instead of the integration's entities and is **not** one-
 
 ---
 
-## Extending to N zones
+## N zones (v3, beta)
 
-v1 ships the validated **two-zone** arrangement (one primary, one secondary). The arbitration
-generalizes cleanly: the **primary** zone picks the shared mode, and any zone that doesn't want
-the shared direction idles in `fan_only`. To go to N zones you'd extend the plan computation to
-fold N per-room demands into `any_cool`/`any_heat`, keep a single primary tiebreak, and loop the
-per-head apply block over each head (`coordinator.py` in the integration, or `script.mxz_coordinate`
-in the package). Left as a documented exercise rather than shipped, because it's unvalidated on
-hardware here.
+As of **v3.0.0** the coordinator supports **2–8 heads on one outdoor unit**. Setup picks all
+your heads at once — **order is priority**: in a heat-vs-cool standoff, the highest-priority
+zone that's actively calling wins (the generalization of "the primary room wins"). Every zone
+gets its own target `number`, enable `switch`, and single-target thermostat tile; the losing /
+satisfied zones idle in `fan_only` as always.
+
+- **Existing 2-zone installs migrate automatically** — same entity IDs, history, and
+  dashboards; nothing to reconfigure.
+- **Two (or more) outdoor units?** Add the integration once **per outdoor unit** — each entry
+  is an independent coordinator with its own shared mode, hysteresis, weather changeover, and
+  kill-switch. There's nothing to coordinate *between* compressors, so this composes cleanly.
+- Status: the 2-zone path is validated on real hardware; **>2-zone is validated in simulation**
+  (6-zone standoff/priority tests) and is being beta-tested on real 6-zone and 2×3-zone
+  systems — see [issue #4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4). Feedback
+  welcome there.
+
+Out of scope: simultaneous heat+cool (a single-compressor MXZ physically can't; that's
+branch-box VRF territory).
 
 ---
 

@@ -24,6 +24,7 @@ _ATTRS = (
     "secondary_demand",
     "primary_engage",
     "secondary_engage",
+    "zones",
     "standoff",
     "sensors_ok",
     "seconds_since_mode_change",

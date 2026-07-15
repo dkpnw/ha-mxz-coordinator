@@ -230,7 +230,7 @@ async def test_set_temperature_propagates(hass: HomeAssistant) -> None:
 
     # The number entity (single source of truth) and coordinator both updated.
     assert float(hass.states.get(_eid(hass, entry, "_primary_target")).state) == 72.0
-    assert entry.runtime_data.primary_target == 72
+    assert entry.runtime_data.zones[0].target == 72
 
     # And a recompute reaches the head with the computed cool band (high=target).
     await _recompute(hass, entry)
@@ -254,7 +254,7 @@ async def test_turn_off_disables_room(hass: HomeAssistant) -> None:
     )
     await hass.async_block_till_done()
     assert hass.states.get(_eid(hass, entry, "_primary_enable")).state == "off"
-    assert entry.runtime_data.primary_enable is False
+    assert entry.runtime_data.zones[0].enable is False
 
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "off"  # disabled room -> head off
@@ -265,7 +265,7 @@ async def test_turn_off_disables_room(hass: HomeAssistant) -> None:
     )
     await hass.async_block_till_done()
     assert hass.states.get(_eid(hass, entry, "_primary_enable")).state == "on"
-    assert entry.runtime_data.primary_enable is True
+    assert entry.runtime_data.zones[0].enable is True
 
 
 async def test_hvac_mode_and_action(hass: HomeAssistant) -> None:

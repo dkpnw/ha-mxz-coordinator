@@ -91,3 +91,11 @@ Earlier versions relied on the echavet `mitsubishi_climate_proxy`
 write the legacy package's `input_*` helpers, so it pairs with the YAML package, **not** this
 integration's entities. With the native thermostats you don't need the proxy at all. (The
 `mxz_recompute` event is still honored, so any existing proxy/automation nudge keeps working.)
+
+## v2.x → v3.0.0 (N-zone)
+
+Automatic — nothing to do. On first startup the config entry migrates from the flat
+primary/secondary shape to an ordered `zones` list. Zones 0/1 keep the `primary`/`secondary`
+entity unique_ids, so **all entity IDs, history, and dashboards are unchanged**. To add more
+zones to an existing entry, remove + re-add the integration (a reconfigure flow is planned);
+your tuning options survive in the entry and can be re-saved via Configure.

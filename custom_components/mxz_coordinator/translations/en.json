@@ -3,21 +3,34 @@
     "step": {
       "user": {
         "title": "MXZ Coordinator",
-        "description": "Select the two indoor heads on your MXZ outdoor unit and a temperature sensor for each room. The first head is the PRIMARY (it wins a heat-vs-cool standoff). Vane controls are detected automatically. Comfort thresholds, weather-based changeover, and fan boost are set afterward via the integration's Configure button.",
+        "description": "Pick every indoor head on this MXZ outdoor unit (2–8). ORDER IS PRIORITY: the first head wins a heat-vs-cool standoff. Vane controls are detected automatically; comfort thresholds, weather-based changeover, and fan boost are set afterward via the integration's Configure button. For a second outdoor unit, add the integration again.",
         "data": {
-          "primary_climate": "Primary indoor head (climate entity)",
-          "secondary_climate": "Secondary indoor head (climate entity)",
-          "primary_sensor": "Primary room temperature sensor",
-          "secondary_sensor": "Secondary room temperature sensor",
+          "heads": "Indoor heads (climate entities, in priority order)",
           "notify_service": "Drift-alert notifications (optional)"
         },
         "data_description": {
           "notify_service": "Who to notify when a head is knocked off its coordinated mode and the coordinator puts it back — e.g. notify.mobile_app_phone."
         }
+      },
+      "sensors": {
+        "title": "Room temperature sensors",
+        "description": "Pick the room temperature sensor for each head, in order:\n\n{heads}",
+        "data": {
+          "sensor_1": "Sensor for head 1",
+          "sensor_2": "Sensor for head 2",
+          "sensor_3": "Sensor for head 3",
+          "sensor_4": "Sensor for head 4",
+          "sensor_5": "Sensor for head 5",
+          "sensor_6": "Sensor for head 6",
+          "sensor_7": "Sensor for head 7",
+          "sensor_8": "Sensor for head 8"
+        }
       }
     },
     "error": {
-      "same_head": "The primary and secondary heads must be different entities."
+      "duplicate_heads": "The same head was selected more than once.",
+      "need_two_heads": "Select at least two heads (a single head doesn't need a coordinator).",
+      "too_many_heads": "A single MXZ outdoor unit supports at most 8 heads."
     },
     "abort": {
       "already_configured": "This pair of heads is already configured."
@@ -50,7 +63,19 @@
           "primary_vane_vertical": "Primary vertical vane (auto-detected; override if needed)",
           "primary_vane_horizontal": "Primary horizontal vane (auto-detected; override if needed)",
           "secondary_vane_vertical": "Secondary vertical vane (auto-detected; override if needed)",
-          "secondary_vane_horizontal": "Secondary horizontal vane (auto-detected; override if needed)"
+          "secondary_vane_horizontal": "Secondary horizontal vane (auto-detected; override if needed)",
+          "zone_3_vane_vertical": "Zone 3 vertical vane (auto-detected; override if needed)",
+          "zone_3_vane_horizontal": "Zone 3 horizontal vane (auto-detected; override if needed)",
+          "zone_4_vane_vertical": "Zone 4 vertical vane (auto-detected; override if needed)",
+          "zone_4_vane_horizontal": "Zone 4 horizontal vane (auto-detected; override if needed)",
+          "zone_5_vane_vertical": "Zone 5 vertical vane (auto-detected; override if needed)",
+          "zone_5_vane_horizontal": "Zone 5 horizontal vane (auto-detected; override if needed)",
+          "zone_6_vane_vertical": "Zone 6 vertical vane (auto-detected; override if needed)",
+          "zone_6_vane_horizontal": "Zone 6 horizontal vane (auto-detected; override if needed)",
+          "zone_7_vane_vertical": "Zone 7 vertical vane (auto-detected; override if needed)",
+          "zone_7_vane_horizontal": "Zone 7 horizontal vane (auto-detected; override if needed)",
+          "zone_8_vane_vertical": "Zone 8 vertical vane (auto-detected; override if needed)",
+          "zone_8_vane_horizontal": "Zone 8 horizontal vane (auto-detected; override if needed)"
         }
       }
     }
@@ -77,6 +102,9 @@
       },
       "secondary_target": {
         "name": "Secondary target"
+      },
+      "zone_target": {
+        "name": "{zone} target"
       }
     },
     "switch": {
@@ -97,6 +125,9 @@
       },
       "cool_lockout": {
         "name": "Cool lockout"
+      },
+      "zone_enable": {
+        "name": "{zone} enable"
       }
     },
     "select": {
@@ -115,6 +146,9 @@
       },
       "secondary_thermostat": {
         "name": "Secondary thermostat"
+      },
+      "zone_thermostat": {
+        "name": "{zone} thermostat"
       }
     }
   }

@@ -33,17 +33,11 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     DOMAIN,
-    KEY_PRIMARY_ENABLE,
-    KEY_PRIMARY_TARGET,
-    KEY_PRIMARY_THERMOSTAT,
-    KEY_SECONDARY_ENABLE,
-    KEY_SECONDARY_TARGET,
-    KEY_SECONDARY_THERMOSTAT,
     MODE_COOL,
     MODE_HEAT,
     UNAVAILABLE_STATES,
 )
-from .coordinator import MXZCoordinator
+from .coordinator import MXZCoordinator, Zone
 from .entity import MXZEntity
 
 # Independent horizontal swing was added in HA 2024.12; guard for older cores.
@@ -55,29 +49,27 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the two single-target room thermostats."""
+    """Set up one single-target room thermostat per zone."""
     coordinator: MXZCoordinator = entry.runtime_data
     async_add_entities(
-        [
-            MXZRoomClimate(coordinator, KEY_PRIMARY_THERMOSTAT, primary=True),
-            MXZRoomClimate(coordinator, KEY_SECONDARY_THERMOSTAT, primary=False),
-        ]
+        MXZRoomClimate(coordinator, zone) for zone in coordinator.zones
     )
 
 
 class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity):
-    """A single-target thermostat facade over one room's helper entities."""
+    """A single-target thermostat facade over one zone's helper entities."""
 
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT_COOL]
     _attr_icon = "mdi:home-thermometer"
     _enable_turn_on_off_backwards_compatibility = False
 
-    def __init__(
-        self, coordinator: MXZCoordinator, key: str, *, primary: bool
-    ) -> None:
-        MXZEntity.__init__(self, coordinator, key)
+    def __init__(self, coordinator: MXZCoordinator, zone: Zone) -> None:
+        MXZEntity.__init__(self, coordinator, f"{zone.slug}_thermostat")
         CoordinatorEntity.__init__(self, coordinator)
-        self._primary = primary
+        self._zone = zone
+        if zone.index >= 2:
+            self._attr_translation_key = "zone_thermostat"
+            self._attr_translation_placeholders = {"zone": zone.name}
 
         # Report the HA system temperature unit + its resolution (°F: whole
         # degrees; °C: 0.5° steps).
@@ -91,22 +83,9 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         self._attr_max_temp = float(coordinator.clamp_max)
 
         # The underlying head this tile passes fan/vane control through to.
-        self._head_id = (
-            coordinator.primary_climate_id
-            if primary
-            else coordinator.secondary_climate_id
-        )
-
-        self._vane_vertical_id = (
-            coordinator.primary_vane_vertical_id
-            if primary
-            else coordinator.secondary_vane_vertical_id
-        )
-        self._vane_horizontal_id = (
-            coordinator.primary_vane_horizontal_id
-            if primary
-            else coordinator.secondary_vane_horizontal_id
-        )
+        self._head_id = zone.climate_id
+        self._vane_vertical_id = zone.vane_vertical_id
+        self._vane_horizontal_id = zone.vane_horizontal_id
 
         features = (
             ClimateEntityFeature.TARGET_TEMPERATURE
@@ -147,19 +126,11 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
     # -- room-state plumbing ------------------------------------------------
     @property
     def _enabled(self) -> bool:
-        return (
-            self.coordinator.primary_enable
-            if self._primary
-            else self.coordinator.secondary_enable
-        )
+        return self._zone.enable
 
     @property
     def _sensor_id(self) -> str:
-        return (
-            self.coordinator.primary_sensor_id
-            if self._primary
-            else self.coordinator.secondary_sensor_id
-        )
+        return self._zone.sensor_id
 
     # -- display ------------------------------------------------------------
     @property
@@ -175,11 +146,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
 
     @property
     def target_temperature(self) -> float | None:
-        return (
-            self.coordinator.primary_target
-            if self._primary
-            else self.coordinator.secondary_target
-        )
+        return self._zone.target
 
     @property
     def hvac_mode(self) -> HVACMode:
@@ -191,8 +158,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         """Derive from the coordinator's plan engage state for this room."""
         if not self.coordinator.coordinator_enable or not self._enabled:
             return HVACAction.OFF
-        key = "primary_engage" if self._primary else "secondary_engage"
-        engage = self.coordinator.data.get(key)
+        engage = self.coordinator.data.get(f"{self._zone.slug}_engage")
         if engage == MODE_COOL:
             return HVACAction.COOLING
         if engage == MODE_HEAT:
@@ -272,15 +238,17 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Single-target write -> drive the room's number entity."""
         temp = kwargs.get(ATTR_TEMPERATURE)
-        target_key = KEY_PRIMARY_TARGET if self._primary else KEY_SECONDARY_TARGET
-        target_eid = self._sibling_eid("number", target_key)
+        target_eid = self._sibling_eid("number", f"{self._zone.slug}_target")
         if temp is None or target_eid is None:
             return
-        # The number entity seeds the coordinator + recomputes (number.py).
+        # Snap to the unit resolution (whole °F / 0.5 °C). The number entity
+        # seeds the coordinator + recomputes (number.py).
+        step = self.coordinator.target_step or 1.0
+        value = round(float(temp) / step) * step
         await self.hass.services.async_call(
             "number",
             "set_value",
-            {"entity_id": target_eid, "value": round(float(temp))},
+            {"entity_id": target_eid, "value": value},
             blocking=True,
         )
 
@@ -294,8 +262,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         await self._set_enable(False)
 
     async def _set_enable(self, on: bool) -> None:
-        enable_key = KEY_PRIMARY_ENABLE if self._primary else KEY_SECONDARY_ENABLE
-        enable_eid = self._sibling_eid("switch", enable_key)
+        enable_eid = self._sibling_eid("switch", f"{self._zone.slug}_enable")
         if enable_eid is None:
             return
         # The switch entity seeds the coordinator + recomputes (switch.py).
