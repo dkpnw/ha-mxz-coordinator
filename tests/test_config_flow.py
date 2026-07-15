@@ -75,14 +75,24 @@ def test_detect_vanes_no_device_is_safe(hass: HomeAssistant) -> None:
 
 
 async def test_user_flow_creates_entry(hass: HomeAssistant) -> None:
+    from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+
+    hass.config.units = US_CUSTOMARY_SYSTEM  # °F defaults on the tuning step
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
     assert result["type"] is FlowResultType.FORM
 
     result = await hass.config_entries.flow.async_configure(result["flow_id"], _VALID)
+    # Final step: the full tuning form, pre-filled — Submit as-is accepts defaults.
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "tuning"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_PRIMARY_CLIMATE] == "climate.primary"
+    # defaults flowed into options (and the data mirror)
+    assert result["options"][CONF_DEMAND_THRESHOLD] == 3.0
+    assert result["data"][CONF_DEMAND_THRESHOLD] == 3.0
 
 
 async def test_rejects_same_head(hass: HomeAssistant) -> None:

@@ -127,13 +127,28 @@ def _user_schema(notify_options: list[str]) -> vol.Schema:
 
 
 def _options_schema(current: dict[str, Any], celsius: bool) -> vol.Schema:
-    def _num() -> selector.NumberSelector:
-        return selector.NumberSelector(
-            selector.NumberSelectorConfig(
-                mode=selector.NumberSelectorMode.BOX, step="any"
-            )
+    """Tunables + the vane overrides (the Configure dialog)."""
+    vane_fields = {
+        vol.Optional(
+            key, description={"suggested_value": current.get(key)}
+        ): _VANE_SELECTOR
+        for key in (
+            CONF_PRIMARY_VANE_VERTICAL,
+            CONF_PRIMARY_VANE_HORIZONTAL,
+            CONF_SECONDARY_VANE_VERTICAL,
+            CONF_SECONDARY_VANE_HORIZONTAL,
         )
+    }
+    return _tunables_schema(current, celsius).extend(vane_fields)
 
+
+def _num() -> selector.NumberSelector:
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
+    )
+
+
+def _tunables_schema(current: dict[str, Any], celsius: bool) -> vol.Schema:
     # Unset temperature tunables fall back to the system-unit profile (clean
     # metric values on a °C system, the legacy °F values otherwise); an
     # already-saved value always wins. Non-temperature keys aren't in the
@@ -227,24 +242,6 @@ def _options_schema(current: dict[str, Any], celsius: bool) -> vol.Schema:
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
-            # Vane selects are auto-detected at setup; expose them here for
-            # override/correction (suggested_value shows what's currently wired).
-            vol.Optional(
-                CONF_PRIMARY_VANE_VERTICAL,
-                description={"suggested_value": current.get(CONF_PRIMARY_VANE_VERTICAL)},
-            ): _VANE_SELECTOR,
-            vol.Optional(
-                CONF_PRIMARY_VANE_HORIZONTAL,
-                description={"suggested_value": current.get(CONF_PRIMARY_VANE_HORIZONTAL)},
-            ): _VANE_SELECTOR,
-            vol.Optional(
-                CONF_SECONDARY_VANE_VERTICAL,
-                description={"suggested_value": current.get(CONF_SECONDARY_VANE_VERTICAL)},
-            ): _VANE_SELECTOR,
-            vol.Optional(
-                CONF_SECONDARY_VANE_HORIZONTAL,
-                description={"suggested_value": current.get(CONF_SECONDARY_VANE_HORIZONTAL)},
-            ): _VANE_SELECTOR,
         }
     )
 
@@ -253,6 +250,9 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the initial config (household entity IDs)."""
 
     VERSION = 1
+
+    def __init__(self) -> None:
+        self._base_data: dict[str, Any] = {}
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -282,12 +282,36 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                         data[vkey] = vanes["vertical"]
                     if "horizontal" in vanes:
                         data[hkey] = vanes["horizontal"]
-                return self.async_create_entry(title="MXZ Coordinator", data=data)
+                self._base_data = data
+                return await self.async_step_tuning()
 
         return self.async_show_form(
             step_id="user",
             data_schema=_user_schema(_notify_options(self.hass)),
             errors=errors,
+        )
+
+    async def async_step_tuning(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Step 2: every tunable, pre-filled with unit-appropriate defaults.
+
+        Nothing here is required — Submit as-is accepts the defaults. The same
+        values stay editable later via the integration's Configure dialog.
+        """
+        if user_input is not None:
+            # Tunables live in options (mirrored into data), exactly as an
+            # options-flow save would leave them.
+            return self.async_create_entry(
+                title="MXZ Coordinator",
+                data={**self._base_data, **user_input},
+                options=dict(user_input),
+            )
+        celsius = (
+            self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+        )
+        return self.async_show_form(
+            step_id="tuning", data_schema=_tunables_schema({}, celsius)
         )
 
     @staticmethod
