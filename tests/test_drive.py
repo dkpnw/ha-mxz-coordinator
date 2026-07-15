@@ -385,7 +385,7 @@ async def test_fan_boost_drives_speed(hass: HomeAssistant) -> None:
 
 
 async def test_fan_boost_disabled_leaves_fan_alone(hass: HomeAssistant) -> None:
-    """With fan boost off (default), the coordinator never touches the fan mode."""
+    """With fan boost explicitly opted OUT, the coordinator never touches the fan."""
     hass.config.units = US_CUSTOMARY_SYSTEM
 
     head_a, head_b = await _setup_mock_heads(hass)
@@ -400,6 +400,7 @@ async def test_fan_boost_disabled_leaves_fan_alone(hass: HomeAssistant) -> None:
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,
             CONF_SECONDARY_SENSOR: SENSOR_B,
+            CONF_FAN_BOOST_ENABLE: False,  # explicit opt-out (default is ON)
         },
     )
     entry.add_to_hass(hass)
@@ -419,7 +420,28 @@ async def test_fan_boost_disabled_leaves_fan_alone(hass: HomeAssistant) -> None:
     a = hass.states.get(head_a)
     assert a.state == "cool"
     assert a.attributes["fan_mode"] == "auto"  # untouched -> stays at the default
-    print("FAN-BOOST disabled: fan stayed 'auto' despite a 5F delta")
+    print("FAN-BOOST opted out: fan stayed 'auto' despite a 5F delta")
+
+
+async def test_fan_boost_defaults_on(hass: HomeAssistant) -> None:
+    """An entry with no fan_boost option gets the feature ON (v3 default)."""
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MXZ Coordinator",
+        data={
+            CONF_PRIMARY_CLIMATE: head_a,
+            CONF_SECONDARY_CLIMATE: head_b,
+            CONF_PRIMARY_SENSOR: SENSOR_A,
+            CONF_SECONDARY_SENSOR: SENSOR_B,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.fan_boost_enable is True
 
 
 async def test_coordinator_drives_heads_metric(hass: HomeAssistant) -> None:

@@ -94,6 +94,10 @@ integration's entities. With the native thermostats you don't need the proxy at 
 
 ## v2.x → v3.0.0 (N-zone)
 
+**Fan boost defaults ON from v2.10.0/v3.0.0.** If you never saved the option, the
+delta-proportional fan is now active; opt out anytime under **Configure → Fan boost**.
+An explicitly-saved off stays off.
+
 Automatic — nothing to do. On first startup the config entry migrates from the flat
 primary/secondary shape to an ordered `zones` list. Zones 0/1 keep the `primary`/`secondary`
 entity unique_ids, so **all entity IDs, history, and dashboards are unchanged**. To add more

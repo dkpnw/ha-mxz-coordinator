@@ -31,7 +31,7 @@ YAML editing. One outdoor unit per entry — add the integration again for a sec
   idle head can't hold the compressor neutral and starve the room that's actually calling
   (the classic MXZ-on-AUTO failure). A satisfied head idles in `fan_only` instead of
   parking the other room in standby.
-- 🌀 **Dynamic fan speed.** Opt-in "fan boost" ramps the fan toward max when a room is far
+- 🌀 **Dynamic fan speed.** "Fan boost" (on by default) ramps the fan toward max when a room is far
   from target and eases it back as the room closes in — Tesla-style — instead of the
   firmware's weak `auto` ramp.
 - 🌦️ **Local-weather seasonal changeover.** Point it at any `weather.*` entity (or an
@@ -96,7 +96,7 @@ switch to AUTO and stall the system — it idles in **`fan_only`**, closing its 
 (LEV) while the other head keeps conditioning. This embraces the one-mode physical constraint
 instead of fighting it.
 
-Optionally, an opt-in **fan boost** (default off) drives each head's fan speed by how far the room
+A **fan boost** (on by default; opt out under Configure) drives each head's fan speed by how far the room
 is off target — Tesla-style, big delta → max fan, easing down (with hysteresis) as it closes —
 overriding the firmware's weak `auto` ramp (true airflow order `quiet < low < medium < middle < high`;
 note `middle` is faster than `medium`). Configure it under **Configure → options** (enable + max speed).
