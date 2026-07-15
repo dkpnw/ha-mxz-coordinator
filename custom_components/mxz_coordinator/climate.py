@@ -24,7 +24,7 @@ from homeassistant.components.climate import (
     HVACMode,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
+from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -41,7 +41,6 @@ from .const import (
     KEY_SECONDARY_THERMOSTAT,
     MODE_COOL,
     MODE_HEAT,
-    TARGET_STEP,
     UNAVAILABLE_STATES,
 )
 from .coordinator import MXZCoordinator
@@ -69,9 +68,7 @@ async def async_setup_entry(
 class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity):
     """A single-target thermostat facade over one room's helper entities."""
 
-    _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT_COOL]
-    _attr_target_temperature_step = float(TARGET_STEP)
     _attr_icon = "mdi:home-thermometer"
     _enable_turn_on_off_backwards_compatibility = False
 
@@ -81,6 +78,11 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         MXZEntity.__init__(self, coordinator, key)
         CoordinatorEntity.__init__(self, coordinator)
         self._primary = primary
+
+        # Report the HA system temperature unit + its resolution (°F: whole
+        # degrees; °C: 0.5° steps).
+        self._attr_temperature_unit = coordinator.temp_unit
+        self._attr_target_temperature_step = coordinator.target_step
 
         # Clamp the setpoint slider to the firmware operating band (the same
         # [clamp_min, clamp_max] the coordinator clamps head setpoints to), so

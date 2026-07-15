@@ -19,6 +19,7 @@ from datetime import timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -59,18 +60,8 @@ from .const import (
     CONF_SECONDARY_SENSOR,
     CONF_SECONDARY_VANE_HORIZONTAL,
     CONF_SECONDARY_VANE_VERTICAL,
-    DEFAULT_CHANGEOVER_COOL_BELOW,
-    DEFAULT_CHANGEOVER_HEAT_ABOVE,
-    DEFAULT_CLAMP_MAX,
-    DEFAULT_CLAMP_MIN,
-    DEFAULT_COOL_LOCKOUT_CEILING,
-    DEFAULT_DEMAND_THRESHOLD,
-    DEFAULT_ECO_COOL_MAX,
-    DEFAULT_ECO_HEAT_MIN,
-    DEFAULT_ENGAGE_DEADBAND,
     DEFAULT_FAN_BOOST_ENABLE,
     DEFAULT_FAN_BOOST_MAX,
-    DEFAULT_HEAT_LOCKOUT_FLOOR,
     DEFAULT_MODE_HYSTERESIS,
     DEFAULT_RESTING_MODE_BIAS,
     DEMAND_NEUTRAL,
@@ -78,8 +69,6 @@ from .const import (
     ENGAGE_SATISFIED,
     EVENT_RECOMPUTE,
     FAN_AUTO,
-    FAN_BOOST_DOWN_AT,
-    FAN_BOOST_UP_AT,
     FAN_LADDER,
     KEY_COOL_LOCKOUT,
     KEY_HEAT_LOCKOUT,
@@ -89,8 +78,8 @@ from .const import (
     MODE_OFF,
     OFF_WHILE_ENABLED_DELAY,
     STARTUP_RECOVER_DELAY,
-    TARGET_DEFAULT,
     UNAVAILABLE_STATES,
+    unit_profile,
 )
 from .logic import (
     fan_for_delta,
@@ -107,14 +96,14 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def _read_temp(state: Any) -> tuple[bool, float]:
-    """Return (ok, value) for a temperature sensor state; default 70.0 on dropout."""
+def _read_temp(state: Any, fallback: float) -> tuple[bool, float]:
+    """Return (ok, value) for a temperature sensor state; ``fallback`` on dropout."""
     if state is None or state.state in UNAVAILABLE_STATES:
-        return (False, float(TARGET_DEFAULT))
+        return (False, fallback)
     try:
         return (True, float(state.state))
     except (ValueError, TypeError):
-        return (False, float(TARGET_DEFAULT))
+        return (False, fallback)
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +122,22 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             config_entry=entry,
         )
         conf: dict[str, Any] = {**entry.data, **entry.options}
+
+        # Operate in the HA system temperature unit. The °F profile reproduces
+        # every legacy default exactly; a °C system gets clean metric defaults,
+        # a 1° setpoint band, metric eco edges, and 0.5° display resolution.
+        self.temp_unit: str = hass.config.units.temperature_unit
+        self.celsius: bool = self.temp_unit == UnitOfTemperature.CELSIUS
+        self._profile: dict[str, Any] = unit_profile(self.celsius)
+        _defaults: dict[str, Any] = self._profile["defaults"]
+        self.target_default: float = self._profile["target_default"]
+        self.target_step: float = self._profile["target_step"]
+        self.setpoint_band: float = self._profile["setpoint_band"]
+        self.eco_cool: tuple[float, float] = self._profile["eco_cool"]
+        self.eco_heat: tuple[float, float] = self._profile["eco_heat"]
+        self.fan_up_at: tuple[float, ...] = self._profile["fan_up_at"]
+        self.fan_down_at: tuple[float, ...] = self._profile["fan_down_at"]
+
         self.primary_climate_id: str = conf[CONF_PRIMARY_CLIMATE]
         self.secondary_climate_id: str = conf[CONF_SECONDARY_CLIMATE]
         self.primary_sensor_id: str = conf[CONF_PRIMARY_SENSOR]
@@ -153,33 +158,40 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             conf.get(CONF_SECONDARY_VANE_HORIZONTAL) or None
         )
 
+        # Unit-dependent tunables fall back to the system-unit profile default;
+        # unit-free ones (hysteresis seconds, resting bias, fan boost) keep their
+        # plain DEFAULT_*.
         self.demand_threshold: float = conf.get(
-            CONF_DEMAND_THRESHOLD, DEFAULT_DEMAND_THRESHOLD
+            CONF_DEMAND_THRESHOLD, _defaults[CONF_DEMAND_THRESHOLD]
         )
         self.engage_deadband: float = conf.get(
-            CONF_ENGAGE_DEADBAND, DEFAULT_ENGAGE_DEADBAND
+            CONF_ENGAGE_DEADBAND, _defaults[CONF_ENGAGE_DEADBAND]
         )
         self.hysteresis: int = conf.get(CONF_MODE_HYSTERESIS, DEFAULT_MODE_HYSTERESIS)
-        self.eco_cool_max: float = conf.get(CONF_ECO_COOL_MAX, DEFAULT_ECO_COOL_MAX)
-        self.eco_heat_min: float = conf.get(CONF_ECO_HEAT_MIN, DEFAULT_ECO_HEAT_MIN)
-        self.clamp_min: int = int(conf.get(CONF_CLAMP_MIN, DEFAULT_CLAMP_MIN))
-        self.clamp_max: int = int(conf.get(CONF_CLAMP_MAX, DEFAULT_CLAMP_MAX))
+        self.eco_cool_max: float = conf.get(
+            CONF_ECO_COOL_MAX, _defaults[CONF_ECO_COOL_MAX]
+        )
+        self.eco_heat_min: float = conf.get(
+            CONF_ECO_HEAT_MIN, _defaults[CONF_ECO_HEAT_MIN]
+        )
+        self.clamp_min: float = float(conf.get(CONF_CLAMP_MIN, _defaults[CONF_CLAMP_MIN]))
+        self.clamp_max: float = float(conf.get(CONF_CLAMP_MAX, _defaults[CONF_CLAMP_MAX]))
         self.resting_mode_bias: str = conf.get(
             CONF_RESTING_MODE_BIAS, DEFAULT_RESTING_MODE_BIAS
         )
         self.heat_lockout_floor: float = conf.get(
-            CONF_HEAT_LOCKOUT_FLOOR, DEFAULT_HEAT_LOCKOUT_FLOOR
+            CONF_HEAT_LOCKOUT_FLOOR, _defaults[CONF_HEAT_LOCKOUT_FLOOR]
         )
         self.cool_lockout_ceiling: float = conf.get(
-            CONF_COOL_LOCKOUT_CEILING, DEFAULT_COOL_LOCKOUT_CEILING
+            CONF_COOL_LOCKOUT_CEILING, _defaults[CONF_COOL_LOCKOUT_CEILING]
         )
         # Optional local-weather seasonal changeover (auto-drives the lockouts).
         self.changeover_entity: str | None = conf.get(CONF_CHANGEOVER_ENTITY) or None
         self.changeover_heat_above: float = conf.get(
-            CONF_CHANGEOVER_HEAT_ABOVE, DEFAULT_CHANGEOVER_HEAT_ABOVE
+            CONF_CHANGEOVER_HEAT_ABOVE, _defaults[CONF_CHANGEOVER_HEAT_ABOVE]
         )
         self.changeover_cool_below: float = conf.get(
-            CONF_CHANGEOVER_COOL_BELOW, DEFAULT_CHANGEOVER_COOL_BELOW
+            CONF_CHANGEOVER_COOL_BELOW, _defaults[CONF_CHANGEOVER_COOL_BELOW]
         )
         # Delta-proportional fan boost (overrides the firmware's weak "auto").
         self.fan_boost_enable: bool = bool(
@@ -190,8 +202,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Helper values (owned by the number/switch/select entities; seeded on
         # restore, mutated on user action). Kill-switch defaults OFF for safety.
-        self.primary_target: float = float(TARGET_DEFAULT)
-        self.secondary_target: float = float(TARGET_DEFAULT)
+        self.primary_target: float = self.target_default
+        self.secondary_target: float = self.target_default
         self.primary_enable: bool = False
         self.secondary_enable: bool = False
         self.coordinator_enable: bool = False
@@ -263,8 +275,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- decision (mirrors sensor.mxz_plan) ---------------------------------
     def _compute(self) -> dict[str, Any]:
         """Recompute the plan dict from current inputs. No side effects."""
-        pt_ok, pt = _read_temp(self.hass.states.get(self.primary_sensor_id))
-        st_ok, st = _read_temp(self.hass.states.get(self.secondary_sensor_id))
+        pt_ok, pt = _read_temp(
+            self.hass.states.get(self.primary_sensor_id), self.target_default
+        )
+        st_ok, st = _read_temp(
+            self.hass.states.get(self.secondary_sensor_id), self.target_default
+        )
 
         common = {
             "eco": self.eco_idle,
@@ -366,10 +382,14 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             act = head_action(engage=engage, mode=state, eco=self.eco_idle)
             low, high = setpoints(
                 mode=state,
-                target=int(target),
+                target=float(target),
                 eco=self.eco_idle,
                 clamp_min=self.clamp_min,
                 clamp_max=self.clamp_max,
+                band=self.setpoint_band,
+                step=self.target_step,
+                eco_cool=self.eco_cool,
+                eco_heat=self.eco_heat,
             )
             await self._apply_head(climate_id, act, low, high)
             await self._apply_fan(climate_id, act, abs(temp - float(target)))
@@ -381,18 +401,27 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.async_update_listeners()  # let the shared-mode select re-render
 
     async def _apply_head(
-        self, climate_id: str, act: str, low: int, high: int
+        self, climate_id: str, act: str, low: float, high: float
     ) -> None:
         """Issue (or skip, if already correct) the command for one head."""
         state = self.hass.states.get(climate_id)
         cur_mode = state.state if state else None
 
         if act in (MODE_COOL, MODE_HEAT):
-            cur_low = _as_int(state.attributes.get("target_temp_low")) if state else None
+            cur_low = _as_float(state.attributes.get("target_temp_low")) if state else None
             cur_high = (
-                _as_int(state.attributes.get("target_temp_high")) if state else None
+                _as_float(state.attributes.get("target_temp_high")) if state else None
             )
-            if cur_mode == act and cur_low == low and cur_high == high:
+            # Within half a step counts as already-set (avoids float noise +
+            # keeps 0.5° °C setpoints from colliding under int truncation).
+            tol = self.target_step / 2
+            if (
+                cur_mode == act
+                and cur_low is not None
+                and cur_high is not None
+                and abs(cur_low - low) < tol
+                and abs(cur_high - high) < tol
+            ):
                 return  # idempotent
             await self.hass.services.async_call(
                 "climate",
@@ -436,8 +465,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             idx = fan_for_delta(
                 delta=delta,
                 cur_idx=self._fan_idx.get(climate_id, 0),
-                up_at=FAN_BOOST_UP_AT,
-                down_at=FAN_BOOST_DOWN_AT,
+                up_at=self.fan_up_at,
+                down_at=self.fan_down_at,
                 max_idx=max_idx,
             )
             self._fan_idx[climate_id] = idx
@@ -646,9 +675,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
 
-def _as_int(value: Any) -> int | None:
-    """Best-effort int() of a state attribute for idempotency comparison."""
+def _as_float(value: Any) -> float | None:
+    """Best-effort float() of a state attribute for idempotency comparison."""
     try:
-        return int(float(value))
+        return float(value)
     except (ValueError, TypeError):
         return None

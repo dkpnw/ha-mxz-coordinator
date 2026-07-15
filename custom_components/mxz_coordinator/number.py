@@ -4,16 +4,10 @@ from __future__ import annotations
 
 from homeassistant.components.number import NumberMode, RestoreNumber
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import (
-    KEY_PRIMARY_TARGET,
-    KEY_SECONDARY_TARGET,
-    TARGET_DEFAULT,
-    TARGET_STEP,
-)
+from .const import KEY_PRIMARY_TARGET, KEY_SECONDARY_TARGET
 from .coordinator import MXZCoordinator
 from .entity import MXZEntity
 
@@ -36,20 +30,20 @@ async def async_setup_entry(
 class MXZTargetNumber(MXZEntity, RestoreNumber):
     """A restorable comfort-target setpoint, bounded to the firmware band."""
 
-    _attr_native_step = float(TARGET_STEP)
-    _attr_native_unit_of_measurement = UnitOfTemperature.FAHRENHEIT
     _attr_mode = NumberMode.BOX
     _attr_icon = "mdi:thermostat"
 
     def __init__(self, coordinator: MXZCoordinator, key: str, *, primary: bool) -> None:
         super().__init__(coordinator, key)
         self._primary = primary
-        # Match the climate tile: bound the target to the firmware operating
-        # band [clamp_min, clamp_max] so the slider can't request the
-        # unreachable, and the tile (same bounds) can set the full range.
+        # Track the HA system temperature unit + resolution (°F: whole degrees;
+        # °C: 0.5° steps). Match the climate tile: bound the target to the
+        # firmware operating band [clamp_min, clamp_max].
+        self._attr_native_unit_of_measurement = coordinator.temp_unit
+        self._attr_native_step = coordinator.target_step
         self._attr_native_min_value = float(coordinator.clamp_min)
         self._attr_native_max_value = float(coordinator.clamp_max)
-        self._attr_native_value = float(TARGET_DEFAULT)
+        self._attr_native_value = coordinator.target_default
 
     async def async_added_to_hass(self) -> None:
         """Restore the last setpoint and seed the coordinator."""

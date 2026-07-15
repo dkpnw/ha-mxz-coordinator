@@ -97,6 +97,62 @@ ECO_COOL_LOW = 76
 ECO_HEAT_HIGH = 61
 ECO_HEAT_LOW = 59
 
+# --- Unit profiles -----------------------------------------------------------
+# The coordinator operates entirely in the Home Assistant SYSTEM temperature
+# unit (room sensors and head setpoints already arrive in that unit). The
+# decision math in logic.py is pure-numeric, so the only unit-dependent things
+# are DEFAULT tunables, the setpoint band width, the eco edges, the target
+# default, and the display resolution. A °F system is byte-for-byte unchanged
+# (the °F profile reproduces every legacy DEFAULT_*); a °C system gets clean
+# round metric values and 0.5° resolution instead of nonsensical °F numbers.
+_UNIT_PROFILE_FAHRENHEIT = {
+    "target_default": float(TARGET_DEFAULT),  # 70 °F
+    "target_step": 1.0,
+    "setpoint_band": 2.0,  # cool -> (t-2, t); heat -> (t, t+2)
+    "eco_cool": (float(ECO_COOL_LOW), float(ECO_COOL_HIGH)),  # (76, 78)
+    "eco_heat": (float(ECO_HEAT_LOW), float(ECO_HEAT_HIGH)),  # (59, 61)
+    "fan_up_at": FAN_BOOST_UP_AT,  # (1, 2, 3, 4) °F off-target
+    "fan_down_at": FAN_BOOST_DOWN_AT,  # (0.5, 1.5, 2.5, 3.5) °F hysteresis
+    "defaults": {
+        CONF_DEMAND_THRESHOLD: DEFAULT_DEMAND_THRESHOLD,
+        CONF_ENGAGE_DEADBAND: DEFAULT_ENGAGE_DEADBAND,
+        CONF_ECO_COOL_MAX: DEFAULT_ECO_COOL_MAX,
+        CONF_ECO_HEAT_MIN: DEFAULT_ECO_HEAT_MIN,
+        CONF_CLAMP_MIN: DEFAULT_CLAMP_MIN,
+        CONF_CLAMP_MAX: DEFAULT_CLAMP_MAX,
+        CONF_HEAT_LOCKOUT_FLOOR: DEFAULT_HEAT_LOCKOUT_FLOOR,
+        CONF_COOL_LOCKOUT_CEILING: DEFAULT_COOL_LOCKOUT_CEILING,
+        CONF_CHANGEOVER_HEAT_ABOVE: DEFAULT_CHANGEOVER_HEAT_ABOVE,
+        CONF_CHANGEOVER_COOL_BELOW: DEFAULT_CHANGEOVER_COOL_BELOW,
+    },
+}
+_UNIT_PROFILE_CELSIUS = {
+    "target_default": 21.0,  # ~70 °F
+    "target_step": 0.5,  # mini-splits accept 0.5 °C steps
+    "setpoint_band": 1.0,  # cool -> (t-1, t); heat -> (t, t+1)
+    "eco_cool": (24.0, 26.0),
+    "eco_heat": (15.0, 16.0),
+    "fan_up_at": (0.5, 1.0, 1.5, 2.0),  # °C off-target
+    "fan_down_at": (0.25, 0.75, 1.25, 1.75),  # °C hysteresis
+    "defaults": {
+        CONF_DEMAND_THRESHOLD: 1.5,
+        CONF_ENGAGE_DEADBAND: 0.5,
+        CONF_ECO_COOL_MAX: 26.0,
+        CONF_ECO_HEAT_MIN: 10.0,
+        CONF_CLAMP_MIN: 15,
+        CONF_CLAMP_MAX: 31,
+        CONF_HEAT_LOCKOUT_FLOOR: 14.0,
+        CONF_COOL_LOCKOUT_CEILING: 27.0,
+        CONF_CHANGEOVER_HEAT_ABOVE: 20.0,
+        CONF_CHANGEOVER_COOL_BELOW: 10.0,
+    },
+}
+
+
+def unit_profile(celsius: bool) -> dict:
+    """Return the tunable/resolution profile for the HA system temperature unit."""
+    return _UNIT_PROFILE_CELSIUS if celsius else _UNIT_PROFILE_FAHRENHEIT
+
 # Heartbeat / drift re-assert interval (time_pattern "/15" in the YAML)
 HEARTBEAT_MINUTES = 15
 

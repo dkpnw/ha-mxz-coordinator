@@ -31,21 +31,21 @@
     "step": {
       "init": {
         "title": "MXZ Coordinator tuning",
-        "description": "Thresholds ported from the YAML package. Defaults match the validated values.",
+        "description": "All temperatures are in your Home Assistant unit (°C or °F); the defaults adapt to it.",
         "data": {
-          "demand_threshold": "Demand threshold S (°F off-target before the shared mode may flip)",
-          "engage_deadband": "Engage deadband D (°F off-target before a head actively runs)",
+          "demand_threshold": "Demand threshold S (° off-target before the shared mode may flip)",
+          "engage_deadband": "Engage deadband D (° off-target before a head actively runs)",
           "mode_hysteresis": "Mode hysteresis (seconds minimum dwell before a heat↔cool flip)",
-          "eco_cool_max": "Eco cool extreme (°F)",
-          "eco_heat_min": "Eco heat extreme (°F)",
-          "clamp_min": "Firmware minimum setpoint (°F)",
-          "clamp_max": "Firmware maximum setpoint (°F)",
+          "eco_cool_max": "Eco cool extreme (°)",
+          "eco_heat_min": "Eco heat extreme (°)",
+          "clamp_min": "Firmware minimum setpoint (°)",
+          "clamp_max": "Firmware maximum setpoint (°)",
           "resting_mode_bias": "Resting mode when no room is calling",
-          "heat_lockout_floor": "Heat-lockout safety floor (°F — heat below this even when locked out)",
-          "cool_lockout_ceiling": "Cool-lockout safety ceiling (°F — cool above this even when locked out)",
+          "heat_lockout_floor": "Heat-lockout safety floor (° — heat below this even when locked out)",
+          "cool_lockout_ceiling": "Cool-lockout safety ceiling (° — cool above this even when locked out)",
           "changeover_entity": "Seasonal changeover weather/temperature entity (optional — auto-drives the lockouts from local weather)",
-          "changeover_heat_above": "Heat-lockout when forecast daily high ≥ (°F)",
-          "changeover_cool_below": "Cool-lockout when forecast daily high ≤ (°F)",
+          "changeover_heat_above": "Heat-lockout when forecast daily high ≥ (°)",
+          "changeover_cool_below": "Cool-lockout when forecast daily high ≤ (°)",
           "fan_boost_enable": "Fan boost: drive fan speed by how far the room is from target",
           "fan_boost_max": "Fan boost maximum speed"
         }

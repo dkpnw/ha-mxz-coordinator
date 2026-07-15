@@ -135,17 +135,39 @@ def shared_mode(
 
 
 def setpoints(
-    *, mode: str, target: int, eco: bool, clamp_min: int, clamp_max: int
-) -> tuple[int, int]:
-    """Return (low, high) setpoint edges, clamped. Mirrors the actuator's edge math."""
+    *,
+    mode: str,
+    target: float,
+    eco: bool,
+    clamp_min: float,
+    clamp_max: float,
+    band: float = 2.0,
+    step: float = 1.0,
+    eco_cool: tuple[float, float] = (float(ECO_COOL_LOW), float(ECO_COOL_HIGH)),
+    eco_heat: tuple[float, float] = (float(ECO_HEAT_LOW), float(ECO_HEAT_HIGH)),
+) -> tuple[float, float]:
+    """Return (low, high) setpoint edges, clamped. Mirrors the actuator's edge math.
+
+    Unit-agnostic: ``band``/``step``/``eco_*`` carry the temperature unit. The
+    defaults reproduce the original °F behavior (2° band, whole-degree steps,
+    76/78 & 59/61 eco edges); a °C caller passes a 1° band, 0.5° step, and metric
+    eco edges. Edges are rounded to ``step`` and clamped to [clamp_min, clamp_max].
+    """
     if eco:
-        if mode == MODE_COOL:
-            return (ECO_COOL_LOW, ECO_COOL_HIGH)
-        return (ECO_HEAT_LOW, ECO_HEAT_HIGH)
+        return eco_cool if mode == MODE_COOL else eco_heat
     tc = max(min(target, clamp_max), clamp_min)
     if mode == MODE_COOL:
-        return (max(tc - 2, clamp_min), tc)
-    return (tc, min(tc + 2, clamp_max))
+        low, high = max(tc - band, clamp_min), tc
+    else:
+        low, high = tc, min(tc + band, clamp_max)
+    return (_round_to(low, step), _round_to(high, step))
+
+
+def _round_to(value: float, step: float) -> float:
+    """Round ``value`` to the nearest multiple of ``step`` (step<=0 -> unchanged)."""
+    if step <= 0:
+        return value
+    return round(value / step) * step
 
 
 def fan_for_delta(

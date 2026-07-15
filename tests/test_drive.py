@@ -23,7 +23,10 @@ from homeassistant.const import UnitOfTemperature  # noqa: E402
 from homeassistant.core import HomeAssistant  # noqa: E402
 from homeassistant.helpers import entity_registry as er  # noqa: E402
 from homeassistant.setup import async_setup_component  # noqa: E402
-from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM  # noqa: E402
+from homeassistant.util.unit_system import (  # noqa: E402
+    METRIC_SYSTEM,
+    US_CUSTOMARY_SYSTEM,
+)
 from pytest_homeassistant_custom_component.common import (  # noqa: E402
     MockConfigEntry,
     MockModule,
@@ -88,9 +91,17 @@ class MockHead(ClimateEntity):
         self.async_write_ha_state()
 
 
-async def _setup_mock_heads(hass: HomeAssistant) -> tuple[str, str]:
+class MockHeadC(MockHead):
+    """A metric head: reports/accepts °C (matches a Celsius HA system)."""
+
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+
+
+async def _setup_mock_heads(
+    hass: HomeAssistant, *, cls: type[MockHead] = MockHead
+) -> tuple[str, str]:
     """Register two mock climate heads and return their entity_ids."""
-    heads = [MockHead("a"), MockHead("b")]
+    heads = [cls("a"), cls("b")]
 
     async def _async_setup_platform(
         hass, config, async_add_entities, discovery_info=None  # noqa: ANN001
@@ -409,3 +420,67 @@ async def test_fan_boost_disabled_leaves_fan_alone(hass: HomeAssistant) -> None:
     assert a.state == "cool"
     assert a.attributes["fan_mode"] == "auto"  # untouched -> stays at the default
     print("FAN-BOOST disabled: fan stayed 'auto' despite a 5F delta")
+
+
+async def test_coordinator_drives_heads_metric(hass: HomeAssistant) -> None:
+    """On a °C system the coordinator adopts metric defaults and drives °C setpoints."""
+    hass.config.units = METRIC_SYSTEM
+
+    head_a, head_b = await _setup_mock_heads(hass, cls=MockHeadC)
+    await _set_temp(hass, SENSOR_A, 21)
+    await _set_temp(hass, SENSOR_B, 21)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MXZ Coordinator",
+        data={
+            CONF_PRIMARY_CLIMATE: head_a,
+            CONF_SECONDARY_CLIMATE: head_b,
+            CONF_PRIMARY_SENSOR: SENSOR_A,
+            CONF_SECONDARY_SENSOR: SENSOR_B,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # The coordinator resolved the metric profile, not the °F legacy defaults.
+    coord = entry.runtime_data
+    assert coord.celsius is True
+    assert coord.target_default == 21.0
+    assert coord.target_step == 0.5
+    assert coord.clamp_min == 15.0
+    assert coord.clamp_max == 31.0
+    assert coord.demand_threshold == 1.5
+    # The number/climate entities report °C.
+    tgt = hass.states.get(_eid(hass, entry, "_primary_target"))
+    assert tgt.attributes["unit_of_measurement"] == UnitOfTemperature.CELSIUS
+
+    for suffix in ("_primary_enable", "_secondary_enable", "_coordinator_enable"):
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": _eid(hass, entry, suffix)}, blocking=True
+        )
+    await hass.async_block_till_done()
+
+    # Primary 24 (hot vs the 21 default target -> COOL); band=1 -> (20, 21).
+    await _set_temp(hass, SENSOR_A, 24)
+    await _set_temp(hass, SENSOR_B, 21)
+    await _recompute(hass, entry)
+    a = hass.states.get(head_a)
+    b = hass.states.get(head_b)
+    print(f"\nMETRIC S1 primary={a.state} low={a.attributes.get('target_temp_low')} "
+          f"high={a.attributes.get('target_temp_high')} | secondary={b.state}")
+    assert a.state == "cool"
+    assert a.attributes["target_temp_high"] == 21.0  # high = target
+    assert a.attributes["target_temp_low"] == 20.0  # low = target - 1 (metric band)
+    assert b.state == "fan_only"  # satisfied idles, no starvation
+
+    # 0.5° resolution: target 21.5, room 25 -> cool band -> (20.5, 21.5).
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 21.5)
+    await _set_temp(hass, SENSOR_A, 25)
+    await _recompute(hass, entry)
+    a = hass.states.get(head_a)
+    print(f"METRIC S2 half-step low={a.attributes.get('target_temp_low')} "
+          f"high={a.attributes.get('target_temp_high')}")
+    assert a.attributes["target_temp_low"] == 20.5
+    assert a.attributes["target_temp_high"] == 21.5

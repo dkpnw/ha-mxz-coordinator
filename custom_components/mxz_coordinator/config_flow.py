@@ -11,6 +11,7 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlow,
 )
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 
@@ -56,6 +57,7 @@ from .const import (
     DOMAIN,
     FAN_LADDER,
     RESTING_BIAS_OPTIONS,
+    unit_profile,
 )
 
 _CLIMATE_SELECTOR = selector.EntitySelector(
@@ -85,7 +87,7 @@ def _user_schema() -> vol.Schema:
     )
 
 
-def _options_schema(current: dict[str, Any]) -> vol.Schema:
+def _options_schema(current: dict[str, Any], celsius: bool) -> vol.Schema:
     def _num() -> selector.NumberSelector:
         return selector.NumberSelector(
             selector.NumberSelectorConfig(
@@ -93,39 +95,45 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
             )
         )
 
+    # Unset temperature tunables fall back to the system-unit profile (clean
+    # metric values on a °C system, the legacy °F values otherwise); an
+    # already-saved value always wins. Non-temperature keys aren't in the
+    # profile, so they fall through to their plain DEFAULT_* below.
+    eff = {**unit_profile(celsius)["defaults"], **current}
+
     return vol.Schema(
         {
             vol.Optional(
                 CONF_DEMAND_THRESHOLD,
-                default=current.get(CONF_DEMAND_THRESHOLD, DEFAULT_DEMAND_THRESHOLD),
+                default=eff.get(CONF_DEMAND_THRESHOLD, DEFAULT_DEMAND_THRESHOLD),
             ): _num(),
             vol.Optional(
                 CONF_ENGAGE_DEADBAND,
-                default=current.get(CONF_ENGAGE_DEADBAND, DEFAULT_ENGAGE_DEADBAND),
+                default=eff.get(CONF_ENGAGE_DEADBAND, DEFAULT_ENGAGE_DEADBAND),
             ): _num(),
             vol.Optional(
                 CONF_MODE_HYSTERESIS,
-                default=current.get(CONF_MODE_HYSTERESIS, DEFAULT_MODE_HYSTERESIS),
+                default=eff.get(CONF_MODE_HYSTERESIS, DEFAULT_MODE_HYSTERESIS),
             ): _num(),
             vol.Optional(
                 CONF_ECO_COOL_MAX,
-                default=current.get(CONF_ECO_COOL_MAX, DEFAULT_ECO_COOL_MAX),
+                default=eff.get(CONF_ECO_COOL_MAX, DEFAULT_ECO_COOL_MAX),
             ): _num(),
             vol.Optional(
                 CONF_ECO_HEAT_MIN,
-                default=current.get(CONF_ECO_HEAT_MIN, DEFAULT_ECO_HEAT_MIN),
+                default=eff.get(CONF_ECO_HEAT_MIN, DEFAULT_ECO_HEAT_MIN),
             ): _num(),
             vol.Optional(
                 CONF_CLAMP_MIN,
-                default=current.get(CONF_CLAMP_MIN, DEFAULT_CLAMP_MIN),
+                default=eff.get(CONF_CLAMP_MIN, DEFAULT_CLAMP_MIN),
             ): _num(),
             vol.Optional(
                 CONF_CLAMP_MAX,
-                default=current.get(CONF_CLAMP_MAX, DEFAULT_CLAMP_MAX),
+                default=eff.get(CONF_CLAMP_MAX, DEFAULT_CLAMP_MAX),
             ): _num(),
             vol.Optional(
                 CONF_RESTING_MODE_BIAS,
-                default=current.get(
+                default=eff.get(
                     CONF_RESTING_MODE_BIAS, DEFAULT_RESTING_MODE_BIAS
                 ),
             ): selector.SelectSelector(
@@ -137,43 +145,43 @@ def _options_schema(current: dict[str, Any]) -> vol.Schema:
             ),
             vol.Optional(
                 CONF_HEAT_LOCKOUT_FLOOR,
-                default=current.get(
+                default=eff.get(
                     CONF_HEAT_LOCKOUT_FLOOR, DEFAULT_HEAT_LOCKOUT_FLOOR
                 ),
             ): _num(),
             vol.Optional(
                 CONF_COOL_LOCKOUT_CEILING,
-                default=current.get(
+                default=eff.get(
                     CONF_COOL_LOCKOUT_CEILING, DEFAULT_COOL_LOCKOUT_CEILING
                 ),
             ): _num(),
             vol.Optional(
                 CONF_CHANGEOVER_ENTITY,
-                description={"suggested_value": current.get(CONF_CHANGEOVER_ENTITY)},
+                description={"suggested_value": eff.get(CONF_CHANGEOVER_ENTITY)},
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain=["weather", "sensor"])
             ),
             vol.Optional(
                 CONF_CHANGEOVER_HEAT_ABOVE,
-                default=current.get(
+                default=eff.get(
                     CONF_CHANGEOVER_HEAT_ABOVE, DEFAULT_CHANGEOVER_HEAT_ABOVE
                 ),
             ): _num(),
             vol.Optional(
                 CONF_CHANGEOVER_COOL_BELOW,
-                default=current.get(
+                default=eff.get(
                     CONF_CHANGEOVER_COOL_BELOW, DEFAULT_CHANGEOVER_COOL_BELOW
                 ),
             ): _num(),
             vol.Optional(
                 CONF_FAN_BOOST_ENABLE,
-                default=current.get(
+                default=eff.get(
                     CONF_FAN_BOOST_ENABLE, DEFAULT_FAN_BOOST_ENABLE
                 ),
             ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_FAN_BOOST_MAX,
-                default=current.get(CONF_FAN_BOOST_MAX, DEFAULT_FAN_BOOST_MAX),
+                default=eff.get(CONF_FAN_BOOST_MAX, DEFAULT_FAN_BOOST_MAX),
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=list(FAN_LADDER),
@@ -238,6 +246,9 @@ class MXZOptionsFlow(OptionsFlow):
             )
             return self.async_create_entry(title="", data=merged)
         current = {**self.config_entry.data, **self.config_entry.options}
+        celsius = (
+            self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+        )
         return self.async_show_form(
-            step_id="init", data_schema=_options_schema(current)
+            step_id="init", data_schema=_options_schema(current, celsius)
         )

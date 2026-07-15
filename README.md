@@ -127,6 +127,15 @@ legacy package ([`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml)
 > The thresholds (3 °F demand, 1 °F engage, 600 s hysteresis, `[59,88]` clamp) are the integration's
 > **option defaults** (editable via its *Configure* dialog) and are marked inline in the legacy package.
 
+### Units (°C and °F)
+
+The integration works in **your Home Assistant temperature unit** — no configuration needed. On a
+metric (°C) system it adopts clean metric defaults (1.5° demand, 0.5° engage, `[15, 31] °C` clamp,
+20/10 °C changeover, 21 °C target default) and **0.5° setpoint resolution**; on a °F system it uses the
+values shown throughout this README (the °F examples above are just that — examples). Room sensors and
+head setpoints are read/written in the system unit, so nothing is hard-coded to Fahrenheit. *(New in
+v2.8.0 — earlier versions assumed °F.)*
+
 ---
 
 ## Install
@@ -218,8 +227,8 @@ the raw `cool`/`heat`/`fan_only` firmware tile. It's a thin facade over the room
 and `switch.*_enable` entities; the coordinator stays the sole writer to your real heads. Expose only
 these `climate.*` thermostats (not the raw heads) to avoid two fighting tiles per room. The tile's
 **fan** passes through to the head, its setpoint slider is bounded to the firmware operating band
-(`clamp_min`–`clamp_max`, default 59–88 °F), and optional vane `select` entities, if configured, appear
-as swing modes.
+(`clamp_min`–`clamp_max`, default 59–88 °F / 15–31 °C), and optional vane `select` entities, if
+configured, appear as swing modes.
 
 > **Older setups / the legacy YAML package** got this surface from the
 > [Mitsubishi Climate Proxy](https://github.com/echavet/MitsubishiCN105ESPHome)'s
