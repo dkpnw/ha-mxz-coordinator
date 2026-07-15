@@ -70,7 +70,10 @@ FAN_LADDER = (FAN_QUIET, FAN_LOW, FAN_MEDIUM, FAN_MIDDLE, FAN_HIGH)
 FAN_BOOST_UP_AT = (1.0, 2.0, 3.0, 4.0)
 # up_at - 0.5 hysteresis; leave rung i once delta < down_at[i-1]
 FAN_BOOST_DOWN_AT = (0.5, 1.5, 2.5, 3.5)
-DEFAULT_FAN_BOOST_ENABLE = False
+# ON by default since v2.10.0 (opt-out via the Configure dialog) — it's simply a
+# better experience than the firmware's weak "auto" ramp. An explicitly-saved
+# False in an entry's options is always honored.
+DEFAULT_FAN_BOOST_ENABLE = True
 DEFAULT_FAN_BOOST_MAX = FAN_HIGH
 
 # Resting-mode bias: which shared mode to settle on when NO room is calling.

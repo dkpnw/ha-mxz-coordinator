@@ -482,8 +482,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if state is None:
             return
         modes = state.attributes.get("fan_modes")
-        if modes and token not in modes:
-            return  # unit lacks this token -> skip safely
+        if not modes or token not in modes:
+            return  # head has no fan control, or lacks this token -> skip safely
         if state.attributes.get("fan_mode") == token:
             return  # idempotent
         await self.hass.services.async_call(
