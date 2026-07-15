@@ -175,8 +175,6 @@ full inventory, scannable:
   when satisfied. Max speed configurable; opt out anytime.
 - **Correct Mitsubishi fan ladder** — knows that `middle` is *faster* than `medium` (a real
   CN105 naming trap) and never commands a speed your unit doesn't support.
-- **Vane auto-detection** — vertical/horizontal vane controls are found automatically from
-  each head's own device at setup; no manual picking.
 - **Vane & swing on the tile** — full louvre control from the native thermostat, passed
   through to the head.
 - **Vane kick** — change a vane while the head is off (eco/away) and the coordinator briefly
