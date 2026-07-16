@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "MXZ Coordinator",
-        "description": "Select the two indoor heads on your MXZ outdoor unit and a temperature sensor for each room. The first head is the PRIMARY (it wins a heat-vs-cool standoff). Vane controls are detected automatically. Comfort thresholds, weather-based changeover, and fan boost are set afterward via the integration's Configure button.",
+        "description": "Select the two indoor heads on your MXZ outdoor unit and a temperature sensor for each room. The first head is the PRIMARY (it wins a heat-vs-cool standoff). Vane controls are detected automatically. Every comfort setting follows right here in this flow — pre-filled with sensible defaults.",
         "data": {
           "primary_climate": "Primary indoor head (climate entity)",
           "secondary_climate": "Secondary indoor head (climate entity)",
