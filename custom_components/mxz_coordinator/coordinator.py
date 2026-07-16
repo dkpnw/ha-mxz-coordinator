@@ -272,8 +272,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fan_idx: dict[str, int] = {}  # per-head ladder index (hysteresis state)
 
         # Engage latch (decision state, like _fan_idx): "" = coasting, cool|heat
-        # = actively running to target. Seeded lazily from the head's own mode
-        # on the first compute so an in-flight run resumes across restarts.
+        # = mid-run toward target (the head may still be parked in fan_only by a
+        # shared-mode mismatch; the run resumes when the mode returns). Seeded
+        # lazily from the head's own mode on the first compute so an in-flight
+        # run resumes across restarts.
         self._engage_latch: dict[str, str] = {}
 
         # Vane-kick bookkeeping: heads mid-kick are skipped by _apply so the
@@ -357,7 +359,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- decision (mirrors sensor.mxz_plan) ---------------------------------
     def _compute(self) -> dict[str, Any]:
-        """Recompute the plan dict from current inputs. No side effects.
+        """Recompute the plan dict from current inputs. Commands nothing.
+
+        The one piece of state it touches is the per-zone engage latch
+        (decision memory, like ``_fan_idx``) — seeded on a zone's first
+        compute and advanced with each result.
 
         The plan carries per-zone keys (``{slug}_demand`` / ``{slug}_engage`` /
         ``{slug}_temp``) — zones 0/1 use the primary/secondary slugs, so the

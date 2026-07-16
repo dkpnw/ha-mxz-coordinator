@@ -561,3 +561,107 @@ async def test_engage_latch_runs_to_target_then_coasts(hass: HomeAssistant) -> N
 
     # The neighbor sat at its target the whole time and never got dragged in.
     assert hass.states.get(head_b).state == "fan_only"
+
+
+async def test_engage_latch_survives_shared_mode_flip(hass: HomeAssistant) -> None:
+    """A latched zone parked by a shared-mode flip resumes its run when the mode returns."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 67)
+    await _set_temp(hass, SENSOR_B, 63)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MXZ Coordinator",
+        data={
+            CONF_PRIMARY_CLIMATE: head_a,
+            CONF_SECONDARY_CLIMATE: head_b,
+            CONF_PRIMARY_SENSOR: SENSOR_A,
+            CONF_SECONDARY_SENSOR: SENSOR_B,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    for suffix in ("_primary_enable", "_secondary_enable", "_coordinator_enable"):
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": _eid(hass, entry, suffix)}, blocking=True
+        )
+    await hass.async_block_till_done()
+
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 63)
+    await _set_target(hass, _eid(hass, entry, "_secondary_target"), 63)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "cool"
+    await _set_temp(hass, SENSOR_A, 63.5)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "cool"  # mid-run, latched
+
+    # B goes cold enough to DEMAND heat; hysteresis elapsed -> shared mode flips.
+    await _set_temp(hass, SENSOR_B, 55)
+    entry.runtime_data._last_mode_change_ts = 0.0
+    await _recompute(hass, entry)
+    assert hass.states.get(head_b).state == "heat"
+    # A's run is parked (mode mismatch), but the latch remembers it...
+    assert hass.states.get(head_a).state == "fan_only"
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["primary_engage"] == "cool"
+
+    # ...so when the shared mode returns to cool (B now too warm), A — still at
+    # 63.5, INSIDE the deadband — resumes straight to its target.
+    await _set_temp(hass, SENSOR_B, 67)
+    entry.runtime_data._last_mode_change_ts = 0.0
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "cool"
+
+    # And the run still ends at the target, coasting from there.
+    await _set_temp(hass, SENSOR_A, 63.0)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "fan_only"
+
+
+async def test_target_change_resets_latch(hass: HomeAssistant) -> None:
+    """A target change mid-run: same direction continues seamlessly, a direction
+    change coasts — it never whiplashes into the opposite mode."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 67)
+    await _set_temp(hass, SENSOR_B, 63)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MXZ Coordinator",
+        data={
+            CONF_PRIMARY_CLIMATE: head_a,
+            CONF_SECONDARY_CLIMATE: head_b,
+            CONF_PRIMARY_SENSOR: SENSOR_A,
+            CONF_SECONDARY_SENSOR: SENSOR_B,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    for suffix in ("_primary_enable", "_secondary_enable", "_coordinator_enable"):
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": _eid(hass, entry, suffix)}, blocking=True
+        )
+    await hass.async_block_till_done()
+
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 63)
+    await _set_target(hass, _eid(hass, entry, "_secondary_target"), 63)
+    await _recompute(hass, entry)
+    await _set_temp(hass, SENSOR_A, 63.5)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "cool"  # mid-run, latched
+
+    # Lower the target mid-run: latch resets, re-seeds from the head's own cool
+    # mode, and the run continues seamlessly toward the NEW number.
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 62)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "cool"
+
+    # Raise the target ABOVE the room mid-run: fresh decision, and the stale
+    # cool run disengages to coast — never a whiplash into heat.
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 64)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "fan_only"
