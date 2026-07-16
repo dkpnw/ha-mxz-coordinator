@@ -411,3 +411,51 @@ def test_nzone_all_neutral_rests():
     assert logic.shared_mode(
         demands=[NEUTRAL] * 6, current=HEAT, allowed=True, resting=COOL
     ) == COOL
+
+
+# --- engage latch (run-to-target hysteresis) ------------------------------------
+def latched(temp, target, prior, **kw):
+    return logic.engage_with_latch(
+        prior=prior, band=D, neutral=SAT,
+        temp=temp, target=target, enabled=True, eco=False, sensor_ok=True,
+        eco_cool_max=78.0, eco_heat_min=50.0, **kw,
+    )
+
+
+def test_latch_fresh_needs_full_band():
+    assert latched(63.5, 63, None) == SAT   # within band, not engaged -> coast
+    assert latched(64.5, 63, None) == COOL  # past band -> engage
+
+
+def test_latch_runs_all_the_way_to_target():
+    # engaged-cooling continues INSIDE the band until the target is crossed
+    assert latched(63.5, 63, COOL) == COOL
+    assert latched(63.1, 63, COOL) == COOL
+    assert latched(63.0, 63, COOL) == SAT   # reached -> disengage, coast
+
+
+def test_latch_never_whiplashes_on_overshoot():
+    assert latched(62.5, 63, COOL) == SAT   # overshot past target -> coast, not heat
+    assert latched(63.5, 63, HEAT) == SAT   # mirror
+
+
+def test_latch_heat_mirror():
+    assert latched(62.5, 63, None) == SAT
+    assert latched(61.5, 63, None) == HEAT
+    assert latched(62.9, 63, HEAT) == HEAT  # runs up to target
+    assert latched(63.0, 63, HEAT) == SAT
+
+
+def test_latch_lockout_disengages_mid_run():
+    # heat-lockout flips on while engaged-heating above the floor -> coast
+    assert latched(62.0, 63, HEAT, heat_lockout=True, heat_lockout_floor=58.0) == SAT
+    # but below the safety floor the run continues
+    assert latched(57.0, 63, HEAT, heat_lockout=True, heat_lockout_floor=58.0) == HEAT
+
+
+def test_latch_disable_still_wins():
+    assert logic.engage_with_latch(
+        prior=COOL, band=D, neutral=SAT,
+        temp=70, target=63, enabled=False, eco=False, sensor_ok=True,
+        eco_cool_max=78.0, eco_heat_min=50.0,
+    ) == OFF

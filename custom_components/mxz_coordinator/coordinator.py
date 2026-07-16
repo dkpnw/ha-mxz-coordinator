@@ -93,6 +93,7 @@ from .const import (
     zone_slug,
 )
 from .logic import (
+    engage_with_latch,
     fan_for_delta,
     head_action,
     room_call,
@@ -270,6 +271,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.fan_boost_max: str = conf.get(CONF_FAN_BOOST_MAX, DEFAULT_FAN_BOOST_MAX)
         self._fan_idx: dict[str, int] = {}  # per-head ladder index (hysteresis state)
 
+        # Engage latch (decision state, like _fan_idx): "" = coasting, cool|heat
+        # = actively running to target. Seeded lazily from the head's own mode
+        # on the first compute so an in-flight run resumes across restarts.
+        self._engage_latch: dict[str, str] = {}
+
         # Vane-kick bookkeeping: heads mid-kick are skipped by _apply so the
         # plan doesn't turn them back off while the louvre is still traveling.
         self._vane_kicks: set[str] = set()
@@ -381,10 +387,23 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 sensor_ok=ok, band=self.demand_threshold, neutral=DEMAND_NEUTRAL,
                 **common,
             )
-            engage = room_call(
+            if zone.slug not in self._engage_latch:
+                # First compute for this zone: resume a run the head was
+                # already commanded into (cool/heat survive restarts).
+                head = self.hass.states.get(zone.climate_id)
+                self._engage_latch[zone.slug] = (
+                    head.state
+                    if head is not None and head.state in (MODE_COOL, MODE_HEAT)
+                    else ""
+                )
+            engage = engage_with_latch(
+                prior=self._engage_latch[zone.slug] or None,
                 temp=temp, target=zone.target, enabled=zone.enable,
                 sensor_ok=ok, band=self.engage_deadband, neutral=ENGAGE_SATISFIED,
                 **common,
+            )
+            self._engage_latch[zone.slug] = (
+                engage if engage in (MODE_COOL, MODE_HEAT) else ""
             )
             demands.append(demand)
             engages.append(engage)
@@ -762,6 +781,16 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     # -- entity-driven mutations --------------------------------------------
+    def reset_engage_latch(self, slug: str) -> None:
+        """Forget a zone's engage latch (its target changed -> fresh decision).
+
+        The next compute re-seeds from the head's actual mode, so an in-flight
+        run toward the same direction continues seamlessly to the new target,
+        while a direction change re-evaluates immediately instead of wasting a
+        cycle disengaging a stale latch.
+        """
+        self._engage_latch.pop(slug, None)
+
     async def async_user_changed(self) -> None:
         """A helper entity changed by the user -> recompute + act."""
         await self.async_request_refresh()

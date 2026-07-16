@@ -65,8 +65,9 @@ coordinator.
 - **Per-room enable switches** — turn one room off without touching the others.
 - **Priority-aware standoffs** — when rooms disagree, the highest-priority room wins and the
   other idles; nobody oscillates. A 10-minute hysteresis gates every mode flip.
-- **Engage deadband** — a room within ~1° of target coasts in `fan_only` instead of being
-  dragged along by its neighbor's demand.
+- **Run to target, then coast** — an engaged room conditions all the way to the number you
+  set; only then does the engage deadband take over, coasting in `fan_only` until the room
+  drifts ~1° off again. A satisfied room is never dragged along by its neighbor's demand.
 - **Resting-mode bias** — what the system settles into when nobody's calling: last mode used
   (default), or pinned cool/heat for one-sided climates.
 
@@ -140,8 +141,9 @@ The coordinator is the **sole writer** of the heads, in three parts (Python in
 
 1. **Decide** — `sensor.*_plan`, side-effect-free. Two thresholds: **demand** (default 3 °F
    off-target) before the shared mode may flip, primary wins standoffs, 600 s hysteresis;
-   **engage** (default 1 °F) before a head actively runs — inside it, `fan_only`. Eco/away
-   swaps both for the wide protection extremes.
+   **engage** (default 1 °F) before a head starts running — but once running it goes all the
+   way to its target before coasting in `fan_only` (the deadband gates *re*-engagement,
+   not the approach). Eco/away swaps both for the wide protection extremes.
 2. **Act** — the only component that commands heads. Derives each room's setpoint band from
    its single target (`cool → [target−2, target]`, `heat → [target, target+2]`), clamps to
    the firmware range (default `[59, 88] °F` / `[15, 31] °C`), sends both edges with the

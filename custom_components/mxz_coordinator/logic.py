@@ -68,6 +68,41 @@ def room_call(
     return neutral
 
 
+def engage_with_latch(
+    *,
+    prior: str | None,
+    band: float,
+    neutral: str,
+    **call_kwargs,
+) -> str:
+    """Per-room engage with run-to-target hysteresis.
+
+    The engage deadband exists so a satisfied room COASTS instead of flip-
+    flopping — it was never meant to truncate the approach. Without a latch,
+    a room cooling toward 63 would stop at 64 (target + band) and never reach
+    the number the user actually set.
+
+    * Not engaged (``prior`` is None): a room must drift PAST ``band`` to
+      engage — unchanged behavior.
+    * Engaged (``prior`` is cool|heat): the room runs all the way TO its
+      target (band 0). Crossing the target — or a lockout / eco / disable /
+      sensor dropout, all still evaluated via :func:`room_call` — disengages
+      it back to ``neutral`` to coast until it drifts past ``band`` again.
+    * A direction flip while engaged (overshoot, opened window) never
+      whiplashes: anything other than continuing in ``prior``'s direction
+      disengages to ``neutral`` first.
+
+    Eco mode bypasses the latch entirely (protection extremes are already a
+    wide band; run-to-extreme would defeat their purpose).
+    """
+    if prior in (MODE_COOL, MODE_HEAT) and not call_kwargs.get("eco"):
+        raw = room_call(band=0.0, neutral=neutral, **call_kwargs)
+        if raw == prior or raw == MODE_OFF:
+            return raw
+        return neutral  # target reached / lockout / direction flip -> coast
+    return room_call(band=band, neutral=neutral, **call_kwargs)
+
+
 def season_lockouts(
     *, outdoor_high: float | None, heat_above: float, cool_below: float
 ) -> tuple[bool, bool]:
