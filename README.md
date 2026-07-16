@@ -144,8 +144,10 @@ The coordinator is the **sole writer** of the heads, in three parts (Python in
    swaps both for the wide protection extremes.
 2. **Act** — the only component that commands heads. Derives each room's setpoint band from
    its single target (`cool → [target−2, target]`, `heat → [target, target+2]`), clamps to
-   the firmware range (default `[59, 88] °F` / `[15, 31] °C`), always sends both edges with
-   the mode, never `heat_cool`. Idempotent. Gated on the kill-switch.
+   the firmware range (default `[59, 88] °F` / `[15, 31] °C`), sends both edges with the
+   mode — or the single clamped target for heads whose firmware exposes only one setpoint —
+   never `heat_cool`. Idempotent. Gated on the kill-switch. A head that rejects a command
+   degrades only its own zone; the rest keep running.
 3. **Trigger** — recompute on any decision-relevant change, a 15-min heartbeat, HA start,
    and the `mxz_recompute` event; plus the two self-heal paths.
 

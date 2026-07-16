@@ -44,13 +44,16 @@ class MockSingleSetpointHead(MockHead):
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.FAN_MODE
+        | ClimateEntityFeature.SWING_MODE
         | ClimateEntityFeature.TURN_ON
         | ClimateEntityFeature.TURN_OFF
     )
+    _attr_swing_modes = ["auto"]
 
     def __init__(self, suffix: str) -> None:
         super().__init__(suffix)
         self._attr_target_temperature = 66.0
+        self._attr_swing_mode = "auto"
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         if "target_temp_low" in kwargs or "target_temp_high" in kwargs:
@@ -104,6 +107,8 @@ async def _enable(hass: HomeAssistant, entry) -> None:
 async def test_single_setpoint_head_gets_temperature(hass: HomeAssistant) -> None:
     """A head without RANGE gets a single `temperature`; nothing crashes (#6)."""
     heads = [MockSingleSetpointHead("a"), MockSingleSetpointHead("b")]
+    # Keep the mock honest: exactly the reporter's feature mask.
+    assert int(heads[0].supported_features) == 425
     entry = await _setup(hass, heads)
     await _enable(hass, entry)
 
