@@ -33,7 +33,8 @@
           "changeover_heat_above": "Heat-lockout when forecast daily high ≥ (°)",
           "changeover_cool_below": "Cool-lockout when forecast daily high ≤ (°)",
           "fan_boost_enable": "Fan boost: drive fan speed by how far the room is from target",
-          "fan_boost_max": "Fan boost maximum speed"
+          "fan_boost_max": "Fan boost maximum speed",
+          "coast_offset": "Coast offset (° past the target an engaged room runs before coasting; 0 = stop exactly at target)"
         }
       }
     },
@@ -71,7 +72,8 @@
           "primary_vane_vertical": "Primary vertical vane (auto-detected; override if needed)",
           "primary_vane_horizontal": "Primary horizontal vane (auto-detected; override if needed)",
           "secondary_vane_vertical": "Secondary vertical vane (auto-detected; override if needed)",
-          "secondary_vane_horizontal": "Secondary horizontal vane (auto-detected; override if needed)"
+          "secondary_vane_horizontal": "Secondary horizontal vane (auto-detected; override if needed)",
+          "coast_offset": "Coast offset (° past the target an engaged room runs before coasting; 0 = stop exactly at target)"
         }
       }
     }

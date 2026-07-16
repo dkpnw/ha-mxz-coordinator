@@ -17,6 +17,7 @@ from homeassistant.helpers import entity_registry as er, selector
 
 from .const import (
     CONF_CHANGEOVER_COOL_BELOW,
+    CONF_COAST_OFFSET,
     CONF_CHANGEOVER_ENTITY,
     CONF_CHANGEOVER_HEAT_ABOVE,
     CONF_CLAMP_MAX,
@@ -41,6 +42,7 @@ from .const import (
     CONF_SECONDARY_VANE_HORIZONTAL,
     CONF_SECONDARY_VANE_VERTICAL,
     DEFAULT_CHANGEOVER_COOL_BELOW,
+    DEFAULT_COAST_OFFSET,
     DEFAULT_CHANGEOVER_HEAT_ABOVE,
     DEFAULT_CLAMP_MAX,
     DEFAULT_CLAMP_MIN,
@@ -164,6 +166,10 @@ def _tunables_schema(current: dict[str, Any], celsius: bool) -> vol.Schema:
             vol.Optional(
                 CONF_ENGAGE_DEADBAND,
                 default=eff.get(CONF_ENGAGE_DEADBAND, DEFAULT_ENGAGE_DEADBAND),
+            ): _num(),
+            vol.Optional(
+                CONF_COAST_OFFSET,
+                default=eff.get(CONF_COAST_OFFSET, DEFAULT_COAST_OFFSET),
             ): _num(),
             vol.Optional(
                 CONF_MODE_HYSTERESIS,

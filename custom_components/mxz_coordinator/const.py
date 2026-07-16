@@ -39,6 +39,11 @@ CONF_CHANGEOVER_COOL_BELOW = "changeover_cool_below"
 # Optional delta-proportional "fan boost" (Tesla-style: bigger off-target -> faster fan).
 CONF_FAN_BOOST_ENABLE = "fan_boost_enable"
 CONF_FAN_BOOST_MAX = "fan_boost_max"
+# How far PAST its target an engaged room keeps running before it coasts.
+# 0 = stop exactly at target; positive banks margin (longer coasts, fewer
+# cycles); small negative stops short (clamped to half the engage deadband so
+# a real coast window always remains).
+CONF_COAST_OFFSET = "coast_offset"
 
 # --- Defaults (match packages/mxz_coordinator.yaml exactly) ---
 DEFAULT_DEMAND_THRESHOLD = 3.0  # S — off-target °F before the SHARED MODE may flip
@@ -73,6 +78,7 @@ FAN_BOOST_DOWN_AT = (0.5, 1.5, 2.5, 3.5)
 # ON by default since v2.10.0 (opt-out via the Configure dialog) — it's simply a
 # better experience than the firmware's weak "auto" ramp. An explicitly-saved
 # False in an entry's options is always honored.
+DEFAULT_COAST_OFFSET = 0.0
 DEFAULT_FAN_BOOST_ENABLE = True
 DEFAULT_FAN_BOOST_MAX = FAN_HIGH
 
