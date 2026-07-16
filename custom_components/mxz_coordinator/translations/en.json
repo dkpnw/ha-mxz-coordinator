@@ -12,7 +12,11 @@
           "notify_service": "Drift-alert notifications (optional)"
         },
         "data_description": {
-          "notify_service": "Who to notify when a head is knocked off its coordinated mode and the coordinator puts it back — e.g. notify.mobile_app_phone."
+          "notify_service": "Who to notify when a head is knocked off its coordinated mode and the coordinator puts it back — e.g. notify.mobile_app_phone. Leave empty for no notifications.",
+          "primary_climate": "This room WINS when the two rooms disagree (one wants heat, one wants cool).",
+          "secondary_climate": "The second indoor unit on this outdoor unit.",
+          "primary_sensor": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
+          "secondary_sensor": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle)."
         }
       },
       "tuning": {
@@ -20,7 +24,7 @@
         "description": "Every knob, pre-filled with sensible defaults for your temperature unit — just hit Submit to accept them. You can change any of these later via the integration's Configure button.",
         "data": {
           "demand_threshold": "Demand threshold S (° off-target before the shared mode may flip)",
-          "engage_deadband": "Engage deadband D (° off-target before a head actively runs)",
+          "engage_deadband": "Re-engage drift (how far a coasting room may wander before conditioning resumes)",
           "mode_hysteresis": "Mode hysteresis (seconds minimum dwell before a heat↔cool flip)",
           "eco_cool_max": "Eco cool extreme (°)",
           "eco_heat_min": "Eco heat extreme (°)",
@@ -33,8 +37,24 @@
           "changeover_heat_above": "Heat-lockout when forecast daily high ≥ (°)",
           "changeover_cool_below": "Cool-lockout when forecast daily high ≤ (°)",
           "fan_boost_enable": "Fan boost: drive fan speed by how far the room is from target",
-          "fan_boost_max": "Fan boost maximum speed",
-          "coast_offset": "Coast offset (° past the target an engaged room runs before coasting; 0 = stop exactly at target)"
+          "fan_boost_max": "Fan boost maximum speed"
+        },
+        "data_description": {
+          "demand_threshold": "How far off target a room must be before the whole system may SWITCH between heating and cooling. Bigger = fewer mode changes. Most homes are fine with the default.",
+          "engage_deadband": "After a room reaches its target it coasts with the fan. This is how far it may drift before conditioning kicks back in. Enter a value between 0.5–5 °F (0.25–2.5 °C).",
+          "mode_hysteresis": "Minimum SECONDS between heating↔cooling switches — protects the compressor from rapid cycling. 600 = 10 minutes. Don't lower this unless you know why.",
+          "eco_cool_max": "In away/eco mode the system stays off unless a room gets warmer than this. Think of it as vacation overheat protection.",
+          "eco_heat_min": "In away/eco mode the system stays off unless a room gets colder than this. Vacation freeze protection.",
+          "clamp_min": "The lowest setpoint your indoor units physically accept. Only change if your model's range differs — commands outside it get rejected by the unit.",
+          "clamp_max": "The highest setpoint your indoor units physically accept.",
+          "resting_mode_bias": "When no room needs anything, which mode should the system sit in? 'Last called' is right for most; pin cool or heat if your climate only ever needs one.",
+          "heat_lockout_floor": "Even when heating is locked out for the season, a room colder than this still gets heat. A safety net, not a comfort setting.",
+          "cool_lockout_ceiling": "Even when cooling is locked out for the season, a room hotter than this still gets cooling.",
+          "changeover_entity": "Optional but recommended: pick your weather integration (or an outdoor temperature sensor) and the seasons handle themselves — heating locks out on warm days, cooling on cold ones. No weather entity? Add Home Assistant's built-in Met.no first.",
+          "changeover_heat_above": "When the forecast daily high is at or above this, heating locks out (summer behavior).",
+          "changeover_cool_below": "When the forecast daily high is at or below this, cooling locks out (winter behavior).",
+          "fan_boost_enable": "Ramps the fan harder the further a room is from target, easing off as it arrives — like a car's auto climate. Recommended on.",
+          "fan_boost_max": "The fastest fan speed the boost may use. Lower it if full blast is too loud for a bedroom."
         }
       }
     },
@@ -55,7 +75,7 @@
         "description": "All temperatures are in your Home Assistant unit (°C or °F); the defaults adapt to it.",
         "data": {
           "demand_threshold": "Demand threshold S (° off-target before the shared mode may flip)",
-          "engage_deadband": "Engage deadband D (° off-target before a head actively runs)",
+          "engage_deadband": "Re-engage drift (how far a coasting room may wander before conditioning resumes)",
           "mode_hysteresis": "Mode hysteresis (seconds minimum dwell before a heat↔cool flip)",
           "eco_cool_max": "Eco cool extreme (°)",
           "eco_heat_min": "Eco heat extreme (°)",
@@ -72,8 +92,28 @@
           "primary_vane_vertical": "Primary vertical vane (auto-detected; override if needed)",
           "primary_vane_horizontal": "Primary horizontal vane (auto-detected; override if needed)",
           "secondary_vane_vertical": "Secondary vertical vane (auto-detected; override if needed)",
-          "secondary_vane_horizontal": "Secondary horizontal vane (auto-detected; override if needed)",
-          "coast_offset": "Coast offset (° past the target an engaged room runs before coasting; 0 = stop exactly at target)"
+          "secondary_vane_horizontal": "Secondary horizontal vane (auto-detected; override if needed)"
+        },
+        "data_description": {
+          "demand_threshold": "How far off target a room must be before the whole system may SWITCH between heating and cooling. Bigger = fewer mode changes. Most homes are fine with the default.",
+          "engage_deadband": "After a room reaches its target it coasts with the fan. This is how far it may drift before conditioning kicks back in. Enter a value between 0.5–5 °F (0.25–2.5 °C).",
+          "mode_hysteresis": "Minimum SECONDS between heating↔cooling switches — protects the compressor from rapid cycling. 600 = 10 minutes. Don't lower this unless you know why.",
+          "eco_cool_max": "In away/eco mode the system stays off unless a room gets warmer than this. Think of it as vacation overheat protection.",
+          "eco_heat_min": "In away/eco mode the system stays off unless a room gets colder than this. Vacation freeze protection.",
+          "clamp_min": "The lowest setpoint your indoor units physically accept. Only change if your model's range differs — commands outside it get rejected by the unit.",
+          "clamp_max": "The highest setpoint your indoor units physically accept.",
+          "resting_mode_bias": "When no room needs anything, which mode should the system sit in? 'Last called' is right for most; pin cool or heat if your climate only ever needs one.",
+          "heat_lockout_floor": "Even when heating is locked out for the season, a room colder than this still gets heat. A safety net, not a comfort setting.",
+          "cool_lockout_ceiling": "Even when cooling is locked out for the season, a room hotter than this still gets cooling.",
+          "changeover_entity": "Optional but recommended: pick your weather integration (or an outdoor temperature sensor) and the seasons handle themselves — heating locks out on warm days, cooling on cold ones. No weather entity? Add Home Assistant's built-in Met.no first.",
+          "changeover_heat_above": "When the forecast daily high is at or above this, heating locks out (summer behavior).",
+          "changeover_cool_below": "When the forecast daily high is at or below this, cooling locks out (winter behavior).",
+          "fan_boost_enable": "Ramps the fan harder the further a room is from target, easing off as it arrives — like a car's auto climate. Recommended on.",
+          "fan_boost_max": "The fastest fan speed the boost may use. Lower it if full blast is too loud for a bedroom.",
+          "primary_vane_vertical": "Auto-detected at setup — only change if the detection picked the wrong select entity.",
+          "primary_vane_horizontal": "Auto-detected at setup — only change if the detection picked the wrong select entity.",
+          "secondary_vane_vertical": "Auto-detected at setup — only change if the detection picked the wrong select entity.",
+          "secondary_vane_horizontal": "Auto-detected at setup — only change if the detection picked the wrong select entity."
         }
       }
     }

@@ -473,65 +473,12 @@ def test_latch_metric_band_symmetry():
     assert latched_c(19.6, COOL) == SAT   # overshoot never whiplashes
 
 
-# --- coast offset (configurable run-past-target) --------------------------------
-def latched_coast(temp, target, prior, coast, **kw):
-    return logic.engage_with_latch(
-        prior=prior, band=D, neutral=SAT, coast_past=coast,
-        temp=temp, target=target, enabled=True, eco=False, sensor_ok=True,
-        eco_cool_max=78.0, eco_heat_min=50.0, **kw,
-    )
+# --- re-engage drift is the only coast knob (satisfied AT target) ----------------
+def test_satisfied_exactly_at_target():
+    assert latched(63.0, 63, COOL) == SAT
+    assert latched(63.0, 63, HEAT) == SAT
 
 
-def test_coast_offset_runs_past_target():
-    # coast 0.5: engaged cool keeps running THROUGH the target down to 62.5
-    assert latched_coast(63.0, 63, COOL, 0.5) == COOL
-    assert latched_coast(62.6, 63, COOL, 0.5) == COOL
-    assert latched_coast(62.5, 63, COOL, 0.5) == SAT  # banked the margin -> coast
-
-
-def test_coast_offset_heat_mirror():
-    assert latched_coast(63.0, 63, HEAT, 0.5) == HEAT
-    assert latched_coast(63.5, 63, HEAT, 0.5) == SAT
-
-
-def test_coast_offset_zero_is_run_to_target():
-    assert latched_coast(63.0, 63, COOL, 0.0) == SAT
-    assert latched_coast(63.1, 63, COOL, 0.0) == COOL
-
-
-def test_coast_offset_negative_stops_short():
-    # -0.5 (stop short): engaged cool disengages half a degree above target
-    assert latched_coast(63.6, 63, COOL, -0.5) == COOL
-    assert latched_coast(63.5, 63, COOL, -0.5) == SAT
-
-
-def test_coast_offset_does_not_change_fresh_engage():
-    # re-engagement still requires the full deadband regardless of offset
-    assert latched_coast(63.9, 63, None, 0.5) == SAT
-    assert latched_coast(64.1, 63, None, 0.5) == COOL
-
-
-def test_coast_offset_overshoot_never_whiplashes():
-    # past the coast point (target - coast) the room coasts, never flips to heat
-    assert latched_coast(62.0, 63, COOL, 0.5) == SAT
-    assert latched_coast(64.0, 63, HEAT, 0.5) == SAT
-
-
-def test_coast_offset_lockouts_stay_absolute():
-    # The shift moves only the target comparison — the lockout floor/ceiling
-    # still gate on the room's ABSOLUTE temperature, mid-coast-past included.
-    # cool-lockout flips on while banking margin below target -> coast
-    assert latched_coast(
-        62.8, 63, COOL, 0.5, cool_lockout=True, cool_lockout_ceiling=80.0
-    ) == SAT
-    # but above the safety ceiling the run continues, offset or not
-    assert latched_coast(
-        81.0, 63, COOL, 0.5, cool_lockout=True, cool_lockout_ceiling=80.0
-    ) == COOL
-    # heat mirror: lockout mid-coast-past -> coast; below the floor -> keep heating
-    assert latched_coast(
-        63.2, 63, HEAT, 0.5, heat_lockout=True, heat_lockout_floor=58.0
-    ) == SAT
-    assert latched_coast(
-        57.0, 63, HEAT, 0.5, heat_lockout=True, heat_lockout_floor=58.0
-    ) == HEAT
+def test_reengage_uses_full_drift_band():
+    assert latched(63.9, 63, None) == SAT   # inside the drift band -> keep coasting
+    assert latched(64.1, 63, None) == COOL  # drifted past it -> resume

@@ -39,11 +39,6 @@ CONF_CHANGEOVER_COOL_BELOW = "changeover_cool_below"
 # Optional delta-proportional "fan boost" (Tesla-style: bigger off-target -> faster fan).
 CONF_FAN_BOOST_ENABLE = "fan_boost_enable"
 CONF_FAN_BOOST_MAX = "fan_boost_max"
-# How far PAST its target an engaged room keeps running before it coasts.
-# 0 = stop exactly at target; positive banks margin (longer coasts, fewer
-# cycles); small negative stops short (clamped to half the engage deadband so
-# a real coast window always remains).
-CONF_COAST_OFFSET = "coast_offset"
 
 # --- Defaults (match packages/mxz_coordinator.yaml exactly) ---
 DEFAULT_DEMAND_THRESHOLD = 3.0  # S — off-target °F before the SHARED MODE may flip
@@ -78,7 +73,6 @@ FAN_BOOST_DOWN_AT = (0.5, 1.5, 2.5, 3.5)
 # ON by default since v2.10.0 (opt-out via the Configure dialog) — it's simply a
 # better experience than the firmware's weak "auto" ramp. An explicitly-saved
 # False in an entry's options is always honored.
-DEFAULT_COAST_OFFSET = 0.0
 DEFAULT_FAN_BOOST_ENABLE = True
 DEFAULT_FAN_BOOST_MAX = FAN_HIGH
 
@@ -122,6 +116,7 @@ _UNIT_PROFILE_FAHRENHEIT = {
     "eco_heat": (float(ECO_HEAT_LOW), float(ECO_HEAT_HIGH)),  # (59, 61)
     "fan_up_at": FAN_BOOST_UP_AT,  # (1, 2, 3, 4) °F off-target
     "fan_down_at": FAN_BOOST_DOWN_AT,  # (0.5, 1.5, 2.5, 3.5) °F hysteresis
+    "engage_bounds": (0.5, 5.0),  # UI + load clamp for the re-engage drift
     "defaults": {
         CONF_DEMAND_THRESHOLD: DEFAULT_DEMAND_THRESHOLD,
         CONF_ENGAGE_DEADBAND: DEFAULT_ENGAGE_DEADBAND,
@@ -143,6 +138,7 @@ _UNIT_PROFILE_CELSIUS = {
     "eco_heat": (15.0, 16.0),
     "fan_up_at": (0.5, 1.0, 1.5, 2.0),  # °C off-target
     "fan_down_at": (0.25, 0.75, 1.25, 1.75),  # °C hysteresis
+    "engage_bounds": (0.25, 2.5),  # UI + load clamp for the re-engage drift
     "defaults": {
         CONF_DEMAND_THRESHOLD: 1.5,
         CONF_ENGAGE_DEADBAND: 0.5,

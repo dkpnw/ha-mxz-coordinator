@@ -36,6 +36,7 @@ from pytest_homeassistant_custom_component.common import (  # noqa: E402
 )
 
 from custom_components.mxz_coordinator.const import (  # noqa: E402
+    CONF_ENGAGE_DEADBAND,
     CONF_FAN_BOOST_ENABLE,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
@@ -670,24 +671,27 @@ async def test_target_change_resets_latch(hass: HomeAssistant) -> None:
     assert hass.states.get(head_a).state == "fan_only"
 
 
-async def test_coast_offset_clamped_to_half_deadband(hass: HomeAssistant) -> None:
-    """A stop-short offset can't collapse the coast window (clamped to -band/2)."""
+async def test_engage_deadband_clamped_to_profile_bounds(hass: HomeAssistant) -> None:
+    """Hand-edited re-engage drift clamps into the sane range (0.5-5 F)."""
     hass.config.units = US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(hass)
     await _set_temp(hass, SENSOR_A, 70)
     await _set_temp(hass, SENSOR_B, 70)
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="MXZ Coordinator",
-        data={
-            CONF_PRIMARY_CLIMATE: head_a,
-            CONF_SECONDARY_CLIMATE: head_b,
-            CONF_PRIMARY_SENSOR: SENSOR_A,
-            CONF_SECONDARY_SENSOR: SENSOR_B,
-            "coast_offset": -5.0,  # absurd stop-short -> clamped to -0.5
-        },
-    )
-    entry.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-    assert entry.runtime_data.coast_offset == -0.5
+    for raw, expected in ((40.0, 5.0), (0.0, 0.5)):
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="MXZ Coordinator",
+            data={
+                CONF_PRIMARY_CLIMATE: head_a,
+                CONF_SECONDARY_CLIMATE: head_b,
+                CONF_PRIMARY_SENSOR: SENSOR_A,
+                CONF_SECONDARY_SENSOR: SENSOR_B,
+                CONF_ENGAGE_DEADBAND: raw,
+            },
+        )
+        entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        assert entry.runtime_data.engage_deadband == expected
+        await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()

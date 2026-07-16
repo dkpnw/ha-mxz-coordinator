@@ -17,7 +17,6 @@ from homeassistant.helpers import entity_registry as er, selector
 
 from .const import (
     CONF_CHANGEOVER_COOL_BELOW,
-    CONF_COAST_OFFSET,
     CONF_CHANGEOVER_ENTITY,
     CONF_CHANGEOVER_HEAT_ABOVE,
     CONF_CLAMP_MAX,
@@ -42,7 +41,6 @@ from .const import (
     CONF_SECONDARY_VANE_HORIZONTAL,
     CONF_SECONDARY_VANE_VERTICAL,
     DEFAULT_CHANGEOVER_COOL_BELOW,
-    DEFAULT_COAST_OFFSET,
     DEFAULT_CHANGEOVER_HEAT_ABOVE,
     DEFAULT_CLAMP_MAX,
     DEFAULT_CLAMP_MIN,
@@ -155,7 +153,9 @@ def _tunables_schema(current: dict[str, Any], celsius: bool) -> vol.Schema:
     # metric values on a °C system, the legacy °F values otherwise); an
     # already-saved value always wins. Non-temperature keys aren't in the
     # profile, so they fall through to their plain DEFAULT_* below.
-    eff = {**unit_profile(celsius)["defaults"], **current}
+    profile = unit_profile(celsius)
+    eff = {**profile["defaults"], **current}
+    engage_min, engage_max = profile["engage_bounds"]
 
     return vol.Schema(
         {
@@ -166,11 +166,14 @@ def _tunables_schema(current: dict[str, Any], celsius: bool) -> vol.Schema:
             vol.Optional(
                 CONF_ENGAGE_DEADBAND,
                 default=eff.get(CONF_ENGAGE_DEADBAND, DEFAULT_ENGAGE_DEADBAND),
-            ): _num(),
-            vol.Optional(
-                CONF_COAST_OFFSET,
-                default=eff.get(CONF_COAST_OFFSET, DEFAULT_COAST_OFFSET),
-            ): _num(),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    mode=selector.NumberSelectorMode.BOX,
+                    min=engage_min,
+                    max=engage_max,
+                    step=engage_min / 2,
+                )
+            ),
             vol.Optional(
                 CONF_MODE_HYSTERESIS,
                 default=eff.get(CONF_MODE_HYSTERESIS, DEFAULT_MODE_HYSTERESIS),
