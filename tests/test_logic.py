@@ -545,3 +545,29 @@ def test_coast_offset_does_not_change_fresh_engage():
     # re-engagement still requires the full deadband regardless of offset
     assert latched_coast(63.9, 63, None, 0.5) == SAT
     assert latched_coast(64.1, 63, None, 0.5) == COOL
+
+
+def test_coast_offset_overshoot_never_whiplashes():
+    # past the coast point (target - coast) the room coasts, never flips to heat
+    assert latched_coast(62.0, 63, COOL, 0.5) == SAT
+    assert latched_coast(64.0, 63, HEAT, 0.5) == SAT
+
+
+def test_coast_offset_lockouts_stay_absolute():
+    # The shift moves only the target comparison — the lockout floor/ceiling
+    # still gate on the room's ABSOLUTE temperature, mid-coast-past included.
+    # cool-lockout flips on while banking margin below target -> coast
+    assert latched_coast(
+        62.8, 63, COOL, 0.5, cool_lockout=True, cool_lockout_ceiling=80.0
+    ) == SAT
+    # but above the safety ceiling the run continues, offset or not
+    assert latched_coast(
+        81.0, 63, COOL, 0.5, cool_lockout=True, cool_lockout_ceiling=80.0
+    ) == COOL
+    # heat mirror: lockout mid-coast-past -> coast; below the floor -> keep heating
+    assert latched_coast(
+        63.2, 63, HEAT, 0.5, heat_lockout=True, heat_lockout_floor=58.0
+    ) == SAT
+    assert latched_coast(
+        57.0, 63, HEAT, 0.5, heat_lockout=True, heat_lockout_floor=58.0
+    ) == HEAT

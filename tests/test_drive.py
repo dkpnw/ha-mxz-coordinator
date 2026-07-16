@@ -36,6 +36,7 @@ from pytest_homeassistant_custom_component.common import (  # noqa: E402
 )
 
 from custom_components.mxz_coordinator.const import (  # noqa: E402
+    CONF_COAST_OFFSET,
     CONF_FAN_BOOST_ENABLE,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
@@ -681,7 +682,7 @@ async def test_coast_offset_clamped_to_half_deadband(hass: HomeAssistant) -> Non
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,
             CONF_SECONDARY_SENSOR: SENSOR_B,
-            "coast_offset": -5.0,  # absurd stop-short -> clamped to -0.5
+            CONF_COAST_OFFSET: -5.0,  # absurd stop-short -> clamped to -0.5
         },
     )
     entry.add_to_hass(hass)

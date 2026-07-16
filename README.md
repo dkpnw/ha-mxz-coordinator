@@ -68,8 +68,11 @@ coordinator.
 - **Run to target, then coast** — an engaged room conditions all the way to the number you
   set; only then does the engage deadband take over, coasting in `fan_only` until the room
   drifts ~1° off again. A configurable **coast offset** can run slightly past the target to
-  bank margin (longer coasts, fewer cycles) or stop short. A satisfied room is never dragged
-  along by its neighbor's demand.
+  bank margin (longer coasts, fewer cycles) or stop short. Note the head is still commanded
+  its unshifted setpoint, so its own thermostat may satisfy at the target first — how much
+  margin a positive offset actually banks depends on the head's internal-sensor bias (they
+  typically read warm while running, which is what makes the overrun possible). A satisfied
+  room is never dragged along by its neighbor's demand.
 - **Resting-mode bias** — what the system settles into when nobody's calling: last mode used
   (default), or pinned cool/heat for one-sided climates.
 
