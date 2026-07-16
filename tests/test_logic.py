@@ -507,3 +507,41 @@ def test_latch_metric_band_symmetry():
     assert latched_c(20.0, COOL) == SAT   # reached -> coast
     assert latched_c(19.7, HEAT) == HEAT  # heat mirror runs up
     assert latched_c(19.6, COOL) == SAT   # overshoot never whiplashes
+
+
+# --- coast offset (configurable run-past-target) --------------------------------
+def latched_coast(temp, target, prior, coast, **kw):
+    return logic.engage_with_latch(
+        prior=prior, band=D, neutral=SAT, coast_past=coast,
+        temp=temp, target=target, enabled=True, eco=False, sensor_ok=True,
+        eco_cool_max=78.0, eco_heat_min=50.0, **kw,
+    )
+
+
+def test_coast_offset_runs_past_target():
+    # coast 0.5: engaged cool keeps running THROUGH the target down to 62.5
+    assert latched_coast(63.0, 63, COOL, 0.5) == COOL
+    assert latched_coast(62.6, 63, COOL, 0.5) == COOL
+    assert latched_coast(62.5, 63, COOL, 0.5) == SAT  # banked the margin -> coast
+
+
+def test_coast_offset_heat_mirror():
+    assert latched_coast(63.0, 63, HEAT, 0.5) == HEAT
+    assert latched_coast(63.5, 63, HEAT, 0.5) == SAT
+
+
+def test_coast_offset_zero_is_run_to_target():
+    assert latched_coast(63.0, 63, COOL, 0.0) == SAT
+    assert latched_coast(63.1, 63, COOL, 0.0) == COOL
+
+
+def test_coast_offset_negative_stops_short():
+    # -0.5 (stop short): engaged cool disengages half a degree above target
+    assert latched_coast(63.6, 63, COOL, -0.5) == COOL
+    assert latched_coast(63.5, 63, COOL, -0.5) == SAT
+
+
+def test_coast_offset_does_not_change_fresh_engage():
+    # re-engagement still requires the full deadband regardless of offset
+    assert latched_coast(63.9, 63, None, 0.5) == SAT
+    assert latched_coast(64.1, 63, None, 0.5) == COOL

@@ -73,6 +73,7 @@ def engage_with_latch(
     prior: str | None,
     band: float,
     neutral: str,
+    coast_past: float = 0.0,
     **call_kwargs,
 ) -> str:
     """Per-room engage with run-to-target hysteresis.
@@ -85,7 +86,7 @@ def engage_with_latch(
     * Not engaged (``prior`` is None): a room must drift PAST ``band`` to
       engage — unchanged behavior.
     * Engaged (``prior`` is cool|heat): the room runs all the way TO its
-      target (band 0). Crossing the target — or a lockout / eco / disable /
+      target (plus ``coast_past``, if configured). Crossing the target — or a lockout / eco / disable /
       sensor dropout, all still evaluated via :func:`room_call` — disengages
       it back to ``neutral`` to coast until it drifts past ``band`` again.
     * A direction flip while engaged (overshoot, opened window) never
@@ -96,6 +97,15 @@ def engage_with_latch(
     wide band; run-to-extreme would defeat their purpose).
     """
     if prior in (MODE_COOL, MODE_HEAT) and not call_kwargs.get("eco"):
+        # Engaged phase: shift the target PAST itself by ``coast_past`` in the
+        # run direction and evaluate with band 0 — the room runs to
+        # target∓coast, a positive offset banks margin, a negative one stops
+        # short. Shifting (instead of a negative band) keeps the two mode
+        # conditions non-overlapping, and the lockout floor/ceiling stay
+        # absolute. The caller clamps the offset so the coast window
+        # (disengage point .. target+band) never collapses.
+        shift = -coast_past if prior == MODE_COOL else coast_past
+        call_kwargs = {**call_kwargs, "target": call_kwargs["target"] + shift}
         raw = room_call(band=0.0, neutral=neutral, **call_kwargs)
         if raw == prior or raw == MODE_OFF:
             return raw
