@@ -256,6 +256,8 @@ async def test_heat_lockout_suppresses_then_floors(hass: HomeAssistant) -> None:
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    # Hysteresis arms at startup now (#6): age the clock so this test's flip is allowed.
+    entry.runtime_data._last_mode_change_ts = 0.0
 
     for suffix in (
         "_primary_enable", "_secondary_enable", "_coordinator_enable", "_heat_lockout",

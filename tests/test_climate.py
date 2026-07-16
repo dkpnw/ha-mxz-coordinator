@@ -323,7 +323,9 @@ async def test_auto_flip_updates_thermostat(hass: HomeAssistant) -> None:
     await _enable(hass, entry, "_primary_enable", "_secondary_enable", "_coordinator_enable")
     prim = _eid(hass, entry, "_primary_thermostat")
 
-    # Cold primary -> wants heat; first flip from the cool resting mode is allowed.
+    # Hysteresis arms at startup now (#6): age the clock so this test's flip is allowed.
+    entry.runtime_data._last_mode_change_ts = 0.0
+    # Cold primary -> wants heat.
     await _set_temp(hass, SENSOR_A, 60)
     await _set_temp(hass, SENSOR_B, 70)
     await _recompute(hass, entry)

@@ -237,6 +237,8 @@ async def test_changeover_end_to_end_head_behavior(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     entry = await _mxz_entry(hass, head_a, head_b, "sensor.outdoor_high")
+    # Hysteresis arms at startup now (#6): age the clock so this test's flip is allowed.
+    entry.runtime_data._last_mode_change_ts = 0.0
 
     # Enable both rooms + the coordinator.
     for suffix in ("_primary_enable", "_secondary_enable", "_coordinator_enable"):

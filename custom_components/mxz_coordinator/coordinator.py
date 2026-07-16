@@ -222,7 +222,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.cool_lockout: bool = False
         self.current_shared_mode: str = MODE_COOL  # restored by the select entity
 
-        self._last_mode_change_ts: float = 0.0  # epoch -> first flip always allowed
+        # Hysteresis is armed from startup: a mode flip must wait out the dwell
+        # even right after setup/restart (#6 — 0.0 made the first flip always
+        # allowed and the plan sensor report a ~56,000-year dwell).
+        self._last_mode_change_ts: float = dt_util.utcnow().timestamp()
         self._unsubs: list[Any] = []
         self._heal_timers: dict[tuple[str, str], Any] = {}
         # Seed data so entities have something to read before the first refresh.
@@ -403,8 +406,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 eco_cool=self.eco_cool,
                 eco_heat=self.eco_heat,
             )
-            await self._apply_head(climate_id, act, low, high)
-            await self._apply_fan(climate_id, act, abs(temp - float(target)))
+            # Per-zone isolation: one head rejecting a command degrades THAT
+            # zone (logged), never the whole coordinator (#6).
+            try:
+                await self._apply_head(climate_id, act, low, high)
+                await self._apply_fan(climate_id, act, abs(temp - float(target)))
+            except HomeAssistantError as err:
+                _LOGGER.error(
+                    "MXZ: applying %s to %s failed (zone degraded, others continue): %s",
+                    act,
+                    climate_id,
+                    err,
+                )
 
         # Stamp the flip only on a real mode change (cool<->heat).
         if state != self.current_shared_mode:
@@ -420,13 +433,34 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cur_mode = state.state if state else None
 
         if act in (MODE_COOL, MODE_HEAT):
+            tol = self.target_step / 2  # half a step = already-set (float noise)
+            features = (
+                int(state.attributes.get("supported_features") or 0) if state else 0
+            )
+            # ClimateEntityFeature.TARGET_TEMPERATURE_RANGE == 2. Heads without
+            # it (single-setpoint — common on MXZ indoor units) reject
+            # target_temp_low/high, so send the one setpoint they accept (#6):
+            # the clamped room target (= high edge in cool, low edge in heat).
+            if not features & 2:
+                setpoint = high if act == MODE_COOL else low
+                cur = _as_float(state.attributes.get("temperature")) if state else None
+                if cur_mode == act and cur is not None and abs(cur - setpoint) < tol:
+                    return  # idempotent
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {
+                        "entity_id": climate_id,
+                        "hvac_mode": act,
+                        "temperature": setpoint,
+                    },
+                    blocking=True,
+                )
+                return
             cur_low = _as_float(state.attributes.get("target_temp_low")) if state else None
             cur_high = (
                 _as_float(state.attributes.get("target_temp_high")) if state else None
             )
-            # Within half a step counts as already-set (avoids float noise +
-            # keeps 0.5° °C setpoints from colliding under int truncation).
-            tol = self.target_step / 2
             if (
                 cur_mode == act
                 and cur_low is not None
