@@ -65,12 +65,9 @@ coordinator.
 - **Per-room enable switches** — turn one room off without touching the others.
 - **Priority-aware standoffs** — when rooms disagree, the highest-priority room wins and the
   other idles; nobody oscillates. A 10-minute hysteresis gates every mode flip.
-- **Run to target, then coast** — an engaged room conditions all the way to the number you
-  set (satisfied means exactly that number), then coasts in `fan_only` until it drifts past
-  the **re-engage drift** (default 1 °F / 0.5 °C). The drift is bounded to 0.5–5 °F
-  (0.25–2.5 °C) — in the dialog and again at load — so a hand-edited value can never
-  collapse the coast window or park a room degrees off target. A satisfied room is never
-  dragged along by its neighbor's demand.
+- **Runs to your number, then coasts** — a room conditions until it hits its target, idles
+  in `fan_only`, and resumes once it drifts past the **re-engage drift** (adjustable,
+  0.5–5 °F / 0.25–2.5 °C). A satisfied room is never dragged along by its neighbor.
 - **Resting-mode bias** — what the system settles into when nobody's calling: last mode used
   (default), or pinned cool/heat for one-sided climates.
 
@@ -144,9 +141,9 @@ The coordinator is the **sole writer** of the heads, in three parts (Python in
 
 1. **Decide** — `sensor.*_plan`, side-effect-free. Two thresholds: **demand** (default 3 °F
    off-target) before the shared mode may flip, primary wins standoffs, 600 s hysteresis;
-   **engage** (default 1 °F) before a head starts running — but once running it goes all the
-   way to its target before coasting in `fan_only` (the deadband gates *re*-engagement,
-   not the approach). Eco/away swaps both for the wide protection extremes.
+   **re-engage drift** (default 1 °F): a running head goes all the way to its target, then
+   coasts in `fan_only` until it drifts this far off. Eco/away swaps both for the wide
+   protection extremes.
 2. **Act** — the only component that commands heads. Derives each room's setpoint band from
    its single target (`cool → [target−2, target]`, `heat → [target, target+2]`), clamps to
    the firmware range (default `[59, 88] °F` / `[15, 31] °C`), sends both edges with the
@@ -177,8 +174,8 @@ changeover); sensors and setpoints are read and written in your HA unit througho
 5. Turn on **Coordinator enable**, set each room's target, enable the rooms. Done.
 
 <p align="center">
-  <img src="images/setup.png" width="48%" alt="Setup: heads, sensors, optional drift alerts" />
-  <img src="images/options.png" width="48%" alt="Tuning: thresholds, eco extremes, clamps, weather changeover" />
+  <img src="images/setup.png" width="48%" alt="Setup: pick your heads and sensors — help text under every field" />
+  <img src="images/options.png" width="48%" alt="Comfort tuning: every option pre-filled, explained in plain language" />
 </p>
 
 Example day/night/away presets: [`examples/presets.yaml`](examples/presets.yaml).
