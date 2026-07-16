@@ -108,7 +108,11 @@ def _detect_vanes(hass: HomeAssistant, climate_id: str) -> dict[str, str]:
 _CONF_HEADS = "heads"
 
 
-def _user_schema(notify_options: list[str]) -> vol.Schema:
+def _user_schema(
+    notify_options: list[str],
+    default_heads: list[str] | None = None,
+    default_notify: str | None = None,
+) -> vol.Schema:
     notify_selector: selector.Selector = (
         selector.SelectSelector(
             selector.SelectSelectorConfig(
@@ -122,10 +126,13 @@ def _user_schema(notify_options: list[str]) -> vol.Schema:
     )
     return vol.Schema(
         {
-            vol.Required(_CONF_HEADS): selector.EntitySelector(
+            vol.Required(_CONF_HEADS, default=default_heads or []): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="climate", multiple=True)
             ),
-            vol.Optional(CONF_NOTIFY_SERVICE): notify_selector,
+            vol.Optional(
+                CONF_NOTIFY_SERVICE,
+                description={"suggested_value": default_notify},
+            ): notify_selector,
         }
     )
 
@@ -372,6 +379,103 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         eff = unit_profile(celsius)["defaults"]
         return self.async_show_form(
             step_id="tuning", data_schema=_tunables_schema(eff)
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Reconfigure the heads / sensors of an existing entry in place (#7).
+
+        Avoids the delete-and-re-add cycle (which also resurrects stale restore
+        state) when a zone's sensor or head was mis-assigned at setup.
+        """
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            heads: list[str] = user_input.get(_CONF_HEADS) or []
+            if len(set(heads)) != len(heads):
+                errors["base"] = "duplicate_heads"
+            elif len(heads) < MIN_ZONES:
+                errors["base"] = "need_two_heads"
+            elif len(heads) > MAX_ZONES:
+                errors["base"] = "too_many_heads"
+            else:
+                uid = "|".join(heads)
+                if any(
+                    e.unique_id == uid and e.entry_id != entry.entry_id
+                    for e in self.hass.config_entries.async_entries(DOMAIN)
+                ):
+                    return self.async_abort(reason="already_configured")
+                self._heads = heads
+                self._notify = user_input.get(CONF_NOTIFY_SERVICE) or None
+                return await self.async_step_reconfigure_sensors()
+
+        current = entry.data.get(CONF_ZONES, [])
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_user_schema(
+                _notify_options(self.hass),
+                default_heads=[z[ZONE_CLIMATE] for z in current],
+                default_notify=entry.data.get(CONF_NOTIFY_SERVICE),
+            ),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure_sensors(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Per-head sensors for reconfigure, prefilled from the existing zones."""
+        entry = self._get_reconfigure_entry()
+        old_by_climate = {
+            z[ZONE_CLIMATE]: z for z in entry.data.get(CONF_ZONES, [])
+        }
+        if user_input is not None:
+            zones: list[dict[str, Any]] = []
+            for i, head in enumerate(self._heads):
+                old = old_by_climate.get(head)
+                if old is not None:
+                    # Unchanged head: keep its name + vane wiring (incl. any
+                    # user overrides), update only the sensor.
+                    zone = dict(old)
+                    zone[ZONE_SENSOR] = user_input[f"sensor_{i + 1}"]
+                else:
+                    vanes = _detect_vanes(self.hass, head)
+                    zone = {
+                        ZONE_NAME: self._head_name(head),
+                        ZONE_CLIMATE: head,
+                        ZONE_SENSOR: user_input[f"sensor_{i + 1}"],
+                        ZONE_VANE_VERTICAL: vanes.get("vertical"),
+                        ZONE_VANE_HORIZONTAL: vanes.get("horizontal"),
+                    }
+                zones.append(zone)
+            data_updates: dict[str, Any] = {CONF_ZONES: zones}
+            if self._notify:
+                data_updates[CONF_NOTIFY_SERVICE] = self._notify
+            return self.async_update_reload_and_abort(
+                entry,
+                data_updates=data_updates,
+                unique_id="|".join(self._heads),
+            )
+
+        # Prefill each slot with the head's current sensor where known.
+        schema_fields = {}
+        for i, head in enumerate(self._heads):
+            old = old_by_climate.get(head)
+            schema_fields[
+                vol.Required(
+                    f"sensor_{i + 1}",
+                    description={
+                        "suggested_value": old.get(ZONE_SENSOR) if old else None
+                    },
+                )
+            ] = _SENSOR_SELECTOR
+        heads_list = "\n".join(
+            f"{i + 1}. {self._head_name(h)}" for i, h in enumerate(self._heads)
+        )
+        return self.async_show_form(
+            step_id="reconfigure_sensors",
+            data_schema=vol.Schema(schema_fields),
+            description_placeholders={"heads": heads_list},
         )
 
     @staticmethod

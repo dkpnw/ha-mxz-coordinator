@@ -46,6 +46,31 @@
           "fan_boost_enable": "Fan boost: drive fan speed by how far the room is from target",
           "fan_boost_max": "Fan boost maximum speed"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure heads",
+        "description": "Adjust which indoor heads this coordinator drives (2–8; ORDER IS PRIORITY — first wins a standoff). Unchanged heads keep their name, vane wiring, and target.",
+        "data": {
+          "heads": "Indoor heads (climate entities, in priority order)",
+          "notify_service": "Drift-alert notifications (optional)"
+        },
+        "data_description": {
+          "notify_service": "Who to notify when a head is knocked off its coordinated mode and the coordinator puts it back — e.g. notify.mobile_app_phone."
+        }
+      },
+      "reconfigure_sensors": {
+        "title": "Room temperature sensors",
+        "description": "Confirm or fix the room temperature sensor for each head, in order:\n\n{heads}",
+        "data": {
+          "sensor_1": "Sensor for head 1",
+          "sensor_2": "Sensor for head 2",
+          "sensor_3": "Sensor for head 3",
+          "sensor_4": "Sensor for head 4",
+          "sensor_5": "Sensor for head 5",
+          "sensor_6": "Sensor for head 6",
+          "sensor_7": "Sensor for head 7",
+          "sensor_8": "Sensor for head 8"
+        }
       }
     },
     "error": {

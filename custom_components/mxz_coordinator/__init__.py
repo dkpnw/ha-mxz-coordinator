@@ -17,6 +17,7 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import entity_registry as er
 
 from .const import (
     CONF_DEMAND_THRESHOLD,
@@ -94,6 +95,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
     coordinator = MXZCoordinator(hass, entry)
     entry.runtime_data = coordinator
 
+    # A reconfigure can shrink the zone list; prune registry entities from
+    # dropped zones so they don't linger as unavailable ghosts.
+    _async_prune_stale_entities(hass, entry, coordinator)
+
     # Build the helper entities first; the coordinator reads their (restored)
     # values, so it must not start applying until they exist. The kill-switch
     # defaults OFF, so the first refresh is a safe no-op regardless.
@@ -129,6 +134,24 @@ def _other_entries_loaded(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
         e.entry_id != entry.entry_id and e.state.recoverable
         for e in hass.config_entries.async_entries(DOMAIN)
     )
+
+
+def _async_prune_stale_entities(
+    hass: HomeAssistant, entry: MXZConfigEntry, coordinator: MXZCoordinator
+) -> None:
+    """Remove registry entities this entry no longer provides (dropped zones)."""
+    valid = {f"{entry.entry_id}_{key}" for key in (
+        "coordinator_enable", "eco_idle", "heat_lockout", "cool_lockout",
+        "shared_mode", "plan",
+    )}
+    for zone in coordinator.zones:
+        for suffix in ("target", "enable", "thermostat"):
+            valid.add(f"{entry.entry_id}_{zone.slug}_{suffix}")
+    registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if entity.unique_id not in valid:
+            _LOGGER.info("Pruning stale entity %s (dropped zone)", entity.entity_id)
+            registry.async_remove(entity.entity_id)
 
 
 def _async_register_recompute_service(hass: HomeAssistant) -> None:

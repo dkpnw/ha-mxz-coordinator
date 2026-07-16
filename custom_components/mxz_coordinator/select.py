@@ -49,8 +49,10 @@ class MXZSharedModeSelect(MXZEntity, SelectEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Restore last mode (resting mode) and seed the coordinator."""
         await super().async_added_to_hass()
-        if (last := await self.async_get_last_state()) is not None and (
-            last.state in _OPTIONS
+        if (
+            (last := await self.async_get_last_state()) is not None
+            and last.state in _OPTIONS
+            and not self._restored_state_is_stale(last)
         ):
             self._attr_current_option = last.state
         self.coordinator.current_shared_mode = self._attr_current_option

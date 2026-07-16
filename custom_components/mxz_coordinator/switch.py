@@ -55,9 +55,16 @@ class MXZBaseSwitch(MXZEntity, SwitchEntity, RestoreEntity):
         self._attr_is_on = False
 
     async def async_added_to_hass(self) -> None:
-        """Restore last state and seed the coordinator."""
+        """Restore last state and seed the coordinator.
+
+        Restores from a PREVIOUS entry incarnation are ignored (#7) — the
+        dangerous case is a deleted entry's kill-switch ON resurrecting onto a
+        freshly re-added entry.
+        """
         await super().async_added_to_hass()
-        if (last := await self.async_get_last_state()) is not None:
+        if (
+            last := await self.async_get_last_state()
+        ) is not None and not self._restored_state_is_stale(last):
             self._attr_is_on = last.state == "on"
         self._seed()
 

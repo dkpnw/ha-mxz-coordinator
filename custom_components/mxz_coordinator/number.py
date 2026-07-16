@@ -55,8 +55,11 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
         a 70 °F default vs a 66 °F room planned heat in July).
         """
         await super().async_added_to_hass()
-        if (last := await self.async_get_last_number_data()) and (
-            last.native_value is not None
+        last_state = await self.async_get_last_state()
+        if (
+            not self._restored_state_is_stale(last_state)
+            and (last := await self.async_get_last_number_data())
+            and last.native_value is not None
         ):
             self._attr_native_value = last.native_value
         elif (seed := self._head_setpoint()) is not None:
