@@ -25,4 +25,8 @@ class MXZEntity(Entity):
             name="MXZ Coordinator",
             manufacturer="MXZ Coordinator",
             model="Multi-zone mini-split coordinator",
+            # "Visit" link on the device page -> the docs, incl. the Removing
+            # section (the device intentionally has no Delete button — the
+            # config entry is the removal handle; see issue #5).
+            configuration_url="https://github.com/dkpnw/ha-mxz-coordinator#removing",
         )

@@ -68,3 +68,16 @@ async def test_kill_switch_blocks_writes(hass: HomeAssistant) -> None:
     await _setup(hass)
     # coordinator_enable defaults OFF -> apply is a no-op
     assert calls == []
+
+
+async def test_device_carries_docs_link(hass: HomeAssistant) -> None:
+    """The service device links to the docs (incl. Removing) via its Visit button."""
+    from homeassistant.helpers import device_registry as dr
+
+    entry = await _setup(hass)
+    device = dr.async_get(hass).async_get_device({(DOMAIN, entry.entry_id)})
+    assert device is not None
+    assert (
+        device.configuration_url
+        == "https://github.com/dkpnw/ha-mxz-coordinator#removing"
+    )
