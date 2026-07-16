@@ -258,6 +258,8 @@ proxy/automation nudges keep working.
 
 ## Credits & prior art
 
+- [@helicopterrun](https://github.com/helicopterrun) — 3-zone hardware validation and
+  relentless, root-caused QA through the v3 beta (#5, #6, #7).
 - [BarrettPalmer/Smart-HVAC-Automation-for-Home-Assistant-Mini-Splits](https://github.com/BarrettPalmer/Smart-HVAC-Automation-for-Home-Assistant-Mini-Splits)
 - [bjrnptrsn/climate_group_helper](https://github.com/bjrnptrsn/climate_group_helper)
 - [bartmachielsen/smart_climate](https://github.com/bartmachielsen/smart_climate)
