@@ -85,6 +85,7 @@ from .const import (
     unit_profile,
 )
 from .logic import (
+    engage_with_latch,
     fan_for_delta,
     head_action,
     room_call,
@@ -203,6 +204,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.fan_boost_max: str = conf.get(CONF_FAN_BOOST_MAX, DEFAULT_FAN_BOOST_MAX)
         self._fan_idx: dict[str, int] = {}  # per-head ladder index (hysteresis state)
 
+        # Engage latch (decision state, like _fan_idx): "" = coasting, cool|heat
+        # = actively running to target. Seeded lazily from the head's own mode
+        # on the first compute so an in-flight run resumes across restarts.
+        self._engage_latch: dict[str, str] = {}
+
         # Vane-kick bookkeeping: heads mid-kick are skipped by _apply so the
         # plan doesn't turn them back off while the louvre is still traveling.
         self._vane_kicks: set[str] = set()
@@ -314,15 +320,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             sensor_ok=st_ok, band=self.demand_threshold, neutral=DEMAND_NEUTRAL,
             **common,
         )
-        p_eng = room_call(
-            temp=pt, target=self.primary_target, enabled=self.primary_enable,
-            sensor_ok=pt_ok, band=self.engage_deadband, neutral=ENGAGE_SATISFIED,
-            **common,
+        p_eng = self._engage(
+            self.primary_climate_id, temp=pt, target=self.primary_target,
+            enabled=self.primary_enable, sensor_ok=pt_ok, common=common,
         )
-        s_eng = room_call(
-            temp=st, target=self.secondary_target, enabled=self.secondary_enable,
-            sensor_ok=st_ok, band=self.engage_deadband, neutral=ENGAGE_SATISFIED,
-            **common,
+        s_eng = self._engage(
+            self.secondary_climate_id, temp=st, target=self.secondary_target,
+            enabled=self.secondary_enable, sensor_ok=st_ok, common=common,
         )
 
         current = (
@@ -361,6 +365,30 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "primary_temp": pt,
             "secondary_temp": st,
         }
+
+    def _engage(
+        self, climate_id: str, *, temp: float, target: float,
+        enabled: bool, sensor_ok: bool, common: dict[str, Any],
+    ) -> str:
+        """Latched engage for one room (run to target; deadband gates re-engage)."""
+        if climate_id not in self._engage_latch:
+            # First compute: resume a run the head was already commanded into
+            # (cool/heat survive restarts).
+            head = self.hass.states.get(climate_id)
+            self._engage_latch[climate_id] = (
+                head.state
+                if head is not None and head.state in (MODE_COOL, MODE_HEAT)
+                else ""
+            )
+        engage = engage_with_latch(
+            prior=self._engage_latch[climate_id] or None,
+            temp=temp, target=target, enabled=enabled, sensor_ok=sensor_ok,
+            band=self.engage_deadband, neutral=ENGAGE_SATISFIED, **common,
+        )
+        self._engage_latch[climate_id] = (
+            engage if engage in (MODE_COOL, MODE_HEAT) else ""
+        )
+        return engage
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Refresh entry point: recompute, then act on the new plan."""
@@ -696,6 +724,16 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self.secondary_enable
 
     # -- entity-driven mutations --------------------------------------------
+    def reset_engage_latch(self, key: str) -> None:
+        """Forget a zone's engage latch (its target changed -> fresh decision).
+
+        The next compute re-seeds from the head's actual mode, so an in-flight
+        run toward the same direction continues seamlessly to the new target,
+        while a direction change re-evaluates immediately instead of wasting a
+        cycle disengaging a stale latch.
+        """
+        self._engage_latch.pop(key, None)
+
     async def async_user_changed(self) -> None:
         """A helper entity changed by the user -> recompute + act."""
         await self.async_request_refresh()

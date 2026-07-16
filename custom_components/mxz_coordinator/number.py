@@ -126,8 +126,9 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
         return min(max(value, self._attr_native_min_value), self._attr_native_max_value)
 
     async def async_set_native_value(self, value: float) -> None:
-        """User changed the target -> persist and recompute."""
+        """User changed the target -> persist, reset the latch, recompute."""
         self._attr_native_value = value
+        self.coordinator.reset_engage_latch(self._climate_id)
         self._seed()
         self.async_write_ha_state()
         await self.coordinator.async_user_changed()

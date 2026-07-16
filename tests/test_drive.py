@@ -511,3 +511,56 @@ async def test_coordinator_drives_heads_metric(hass: HomeAssistant) -> None:
           f"high={a.attributes.get('target_temp_high')}")
     assert a.attributes["target_temp_low"] == 20.5
     assert a.attributes["target_temp_high"] == 21.5
+
+
+async def test_engage_latch_runs_to_target_then_coasts(hass: HomeAssistant) -> None:
+    """The reported scenario: target 67->63 runs ALL the way to 63, then coasts."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 67)
+    await _set_temp(hass, SENSOR_B, 63)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MXZ Coordinator",
+        data={
+            CONF_PRIMARY_CLIMATE: head_a,
+            CONF_SECONDARY_CLIMATE: head_b,
+            CONF_PRIMARY_SENSOR: SENSOR_A,
+            CONF_SECONDARY_SENSOR: SENSOR_B,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    for suffix in ("_primary_enable", "_secondary_enable", "_coordinator_enable"):
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": _eid(hass, entry, suffix)}, blocking=True
+        )
+    await hass.async_block_till_done()
+
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 63)
+    await _set_target(hass, _eid(hass, entry, "_secondary_target"), 63)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "cool"  # 67 vs 63 -> engage
+
+    # Inside the old static band (63 < t <= 64) the run now CONTINUES.
+    await _set_temp(hass, SENSOR_A, 63.5)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "cool"  # would have parked at 64 before
+
+    # Target reached -> coast in fan_only.
+    await _set_temp(hass, SENSOR_A, 63.0)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "fan_only"
+
+    # Drifting inside the band stays coasting; past the band re-engages.
+    await _set_temp(hass, SENSOR_A, 63.8)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "fan_only"
+    await _set_temp(hass, SENSOR_A, 64.5)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "cool"
+
+    # The neighbor sat at its target the whole time and never got dragged in.
+    assert hass.states.get(head_b).state == "fan_only"
