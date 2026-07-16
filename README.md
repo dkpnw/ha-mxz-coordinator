@@ -187,7 +187,7 @@ the two don't fight over the heads.
 Delete the **config entry**, not the device: **Settings → Devices & Services →
 MXZ Coordinator → ⋮ → Delete**. That removes the device, all of its entities, and the
 `recompute` service cleanly — no restart needed. (The device page itself has no Delete
-button by design: the device *is* the config entry.) Then remove the download from HACS —
+button by design: the device *is* the config entry — its **Visit** link brings you here.) Then remove the download from HACS —
 **in that order**; removing from HACS first leaves a broken entry behind.
 
 Your heads keep their last commanded state after removal — if they were parked `off` or
