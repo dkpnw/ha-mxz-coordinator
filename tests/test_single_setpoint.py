@@ -170,3 +170,73 @@ async def test_hysteresis_armed_from_startup(hass: HomeAssistant) -> None:
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert hass.states.get(_eid(hass, entry, "_plan")).state == "heat"
+
+
+async def test_stale_restore_ignored_seed_wins(hass: HomeAssistant) -> None:
+    """A restore from a PREVIOUS entry (older than created_at) is ignored (#7)."""
+    from datetime import timedelta
+
+    from homeassistant.core import State
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import (
+        mock_restore_cache_with_extra_data,
+    )
+
+    heads = [MockSingleSetpointHead("a"), MockSingleSetpointHead("b")]  # setpoint 66
+
+    async def _climate(hass, config, async_add_entities, discovery_info=None):  # noqa: ANN001
+        async_add_entities(heads)
+
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    mock_integration(hass, MockModule("test"))
+    mock_platform(hass, "test.climate", MockPlatform(async_setup_platform=_climate))
+    assert await async_setup_component(hass, "climate", {"climate": {"platform": "test"}})
+    await hass.async_block_till_done()
+    await _set_temp(hass, "sensor.room_a_temp", 70)
+    await _set_temp(hass, "sensor.room_b_temp", 70)
+
+    stale = dt_util.utcnow() - timedelta(days=2)
+    mock_restore_cache_with_extra_data(
+        hass,
+        [
+            (
+                State("number.mxz_coordinator_primary_target", "70.0", last_updated=stale),
+                {
+                    "native_max_value": 88.0, "native_min_value": 59.0,
+                    "native_step": 1.0, "native_unit_of_measurement": "°F",
+                    "native_value": 70.0,
+                },
+            )
+        ],
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MXZ Coordinator",
+        data={
+            CONF_PRIMARY_CLIMATE: heads[0].entity_id,
+            CONF_SECONDARY_CLIMATE: heads[1].entity_id,
+            CONF_PRIMARY_SENSOR: "sensor.room_a_temp",
+            CONF_SECONDARY_SENSOR: "sensor.room_b_temp",
+        },
+    )
+    entry.add_to_hass(hass)  # created NOW -> the cached restore is older
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.primary_target == 66.0  # seeded, not restored
+
+
+async def test_stale_kill_switch_not_resurrected(hass: HomeAssistant) -> None:
+    """A deleted entry's kill-switch ON must not auto-enable a re-added entry."""
+    from datetime import timedelta
+
+    from homeassistant.core import State
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import mock_restore_cache
+
+    stale = dt_util.utcnow() - timedelta(days=2)
+    mock_restore_cache(
+        hass, [State("switch.mxz_coordinator_coordinator_enable", "on", last_updated=stale)]
+    )
+    heads = [MockSingleSetpointHead("a"), MockSingleSetpointHead("b")]
+    entry = await _setup(hass, heads)
+    assert entry.runtime_data.coordinator_enable is False

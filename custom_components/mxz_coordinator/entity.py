@@ -15,6 +15,22 @@ class MXZEntity(Entity):
     _attr_has_entity_name = True
     _attr_should_poll = False
 
+    def _restored_state_is_stale(self, last_state) -> bool:
+        """True if a restored state predates this config entry.
+
+        HA keeps restore data for removed entities ~7 days. When an entry is
+        deleted and re-added, the new entities reuse the old entity ids and
+        would resurrect the PREVIOUS install's values (#7) — stale targets, or
+        worse, a stale kill-switch ON. A restore older than the entry's own
+        creation belongs to a previous incarnation and must be ignored.
+        """
+        created = self.coordinator.config_entry.created_at
+        return (
+            last_state is not None
+            and created is not None
+            and last_state.last_updated < created
+        )
+
     def __init__(self, coordinator: MXZCoordinator, key: str) -> None:
         self.coordinator = coordinator
         entry_id = coordinator.config_entry.entry_id
