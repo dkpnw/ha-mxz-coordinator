@@ -8,6 +8,7 @@ pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.core import HomeAssistant  # noqa: E402
+from homeassistant.helpers import device_registry as dr  # noqa: E402
 from pytest_homeassistant_custom_component.common import MockConfigEntry  # noqa: E402
 
 from custom_components.mxz_coordinator.const import (  # noqa: E402
@@ -72,8 +73,6 @@ async def test_kill_switch_blocks_writes(hass: HomeAssistant) -> None:
 
 async def test_device_carries_docs_link(hass: HomeAssistant) -> None:
     """The service device links to the docs (incl. Removing) via its Visit button."""
-    from homeassistant.helpers import device_registry as dr
-
     entry = await _setup(hass)
     device = dr.async_get(hass).async_get_device({(DOMAIN, entry.entry_id)})
     assert device is not None
