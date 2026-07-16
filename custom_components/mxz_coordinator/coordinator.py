@@ -47,7 +47,6 @@ from .const import (
     CONF_DEMAND_THRESHOLD,
     CONF_ECO_COOL_MAX,
     CONF_ECO_HEAT_MIN,
-    CONF_COAST_OFFSET,
     CONF_ENGAGE_DEADBAND,
     CONF_FAN_BOOST_ENABLE,
     CONF_FAN_BOOST_MAX,
@@ -64,7 +63,6 @@ from .const import (
     CONF_SECONDARY_VANE_HORIZONTAL,
     CONF_SECONDARY_VANE_VERTICAL,
     CONF_ZONES,
-    DEFAULT_COAST_OFFSET,
     DEFAULT_FAN_BOOST_ENABLE,
     DEFAULT_FAN_BOOST_MAX,
     DEFAULT_MODE_HYSTERESIS,
@@ -237,14 +235,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.demand_threshold: float = conf.get(
             CONF_DEMAND_THRESHOLD, _defaults[CONF_DEMAND_THRESHOLD]
         )
-        self.engage_deadband: float = conf.get(
-            CONF_ENGAGE_DEADBAND, _defaults[CONF_ENGAGE_DEADBAND]
-        )
-        # Clamp stop-short offsets to half the deadband so the coast window
-        # (target-coast_offset .. target+deadband) can never collapse.
-        self.coast_offset: float = max(
-            float(conf.get(CONF_COAST_OFFSET, DEFAULT_COAST_OFFSET)),
-            -self.engage_deadband / 2,
+        # Re-engage drift: clamped to the unit profile's sane range so a
+        # hand-edited or legacy value can't collapse the coast window or park
+        # rooms degrees off target. The UI enforces the same bounds.
+        _emin, _emax = self._profile["engage_bounds"]
+        self.engage_deadband: float = min(
+            max(float(conf.get(CONF_ENGAGE_DEADBAND, _defaults[CONF_ENGAGE_DEADBAND])), _emin),
+            _emax,
         )
         self.hysteresis: int = conf.get(CONF_MODE_HYSTERESIS, DEFAULT_MODE_HYSTERESIS)
         self.eco_cool_max: float = conf.get(
@@ -414,7 +411,6 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 prior=self._engage_latch[zone.slug] or None,
                 temp=temp, target=zone.target, enabled=zone.enable,
                 sensor_ok=ok, band=self.engage_deadband, neutral=ENGAGE_SATISFIED,
-                coast_past=self.coast_offset,
                 **common,
             )
             self._engage_latch[zone.slug] = (

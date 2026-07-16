@@ -21,7 +21,6 @@ from .const import (
     CONF_CHANGEOVER_HEAT_ABOVE,
     CONF_CLAMP_MAX,
     CONF_CLAMP_MIN,
-    CONF_COAST_OFFSET,
     CONF_COOL_LOCKOUT_CEILING,
     CONF_DEMAND_THRESHOLD,
     CONF_ECO_COOL_MAX,
@@ -38,7 +37,6 @@ from .const import (
     DEFAULT_CHANGEOVER_HEAT_ABOVE,
     DEFAULT_CLAMP_MAX,
     DEFAULT_CLAMP_MIN,
-    DEFAULT_COAST_OFFSET,
     DEFAULT_COOL_LOCKOUT_CEILING,
     DEFAULT_DEMAND_THRESHOLD,
     DEFAULT_ECO_COOL_MAX,
@@ -169,7 +167,9 @@ def _options_schema(
     # metric values on a °C system, the legacy °F values otherwise); an
     # already-saved value always wins. Non-temperature keys aren't in the
     # profile, so they fall through to their plain DEFAULT_* below.
-    eff = {**unit_profile(celsius)["defaults"], **current}
+    profile = unit_profile(celsius)
+    eff = {**profile["defaults"], **current}
+    engage_min, engage_max = profile["engage_bounds"]
 
     # Vane selects are auto-detected at setup; expose per-zone overrides
     # (suggested_value shows what's currently wired).
@@ -189,10 +189,12 @@ def _options_schema(
             )
         ] = _VANE_SELECTOR
 
-    return _tunables_schema(eff).extend(vane_fields)
+    return _tunables_schema(eff, engage_min, engage_max).extend(vane_fields)
 
 
-def _tunables_schema(eff: dict[str, Any]) -> vol.Schema:
+def _tunables_schema(
+    eff: dict[str, Any], engage_min: float, engage_max: float
+) -> vol.Schema:
     return vol.Schema(
         {
             vol.Optional(
@@ -202,11 +204,14 @@ def _tunables_schema(eff: dict[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_ENGAGE_DEADBAND,
                 default=eff.get(CONF_ENGAGE_DEADBAND, DEFAULT_ENGAGE_DEADBAND),
-            ): _num(),
-            vol.Optional(
-                CONF_COAST_OFFSET,
-                default=eff.get(CONF_COAST_OFFSET, DEFAULT_COAST_OFFSET),
-            ): _num(),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    mode=selector.NumberSelectorMode.BOX,
+                    min=engage_min,
+                    max=engage_max,
+                    step=engage_min / 2,
+                )
+            ),
             vol.Optional(
                 CONF_MODE_HYSTERESIS,
                 default=eff.get(CONF_MODE_HYSTERESIS, DEFAULT_MODE_HYSTERESIS),
@@ -382,9 +387,11 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         celsius = (
             self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
         )
-        eff = unit_profile(celsius)["defaults"]
+        profile = unit_profile(celsius)
+        engage_min, engage_max = profile["engage_bounds"]
         return self.async_show_form(
-            step_id="tuning", data_schema=_tunables_schema(eff)
+            step_id="tuning",
+            data_schema=_tunables_schema(profile["defaults"], engage_min, engage_max),
         )
 
     async def async_step_reconfigure(

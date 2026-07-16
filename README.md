@@ -216,6 +216,32 @@ Your heads keep their last commanded state after removal — if they were parked
 
 ---
 
+### Best practice: give the firmware your room sensor too
+
+The coordinator reads your room sensors — but each head's own control loop still runs on its
+internal thermistor, which reads several degrees warm when the unit is idle. Feed the SAME
+room sensor to the firmware so both layers agree. On CN105/ESPHome that's a `homeassistant`
+sensor bound via `remote_temperature_source`:
+
+```yaml
+sensor:
+  - platform: homeassistant
+    id: remote_temp_ha
+    entity_id: sensor.your_room_temperature   # the same sensor you give the coordinator
+    filters:
+      - lambda: return (x - 32) * (5.0/9.0);  # only if your HA runs °F
+
+climate:
+  - platform: cn105
+    # ...
+    remote_temperature_source: remote_temp_ha
+    remote_temperature_timeout: 30min
+    remote_temperature_keepalive_interval: 20s
+```
+
+The timeout is the safety: if the sensor drops out, the head falls back to its internal
+reading instead of holding a stale number.
+
 ## Gotchas (read before you debug)
 
 - **Per-zone power is shared, not per-head.** Only the lowest-address head reports the real
