@@ -27,6 +27,7 @@ from pytest_homeassistant_custom_component.common import (  # noqa: E402
 )
 
 from custom_components.mxz_coordinator.const import (  # noqa: E402
+    CONF_NOTIFY_SERVICE,
     CONF_ZONES,
     DOMAIN,
     ZONE_CLIMATE,
@@ -168,6 +169,39 @@ async def test_reconfigure_swaps_a_sensor_in_place(hass: HomeAssistant) -> None:
     assert zones[1][ZONE_SENSOR] == "sensor.the_right_one"
     assert zones[0][ZONE_SENSOR] == "sensor.room_0_temp"  # unchanged zone kept
     assert zones[0][ZONE_NAME] == "Zone 1"  # name preserved for unchanged head
+    # Notify left blank in the form -> explicitly cleared (not silently kept).
+    assert entry.data.get(CONF_NOTIFY_SERVICE) is None
+
+
+async def test_reconfigure_reorder_zone_dicts_follow_heads(hass: HomeAssistant) -> None:
+    """Reordering heads moves each zone DICT with its head (name/sensor/vanes),
+    while targets/enables stay with the priority slot — the documented caveat."""
+    heads = [MockSingleSetpointHead("a"), MockSingleSetpointHead("b")]
+    await _platform(hass, heads)
+    entry = await _add_entry(hass, heads)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": entry.entry_id,
+        },
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"heads": [heads[1].entity_id, heads[0].entity_id]}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"sensor_1": "sensor.room_1_temp", "sensor_2": "sensor.room_0_temp"},
+    )
+    assert result["type"] is FlowResultType.ABORT
+    await hass.async_block_till_done()
+    zones = entry.data[CONF_ZONES]
+    # Zone dicts followed their heads: old zone 2 is now priority slot 0.
+    assert zones[0][ZONE_CLIMATE] == heads[1].entity_id
+    assert zones[0][ZONE_NAME] == "Zone 2"
+    assert zones[1][ZONE_NAME] == "Zone 1"
+    assert entry.unique_id == f"{heads[1].entity_id}|{heads[0].entity_id}"
 
 
 async def test_dropped_zone_entities_pruned(hass: HomeAssistant) -> None:

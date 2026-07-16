@@ -49,7 +49,7 @@
       },
       "reconfigure": {
         "title": "Reconfigure heads",
-        "description": "Adjust which indoor heads this coordinator drives (2–8; ORDER IS PRIORITY — first wins a standoff). Unchanged heads keep their name, vane wiring, and target.",
+        "description": "Adjust which indoor heads this coordinator drives (2–8; ORDER IS PRIORITY — first wins a standoff). Heads kept in the SAME position keep their name, vane wiring, and target. If you REORDER heads, targets and enables stay with the priority slot, not the head — re-check each room's target afterwards.",
         "data": {
           "heads": "Indoor heads (climate entities, in priority order)",
           "notify_service": "Drift-alert notifications (optional)"

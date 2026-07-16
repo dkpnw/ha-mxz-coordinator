@@ -448,9 +448,13 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                         ZONE_VANE_HORIZONTAL: vanes.get("horizontal"),
                     }
                 zones.append(zone)
-            data_updates: dict[str, Any] = {CONF_ZONES: zones}
-            if self._notify:
-                data_updates[CONF_NOTIFY_SERVICE] = self._notify
+            # Notify is always written (None included): data_updates merges
+            # and can't delete a key, so clearing the field in the form must
+            # store an explicit None to actually turn the alerts off.
+            data_updates: dict[str, Any] = {
+                CONF_ZONES: zones,
+                CONF_NOTIFY_SERVICE: self._notify,
+            }
             return self.async_update_reload_and_abort(
                 entry,
                 data_updates=data_updates,

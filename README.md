@@ -184,6 +184,18 @@ Example day/night/away presets: [`examples/presets.yaml`](examples/presets.yaml)
 breaking change — see [`docs/MIGRATION.md`](docs/MIGRATION.md), and remove the package so
 the two don't fight over the heads.
 
+### Reconfiguring
+
+Picked the wrong sensor, or adding/removing a head? Don't delete and re-add — use
+**Settings → Devices & Services → MXZ Coordinator → ⋮ → Reconfigure**. It's prefilled with
+the current heads and sensors; heads kept in the same position keep their name, vane wiring
+(including your overrides), and target, and dropped zones' entities are cleaned up
+automatically. One caveat: **reordering heads changes more than priority** — targets and
+enables belong to the priority *slot*, not the head, so after a reorder re-check each
+room's target. (Delete-and-re-add also has a trap: HA's restore cache can resurrect the old
+install's values onto the new entities for up to ~7 days. Since v3.0.0-beta.7 the
+coordinator detects and ignores those stale restores.)
+
 ### Removing
 
 Delete the **config entry**, not the device: **Settings → Devices & Services →
