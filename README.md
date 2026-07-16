@@ -174,8 +174,10 @@ changeover); sensors and setpoints are read and written in your HA unit througho
 5. Turn on **Coordinator enable**, set each room's target, enable the rooms. Done.
 
 <p align="center">
-  <img src="images/setup.png" width="48%" alt="Setup: pick your heads and sensors — help text under every field" />
-  <img src="images/options.png" width="48%" alt="Comfort tuning: every option pre-filled, explained in plain language" />
+  <img src="images/setup.png" width="55%" alt="Setup: pick your heads and sensors — help text under every field" />
+</p>
+<p align="center">
+  <img src="images/options.png" width="95%" alt="Comfort tuning: every option pre-filled, explained in plain language" />
 </p>
 
 Example day/night/away presets: [`examples/presets.yaml`](examples/presets.yaml).
