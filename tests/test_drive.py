@@ -36,6 +36,7 @@ from pytest_homeassistant_custom_component.common import (  # noqa: E402
 )
 
 from custom_components.mxz_coordinator.const import (  # noqa: E402
+    CONF_ENGAGE_DEADBAND,
     CONF_FAN_BOOST_ENABLE,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
@@ -681,10 +682,33 @@ async def test_engage_deadband_clamped_to_profile_bounds(hass: HomeAssistant) ->
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,
             CONF_SECONDARY_SENSOR: SENSOR_B,
-            "engage_deadband": 40.0,  # absurd -> clamped to 5.0
+            CONF_ENGAGE_DEADBAND: 40.0,  # absurd -> clamped to 5.0
         },
     )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.runtime_data.engage_deadband == 5.0
+
+
+async def test_engage_deadband_floor_keeps_coast_window(hass: HomeAssistant) -> None:
+    """A zero/negative drift can't collapse the coast window (clamped up to 0.5 F)."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MXZ Coordinator",
+        data={
+            CONF_PRIMARY_CLIMATE: head_a,
+            CONF_SECONDARY_CLIMATE: head_b,
+            CONF_PRIMARY_SENSOR: SENSOR_A,
+            CONF_SECONDARY_SENSOR: SENSOR_B,
+            CONF_ENGAGE_DEADBAND: 0.0,  # would flip-flop at target -> clamped to 0.5
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.engage_deadband == 0.5

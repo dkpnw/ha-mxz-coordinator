@@ -66,13 +66,11 @@ coordinator.
 - **Priority-aware standoffs** — when rooms disagree, the highest-priority room wins and the
   other idles; nobody oscillates. A 10-minute hysteresis gates every mode flip.
 - **Run to target, then coast** — an engaged room conditions all the way to the number you
-  set; only then does the engage deadband take over, coasting in `fan_only` until the room
-  drifts ~1° off again. A configurable **coast offset** can run slightly past the target to
-  bank margin (longer coasts, fewer cycles) or stop short. Note the head is still commanded
-  its unshifted setpoint, so its own thermostat may satisfy at the target first — how much
-  margin a positive offset actually banks depends on the head's internal-sensor bias (they
-  typically read warm while running, which is what makes the overrun possible). A satisfied
-  room is never dragged along by its neighbor's demand.
+  set (satisfied means exactly that number), then coasts in `fan_only` until it drifts past
+  the **re-engage drift** (default 1 °F / 0.5 °C). The drift is bounded to 0.5–5 °F
+  (0.25–2.5 °C) — in the dialog and again at load — so a hand-edited value can never
+  collapse the coast window or park a room degrees off target. A satisfied room is never
+  dragged along by its neighbor's demand.
 - **Resting-mode bias** — what the system settles into when nobody's calling: last mode used
   (default), or pinned cool/heat for one-sided climates.
 
@@ -230,11 +228,16 @@ sensor:
     entity_id: sensor.your_room_temperature   # the same sensor you give the coordinator
     filters:
       - lambda: return (x - 32) * (5.0/9.0);  # only if your HA runs °F
+      - clamp:                                # the firmware accepts 1–40 °C
+          min_value: 1
+          max_value: 40
+          ignore_out_of_range: true
 
 climate:
   - platform: cn105
     # ...
-    remote_temperature_source: remote_temp_ha
+    remote_temperature_source:
+      sensor_id: remote_temp_ha
     remote_temperature_timeout: 30min
     remote_temperature_keepalive_interval: 20s
 ```
