@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "MXZ Coordinator",
-        "description": "Pick every indoor head on this MXZ outdoor unit (2–8). ORDER IS PRIORITY: the first head wins a heat-vs-cool standoff. Vane controls are detected automatically; comfort thresholds, weather-based changeover, and fan boost are set afterward via the integration's Configure button. For a second outdoor unit, add the integration again.",
+        "description": "Pick every indoor head on this MXZ outdoor unit (2–8). ORDER IS PRIORITY: the first head wins a heat-vs-cool standoff. Vane controls are detected automatically, and every comfort setting follows right here in this flow — pre-filled with sensible defaults. For a second outdoor unit, add the integration again.",
         "data": {
           "heads": "Indoor heads (climate entities, in priority order)",
           "notify_service": "Drift-alert notifications (optional)"
