@@ -273,8 +273,11 @@ heat+cool (single-compressor MXZ hardware can't; that's branch-box VRF).
 
 ## Caveats
 
-- Built and validated on one real setup (MSZ heads on a single MXZ). Other models/firmware
-  may differ — especially the reversal lag and the per-zone power blindness.
+- Built on one real two-zone setup (MSZ heads, dual-setpoint firmware) and validated on a
+  second: a three-zone system with single-setpoint heads, running the v3 beta
+  ([#4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4) — thanks @helicopterrun).
+  Other models/firmware may still differ — especially the cool→heat reversal lag and the
+  per-zone power blindness.
 - The coordinator drives **any** HA `climate` heads; the native single-target thermostats
   are optional on top.
 
