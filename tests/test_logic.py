@@ -423,3 +423,51 @@ def test_latch_disable_still_wins():
         temp=70, target=63, enabled=False, eco=False, sensor_ok=True,
         eco_cool_max=78.0, eco_heat_min=50.0,
     ) == OFF
+
+
+def test_latch_cool_lockout_disengages_mid_run():
+    # cool-lockout mirror: flips on while engaged-cooling below the ceiling -> coast
+    assert latched(63.5, 63, COOL, cool_lockout=True, cool_lockout_ceiling=80.0) == SAT
+    # but above the safety ceiling the run continues
+    assert latched(81.0, 63, COOL, cool_lockout=True, cool_lockout_ceiling=80.0) == COOL
+
+
+def test_latch_sensor_dropout_disengages_mid_run():
+    # a puck dropout mid-run coasts (safe) instead of running blind to target
+    assert logic.engage_with_latch(
+        prior=COOL, band=D, neutral=SAT,
+        temp=63.5, target=63, enabled=True, eco=False, sensor_ok=False,
+        eco_cool_max=78.0, eco_heat_min=50.0,
+    ) == SAT
+
+
+def test_latch_eco_bypasses_mid_run():
+    # eco flips on mid-run: the protection extremes are stateless — inside them
+    # the room coasts even though it was latched, at them it calls regardless.
+    def eco_latched(temp):
+        return logic.engage_with_latch(
+            prior=COOL, band=D, neutral=SAT,
+            temp=temp, target=63, enabled=True, eco=True, sensor_ok=True,
+            eco_cool_max=78.0, eco_heat_min=50.0,
+        )
+
+    assert eco_latched(63.5) == SAT   # latched, but eco band says coast
+    assert eco_latched(79.0) == COOL  # above the protection extreme -> cool
+    assert eco_latched(49.0) == HEAT  # below -> heat, latch direction irrelevant
+
+
+def test_latch_metric_band_symmetry():
+    # °C profile (band 0.5): same latch semantics at metric scale
+    def latched_c(temp, prior):
+        return logic.engage_with_latch(
+            prior=prior, band=0.5, neutral=SAT,
+            temp=temp, target=20.0, enabled=True, eco=False, sensor_ok=True,
+            eco_cool_max=25.5, eco_heat_min=10.0,
+        )
+
+    assert latched_c(20.3, None) == SAT   # inside 0.5 band, fresh -> coast
+    assert latched_c(20.6, None) == COOL  # past band -> engage
+    assert latched_c(20.3, COOL) == COOL  # latched -> runs to 20.0
+    assert latched_c(20.0, COOL) == SAT   # reached -> coast
+    assert latched_c(19.7, HEAT) == HEAT  # heat mirror runs up
+    assert latched_c(19.6, COOL) == SAT   # overshoot never whiplashes
