@@ -91,3 +91,20 @@ Earlier versions relied on the echavet `mitsubishi_climate_proxy`
 write the legacy package's `input_*` helpers, so it pairs with the YAML package, **not** this
 integration's entities. With the native thermostats you don't need the proxy at all. (The
 `mxz_recompute` event is still honored, so any existing proxy/automation nudge keeps working.)
+
+## Fan boost & the Fan auto switch (v2.10.0+ / v2.16.0+)
+
+**Fan boost defaults ON from v2.10.0.** If you never saved the option, the
+delta-proportional fan is now active; opt out anytime under **Configure → Fan boost**.
+An explicitly-saved off stays off.
+
+**v2.16.0 adds a per-room Fan auto switch** — two new entities on the existing device:
+
+- `switch.*_primary_fan_auto`
+- `switch.*_secondary_fan_auto`
+
+Each is a live mirror of that room's manual-fan hold (ON = boost drives, OFF = a manual
+speed is held) and the discoverable way to hand fan control back — see the README's
+"Who drives the fan". Purely additive: no existing entity IDs change, and the switches
+store no state of their own (they mirror the coordinator's latch, which seeds from
+observed head state on restart).

@@ -229,8 +229,8 @@ deliberate, not a fight:
    **vane selects are auto-detected** from its device — no need to pick them (you can
    override them later under **Configure**).
 5. The integration creates the helpers (`number.*_target`, `switch.*_enable`,
-   `switch.*_coordinator_enable`, `switch.*_eco_idle`, `select.*_shared_mode`) and
-   `sensor.*_plan`. Turn on **Coordinator enable**, set each room's target, and enable
+   `switch.*_fan_auto`, `switch.*_coordinator_enable`, `switch.*_eco_idle`,
+   `select.*_shared_mode`) and `sensor.*_plan`. Turn on **Coordinator enable**, set each room's target, and enable
    the rooms. Tune the thresholds anytime via the integration's **Configure** dialog.
 
 Adapt the example presets in [`examples/presets.yaml`](examples/presets.yaml) (day /
@@ -266,9 +266,9 @@ uses `input_*` helpers instead of the integration's entities and is **not** one-
 - **Minimum-capacity floor.** The compressor can't modulate below ~1/2.5 of nameplate; excess
   can bleed into a satisfied head as mild overshoot. Not a deadlock.
 - **Fan stuck at one speed?** That's a manual hold, not a bug — someone picked that speed,
-  so I stopped driving the fan (check `primary_fan_hold` / `secondary_fan_hold` on the plan
-  sensor). Set the fan to `auto` to hand it back. See
-  [Who drives the fan](#who-drives-the-fan).
+  so I stopped driving the fan (the room's **Fan auto** switch reads OFF; `primary_fan_hold` /
+  `secondary_fan_hold` on the plan sensor agree). Flip the switch back ON — or set the fan
+  to `auto` — to hand it back. See [Who drives the fan](#who-drives-the-fan).
 
 ---
 
