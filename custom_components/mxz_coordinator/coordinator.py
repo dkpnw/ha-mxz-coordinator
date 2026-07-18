@@ -209,6 +209,21 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.fan_boost_max: str = conf.get(CONF_FAN_BOOST_MAX, DEFAULT_FAN_BOOST_MAX)
         self._fan_idx: dict[str, int] = {}  # per-head ladder index (hysteresis state)
 
+        # Manual fan-speed latch ("deliberate departure"). Fan boost is normally
+        # the sole fan-writer, but a user who reaches in and picks a speed should
+        # keep it: once a head's observed fan_mode is neither "auto" nor a token
+        # we commanded, that head LATCHES and the coordinator makes NO fan writes
+        # to it at all — not ladder speeds, and crucially not the return-to-"auto"
+        # on satisfied/fan_only/eco (which would steal the user's pick and self-
+        # unlatch). The latch releases only when the head is observed back at
+        # "auto" (the user handing control back). Per-head decision memory, like
+        # _fan_idx: _fan_cmd is the last token WE wrote; _fan_prev the one before
+        # it (an echo of a just-written token can briefly still read as the prior
+        # value — a mismatch is only a user departure if it differs from BOTH).
+        self._fan_cmd: dict[str, str] = {}
+        self._fan_prev: dict[str, str] = {}
+        self._fan_latched: dict[str, bool] = {}
+
         # Engage latch (decision state, like _fan_idx): "" = coasting, cool|heat
         # = mid-run toward target (the head may still be parked in fan_only by a
         # shared-mode mismatch; the run resumes when the mode returns). Seeded
@@ -376,6 +391,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "mode_change_allowed": allowed,
             "primary_temp": pt,
             "secondary_temp": st,
+            "primary_fan_hold": self._fan_latched.get(
+                self.primary_climate_id, False
+            ),
+            "secondary_fan_hold": self._fan_latched.get(
+                self.secondary_climate_id, False
+            ),
         }
 
     def _engage(
@@ -406,6 +427,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Refresh entry point: recompute, then act on the new plan."""
         plan = self._compute()
         await self._apply(plan)
+        # _apply is what settles the manual-fan latch (it reads each head's
+        # observed fan_mode), so re-stamp fan_hold from the post-apply state —
+        # otherwise the plan's diagnostic would lag the latch by a cycle.
+        plan["primary_fan_hold"] = self._fan_latched.get(
+            self.primary_climate_id, False
+        )
+        plan["secondary_fan_hold"] = self._fan_latched.get(
+            self.secondary_climate_id, False
+        )
         return plan
 
     # -- actuator (mirrors script.mxz_coordinate) ---------------------------
@@ -539,9 +569,30 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         (cool/heat, not eco-idle) gets a ladder speed proportional to how far the
         room is off target; a satisfied/fan_only head (or eco-idle) is returned to
         the firmware's own "auto"; an off head is left alone.
+
+        A manual pick latches (see ``_fan_latched``): while a head is latched the
+        coordinator makes NO fan writes to it, so a user's chosen speed survives
+        every apply cycle. The latch is evaluated first because it also suppresses
+        the return-to-"auto" branch; it releases only on an observed "auto".
         """
         if not self.fan_boost_enable:
             return
+
+        state = self.hass.states.get(climate_id)
+        if state is None:
+            return
+        modes = state.attributes.get("fan_modes")
+        if not modes or FAN_AUTO not in modes:
+            # No fan control, or no "auto" to release the latch (or return a
+            # satisfied head to) -> leave the head's fan entirely alone. This
+            # supersedes the old best-effort ladder writes to auto-less heads,
+            # which could only ratchet the fan up with no way back down.
+            return
+
+        # Evaluate the manual-fan latch from what the head is actually reporting.
+        if self._observe_fan_latch(climate_id, state):
+            return  # latched: leave the user's fan pick untouched
+
         if act in (MODE_COOL, MODE_HEAT) and not self.eco_idle:
             max_idx = (
                 FAN_LADDER.index(self.fan_boost_max)
@@ -564,14 +615,45 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._fan_idx.pop(climate_id, None)
             return
 
-        state = self.hass.states.get(climate_id)
-        if state is None:
-            return
-        modes = state.attributes.get("fan_modes")
-        if not modes or token not in modes:
-            return  # head has no fan control, or lacks this token -> skip safely
+        if token not in modes:
+            return  # head lacks this ladder token -> skip safely
         if state.attributes.get("fan_mode") == token:
             return  # idempotent
+        await self._write_fan(climate_id, token)
+
+    def _observe_fan_latch(self, climate_id: str, state: Any) -> bool:
+        """Update and return the manual-fan latch for a head from its state.
+
+        Called once per apply per head, guaranteed the head has fan_modes with an
+        "auto" token. Latch transitions off the OBSERVED fan_mode:
+
+        * observed "auto"                 -> released (user handed control back)
+        * observed token != BOTH the last- and prior-commanded token -> latched
+          (a user departure; the double-token check absorbs the echo race where
+          the head still reports the token we wrote one cycle ago)
+        * no _fan_cmd memory yet (first compute / post-restart seed): a non-"auto"
+          reading seeds LATCHED, mirroring the engage-latch's "resume from the
+          head's own state" — a manual pick that predates the restart is honored
+          (the accepted tradeoff: a restart mid-boost latches at the boost speed
+          until someone sets "auto").
+        """
+        observed = state.attributes.get("fan_mode")
+        if observed == FAN_AUTO:
+            self._fan_latched[climate_id] = False
+        elif climate_id not in self._fan_cmd:
+            # First evaluation, no memory: seed latched iff the head isn't at auto.
+            self._fan_latched[climate_id] = observed is not None
+        elif observed not in (
+            self._fan_cmd.get(climate_id),
+            self._fan_prev.get(climate_id),
+        ):
+            self._fan_latched[climate_id] = True
+        return self._fan_latched.get(climate_id, False)
+
+    async def _write_fan(self, climate_id: str, token: str) -> None:
+        """Issue a fan_mode write and remember it (last + prior, for the echo race)."""
+        self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, token)
+        self._fan_cmd[climate_id] = token
         await self.hass.services.async_call(
             "climate",
             "set_fan_mode",

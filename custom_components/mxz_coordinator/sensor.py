@@ -28,6 +28,8 @@ _ATTRS = (
     "sensors_ok",
     "seconds_since_mode_change",
     "mode_change_allowed",
+    "primary_fan_hold",
+    "secondary_fan_hold",
 )
 
 

@@ -43,6 +43,7 @@ from custom_components.mxz_coordinator.const import (  # noqa: E402
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
     DOMAIN,
+    FAN_LADDER,
 )
 
 SENSOR_A = "sensor.room_a_temp"
@@ -329,6 +330,267 @@ async def _set_target(hass: HomeAssistant, entity_id: str, value: float) -> None
         "number", "set_value", {"entity_id": entity_id, "value": value}, blocking=True
     )
     await hass.async_block_till_done()
+
+
+async def _setup_fan_boost(
+    hass: HomeAssistant, head_a: str, head_b: str
+) -> MockConfigEntry:
+    """Fan-boost entry, coordinator + both rooms enabled, primary target 62."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MXZ Coordinator",
+        data={
+            CONF_PRIMARY_CLIMATE: head_a,
+            CONF_SECONDARY_CLIMATE: head_b,
+            CONF_PRIMARY_SENSOR: SENSOR_A,
+            CONF_SECONDARY_SENSOR: SENSOR_B,
+            CONF_FAN_BOOST_ENABLE: True,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    for suffix in ("_primary_enable", "_secondary_enable", "_coordinator_enable"):
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": _eid(hass, entry, suffix)}, blocking=True
+        )
+    await hass.async_block_till_done()
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 62)
+    return entry
+
+
+async def _user_set_fan(hass: HomeAssistant, climate_id: str, token: str) -> None:
+    """Simulate the user reaching in and picking a fan speed on a head."""
+    await hass.services.async_call(
+        "climate", "set_fan_mode",
+        {"entity_id": climate_id, "fan_mode": token}, blocking=True
+    )
+    await hass.async_block_till_done()
+
+
+async def test_manual_fan_latch_holds_while_conditioning(
+    hass: HomeAssistant,
+) -> None:
+    """User picks a speed on a conditioning head -> the coordinator stops writing fan."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+
+    # Cooling hard: boost drives the primary to "high".
+    await _set_temp(hass, SENSOR_A, 67)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+
+    # User overrides to "quiet" while it's still cooling -> that must stick.
+    await _user_set_fan(hass, head_a, "quiet")
+    await _set_temp(hass, SENSOR_A, 67.1)  # still a big cooling delta
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "quiet"
+    await _recompute(hass, entry)  # a second cycle must not stomp it either
+    assert hass.states.get(head_a).attributes["fan_mode"] == "quiet"
+    # Surfaced for dashboards as a per-room hold flag.
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["primary_fan_hold"] is True
+
+
+async def test_manual_fan_latch_suppresses_return_to_auto(
+    hass: HomeAssistant,
+) -> None:
+    """A latched head that goes satisfied/fan_only is NOT dragged back to auto."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+
+    await _set_temp(hass, SENSOR_A, 67)
+    await _recompute(hass, entry)
+    await _user_set_fan(hass, head_a, "medium")
+
+    # Room reaches target -> head idles fan_only. Without the latch this branch
+    # would force "auto"; latched, the user's "medium" survives.
+    await _set_temp(hass, SENSOR_A, 62)
+    await _recompute(hass, entry)
+    a = hass.states.get(head_a)
+    assert a.state == "fan_only"
+    assert a.attributes["fan_mode"] == "medium"
+
+
+async def test_manual_fan_latch_releases_on_auto(hass: HomeAssistant) -> None:
+    """Setting the head back to 'auto' hands control back; boost resumes at once."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+
+    await _set_temp(hass, SENSOR_A, 67)
+    await _recompute(hass, entry)
+    await _user_set_fan(hass, head_a, "quiet")
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "quiet"  # latched
+
+    # User hands control back.
+    await _user_set_fan(hass, head_a, "auto")
+    await _set_temp(hass, SENSOR_A, 67)  # still a big cooling delta
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"  # boost resumed
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["primary_fan_hold"] is False
+
+
+async def test_manual_fan_latch_ignores_own_echo(hass: HomeAssistant) -> None:
+    """The coordinator's own just-written token, echoed back, must not latch.
+
+    Drives the delta down the ladder so the coordinator writes several different
+    tokens across cycles; each write leaves the head reporting the token from the
+    PRIOR cycle for one beat. That echo must never read as a user departure.
+    """
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+
+    # Walk the room in toward target so the ladder eases high -> ... over cycles.
+    for temp in (67, 66, 65, 64, 63.4, 63.0, 62.6):
+        await _set_temp(hass, SENSOR_A, temp)
+        await _recompute(hass, entry)
+        await _recompute(hass, entry)  # extra cycle: exercise the echo read path
+        plan = hass.states.get(_eid(hass, entry, "_plan"))
+        assert plan.attributes["primary_fan_hold"] is False  # never false-latched
+    # Fan still coordinator-controlled (a real ladder token), not stuck.
+    assert hass.states.get(head_a).attributes["fan_mode"] in FAN_LADDER
+
+
+async def test_manual_fan_latch_tolerates_one_cycle_state_lag(
+    hass: HomeAssistant,
+) -> None:
+    """The real echo race: a slow head still reporting the PRIOR commanded token.
+
+    MockHead echoes writes instantly, so this test forges the lag by hand: after
+    the coordinator has written two different ladder tokens, the head is made to
+    report the older one again (ESPHome state lag / unavailable-restore replay).
+    That must NOT latch — but a token the coordinator never wrote still must.
+    """
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+
+    await _set_temp(hass, SENSOR_A, 67)  # big delta -> "high"
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+    await _set_temp(hass, SENSOR_A, 63.4)  # eases down the ladder
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "low"
+
+    def _forge_fan(token: str) -> None:
+        st = hass.states.get(head_a)
+        hass.states.async_set(head_a, st.state, {**st.attributes, "fan_mode": token})
+
+    # Lagged echo of the PRIOR write ("high" while cmd is "low") -> absorbed.
+    _forge_fan("high")
+    await hass.async_block_till_done()
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["primary_fan_hold"] is False  # not a departure
+    assert hass.states.get(head_a).attributes["fan_mode"] == "low"  # re-asserted
+
+    # A token we NEVER commanded ("quiet") -> a genuine user departure, latches.
+    _forge_fan("quiet")
+    await hass.async_block_till_done()
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["primary_fan_hold"] is True
+    assert hass.states.get(head_a).attributes["fan_mode"] == "quiet"  # untouched
+
+
+async def test_manual_fan_latch_seeds_from_head_on_restart(
+    hass: HomeAssistant,
+) -> None:
+    """First compute with no memory: non-auto head seeds latched; auto seeds free."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+    coord = entry.runtime_data
+
+    # Simulate a restart mid-manual-pick: head sitting at "medium", no _fan_cmd.
+    await _user_set_fan(hass, head_a, "medium")
+    coord._fan_cmd.clear()
+    coord._fan_prev.clear()
+    coord._fan_latched.clear()
+
+    await _set_temp(hass, SENSOR_A, 67)  # a delta that WOULD boost to "high"
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "medium"  # seeded latched
+
+    # Head b was at "auto" across the same restart -> seeds free, boost applies.
+    coord._fan_cmd.pop(head_b, None)
+    coord._fan_latched.pop(head_b, None)
+    await _set_target(hass, _eid(hass, entry, "_secondary_target"), 62)
+    await _set_temp(hass, SENSOR_B, 67)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_b).attributes["fan_mode"] == "high"  # seeded free
+
+
+async def test_manual_fan_latch_isolated_per_zone(hass: HomeAssistant) -> None:
+    """One room latched by a manual pick while another keeps boosting normally."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+    await _set_target(hass, _eid(hass, entry, "_secondary_target"), 62)
+
+    # Both cooling hard -> both boost.
+    await _set_temp(hass, SENSOR_A, 67)
+    await _set_temp(hass, SENSOR_B, 67)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+    assert hass.states.get(head_b).attributes["fan_mode"] == "high"
+
+    # User latches A on "low"; B must keep tracking the ladder.
+    await _user_set_fan(hass, head_a, "low")
+    await _set_temp(hass, SENSOR_A, 67)
+    await _set_temp(hass, SENSOR_B, 63.4)  # B eases down the ladder
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "low"  # held
+    assert hass.states.get(head_b).attributes["fan_mode"] == "low"  # boosted (walk 4->1)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["primary_fan_hold"] is True
+    assert plan.attributes["secondary_fan_hold"] is False
+
+
+async def test_manual_fan_latch_inert_without_auto_token(
+    hass: HomeAssistant,
+) -> None:
+    """A head whose fan_modes lack 'auto' never engages the latch machinery."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+
+    class NoAutoHead(MockHead):
+        _attr_fan_modes = ["low", "medium", "high"]  # no "auto"
+
+        def __init__(self, suffix: str) -> None:
+            super().__init__(suffix)
+            self._attr_fan_mode = "low"
+
+    head_a, head_b = await _setup_mock_heads(hass, cls=NoAutoHead)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+
+    await _set_temp(hass, SENSOR_A, 67)
+    await _recompute(hass, entry)
+    # Fan never written (no auto to key off), no latch surfaced.
+    assert hass.states.get(head_a).attributes["fan_mode"] == "low"
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["primary_fan_hold"] is False
 
 
 async def test_fan_boost_drives_speed(hass: HomeAssistant) -> None:

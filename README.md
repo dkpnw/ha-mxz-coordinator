@@ -28,6 +28,9 @@ detected automatically; everything else has sensible defaults. No YAML editing.
 - 🌀 **Dynamic fan speed.** "Fan boost" (on by default) ramps the fan toward max when a room is far
   from target and eases it back as the room closes in — Tesla-style — instead of the
   firmware's weak `auto` ramp.
+- ✋ **Manual fan hold.** Reach in and pick a fan speed yourself and the coordinator backs off
+  that head entirely: it stops writing the fan, and won't yank you back to `auto` when the room
+  settles. Set the fan to `auto` again to hand control back and boost resumes.
 - 🌦️ **Local-weather seasonal changeover.** Point it at any `weather.*` entity (or an
   outdoor temp sensor) and it auto-locks out heating in summer / cooling in winter from
   your own forecast. No calendar, no cloud.
