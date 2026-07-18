@@ -179,7 +179,9 @@ deliberate, not a fight:
 - **The Fan auto switch is the handback.** Every zone has a **Fan auto** toggle that mirrors
   the hold: ON while boost drives, OFF the moment you pick a speed. Flip it back ON and I
   release the hold and resume boost on the next cycle — the one control that always works,
-  including in Apple Home, where it bridges as a plain switch beside the thermostat. It's a
+  including in Apple Home, where it bridges as a plain switch beside the thermostat. Flipping
+  it OFF works too: it pins the head at whatever speed it's running right now — a deliberate
+  hold that sticks, even at max, until you hand control back. It's a
   separate toggle for a plain reason: Apple's Home app renders only a climate service's fixed
   set of characteristics, so there's no way to put a custom control *inside* the climate tile —
   the switch has to ride alongside it. It's also your at-a-glance who's-driving indicator.
@@ -191,12 +193,15 @@ deliberate, not a fight:
   genuine request for more air — it holds at max like any other manual pick. Same if the head
   is idling or your boost ceiling is set below the head's top speed: max always holds there,
   because boost would never have chosen it.
-- **A max hold folds back in; a slower hold waits for your gesture.** Holding at the head's
-  top speed is never really a hold *above* auto — the moment the room drifts far enough (or
-  you move the target) that boost would be commanding max anyway, the hold merges into auto
-  and rides the ramp back down as the room closes in. A hold at any slower speed is a
-  ceiling you chose: it never releases on drift or a target change, only on an observed
-  `auto` (or the max handback above). I read fan state once per cycle rather than watching
+- **A slider max hold folds back in; every other hold waits for your gesture.** A slider-set
+  hold at the head's top speed is never really a hold *above* auto — the moment the room
+  drifts far enough (or you move the target) that boost would be commanding max anyway, the
+  hold merges into auto and rides the ramp back down as the room closes in. A hold at any
+  slower speed is a ceiling you chose: it never releases on drift or a target change, only
+  on an observed `auto` (or the max handback above). And a hold placed by the **Fan auto**
+  switch never folds back in at all — not even at max: the switch gesture is unambiguous
+  where a slider max is not, so it releases only via the switch or an observed `auto` (touch
+  the slider afterwards and the hold is back under the slider rules above). I read fan state once per cycle rather than watching
   slider events, so re-selecting the speed a head is already on is invisible to me — change
   to something else first if you want a fresh gesture registered.
 

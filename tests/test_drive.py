@@ -718,6 +718,87 @@ async def test_fan_auto_switch_off_at_auto_is_noop(hass: HomeAssistant) -> None:
     assert plan.attributes["zones"][0]["fan_hold"] is False
 
 
+async def test_fan_auto_switch_off_at_top_speed_sticks(hass: HomeAssistant) -> None:
+    """A switch-OFF hold at the head's TOP token sticks — no standing-merge.
+
+    A slider-set top token is ambiguous with the max handback, so it merges into
+    auto whenever boost would command max anyway. The switch gesture is not
+    ambiguous: OFF means hold — even at max, even while boost keeps demanding
+    max — until the switch flips back ON (or the fan is observed at "auto").
+    Without the explicit-hold exemption the switch would bounce back ON on the
+    very next cycle, silently contradicting the user's gesture.
+    """
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+    sw = _eid(hass, entry, "_primary_fan_auto")
+
+    # Far off target (delta 5) -> boost drives the head to its top token.
+    await _set_temp(hass, SENSOR_A, 67)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+
+    # Flip OFF right there. Boost would still command max -> the slider merge
+    # rule would release this instantly; the explicit switch hold must not.
+    await _set_fan_auto(hass, sw, False)
+    assert hass.states.get(sw).state == "off"
+    await _recompute(hass, entry)
+    await _recompute(hass, entry)
+    assert hass.states.get(sw).state == "off"  # no bounce-back
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"  # held
+
+    # Switch ON releases it; boost resumes (still max here) with no re-latch.
+    await _set_fan_auto(hass, sw, True)
+    await _recompute(hass, entry)
+    assert hass.states.get(sw).state == "on"
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False
+
+
+async def test_fan_auto_switch_hold_demoted_by_slider_departure(
+    hass: HomeAssistant,
+) -> None:
+    """A slider departure demotes an explicit switch hold to slider semantics.
+
+    Explicit switch holds are exempt from the top-token standing-merge; but the
+    moment the user reaches for the SLIDER instead, the hold is theirs again
+    under the slider rules — including the merge, once they land back on the
+    top token while boost would command max.
+    """
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+    sw = _eid(hass, entry, "_primary_fan_auto")
+
+    # Boost at max (delta 5) -> explicit switch hold at the top token sticks.
+    await _set_temp(hass, SENSOR_A, 67)
+    await _recompute(hass, entry)
+    await _set_fan_auto(hass, sw, False)
+    await _recompute(hass, entry)
+    assert hass.states.get(sw).state == "off"
+
+    # User moves the slider to "quiet": a departure -> still held, but the hold
+    # is now slider-origin (the explicit exemption is gone).
+    await _user_set_fan(hass, head_a, "quiet")
+    await _recompute(hass, entry)
+    assert hass.states.get(sw).state == "off"
+    assert hass.states.get(head_a).attributes["fan_mode"] == "quiet"
+
+    # Back to the top token while boost would command max -> the slider merge
+    # applies again: the hold folds into auto and the switch reads ON.
+    await _user_set_fan(hass, head_a, "high")
+    await _recompute(hass, entry)
+    assert hass.states.get(sw).state == "on"
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False
+
+
 async def test_fan_auto_switch_isolated_per_zone(hass: HomeAssistant) -> None:
     """Zone 1's Fan auto switch doesn't touch zone 2's latch."""
     hass.config.units = US_CUSTOMARY_SYSTEM
