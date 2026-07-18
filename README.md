@@ -75,6 +75,9 @@ coordinator.
 - **Delta-proportional fan** (on by default) — ramps toward max when far from target, steps
   down with hysteresis as the room closes in, returns to the firmware's `auto` when
   satisfied. Max speed configurable; opt out anytime.
+- **Manual fan hold** — reach in and pick a fan speed yourself and the coordinator backs off
+  that head entirely: it stops writing the fan, and won't yank you back to `auto` when the
+  room settles. Set the fan to `auto` again to hand control back and boost resumes.
 - **Correct Mitsubishi fan ladder** — knows `middle` is *faster* than `medium` (a real CN105
   naming trap) and never commands a speed your unit lacks.
 - **Vane & swing on the tile** — full louvre control from the native thermostat.
