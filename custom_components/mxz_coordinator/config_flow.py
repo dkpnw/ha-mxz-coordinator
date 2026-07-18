@@ -55,6 +55,7 @@ from .const import (
     ZONE_CLIMATE,
     ZONE_NAME,
     ZONE_SENSOR,
+    ZONE_STAGE_SENSOR,
     ZONE_VANE_HORIZONTAL,
     ZONE_VANE_VERTICAL,
     unit_profile,
@@ -69,6 +70,11 @@ _SENSOR_SELECTOR = selector.EntitySelector(
 )
 _VANE_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="select")
+)
+# The stage/airflow sensor is a sensor (ESPHome text_sensors register in the
+# `sensor` domain), so a sensor picker covers it.
+_STAGE_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain="sensor")
 )
 
 
@@ -102,6 +108,29 @@ def _detect_vanes(hass: HomeAssistant, climate_id: str) -> dict[str, str]:
         else:
             found.setdefault("vertical", e.entity_id)  # lone unlabeled vane -> vertical
     return found
+
+
+def _detect_stage(hass: HomeAssistant, climate_id: str) -> str | None:
+    """Best-effort actual-airflow (`stage`) sensor on the head's OWN device.
+
+    CN105/ESPHome heads publish the decoded blower speed as a `stage`
+    text_sensor (registers in the `sensor` domain) on the same device as the
+    climate entity, so we can infer it from the chosen head — exactly like
+    ``_detect_vanes``. Conservative: require the literal word "stage" in the
+    entity_id or name so we never mistake an unrelated sensor for airflow.
+    Returns the entity_id, or None if nothing qualifies.
+    """
+    reg = er.async_get(hass)
+    entry = reg.async_get(climate_id)
+    if entry is None or entry.device_id is None:
+        return None
+    for e in er.async_entries_for_device(reg, entry.device_id, include_disabled_entities=True):
+        if e.domain != "sensor":
+            continue
+        text = f"{e.entity_id} {e.original_name or ''} {e.name or ''}".lower()
+        if "stage" in text:
+            return e.entity_id
+    return None
 
 
 # Flow-local key for the multi-head picker on the first step.
@@ -144,13 +173,19 @@ def _sensors_schema(count: int) -> vol.Schema:
     )
 
 
-def _vane_field_keys() -> set[str]:
-    """Every possible per-zone vane override key (flow-input-only, never stored flat)."""
+def _zone_override_keys() -> set[str]:
+    """Every possible per-zone override key (flow-input-only, never stored flat).
+
+    Covers vane vertical/horizontal AND the airflow (stage) sensor: all fold
+    into the zones list, and a stale flat copy would shadow it in the
+    coordinator's {**data, **options} merge.
+    """
     keys: set[str] = set()
     for i in range(MAX_ZONES):
         slug = zone_slug(i)
         keys.add(f"{slug}_vane_vertical")
         keys.add(f"{slug}_vane_horizontal")
+        keys.add(f"{slug}_stage")
     return keys
 
 
@@ -171,25 +206,31 @@ def _options_schema(
     eff = {**profile["defaults"], **current}
     engage_min, engage_max = profile["engage_bounds"]
 
-    # Vane selects are auto-detected at setup; expose per-zone overrides
-    # (suggested_value shows what's currently wired).
-    vane_fields: dict[Any, Any] = {}
+    # Vane selects + the airflow (stage) sensor are auto-detected at setup;
+    # expose per-zone overrides (suggested_value shows what's currently wired).
+    zone_fields: dict[Any, Any] = {}
     for i, zone in enumerate(zones):
         slug = zone_slug(i)
-        vane_fields[
+        zone_fields[
             vol.Optional(
                 f"{slug}_vane_vertical",
                 description={"suggested_value": zone.get(ZONE_VANE_VERTICAL)},
             )
         ] = _VANE_SELECTOR
-        vane_fields[
+        zone_fields[
             vol.Optional(
                 f"{slug}_vane_horizontal",
                 description={"suggested_value": zone.get(ZONE_VANE_HORIZONTAL)},
             )
         ] = _VANE_SELECTOR
+        zone_fields[
+            vol.Optional(
+                f"{slug}_stage",
+                description={"suggested_value": zone.get(ZONE_STAGE_SENSOR)},
+            )
+        ] = _STAGE_SELECTOR
 
-    return _tunables_schema(eff, engage_min, engage_max).extend(vane_fields)
+    return _tunables_schema(eff, engage_min, engage_max).extend(zone_fields)
 
 
 def _tunables_schema(
@@ -353,6 +394,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                         ZONE_SENSOR: user_input[f"sensor_{i + 1}"],
                         ZONE_VANE_VERTICAL: vanes.get("vertical"),
                         ZONE_VANE_HORIZONTAL: vanes.get("horizontal"),
+                        ZONE_STAGE_SENSOR: _detect_stage(self.hass, head),
                     }
                 )
             self._zones = zones
@@ -459,6 +501,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                         ZONE_SENSOR: user_input[f"sensor_{i + 1}"],
                         ZONE_VANE_VERTICAL: vanes.get("vertical"),
                         ZONE_VANE_HORIZONTAL: vanes.get("horizontal"),
+                        ZONE_STAGE_SENSOR: _detect_stage(self.hass, head),
                     }
                 zones.append(zone)
             # Notify is always written (None included): data_updates merges
@@ -508,22 +551,23 @@ class MXZOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         zones = [dict(z) for z in self.config_entry.data.get(CONF_ZONES, [])]
-        vane_keys = _vane_field_keys()
+        override_keys = _zone_override_keys()
         if user_input is not None:
-            # Per-zone vane overrides are flow-input-only: fold them into the
-            # zones list in entry.data, never store them as flat keys (a stale
-            # flat key would shadow the zones list in the coordinator's
-            # {**data, **options} merge).
+            # Per-zone vane + airflow-sensor overrides are flow-input-only: fold
+            # them into the zones list in entry.data, never store them as flat
+            # keys (a stale flat key would shadow the zones list in the
+            # coordinator's {**data, **options} merge).
             for i, zone in enumerate(zones):
                 slug = zone_slug(i)
                 for suffix, zkey in (
                     ("vane_vertical", ZONE_VANE_VERTICAL),
                     ("vane_horizontal", ZONE_VANE_HORIZONTAL),
+                    ("stage", ZONE_STAGE_SENSOR),
                 ):
                     if (value := user_input.get(f"{slug}_{suffix}")) is not None:
                         zone[zkey] = value or None
             tunables = {
-                k: v for k, v in user_input.items() if k not in vane_keys
+                k: v for k, v in user_input.items() if k not in override_keys
             }
             # Resilience: MERGE onto the existing options (a partial/empty submit
             # must never wipe the rest) and refuse to persist an empty set. Also
@@ -535,14 +579,14 @@ class MXZOptionsFlow(OptionsFlow):
             merged = {
                 k: v
                 for k, v in {**self.config_entry.options, **tunables}.items()
-                if k not in vane_keys
+                if k not in override_keys
             }
             if not merged and not zones:
                 return self.async_abort(reason="empty_options")
             data = {
                 k: v
                 for k, v in {**self.config_entry.data, **merged}.items()
-                if k not in vane_keys
+                if k not in override_keys
             }
             if zones:
                 data[CONF_ZONES] = zones

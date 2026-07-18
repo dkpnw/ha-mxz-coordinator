@@ -55,11 +55,13 @@ from .const import (
     CONF_NOTIFY_SERVICE,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
+    CONF_PRIMARY_STAGE,
     CONF_PRIMARY_VANE_HORIZONTAL,
     CONF_PRIMARY_VANE_VERTICAL,
     CONF_RESTING_MODE_BIAS,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
+    CONF_SECONDARY_STAGE,
     CONF_SECONDARY_VANE_HORIZONTAL,
     CONF_SECONDARY_VANE_VERTICAL,
     CONF_ZONES,
@@ -87,6 +89,7 @@ from .const import (
     ZONE_CLIMATE,
     ZONE_NAME,
     ZONE_SENSOR,
+    ZONE_STAGE_SENSOR,
     ZONE_VANE_HORIZONTAL,
     ZONE_VANE_VERTICAL,
     unit_profile,
@@ -135,6 +138,7 @@ class Zone:
     sensor_id: str
     vane_vertical_id: str | None = None
     vane_horizontal_id: str | None = None
+    stage_sensor_id: str | None = None
     target: float = 70.0
     enable: bool = field(default=False)
 
@@ -156,6 +160,7 @@ def _parse_zones(conf: dict[str, Any], target_default: float) -> list[Zone]:
                 ZONE_SENSOR: conf[CONF_PRIMARY_SENSOR],
                 ZONE_VANE_VERTICAL: conf.get(CONF_PRIMARY_VANE_VERTICAL),
                 ZONE_VANE_HORIZONTAL: conf.get(CONF_PRIMARY_VANE_HORIZONTAL),
+                ZONE_STAGE_SENSOR: conf.get(CONF_PRIMARY_STAGE),
             },
             {
                 ZONE_NAME: "Secondary",
@@ -163,6 +168,7 @@ def _parse_zones(conf: dict[str, Any], target_default: float) -> list[Zone]:
                 ZONE_SENSOR: conf[CONF_SECONDARY_SENSOR],
                 ZONE_VANE_VERTICAL: conf.get(CONF_SECONDARY_VANE_VERTICAL),
                 ZONE_VANE_HORIZONTAL: conf.get(CONF_SECONDARY_VANE_HORIZONTAL),
+                ZONE_STAGE_SENSOR: conf.get(CONF_SECONDARY_STAGE),
             },
         ]
     zones = [
@@ -174,6 +180,7 @@ def _parse_zones(conf: dict[str, Any], target_default: float) -> list[Zone]:
             sensor_id=z[ZONE_SENSOR],
             vane_vertical_id=z.get(ZONE_VANE_VERTICAL) or None,
             vane_horizontal_id=z.get(ZONE_VANE_HORIZONTAL) or None,
+            stage_sensor_id=z.get(ZONE_STAGE_SENSOR) or None,
             target=target_default,
         )
         for i, z in enumerate(raw)

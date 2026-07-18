@@ -18,6 +18,7 @@ from homeassistant.helpers import entity_registry as er  # noqa: E402
 
 from custom_components.mxz_coordinator.config_flow import (  # noqa: E402
     MXZOptionsFlow,
+    _detect_stage,
     _detect_vanes,
 )
 from custom_components.mxz_coordinator.const import (  # noqa: E402
@@ -76,6 +77,37 @@ async def test_detect_vanes_from_head_device(hass: HomeAssistant) -> None:
 def test_detect_vanes_no_device_is_safe(hass: HomeAssistant) -> None:
     """A head with no registry/device entry just yields nothing (no crash)."""
     assert _detect_vanes(hass, "climate.not_registered") == {}
+
+
+async def test_detect_stage_from_head_device(hass: HomeAssistant) -> None:
+    """The head's airflow (`stage`) sensor is inferred from its own device."""
+    src = MockConfigEntry(domain="test")
+    src.add_to_hass(hass)
+    dev_reg = dr.async_get(hass)
+    device = dev_reg.async_get_or_create(
+        config_entry_id=src.entry_id, identifiers={("test", "head_s")}
+    )
+    ent_reg = er.async_get(hass)
+    climate = ent_reg.async_get_or_create(
+        "climate", "test", "head_s", device_id=device.id,
+        suggested_object_id="head_s_heat_pump",
+    )
+    stage = ent_reg.async_get_or_create(
+        "sensor", "test", "head_s_stage", device_id=device.id,
+        suggested_object_id="head_s_stage",
+    )
+    # An unrelated sensor on the same device must be ignored.
+    ent_reg.async_get_or_create(
+        "sensor", "test", "head_s_comp", device_id=device.id,
+        suggested_object_id="head_s_compressor_frequency",
+    )
+
+    assert _detect_stage(hass, climate.entity_id) == stage.entity_id
+
+
+def test_detect_stage_absent_is_none(hass: HomeAssistant) -> None:
+    """No device / no stage sensor -> None (no crash)."""
+    assert _detect_stage(hass, "climate.not_registered") is None
 
 
 async def test_user_flow_creates_entry(hass: HomeAssistant) -> None:

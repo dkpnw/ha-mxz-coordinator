@@ -23,10 +23,12 @@ from .const import (
     CONF_DEMAND_THRESHOLD,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
+    CONF_PRIMARY_STAGE,
     CONF_PRIMARY_VANE_HORIZONTAL,
     CONF_PRIMARY_VANE_VERTICAL,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
+    CONF_SECONDARY_STAGE,
     CONF_SECONDARY_VANE_HORIZONTAL,
     CONF_SECONDARY_VANE_VERTICAL,
     CONF_ZONES,
@@ -36,6 +38,7 @@ from .const import (
     ZONE_CLIMATE,
     ZONE_NAME,
     ZONE_SENSOR,
+    ZONE_STAGE_SENSOR,
     ZONE_VANE_HORIZONTAL,
     ZONE_VANE_VERTICAL,
 )
@@ -65,6 +68,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> boo
                     ZONE_SENSOR: data[CONF_PRIMARY_SENSOR],
                     ZONE_VANE_VERTICAL: data.get(CONF_PRIMARY_VANE_VERTICAL),
                     ZONE_VANE_HORIZONTAL: data.get(CONF_PRIMARY_VANE_HORIZONTAL),
+                    ZONE_STAGE_SENSOR: data.get(CONF_PRIMARY_STAGE),
                 },
                 {
                     ZONE_NAME: "Secondary",
@@ -72,6 +76,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> boo
                     ZONE_SENSOR: data[CONF_SECONDARY_SENSOR],
                     ZONE_VANE_VERTICAL: data.get(CONF_SECONDARY_VANE_VERTICAL),
                     ZONE_VANE_HORIZONTAL: data.get(CONF_SECONDARY_VANE_HORIZONTAL),
+                    ZONE_STAGE_SENSOR: data.get(CONF_SECONDARY_STAGE),
                 },
             ]
         hass.config_entries.async_update_entry(entry, data=data, version=2)

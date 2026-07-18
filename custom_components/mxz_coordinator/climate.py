@@ -11,6 +11,14 @@ integration's entities. The coordinator stays the sole writer to the real heads.
 
 Optional vane ``select`` entities are mirrored as swing modes so the native tile
 keeps vane control, removing the need for the proxy entirely.
+
+An optional per-zone "airflow" (``stage``) sensor keeps the tile's fan display
+HONEST while the coordinator has handed the fan back to the firmware's own
+``auto`` ramp: the head then reports the token ``auto`` and the last real speed
+freezes, so nobody upstream (a HomeKit slider especially) knows the physical
+airflow. When such a sensor is wired, the tile mirrors the firmware's decoded
+actual blower stage as the matching settable rung — display ONLY; it never
+changes what the coordinator commands or what the latch machinery reads.
 """
 
 from __future__ import annotations
@@ -33,8 +41,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     DOMAIN,
+    FAN_AUTO,
     MODE_COOL,
     MODE_HEAT,
+    STAGE_TO_FAN,
     UNAVAILABLE_STATES,
 )
 from .coordinator import MXZCoordinator, Zone
@@ -86,6 +96,9 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         self._head_id = zone.climate_id
         self._vane_vertical_id = zone.vane_vertical_id
         self._vane_horizontal_id = zone.vane_horizontal_id
+        # Optional actual-airflow (stage) sensor for honest fan display under
+        # firmware `auto` (see module docstring + fan_mode below).
+        self._stage_sensor_id = zone.stage_sensor_id
 
         features = (
             ClimateEntityFeature.TARGET_TEMPERATURE
@@ -102,9 +115,15 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
     async def async_added_to_hass(self) -> None:
         """Re-render when the underlying head changes (fan/vane reflected live)."""
         await super().async_added_to_hass()
+        # Track the head (fan/vane) and, when wired, the stage sensor so the
+        # airflow display is live as the firmware ramps its own `auto` — no
+        # coordinator refresh required.
+        tracked = [self._head_id]
+        if self._stage_sensor_id:
+            tracked.append(self._stage_sensor_id)
         self.async_on_remove(
             async_track_state_change_event(
-                self.hass, [self._head_id], self._handle_head_change
+                self.hass, tracked, self._handle_head_change
             )
         )
 
@@ -220,11 +239,42 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
 
     @property
     def fan_mode(self) -> str | None:
+        """The head's commanded fan token — with actual airflow shown under `auto`.
+
+        DISPLAY ONLY. When the head's COMMANDED fan is `auto` (the coordinator
+        has handed the fan back to the firmware's own ramp) and a stage sensor
+        is wired, show the firmware's decoded ACTUAL blower speed mapped to the
+        matching settable rung, so the tile/HomeKit slider reflects real airflow
+        instead of freezing on the token `auto`. Any other commanded token, an
+        unavailable/unmapped stage, or no stage sensor -> the head's real
+        commanded token (today's behavior). The latch machinery in the
+        coordinator always reads the HEAD's fan_mode, never this mapped value.
+        """
         state = self.hass.states.get(self._head_id)
-        return state.attributes.get("fan_mode") if state else None
+        commanded = state.attributes.get("fan_mode") if state else None
+        if commanded != FAN_AUTO or not self._stage_sensor_id:
+            return commanded
+        stage_state = self.hass.states.get(self._stage_sensor_id)
+        if stage_state is None or stage_state.state in UNAVAILABLE_STATES:
+            return commanded
+        # ESPHome text sensors report uppercase ("GENTLE"); normalize.
+        rung = STAGE_TO_FAN.get(stage_state.state.strip().upper())
+        # Only surface a rung the tile actually offers (must be in fan_modes so
+        # HomeKit renders it); otherwise fall through to the commanded token.
+        modes = self.fan_modes
+        if rung is not None and (modes is None or rung in modes):
+            return rung
+        return commanded
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
-        """Fan is independent of the coordinator's mode/setpoints -> drive the head."""
+        """Fan is independent of the coordinator's mode/setpoints -> drive the head.
+
+        Forwarded verbatim to the head (unchanged manual-hold semantics). Note:
+        if the tile is currently DISPLAYING a mapped rung (e.g. "low" mirrored
+        from stage GENTLE while the firmware runs its own `auto`) and the user
+        selects that same "low", this issues set_fan_mode low on the head — a
+        genuine manual hold at low, exactly as intended (the coordinator's latch
+        picks it up as a deliberate departure from `auto`)."""
         await self.hass.services.async_call(
             "climate",
             "set_fan_mode",
