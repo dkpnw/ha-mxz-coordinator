@@ -162,6 +162,34 @@ All thresholds are option defaults, editable at setup or later under **Configure
 metric system the defaults adapt (1.5° demand, 0.5° engage, 21 °C target, 20/10 °C
 changeover); sensors and setpoints are read and written in your HA unit throughout.
 
+### Who drives the fan
+
+Automatic ramping and hands-on control coexist per head; the handoff between them is
+deliberate, not a fight:
+
+- **Boost drives by default.** While a head is actively running, its fan speed follows how
+  far the room is off target — toward max when far out, easing down with hysteresis as it
+  closes in, back to the firmware's `auto` once satisfied.
+- **A manual pick is a hold.** Choose any speed yourself — HA, Apple Home, the unit's own
+  controls — and I back off that head's fan entirely: no ladder writes, and no snapping you
+  back to `auto` when the room settles. The hold survives restarts and the head cycling
+  off, and it never times out on its own — a hold is your call until you hand it back.
+  Each zone reports its hold as `fan_hold` on the plan sensor, so a dashboard can show
+  who's driving.
+- **Handing back.** Set the fan to `auto` and boost resumes on the next cycle. From
+  HomeKit — whose fan slider has no `auto` stop — slide it to **max while boost would
+  already be running flat out**: a max command that changes nothing reads as "you drive,"
+  so I adopt it and resume control (still at max, ramping down as the room closes in).
+  Slide to max when boost would be running *slower* than that, and it's a genuine request
+  for more air — it holds at max like any other manual pick. Same if the head is idling or
+  your boost ceiling is set below the head's top speed: max always holds there, because
+  boost would never have chosen it.
+- **Holds release on your gesture, not on drift.** A held zone doesn't silently unlatch
+  because the room wandered; only an observed `auto` (or the max handback above) returns
+  control. I read fan state once per cycle rather than watching slider events, so
+  re-selecting the speed a head is already on is invisible to me — change to something
+  else first if you want a fresh gesture registered.
+
 ---
 
 ## Install
@@ -262,6 +290,9 @@ reading instead of holding a stale number.
   HTTP 500 on our heads — hence the clamp. Adjust it to your firmware's range.
 - **Minimum-capacity floor.** The compressor can't modulate below ~40% of nameplate; excess
   can bleed into a satisfied head as mild overshoot. Not a deadlock.
+- **Fan stuck at one speed?** That's a manual hold, not a bug — someone picked that speed,
+  so I stopped driving the fan (check `fan_hold` on the plan sensor). Set the fan to `auto`
+  to hand it back. See [Who drives the fan](#who-drives-the-fan).
 
 ---
 
