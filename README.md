@@ -30,7 +30,9 @@ detected automatically; everything else has sensible defaults. No YAML editing.
   firmware's weak `auto` ramp.
 - ✋ **Manual fan hold.** Reach in and pick a fan speed yourself and the coordinator backs off
   that head entirely: it stops writing the fan, and won't yank you back to `auto` when the room
-  settles. Set the fan to `auto` again to hand control back and boost resumes.
+  settles. Set the fan to `auto` to hand control back — or, since HomeKit's slider has no
+  `auto` stop, just slide it to max when boost is already running flat out and I take that as
+  "you drive," resuming automatic control.
 - 🌦️ **Local-weather seasonal changeover.** Point it at any `weather.*` entity (or an
   outdoor temp sensor) and it auto-locks out heating in summer / cooling in winter from
   your own forecast. No calendar, no cloud.
@@ -165,6 +167,37 @@ values shown throughout this README (the °F examples above are just that — ex
 head setpoints are read/written in the system unit, so nothing is hard-coded to Fahrenheit. *(New in
 v2.8.0 — earlier versions assumed °F.)*
 
+### Who drives the fan
+
+Automatic ramping and hands-on control coexist per head; the handoff between them is
+deliberate, not a fight:
+
+- **Boost drives by default.** While a head is actively running, its fan speed follows how
+  far the room is off target — toward max when far out, easing down with hysteresis as it
+  closes in, back to the firmware's `auto` once satisfied.
+- **A manual pick is a hold.** Choose any speed yourself — HA, Apple Home, the unit's own
+  controls — and I back off that head's fan entirely: no ladder writes, and no snapping you
+  back to `auto` when the room settles. The hold survives restarts and the head cycling
+  off, and it never times out on its own — a hold is your call until you hand it back.
+  Each room reports its hold as `primary_fan_hold` / `secondary_fan_hold` on the plan
+  sensor, so a dashboard can show who's driving.
+- **Handing back.** Set the fan to `auto` and boost resumes on the next cycle. From
+  HomeKit — whose fan slider has no `auto` stop — slide it to **max while boost would
+  already be running flat out**: a max command that changes nothing reads as "you drive,"
+  so I adopt it and resume control (still at max, ramping down as the room closes in).
+  Slide to max when boost would be running *slower* than that, and it's a genuine request
+  for more air — it holds at max like any other manual pick. Same if the head is idling or
+  your boost ceiling is set below the head's top speed: max always holds there, because
+  boost would never have chosen it.
+- **A max hold folds back in; a slower hold waits for your gesture.** Holding at the head's
+  top speed is never really a hold *above* auto — the moment the room drifts far enough (or
+  you move the target) that boost would be commanding max anyway, the hold merges into auto
+  and rides the ramp back down as the room closes in. A hold at any slower speed is a
+  ceiling you chose: it never releases on drift or a target change, only on an observed
+  `auto` (or the max handback above). I read fan state once per cycle rather than watching
+  slider events, so re-selecting the speed a head is already on is invisible to me — change
+  to something else first if you want a fresh gesture registered.
+
 ---
 
 ## Install
@@ -220,6 +253,10 @@ uses `input_*` helpers instead of the integration's entities and is **not** one-
   throw **HTTP 500** and abort on our heads — hence the clamp. Adjust to your firmware's range.
 - **Minimum-capacity floor.** The compressor can't modulate below ~1/2.5 of nameplate; excess
   can bleed into a satisfied head as mild overshoot. Not a deadlock.
+- **Fan stuck at one speed?** That's a manual hold, not a bug — someone picked that speed,
+  so I stopped driving the fan (check `primary_fan_hold` / `secondary_fan_hold` on the plan
+  sensor). Set the fan to `auto`
+  to hand it back. See [Who drives the fan](#who-drives-the-fan).
 
 ---
 
