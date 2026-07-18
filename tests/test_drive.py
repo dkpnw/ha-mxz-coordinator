@@ -1559,3 +1559,46 @@ async def test_engage_deadband_clamped_to_profile_bounds(hass: HomeAssistant) ->
         assert entry.runtime_data.engage_deadband == expected
         await hass.config_entries.async_remove(entry.entry_id)
         await hass.async_block_till_done()
+
+
+async def test_fan_change_triggers_prompt_refresh(hass: HomeAssistant) -> None:
+    """A manual fan pick refreshes the coordinator promptly (no heartbeat wait).
+
+    The latch itself was always safe (observation runs before any fan write),
+    but without a refresh on fan_mode changes the Fan auto switch mirror sat
+    stale until the next unrelated trigger — up to a full heartbeat.
+    """
+    import datetime
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import (
+        async_fire_time_changed,
+    )
+
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+    sw = _eid(hass, entry, "_primary_fan_auto")
+
+    await _set_temp(hass, SENSOR_A, 67)
+    await _recompute(hass, entry)
+    assert hass.states.get(sw).state == "on"
+
+    # Manual pick -> NO explicit recompute. The head's state-change event alone
+    # must drive the refresh (through the debouncer) and flip the mirror.
+    await _user_set_fan(hass, head_a, "quiet")
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + datetime.timedelta(seconds=15)
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(sw).state == "off"
+
+    # Handing back via the slider gets the same promptness.
+    await _user_set_fan(hass, head_a, "auto")
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + datetime.timedelta(seconds=15)
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(sw).state == "on"
