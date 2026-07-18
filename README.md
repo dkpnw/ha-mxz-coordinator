@@ -255,8 +255,8 @@ uses `input_*` helpers instead of the integration's entities and is **not** one-
   can bleed into a satisfied head as mild overshoot. Not a deadlock.
 - **Fan stuck at one speed?** That's a manual hold, not a bug — someone picked that speed,
   so I stopped driving the fan (check `primary_fan_hold` / `secondary_fan_hold` on the plan
-  sensor). Set the fan to `auto`
-  to hand it back. See [Who drives the fan](#who-drives-the-fan).
+  sensor). Set the fan to `auto` to hand it back. See
+  [Who drives the fan](#who-drives-the-fan).
 
 ---
 
