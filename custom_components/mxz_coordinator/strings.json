@@ -149,6 +149,12 @@
       "secondary_enable": {
         "name": "Secondary enable"
       },
+      "primary_fan_auto": {
+        "name": "Primary fan auto"
+      },
+      "secondary_fan_auto": {
+        "name": "Secondary fan auto"
+      },
       "coordinator_enable": {
         "name": "Coordinator enable"
       },

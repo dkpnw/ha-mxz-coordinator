@@ -223,6 +223,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fan_cmd: dict[str, str] = {}
         self._fan_prev: dict[str, str] = {}
         self._fan_latched: dict[str, bool] = {}
+        # Zones whose CURRENT latch was placed by the Fan-auto switch (an
+        # explicit OFF) rather than an observed slider departure. A slider-set
+        # top token is ambiguous with the max handback, so it standing-merges
+        # into auto; a switch OFF is an unambiguous "hold this" and never
+        # self-releases. A later slider departure demotes the hold back to
+        # slider semantics.
+        self._fan_hold_explicit: set[str] = set()
 
         # Engage latch (decision state, like _fan_idx): "" = coasting, cool|heat
         # = mid-run toward target (the head may still be parked in fan_only by a
@@ -675,6 +682,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         gesture-released: room drift and target changes never unlatch them (the
         asymmetry is deliberate — a slower hold is a ceiling the user chose, a
         top-token hold is indistinguishable from what auto would do at max).
+        Holds placed by the Fan-auto SWITCH are exempt from the merge entirely:
+        a slider-set top token is ambiguous with the handback gesture, but a
+        switch OFF is an unambiguous "hold this" — see ``async_set_fan_auto``.
 
         The merge check for a standing latch starts the ladder fresh (cur_idx=0,
         UP_AT thresholds): _fan_idx is stale/popped while latched, and idx=0 is
@@ -689,6 +699,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         observed = state.attributes.get("fan_mode")
         if observed == FAN_AUTO:
             self._fan_latched[climate_id] = False
+            self._fan_hold_explicit.discard(climate_id)
             return False
 
         seeding = climate_id not in self._fan_cmd
@@ -697,10 +708,17 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._fan_prev.get(climate_id),
         )
         if not (seeding or departed):
-            # Already latched at a held token. A top-token hold merges into auto
-            # whenever auto would command max anyway; a slower hold does not.
-            if self._fan_latched.get(climate_id, False) and self._is_max_handback(
-                climate_id, observed, act, delta, modes, cur_idx=0
+            # Already latched at a held token. A SLIDER-set top-token hold merges
+            # into auto whenever auto would command max anyway; a slower hold
+            # does not, and neither does an explicit Fan-auto-switch hold (the
+            # switch gesture is unambiguous — it releases only via the switch or
+            # an observed "auto").
+            if (
+                self._fan_latched.get(climate_id, False)
+                and climate_id not in self._fan_hold_explicit
+                and self._is_max_handback(
+                    climate_id, observed, act, delta, modes, cur_idx=0
+                )
             ):
                 self._adopt_fan_handback(climate_id, observed)
                 return False
@@ -716,7 +734,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
 
         # Seed latched iff the head isn't at auto; a departure always latches.
+        # Either way the latch is now slider-origin: a departure from an explicit
+        # switch hold demotes it (the user reached for the slider — slider rules,
+        # including the top-token standing merge, apply again).
         self._fan_latched[climate_id] = observed is not None
+        self._fan_hold_explicit.discard(climate_id)
         return self._fan_latched.get(climate_id, False)
 
     def _adopt_fan_handback(self, climate_id: str, observed: str) -> None:
@@ -728,9 +750,69 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         as a fresh departure and re-latch once the ladder later steps below max.
         """
         self._fan_latched[climate_id] = False
+        self._fan_hold_explicit.discard(climate_id)
         self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, observed)
         self._fan_cmd[climate_id] = observed
         self._fan_idx[climate_id] = self._fan_max_idx()
+
+    # -- fan-auto switch (the discoverable manual-hold handback) --------------
+    def fan_auto_is_on(self, climate_id: str) -> bool:
+        """True when boost drives this head's fan (zone NOT manually held).
+
+        The switch is a live mirror of the latch: ON = auto/boost in charge,
+        OFF = a manual speed is being held. The latch machinery is the single
+        source of truth (it already seeds from observed head state on restart),
+        so the switch stores nothing of its own.
+        """
+        return not self._fan_latched.get(climate_id, False)
+
+    async def async_set_fan_auto(self, climate_id: str, on: bool) -> None:
+        """Drive the fan-auto switch: ON hands control back, OFF holds the speed.
+
+        ON  -> release the latch and ADOPT the head's current observed token into
+               the boost memory (the same trick as the max handback), so the
+               still-at-manual-speed head doesn't read as a fresh departure and
+               immediately re-latch; then recompute so boost reasserts promptly.
+        OFF -> latch at whatever the head is doing right now (a deliberate hold).
+               Latching "at auto" is meaningless, so an observed ``auto`` is a
+               no-op (the switch stays ON) — documented, pinned in a test. We
+               seed _fan_cmd/_fan_prev with the observed token so the observation
+               path treats the hold as already-accounted-for, not a new departure.
+               The hold is marked EXPLICIT: unlike a slider-set hold at the top
+               token, it never standing-merges into auto (a slider top token is
+               ambiguous with the max handback; a switch OFF is not) — it holds,
+               even at max, until the switch (or an observed ``auto``) releases
+               it. A later slider departure demotes it back to slider semantics.
+
+        With fan boost disabled the fan machinery is inert: OFF still records the
+        latch (it simply has no effect until boost is re-enabled), and ON still
+        clears it — the switch stays honest either way.
+        """
+        state = self.hass.states.get(climate_id)
+        observed = state.attributes.get("fan_mode") if state is not None else None
+        if on:
+            if observed is not None:
+                # Adopt the current speed so boost resumes from it without a
+                # spurious re-latch (rolls _fan_prev, pins _fan_idx to max for a
+                # clean DOWN_AT ramp-down — identical to the max handback).
+                self._adopt_fan_handback(climate_id, observed)
+            else:
+                self._fan_latched[climate_id] = False
+                self._fan_hold_explicit.discard(climate_id)
+            await self.async_request_refresh()
+            return
+        # OFF: hold at the current speed. Auto is nothing to hold onto.
+        if observed is None or observed == FAN_AUTO:
+            _LOGGER.debug(
+                "fan-auto OFF for %s ignored: head at %s (nothing to hold)",
+                climate_id,
+                observed,
+            )
+            return
+        self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, observed)
+        self._fan_cmd[climate_id] = observed
+        self._fan_latched[climate_id] = True
+        self._fan_hold_explicit.add(climate_id)
 
     def _is_max_handback(
         self,
