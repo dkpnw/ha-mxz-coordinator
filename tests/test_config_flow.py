@@ -31,7 +31,9 @@ from custom_components.mxz_coordinator.const import (  # noqa: E402
     CONF_ZONES,
     DOMAIN,
     ZONE_CLIMATE,
+    ZONE_NAME,
     ZONE_SENSOR,
+    ZONE_STAGE_SENSOR,
 )
 
 _VALID = {
@@ -230,6 +232,44 @@ async def test_options_flow_merges_and_mirrors_to_data(hass: HomeAssistant) -> N
     # mirror: entry.data now carries the config for out-of-band recovery.
     assert entry.data[CONF_CHANGEOVER_ENTITY] == "weather.home"
     assert entry.data[CONF_DEMAND_THRESHOLD] == 5.0
+
+
+async def test_options_flow_zone_override_folds_into_zones(hass: HomeAssistant) -> None:
+    """A per-zone override (here the airflow/stage sensor) folds into the zones
+    list in entry.data — never persisted as a flat key, which would shadow the
+    zones list in the coordinator's {**data, **options} merge."""
+    zones = [
+        {
+            ZONE_NAME: "Primary",
+            ZONE_CLIMATE: "climate.primary",
+            ZONE_SENSOR: "sensor.primary_temp",
+        },
+        {
+            ZONE_NAME: "Secondary",
+            ZONE_CLIMATE: "climate.secondary",
+            ZONE_SENSOR: "sensor.secondary_temp",
+        },
+    ]
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_ZONES: zones},
+        options={CONF_DEMAND_THRESHOLD: 3.0},
+        title="MXZ Coordinator",
+        version=2,
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"primary_stage": "sensor.primary_stage"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    # Folded into the zones list, wired to the right zone only.
+    assert entry.data[CONF_ZONES][0][ZONE_STAGE_SENSOR] == "sensor.primary_stage"
+    assert ZONE_STAGE_SENSOR not in entry.data[CONF_ZONES][1]
+    # Never stored flat (options or the data mirror).
+    assert "primary_stage" not in entry.options
+    assert "primary_stage" not in entry.data
 
 
 async def test_options_flow_refuses_empty(hass: HomeAssistant) -> None:
