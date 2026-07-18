@@ -997,6 +997,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Detect a head drifting into a banned mode or off-while-enabled."""
         entity_id: str = event.data["entity_id"]
         new_state = event.data.get("new_state")
+        old_state = event.data.get("old_state")
         mode = new_state.state if new_state else None
 
         self._arm_or_cancel(
@@ -1006,6 +1007,16 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             mode == MODE_OFF and self._enable_for(entity_id) and not self.eco_idle
         )
         self._arm_or_cancel(entity_id, "off", off_drift, OFF_WHILE_ENABLED_DELAY)
+
+        # A fan_mode change is a latch-relevant observation (a manual pick, an
+        # `auto` handback, or our own write's echo): refresh promptly so the
+        # hold engages and the Fan auto switch mirrors it now, not at the next
+        # heartbeat. Idempotent writes + the echo-tolerant departure check make
+        # a refresh on our own echo harmless.
+        new_fan = new_state.attributes.get("fan_mode") if new_state else None
+        old_fan = old_state.attributes.get("fan_mode") if old_state else None
+        if new_fan != old_fan:
+            self.hass.async_create_task(self.async_request_refresh())
 
     @callback
     def _arm_or_cancel(
