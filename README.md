@@ -77,7 +77,9 @@ coordinator.
   satisfied. Max speed configurable; opt out anytime.
 - **Manual fan hold** — reach in and pick a fan speed yourself and the coordinator backs off
   that head entirely: it stops writing the fan, and won't yank you back to `auto` when the
-  room settles. Set the fan to `auto` again to hand control back and boost resumes.
+  room settles. Set the fan to `auto` to hand control back — or, since HomeKit's slider has no
+  `auto` stop, just slide it to max when boost is already running flat out and I take that as
+  "you drive," resuming automatic control.
 - **Correct Mitsubishi fan ladder** — knows `middle` is *faster* than `medium` (a real CN105
   naming trap) and never commands a speed your unit lacks.
 - **Vane & swing on the tile** — full louvre control from the native thermostat.

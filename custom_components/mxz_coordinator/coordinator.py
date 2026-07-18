@@ -637,15 +637,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         # Evaluate the manual-fan latch from what the head is actually reporting.
-        if self._observe_fan_latch(climate_id, state):
+        if self._observe_fan_latch(climate_id, state, act, delta, modes):
             return  # latched: leave the user's fan pick untouched
 
         if act in (MODE_COOL, MODE_HEAT) and not self.eco_idle:
-            max_idx = (
-                FAN_LADDER.index(self.fan_boost_max)
-                if self.fan_boost_max in FAN_LADDER
-                else len(FAN_LADDER) - 1
-            )
+            max_idx = self._fan_max_idx()
             idx = fan_for_delta(
                 delta=delta,
                 cur_idx=self._fan_idx.get(climate_id, 0),
@@ -668,7 +664,22 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return  # idempotent
         await self._write_fan(climate_id, token)
 
-    def _observe_fan_latch(self, climate_id: str, state: Any) -> bool:
+    def _fan_max_idx(self) -> int:
+        """Ladder index the boost is allowed to reach, respecting fan_boost_max."""
+        return (
+            FAN_LADDER.index(self.fan_boost_max)
+            if self.fan_boost_max in FAN_LADDER
+            else len(FAN_LADDER) - 1
+        )
+
+    def _observe_fan_latch(
+        self,
+        climate_id: str,
+        state: Any,
+        act: str,
+        delta: float,
+        modes: list[str],
+    ) -> bool:
         """Update and return the manual-fan latch for a head from its state.
 
         Called once per apply per head, guaranteed the head has fan_modes with an
@@ -683,19 +694,89 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
           head's own state" — a manual pick that predates the restart is honored
           (the accepted tradeoff: a restart mid-boost latches at the boost speed
           until someone sets "auto").
+
+        Max-speed handback: HomeKit's fan slider has no "auto" stop, so a user who
+        latched a zone by picking a speed has no on-slider gesture to hand control
+        back. The escape gesture is MAX: setting the fan to the head's top ladder
+        token means "give it back to auto" — UNLESS the boost would already be
+        running below max, in which case max is a real request for more air and
+        latches like any other manual pick. Concretely a departure to the top
+        token is a handback iff the head is actively conditioning AND the boost's
+        currently-computed token for this delta (respecting fan_boost_max and the
+        _fan_idx hysteresis) is itself that top token. On a handback we do NOT
+        latch: we ADOPT the observed token into _fan_cmd (rolling _fan_prev) and
+        set _fan_idx to the computed max index, so (a) the natural ramp-down
+        proceeds idempotently from max under DOWN_AT hysteresis and (b) the
+        still-at-max head doesn't read as a fresh departure and re-latch once the
+        ladder later steps below max.
+
+        This is EDGE-ONLY, decided at the moment the departure is observed: a
+        standing latch is the user's declared intent, so a later room drift that
+        would push the ladder to max does NOT silently unlatch it. The user can
+        re-gesture (slider off max and back), but since the coordinator only sees
+        observed state per cycle — not events — a re-gesture to the SAME token the
+        head already reports is invisible; that limitation is accepted.
         """
         observed = state.attributes.get("fan_mode")
         if observed == FAN_AUTO:
             self._fan_latched[climate_id] = False
-        elif climate_id not in self._fan_cmd:
-            # First evaluation, no memory: seed latched iff the head isn't at auto.
-            self._fan_latched[climate_id] = observed is not None
-        elif observed not in (
+            return False
+
+        seeding = climate_id not in self._fan_cmd
+        departed = not seeding and observed not in (
             self._fan_cmd.get(climate_id),
             self._fan_prev.get(climate_id),
+        )
+        if not (seeding or departed):
+            return self._fan_latched.get(climate_id, False)
+
+        # A new manual reading (seed or departure). Check the max-speed handback
+        # before latching.
+        if observed is not None and self._is_max_handback(
+            climate_id, observed, act, delta, modes
         ):
-            self._fan_latched[climate_id] = True
+            self._fan_latched[climate_id] = False
+            self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, observed)
+            self._fan_cmd[climate_id] = observed
+            self._fan_idx[climate_id] = self._fan_max_idx()
+            return False
+
+        # Seed latched iff the head isn't at auto; a departure always latches.
+        self._fan_latched[climate_id] = observed is not None
         return self._fan_latched.get(climate_id, False)
+
+    def _is_max_handback(
+        self,
+        climate_id: str,
+        observed: str,
+        act: str,
+        delta: float,
+        modes: list[str],
+    ) -> bool:
+        """True if this observed token is the max-speed "hand it back to auto" gesture.
+
+        The observed token must be the head's TOP available ladder token (highest
+        FAN_LADDER index present in this head's fan_modes — never hardcode "high",
+        a head may not carry the full ladder), the head must be actively
+        conditioning (cool/heat, not eco-idle), and the boost's computed token for
+        this delta must ALSO be that top token. If the ladder sits below the top
+        (near target, or fan_boost_max caps below it) then max is a genuine
+        request for more air, not a handback.
+        """
+        if act not in (MODE_COOL, MODE_HEAT) or self.eco_idle:
+            return False
+        avail = [t for t in FAN_LADDER if t in modes]
+        if not avail or observed != avail[-1]:
+            return False  # not the head's top available token
+        max_idx = self._fan_max_idx()
+        idx = fan_for_delta(
+            delta=delta,
+            cur_idx=self._fan_idx.get(climate_id, 0),
+            up_at=self.fan_up_at,
+            down_at=self.fan_down_at,
+            max_idx=max_idx,
+        )
+        return FAN_LADDER[idx] == observed
 
     async def _write_fan(self, climate_id: str, token: str) -> None:
         """Issue a fan_mode write and remember it (last + prior, for the echo race)."""
