@@ -217,7 +217,7 @@ deliberate, not a fight:
   the firmware ramps. It's display only — it never changes what I command, and picking a speed
   yourself is still a manual hold. The reading is approximate: the firmware reports more
   stages than there are speeds you can set, so I map each to the nearest rung. No such sensor,
-  or it drops out? The tile just shows the commanded token, same as before.
+  or it drops out? The tile just shows the commanded token, same as before. *(New in v2.17.0.)*
 
 ---
 
