@@ -636,6 +636,87 @@ async def test_max_fan_handback_far_off_target_hands_back(
     assert plan.attributes["zones"][0]["fan_hold"] is False  # never re-latched
 
 
+async def test_max_fan_handback_escapes_a_slower_hold(hass: HomeAssistant) -> None:
+    """Sliding a SLOWER hold up to max while boost would command max -> handback.
+
+    A zone held at "low" (non-top: drift never merges it), then the delta grows
+    to where the ladder would command the top token. The slide to "high" is a
+    genuine DEPARTURE (differs from both remembered commands), but because the
+    ladder's pick for this delta IS the top token it reads as "you drive": adopt,
+    don't re-latch, and ramp down under normal hysteresis afterward. This is the
+    HomeKit escape hatch from any hold, not just a max one.
+    """
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+
+    # Boost settles at "middle" (delta 3); user picks "low" -> a non-top hold.
+    await _set_temp(hass, SENSOR_A, 65)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "middle"
+    await _user_set_fan(hass, head_a, "low")
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True
+
+    # Room drifts hard (delta 5): a non-top hold never merges -> still held.
+    await _set_temp(hass, SENSOR_A, 67)
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True
+
+    # User slides the hold up to "high" -> departure + ladder-at-max = handback.
+    await _user_set_fan(hass, head_a, "high")
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False  # adopted, not latched
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+
+    # Ramp-down proceeds from max under DOWN_AT hysteresis -> control resumed.
+    await _set_temp(hass, SENSOR_A, 62.4)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "quiet"
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False
+
+
+async def test_max_fan_handback_seed_at_max_adopts_on_restart(
+    hass: HomeAssistant,
+) -> None:
+    """Restart mid-boost with the head AT the top token and a max-demanding delta:
+    the seed runs the same handback check and ADOPTS instead of latching — the
+    one restart case that self-heals (a non-max seed still latches, pinned by
+    test_manual_fan_latch_seeds_from_head_on_restart)."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+    coord = entry.runtime_data
+
+    # Boost to "high", then wipe the memory to simulate a restart.
+    await _set_temp(hass, SENSOR_A, 67)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+    coord._fan_cmd.clear()
+    coord._fan_prev.clear()
+    coord._fan_latched.clear()
+    coord._fan_idx.clear()
+
+    # First compute post-restart: delta still demands max -> adopt, not latch.
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+
+    # And it ramps down like any adopted handback.
+    await _set_temp(hass, SENSOR_A, 62.4)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "quiet"
+
+
 async def test_max_fan_handback_near_target_latches(hass: HomeAssistant) -> None:
     """User sets MAX while the ladder is BELOW max -> a real request, latches."""
     hass.config.units = US_CUSTOMARY_SYSTEM

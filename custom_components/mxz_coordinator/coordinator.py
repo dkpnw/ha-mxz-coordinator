@@ -693,7 +693,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
           reading seeds LATCHED, mirroring the engage-latch's "resume from the
           head's own state" — a manual pick that predates the restart is honored
           (the accepted tradeoff: a restart mid-boost latches at the boost speed
-          until someone sets "auto").
+          until someone sets "auto" — except a seed AT the top token while the
+          ladder would command it, which the max handback below adopts instead,
+          so a restart mid-boost at max self-heals).
 
         Max-speed handback: HomeKit's fan slider has no "auto" stop, so a user who
         latched a zone by picking a speed has no on-slider gesture to hand control
