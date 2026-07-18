@@ -465,6 +465,50 @@ async def test_manual_fan_latch_ignores_own_echo(hass: HomeAssistant) -> None:
     assert hass.states.get(head_a).attributes["fan_mode"] in FAN_LADDER
 
 
+async def test_manual_fan_latch_tolerates_one_cycle_state_lag(
+    hass: HomeAssistant,
+) -> None:
+    """The real echo race: a slow head still reporting the PRIOR commanded token.
+
+    MockHead echoes writes instantly, so this test forges the lag by hand: after
+    the coordinator has written two different ladder tokens, the head is made to
+    report the older one again (ESPHome state lag / unavailable-restore replay).
+    That must NOT latch — but a token the coordinator never wrote still must.
+    """
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+
+    await _set_temp(hass, SENSOR_A, 67)  # big delta -> "high"
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+    await _set_temp(hass, SENSOR_A, 63.4)  # eases down the ladder
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "low"
+
+    def _forge_fan(token: str) -> None:
+        st = hass.states.get(head_a)
+        hass.states.async_set(head_a, st.state, {**st.attributes, "fan_mode": token})
+
+    # Lagged echo of the PRIOR write ("high" while cmd is "low") -> absorbed.
+    _forge_fan("high")
+    await hass.async_block_till_done()
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False  # not a departure
+    assert hass.states.get(head_a).attributes["fan_mode"] == "low"  # re-asserted
+
+    # A token we NEVER commanded ("quiet") -> a genuine user departure, latches.
+    _forge_fan("quiet")
+    await hass.async_block_till_done()
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True
+    assert hass.states.get(head_a).attributes["fan_mode"] == "quiet"  # untouched
+
+
 async def test_manual_fan_latch_seeds_from_head_on_restart(
     hass: HomeAssistant,
 ) -> None:

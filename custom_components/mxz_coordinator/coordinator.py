@@ -630,8 +630,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         modes = state.attributes.get("fan_modes")
         if not modes or FAN_AUTO not in modes:
-            # No fan control, or no "auto" to hand back to -> the whole latch
-            # machinery would have nothing to key off; skip safely (unchanged).
+            # No fan control, or no "auto" to release the latch (or return a
+            # satisfied head to) -> leave the head's fan entirely alone. This
+            # supersedes the old best-effort ladder writes to auto-less heads,
+            # which could only ratchet the fan up with no way back down.
             return
 
         # Evaluate the manual-fan latch from what the head is actually reporting.
