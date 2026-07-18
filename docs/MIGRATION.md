@@ -101,5 +101,12 @@ An explicitly-saved off stays off.
 Automatic — nothing to do. On first startup the config entry migrates from the flat
 primary/secondary shape to an ordered `zones` list. Zones 0/1 keep the `primary`/`secondary`
 entity unique_ids, so **all entity IDs, history, and dashboards are unchanged**. To add more
-zones to an existing entry, remove + re-add the integration (a reconfigure flow is planned);
-your tuning options survive in the entry and can be re-saved via Configure.
+zones to an existing entry, use **⋮ → Reconfigure** on the config entry (see the README's
+"Reconfiguring" section) — no need to remove and re-add.
+
+**Per-zone Fan auto switch.** Every zone also gains a `switch.*_<zone>_fan_auto` entity
+(e.g. `switch.mxz_coordinator_primary_fan_auto`) — a live mirror of that zone's manual-fan
+hold (ON = boost drives, OFF = a manual speed is held) and the discoverable way to hand fan
+control back; see the README's "Who drives the fan". Purely additive: no existing entity IDs
+change, and the switch stores no state of its own (it mirrors the coordinator's latch, which
+seeds from observed head state on restart).

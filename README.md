@@ -306,8 +306,9 @@ reading instead of holding a stale number.
 - **Minimum-capacity floor.** The compressor can't modulate below ~40% of nameplate; excess
   can bleed into a satisfied head as mild overshoot. Not a deadlock.
 - **Fan stuck at one speed?** That's a manual hold, not a bug — someone picked that speed,
-  so I stopped driving the fan (check `fan_hold` on the plan sensor). Set the fan to `auto`
-  to hand it back. See [Who drives the fan](#who-drives-the-fan).
+  so I stopped driving the fan (the zone's **Fan auto** switch reads OFF; `fan_hold` on the
+  plan sensor agrees). Flip the switch back ON — or set the fan to `auto` — to hand it back.
+  See [Who drives the fan](#who-drives-the-fan).
 
 ---
 
