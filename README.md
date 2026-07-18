@@ -184,11 +184,14 @@ deliberate, not a fight:
   for more air — it holds at max like any other manual pick. Same if the head is idling or
   your boost ceiling is set below the head's top speed: max always holds there, because
   boost would never have chosen it.
-- **Holds release on your gesture, not on drift.** A held zone doesn't silently unlatch
-  because the room wandered; only an observed `auto` (or the max handback above) returns
-  control. I read fan state once per cycle rather than watching slider events, so
-  re-selecting the speed a head is already on is invisible to me — change to something
-  else first if you want a fresh gesture registered.
+- **A max hold folds back in; a slower hold waits for your gesture.** Holding at the head's
+  top speed is never really a hold *above* auto — the moment the room drifts far enough (or
+  you move the target) that boost would be commanding max anyway, the hold merges into auto
+  and rides the ramp back down as the room closes in. A hold at any slower speed is a
+  ceiling you chose: it never releases on drift or a target change, only on an observed
+  `auto` (or the max handback above). I read fan state once per cycle rather than watching
+  slider events, so re-selecting the speed a head is already on is invisible to me — change
+  to something else first if you want a fresh gesture registered.
 
 ---
 

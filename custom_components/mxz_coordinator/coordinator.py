@@ -710,12 +710,26 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         still-at-max head doesn't read as a fresh departure and re-latch once the
         ladder later steps below max.
 
-        This is EDGE-ONLY, decided at the moment the departure is observed: a
-        standing latch is the user's declared intent, so a later room drift that
-        would push the ladder to max does NOT silently unlatch it. The user can
-        re-gesture (slider off max and back), but since the coordinator only sees
-        observed state per cycle — not events — a re-gesture to the SAME token the
-        head already reports is invisible; that limitation is accepted.
+        The handback is NOT purely edge-only for the top token. A hold at the
+        head's top available token is never really a hold "above" auto — it MERGES
+        INTO auto the moment auto would be commanding that token anyway. So on
+        EVERY cycle, a zone already latched at the top token runs the same handback
+        check and releases if the boost's computed token for the current delta is
+        that top token (covers both a later TARGET change and plain room drift —
+        same rule, no special-casing). Holds at any NON-top token stay strictly
+        gesture-released: room drift and target changes never unlatch them (the
+        asymmetry is deliberate — a slower hold is a ceiling the user chose, a
+        top-token hold is indistinguishable from what auto would do at max).
+
+        The merge check for a standing latch starts the ladder fresh (cur_idx=0,
+        UP_AT thresholds): _fan_idx is stale/popped while latched, and idx=0 is
+        the conservative reading — merge only when the delta genuinely demands max
+        from a cold start, not off a stale high index that DOWN_AT would still
+        hold at max. The seed/departure path keeps its own current index.
+
+        Because the coordinator only sees observed state per cycle — not events —
+        a re-gesture to the SAME non-top token the head already reports is
+        invisible; that limitation is accepted.
         """
         observed = state.attributes.get("fan_mode")
         if observed == FAN_AUTO:
@@ -728,22 +742,40 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._fan_prev.get(climate_id),
         )
         if not (seeding or departed):
+            # Already latched at a held token. A top-token hold merges into auto
+            # whenever auto would command max anyway; a slower hold does not.
+            if self._fan_latched.get(climate_id, False) and self._is_max_handback(
+                climate_id, observed, act, delta, modes, cur_idx=0
+            ):
+                self._adopt_fan_handback(climate_id, observed)
+                return False
             return self._fan_latched.get(climate_id, False)
 
         # A new manual reading (seed or departure). Check the max-speed handback
-        # before latching.
+        # before latching. Fresh readings use the current hysteresis index.
         if observed is not None and self._is_max_handback(
-            climate_id, observed, act, delta, modes
+            climate_id, observed, act, delta, modes,
+            cur_idx=self._fan_idx.get(climate_id, 0),
         ):
-            self._fan_latched[climate_id] = False
-            self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, observed)
-            self._fan_cmd[climate_id] = observed
-            self._fan_idx[climate_id] = self._fan_max_idx()
+            self._adopt_fan_handback(climate_id, observed)
             return False
 
         # Seed latched iff the head isn't at auto; a departure always latches.
         self._fan_latched[climate_id] = observed is not None
         return self._fan_latched.get(climate_id, False)
+
+    def _adopt_fan_handback(self, climate_id: str, observed: str) -> None:
+        """Release the latch and adopt the max token into the boost's memory.
+
+        Rolls _fan_prev, records the observed token as the last command, and pins
+        _fan_idx to the max index so the natural ramp-down proceeds idempotently
+        from max under DOWN_AT hysteresis and the still-at-max head doesn't read
+        as a fresh departure and re-latch once the ladder later steps below max.
+        """
+        self._fan_latched[climate_id] = False
+        self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, observed)
+        self._fan_cmd[climate_id] = observed
+        self._fan_idx[climate_id] = self._fan_max_idx()
 
     def _is_max_handback(
         self,
@@ -752,6 +784,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         act: str,
         delta: float,
         modes: list[str],
+        cur_idx: int,
     ) -> bool:
         """True if this observed token is the max-speed "hand it back to auto" gesture.
 
@@ -759,9 +792,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         FAN_LADDER index present in this head's fan_modes — never hardcode "high",
         a head may not carry the full ladder), the head must be actively
         conditioning (cool/heat, not eco-idle), and the boost's computed token for
-        this delta must ALSO be that top token. If the ladder sits below the top
-        (near target, or fan_boost_max caps below it) then max is a genuine
-        request for more air, not a handback.
+        this delta (from ``cur_idx``) must ALSO be that top token. If the ladder
+        sits below the top (near target, or fan_boost_max caps below the head's
+        top token so the ladder can never reach it) then max is a genuine request
+        for more air, not a handback.
         """
         if act not in (MODE_COOL, MODE_HEAT) or self.eco_idle:
             return False
@@ -771,7 +805,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         max_idx = self._fan_max_idx()
         idx = fan_for_delta(
             delta=delta,
-            cur_idx=self._fan_idx.get(climate_id, 0),
+            cur_idx=cur_idx,
             up_at=self.fan_up_at,
             down_at=self.fan_down_at,
             max_idx=max_idx,

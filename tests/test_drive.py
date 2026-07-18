@@ -739,6 +739,128 @@ async def test_max_fan_handback_uses_heads_top_available_token(
     assert plan.attributes["zones"][0]["fan_hold"] is False
 
 
+async def test_max_hold_merges_into_auto_when_target_moves(
+    hass: HomeAssistant,
+) -> None:
+    """Latched at the top token near target, then a TARGET change grows the delta
+    until the ladder would command max -> the hold MERGES into auto (releases),
+    and ramps DOWN as the room later closes in. This is the motivating scenario:
+    a max hold is never a hold "above" auto, so it folds in the moment auto would
+    be commanding max anyway."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+
+    # Small cooling delta (temp 64, target 62): the ladder sits below "high".
+    await _set_temp(hass, SENSOR_A, 64)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] != "high"
+
+    # User picks "high" here -> a genuine request for more air -> latches.
+    await _user_set_fan(hass, head_a, "high")
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True
+
+    # Now drop the TARGET so the delta grows to where the ladder commands max.
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 60)  # delta 4
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False  # merged into auto
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+
+    # As the room closes on the new target the fan eases down -> control resumed.
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 64)  # satisfied
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] != "high"
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False  # never re-latched
+
+
+async def test_max_hold_stays_latched_when_delta_grows_only_partway(
+    hass: HomeAssistant,
+) -> None:
+    """Latched at the top token, then the target moves only enough that the ladder
+    would command a MIDDLE rung -> the hold stays latched (merge needs max)."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+
+    # Small delta -> user "high" latches (ladder is below high).
+    await _set_temp(hass, SENSOR_A, 64)
+    await _recompute(hass, entry)
+    await _user_set_fan(hass, head_a, "high")
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True
+
+    # Target down to 61 -> delta 3 -> fresh ladder commands "middle", not "high".
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 61)
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True  # not max -> still held
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"  # untouched
+
+
+async def test_non_top_hold_never_merges_on_drift(hass: HomeAssistant) -> None:
+    """Latched at a NON-top token, then the delta grows to where the ladder would
+    command max -> stays latched. Only top-token holds merge; slower holds are
+    gesture-released only (the deliberate asymmetry)."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+
+    # Boost sits at "middle"; user picks "low" (a non-top token, below what boost
+    # commands) -> a departure -> latches.
+    await _set_temp(hass, SENSOR_A, 65)  # delta 3 -> boost "middle"
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "middle"
+    await _user_set_fan(hass, head_a, "low")
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True
+
+    # Grow the delta hard (target 59 -> delta 6, where the ladder would be "high").
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 59)
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True  # slower hold never merges
+    assert hass.states.get(head_a).attributes["fan_mode"] == "low"  # untouched
+
+
+async def test_max_hold_capped_below_top_never_merges(hass: HomeAssistant) -> None:
+    """fan_boost_max capped below the head's top token: latched at the top token,
+    then a huge delta -> stays latched, because the ladder can never reach the top
+    so the merge condition can never be satisfied (the cap excludes the merge)."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b, fan_boost_max="medium")
+
+    # Far off target, but the cap holds the ladder at "medium"; user "high" latches.
+    await _set_temp(hass, SENSOR_A, 67)  # delta 5, but capped at "medium"
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "medium"
+    await _user_set_fan(hass, head_a, "high")
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True
+
+    # Even a huge delta can't push the (capped) ladder to "high" -> stays latched.
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 59)  # delta 8
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"  # untouched
+
+
 async def test_fan_boost_drives_speed(hass: HomeAssistant) -> None:
     """fan boost: a conditioning head's fan tracks how far the room is off-target."""
     hass.config.units = US_CUSTOMARY_SYSTEM
