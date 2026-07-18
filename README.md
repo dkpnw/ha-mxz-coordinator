@@ -77,9 +77,9 @@ coordinator.
   satisfied. Max speed configurable; opt out anytime.
 - **Manual fan hold** — reach in and pick a fan speed yourself and the coordinator backs off
   that head entirely: it stops writing the fan, and won't yank you back to `auto` when the
-  room settles. Set the fan to `auto` to hand control back — or, since HomeKit's slider has no
-  `auto` stop, just slide it to max when boost is already running flat out and I take that as
-  "you drive," resuming automatic control.
+  room settles. Each zone gets a **Fan auto** switch: ON means boost drives, OFF means you're
+  holding a speed. Flip it back ON to hand control to boost — or set the fan to `auto`, or (from
+  HomeKit) slide to max when boost is already running flat out.
 - **Correct Mitsubishi fan ladder** — knows `middle` is *faster* than `medium` (a real CN105
   naming trap) and never commands a speed your unit lacks.
 - **Vane & swing on the tile** — full louvre control from the native thermostat.
@@ -176,14 +176,21 @@ deliberate, not a fight:
   off, and it never times out on its own — a hold is your call until you hand it back.
   Each zone reports its hold as `fan_hold` on the plan sensor, so a dashboard can show
   who's driving.
-- **Handing back.** Set the fan to `auto` and boost resumes on the next cycle. From
-  HomeKit — whose fan slider has no `auto` stop — slide it to **max while boost would
-  already be running flat out**: a max command that changes nothing reads as "you drive,"
-  so I adopt it and resume control (still at max, ramping down as the room closes in).
-  Slide to max when boost would be running *slower* than that, and it's a genuine request
-  for more air — it holds at max like any other manual pick. Same if the head is idling or
-  your boost ceiling is set below the head's top speed: max always holds there, because
-  boost would never have chosen it.
+- **The Fan auto switch is the handback.** Every zone has a **Fan auto** toggle that mirrors
+  the hold: ON while boost drives, OFF the moment you pick a speed. Flip it back ON and I
+  release the hold and resume boost on the next cycle — the one control that always works,
+  including in Apple Home, where it bridges as a plain switch beside the thermostat. It's a
+  separate toggle for a plain reason: Apple's Home app renders only a climate service's fixed
+  set of characteristics, so there's no way to put a custom control *inside* the climate tile —
+  the switch has to ride alongside it. It's also your at-a-glance who's-driving indicator.
+- **Slider-only handbacks (if you'd rather not touch the switch).** Set the fan to `auto` and
+  boost resumes on the next cycle. From HomeKit — whose fan slider has no `auto` stop — slide
+  it to **max while boost would already be running flat out**: a max command that changes
+  nothing reads as "you drive," so I adopt it and resume control (still at max, ramping down as
+  the room closes in). Slide to max when boost would be running *slower* than that, and it's a
+  genuine request for more air — it holds at max like any other manual pick. Same if the head
+  is idling or your boost ceiling is set below the head's top speed: max always holds there,
+  because boost would never have chosen it.
 - **A max hold folds back in; a slower hold waits for your gesture.** Holding at the head's
   top speed is never really a hold *above* auto — the moment the room drifts far enough (or
   you move the target) that boost would be commanding max anyway, the hold merges into auto

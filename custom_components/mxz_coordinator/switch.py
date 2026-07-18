@@ -14,6 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     KEY_COOL_LOCKOUT,
@@ -43,6 +44,7 @@ async def async_setup_entry(
     entities: list[SwitchEntity] = [
         MXZZoneEnableSwitch(coordinator, zone) for zone in coordinator.zones
     ]
+    entities.extend(MXZZoneFanAutoSwitch(coordinator, zone) for zone in coordinator.zones)
     entities.extend(MXZSwitch(coordinator, key) for key in _GLOBAL_ICONS)
     async_add_entities(entities)
 
@@ -113,3 +115,43 @@ class MXZZoneEnableSwitch(MXZBaseSwitch):
 
     def _seed(self) -> None:
         self._zone.enable = self._attr_is_on
+
+
+class MXZZoneFanAutoSwitch(MXZEntity, CoordinatorEntity[MXZCoordinator], SwitchEntity):
+    """Per-zone "Fan auto" toggle — a live mirror of the manual-fan latch.
+
+    ON  = boost/auto drives this head's fan (zone not held).
+    OFF = a manual speed is being held.
+
+    It is NOT restored: the latch machinery is the single source of truth and
+    seeds itself from observed head state on restart, so the switch just reflects
+    it (CoordinatorEntity re-renders every cycle). Turning it ON hands control
+    back to boost; turning it OFF pins the head's current speed. Apple's Home app
+    renders only a climate service's fixed characteristics — there's no room for a
+    custom control inside the climate tile — so this rides alongside it as a plain
+    toggle and doubles as a visible who's-driving-the-fan indicator.
+    """
+
+    _attr_icon = "mdi:fan-auto"
+
+    def __init__(self, coordinator: MXZCoordinator, zone: Zone) -> None:
+        MXZEntity.__init__(self, coordinator, f"{zone.slug}_fan_auto")
+        CoordinatorEntity.__init__(self, coordinator)
+        self._zone = zone
+        if zone.index >= 2:
+            self._attr_translation_key = "zone_fan_auto"
+            self._attr_translation_placeholders = {"zone": zone.name}
+
+    @property
+    def is_on(self) -> bool:
+        """Mirror the latch: ON when boost drives, OFF when a manual hold is active."""
+        return self.coordinator.fan_auto_is_on(self._zone.climate_id)
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Release the zone's latch and let boost reassert."""
+        await self.coordinator.async_set_fan_auto(self._zone.climate_id, True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Latch the zone at the head's current fan speed (no-op if it's at auto)."""
+        await self.coordinator.async_set_fan_auto(self._zone.climate_id, False)
+        self.async_write_ha_state()

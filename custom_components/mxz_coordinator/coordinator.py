@@ -779,6 +779,58 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fan_cmd[climate_id] = observed
         self._fan_idx[climate_id] = self._fan_max_idx()
 
+    # -- fan-auto switch (the discoverable manual-hold handback) --------------
+    def fan_auto_is_on(self, climate_id: str) -> bool:
+        """True when boost drives this head's fan (zone NOT manually held).
+
+        The switch is a live mirror of the latch: ON = auto/boost in charge,
+        OFF = a manual speed is being held. The latch machinery is the single
+        source of truth (it already seeds from observed head state on restart),
+        so the switch stores nothing of its own.
+        """
+        return not self._fan_latched.get(climate_id, False)
+
+    async def async_set_fan_auto(self, climate_id: str, on: bool) -> None:
+        """Drive the fan-auto switch: ON hands control back, OFF holds the speed.
+
+        ON  -> release the latch and ADOPT the head's current observed token into
+               the boost memory (the same trick as the max handback), so the
+               still-at-manual-speed head doesn't read as a fresh departure and
+               immediately re-latch; then recompute so boost reasserts promptly.
+        OFF -> latch at whatever the head is doing right now (a deliberate hold).
+               Latching "at auto" is meaningless, so an observed ``auto`` is a
+               no-op (the switch stays ON) — documented, pinned in a test. We
+               seed _fan_cmd/_fan_prev with the observed token so the observation
+               path treats the hold as already-accounted-for, not a new departure.
+
+        With fan boost disabled the fan machinery is inert: OFF still records the
+        latch (it simply has no effect until boost is re-enabled), and ON still
+        clears it — the switch stays honest either way.
+        """
+        state = self.hass.states.get(climate_id)
+        observed = state.attributes.get("fan_mode") if state is not None else None
+        if on:
+            if observed is not None:
+                # Adopt the current speed so boost resumes from it without a
+                # spurious re-latch (rolls _fan_prev, pins _fan_idx to max for a
+                # clean DOWN_AT ramp-down — identical to the max handback).
+                self._adopt_fan_handback(climate_id, observed)
+            else:
+                self._fan_latched[climate_id] = False
+            await self.async_request_refresh()
+            return
+        # OFF: hold at the current speed. Auto is nothing to hold onto.
+        if observed is None or observed == FAN_AUTO:
+            _LOGGER.debug(
+                "fan-auto OFF for %s ignored: head at %s (nothing to hold)",
+                climate_id,
+                observed,
+            )
+            return
+        self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, observed)
+        self._fan_cmd[climate_id] = observed
+        self._fan_latched[climate_id] = True
+
     def _is_max_handback(
         self,
         climate_id: str,

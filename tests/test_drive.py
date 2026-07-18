@@ -600,6 +600,178 @@ async def test_manual_fan_latch_inert_without_auto_token(
     assert plan.attributes["zones"][0]["fan_hold"] is False
 
 
+async def _set_fan_auto(
+    hass: HomeAssistant, entity_id: str, on: bool
+) -> None:
+    """Flip a zone's Fan auto switch."""
+    await hass.services.async_call(
+        "switch",
+        "turn_on" if on else "turn_off",
+        {"entity_id": entity_id},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+
+async def test_fan_auto_switch_mirrors_latch(hass: HomeAssistant) -> None:
+    """The Fan auto switch reflects the latch: manual speed -> OFF, auto -> ON."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+    sw = _eid(hass, entry, "_primary_fan_auto")
+
+    # Boost driving -> switch reads ON.
+    await _set_temp(hass, SENSOR_A, 67)
+    await _recompute(hass, entry)
+    assert hass.states.get(sw).state == "on"
+
+    # Manual pick latches -> switch flips OFF by itself (it's a mirror).
+    await _user_set_fan(hass, head_a, "quiet")
+    await _recompute(hass, entry)
+    assert hass.states.get(sw).state == "off"
+
+    # Observed auto releases -> switch flips back ON.
+    await _user_set_fan(hass, head_a, "auto")
+    await _recompute(hass, entry)
+    assert hass.states.get(sw).state == "on"
+
+
+async def test_fan_auto_switch_on_releases_latch(hass: HomeAssistant) -> None:
+    """Turning Fan auto ON releases the hold; boost resumes with no re-latch."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+    sw = _eid(hass, entry, "_primary_fan_auto")
+
+    # Latch on "quiet" while cooling hard.
+    await _set_temp(hass, SENSOR_A, 67)
+    await _recompute(hass, entry)
+    await _user_set_fan(hass, head_a, "quiet")
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "quiet"  # held
+    assert hass.states.get(sw).state == "off"
+
+    # Turn the switch ON -> latch released, boost writes resume next cycle.
+    await _set_fan_auto(hass, sw, True)
+    assert hass.states.get(sw).state == "on"
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"  # boost resumed
+    # The still-at-speed head must NOT re-latch as a fresh departure.
+    await _recompute(hass, entry)
+    assert hass.states.get(sw).state == "on"
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False
+
+
+async def test_fan_auto_switch_off_latches_at_current_speed(
+    hass: HomeAssistant,
+) -> None:
+    """Turning Fan auto OFF while boost drives holds the head's current speed."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+    sw = _eid(hass, entry, "_primary_fan_auto")
+
+    # Boost eases the head to a mid-ladder speed (target 62, ~1.5 F out -> "low").
+    await _set_temp(hass, SENSOR_A, 63.5)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "low"
+
+    # Flip Fan auto OFF -> latch at the current (non-top) speed; no further fan
+    # writes even as the delta grows (boost would otherwise ramp up).
+    await _set_fan_auto(hass, sw, False)
+    assert hass.states.get(sw).state == "off"
+    await _set_temp(hass, SENSOR_A, 57)  # would boost to "high" if not held
+    await _recompute(hass, entry)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "low"  # held, not boosted
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True
+
+
+async def test_fan_auto_switch_off_at_auto_is_noop(hass: HomeAssistant) -> None:
+    """OFF while the head is at 'auto' is a no-op: nothing to hold, switch stays ON."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+    sw = _eid(hass, entry, "_primary_fan_auto")
+
+    # Head satisfied (at target 62) -> boost returns it to firmware "auto".
+    await _set_temp(hass, SENSOR_A, 62)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
+    assert hass.states.get(sw).state == "on"
+
+    # Turning OFF here is meaningless -> no-op, switch remains ON, no latch.
+    await _set_fan_auto(hass, sw, False)
+    assert hass.states.get(sw).state == "on"
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False
+
+
+async def test_fan_auto_switch_isolated_per_zone(hass: HomeAssistant) -> None:
+    """Zone 1's Fan auto switch doesn't touch zone 2's latch."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+    await _set_target(hass, _eid(hass, entry, "_secondary_target"), 62)
+    sw_a = _eid(hass, entry, "_primary_fan_auto")
+    sw_b = _eid(hass, entry, "_secondary_fan_auto")
+
+    # A eases to a non-top speed; B boosts hard. Both driven by boost -> both ON.
+    await _set_temp(hass, SENSOR_A, 63.5)  # ~1.5 F out -> "low"
+    await _set_temp(hass, SENSOR_B, 67)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "low"
+    assert hass.states.get(sw_a).state == "on"
+    assert hass.states.get(sw_b).state == "on"
+
+    # Hold A (at its non-top speed) via its switch; B keeps boosting untouched.
+    await _set_fan_auto(hass, sw_a, False)
+    await _recompute(hass, entry)
+    assert hass.states.get(sw_a).state == "off"
+    assert hass.states.get(sw_b).state == "on"
+    assert hass.states.get(head_b).attributes["fan_mode"] == "high"  # still boosting
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True
+    assert plan.attributes["zones"][1]["fan_hold"] is False
+
+
+async def test_fan_auto_switch_seeds_from_head_on_restart(
+    hass: HomeAssistant,
+) -> None:
+    """After a restart the latch seeds from head state -> switch matches on compute."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+    coord = entry.runtime_data
+    sw = _eid(hass, entry, "_primary_fan_auto")
+
+    # Restart mid-manual-pick: head at "medium", coordinator memory wiped.
+    await _user_set_fan(hass, head_a, "medium")
+    coord._fan_cmd.clear()
+    coord._fan_prev.clear()
+    coord._fan_latched.clear()
+
+    await _set_temp(hass, SENSOR_A, 67)  # a delta that WOULD boost to "high"
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "medium"  # seeded latched
+    assert hass.states.get(sw).state == "off"  # switch reflects the seeded hold
+
+
 async def test_max_fan_handback_far_off_target_hands_back(
     hass: HomeAssistant,
 ) -> None:

@@ -246,6 +246,15 @@
       },
       "zone_enable": {
         "name": "{zone} enable"
+      },
+      "primary_fan_auto": {
+        "name": "Primary fan auto"
+      },
+      "secondary_fan_auto": {
+        "name": "Secondary fan auto"
+      },
+      "zone_fan_auto": {
+        "name": "{zone} fan auto"
       }
     },
     "select": {
