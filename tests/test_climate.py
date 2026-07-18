@@ -38,6 +38,7 @@ from pytest_homeassistant_custom_component.common import (  # noqa: E402
 from custom_components.mxz_coordinator.const import (  # noqa: E402
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
+    CONF_PRIMARY_STAGE,
     CONF_PRIMARY_VANE_VERTICAL,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
@@ -46,6 +47,7 @@ from custom_components.mxz_coordinator.const import (  # noqa: E402
 
 SENSOR_A = "sensor.room_a_temp"
 SENSOR_B = "sensor.room_b_temp"
+STAGE_A = "sensor.room_a_stage"
 
 
 class MockHead(ClimateEntity):
@@ -64,9 +66,11 @@ class MockHead(ClimateEntity):
     _attr_fan_modes = ["auto", "low", "high"]
     _enable_turn_on_off_backwards_compatibility = False
 
-    def __init__(self, suffix: str) -> None:
+    def __init__(self, suffix: str, fan_modes: list[str] | None = None) -> None:
         self._attr_unique_id = f"mock_head_{suffix}"
         self._attr_name = f"Mock Head {suffix}"
+        if fan_modes is not None:
+            self._attr_fan_modes = fan_modes
         self._attr_hvac_mode = HVACMode.OFF
         self._attr_fan_mode = "auto"
         self._attr_target_temperature_low = None
@@ -90,9 +94,11 @@ class MockHead(ClimateEntity):
         self.async_write_ha_state()
 
 
-async def _setup_mock_heads(hass: HomeAssistant) -> tuple[str, str]:
+async def _setup_mock_heads(
+    hass: HomeAssistant, fan_modes: list[str] | None = None
+) -> tuple[str, str]:
     """Register two mock climate heads and return their entity_ids."""
-    heads = [MockHead("a"), MockHead("b")]
+    heads = [MockHead("a", fan_modes), MockHead("b", fan_modes)]
 
     async def _async_setup_platform(
         hass, config, async_add_entities, discovery_info=None  # noqa: ANN001
@@ -131,11 +137,11 @@ async def _recompute(hass: HomeAssistant, entry: MockConfigEntry) -> None:
 
 
 async def _setup(
-    hass: HomeAssistant, **extra_data: Any
+    hass: HomeAssistant, *, fan_modes: list[str] | None = None, **extra_data: Any
 ) -> tuple[MockConfigEntry, str, str]:
     """Stand up the heads, sensors, and an mxz config entry."""
     hass.config.units = US_CUSTOMARY_SYSTEM  # keep setpoints in °F
-    head_a, head_b = await _setup_mock_heads(hass)
+    head_a, head_b = await _setup_mock_heads(hass, fan_modes)
     await _set_temp(hass, SENSOR_A, 70)
     await _set_temp(hass, SENSOR_B, 70)
 
@@ -359,3 +365,102 @@ async def test_vane_passthrough(hass: HomeAssistant) -> None:
     # Secondary has no vane -> no swing feature.
     sec = hass.states.get(_eid(hass, entry, "_secondary_thermostat"))
     assert not (sec.attributes["supported_features"] & ClimateEntityFeature.SWING_MODE)
+
+
+# --- Airflow (stage) sensor -> honest fan display under firmware `auto` -------
+
+_FULL_LADDER = ["auto", "quiet", "low", "medium", "middle", "high"]
+
+
+async def _set_stage(hass: HomeAssistant, value: str) -> None:
+    hass.states.async_set(STAGE_A, value)
+    await hass.async_block_till_done()
+
+
+async def test_stage_maps_to_rung_under_firmware_auto(hass: HomeAssistant) -> None:
+    """Head commanded `auto` + a stage sensor -> the tile shows real airflow."""
+    entry, head_a, _ = await _setup(
+        hass, fan_modes=_FULL_LADDER, **{CONF_PRIMARY_STAGE: STAGE_A}
+    )
+    prim = _eid(hass, entry, "_primary_thermostat")
+
+    # Head reports the firmware `auto` token (its default) -> the frozen case.
+    assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
+
+    # GENTLE -> low.
+    await _set_stage(hass, "GENTLE")
+    assert hass.states.get(prim).attributes["fan_mode"] == "low"
+
+    # MODERATE -> middle. A stage change alone re-renders the tile (no recompute).
+    await _set_stage(hass, "MODERATE")
+    assert hass.states.get(prim).attributes["fan_mode"] == "middle"
+
+    # Lowercase / whitespace from a non-ESPHome source still maps.
+    await _set_stage(hass, "  high ")
+    assert hass.states.get(prim).attributes["fan_mode"] == "high"
+
+
+async def test_commanded_speed_ignores_stage(hass: HomeAssistant) -> None:
+    """An explicit commanded speed (hold/boost) always shows, stage or not."""
+    entry, head_a, _ = await _setup(
+        hass, fan_modes=_FULL_LADDER, **{CONF_PRIMARY_STAGE: STAGE_A}
+    )
+    prim = _eid(hass, entry, "_primary_thermostat")
+    await _set_stage(hass, "GENTLE")  # would map to "low" IF commanded auto
+
+    # A manual hold at high: commanded != auto -> show the commanded token.
+    await hass.services.async_call(
+        "climate", "set_fan_mode", {"entity_id": prim, "fan_mode": "high"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+    assert hass.states.get(prim).attributes["fan_mode"] == "high"
+
+
+async def test_stage_unavailable_or_unmapped_falls_through(hass: HomeAssistant) -> None:
+    """No/blank/unmapped stage -> the head's real commanded token (today's behavior)."""
+    entry, head_a, _ = await _setup(
+        hass, fan_modes=_FULL_LADDER, **{CONF_PRIMARY_STAGE: STAGE_A}
+    )
+    prim = _eid(hass, entry, "_primary_thermostat")
+    assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
+
+    # Unavailable stage.
+    await _set_stage(hass, "unavailable")
+    assert hass.states.get(prim).attributes["fan_mode"] == "auto"
+
+    # Unknown/garbage value -> fall through.
+    await _set_stage(hass, "TURBO_NONSENSE")
+    assert hass.states.get(prim).attributes["fan_mode"] == "auto"
+
+
+async def test_no_stage_sensor_is_plain_passthrough(hass: HomeAssistant) -> None:
+    """With no stage sensor configured, fan_mode is the head's token, unchanged."""
+    entry, head_a, _ = await _setup(hass, fan_modes=_FULL_LADDER)
+    prim = _eid(hass, entry, "_primary_thermostat")
+    # Even with a matching sensor floating around, no wiring -> ignore it.
+    await _set_stage(hass, "GENTLE")
+    assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
+    assert hass.states.get(prim).attributes["fan_mode"] == "auto"
+
+
+async def test_selecting_displayed_rung_forwards_as_hold(hass: HomeAssistant) -> None:
+    """Picking the mapped-displayed speed forwards it to the head as a real hold."""
+    entry, head_a, _ = await _setup(
+        hass, fan_modes=_FULL_LADDER, **{CONF_PRIMARY_STAGE: STAGE_A}
+    )
+    prim = _eid(hass, entry, "_primary_thermostat")
+    await _set_stage(hass, "GENTLE")  # tile displays "low"
+    assert hass.states.get(prim).attributes["fan_mode"] == "low"
+
+    # Selecting "low" is set_fan_mode low on the head = a deliberate manual hold.
+    await hass.services.async_call(
+        "climate", "set_fan_mode", {"entity_id": prim, "fan_mode": "low"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(head_a).attributes["fan_mode"] == "low"
+    # Now commanded == low (not auto), so the tile shows the commanded token even
+    # though the stage sensor still reads GENTLE.
+    assert hass.states.get(prim).attributes["fan_mode"] == "low"

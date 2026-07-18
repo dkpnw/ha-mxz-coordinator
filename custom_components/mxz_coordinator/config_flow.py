@@ -33,11 +33,13 @@ from .const import (
     CONF_NOTIFY_SERVICE,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
+    CONF_PRIMARY_STAGE,
     CONF_PRIMARY_VANE_HORIZONTAL,
     CONF_PRIMARY_VANE_VERTICAL,
     CONF_RESTING_MODE_BIAS,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
+    CONF_SECONDARY_STAGE,
     CONF_SECONDARY_VANE_HORIZONTAL,
     CONF_SECONDARY_VANE_VERTICAL,
     DEFAULT_CHANGEOVER_COOL_BELOW,
@@ -68,6 +70,11 @@ _SENSOR_SELECTOR = selector.EntitySelector(
 )
 _VANE_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="select")
+)
+# The stage/airflow sensor is a sensor (ESPHome text_sensors register in the
+# `sensor` domain), so a sensor picker covers it.
+_STAGE_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain="sensor")
 )
 
 
@@ -103,6 +110,29 @@ def _detect_vanes(hass: HomeAssistant, climate_id: str) -> dict[str, str]:
     return found
 
 
+def _detect_stage(hass: HomeAssistant, climate_id: str) -> str | None:
+    """Best-effort actual-airflow (`stage`) sensor on the head's OWN device.
+
+    CN105/ESPHome heads publish the decoded blower speed as a `stage`
+    text_sensor (registers in the `sensor` domain) on the same device as the
+    climate entity, so we can infer it from the chosen head — exactly like
+    ``_detect_vanes``. Conservative: require the literal word "stage" in the
+    entity_id or name so we never mistake an unrelated sensor for airflow.
+    Returns the entity_id, or None if nothing qualifies.
+    """
+    reg = er.async_get(hass)
+    entry = reg.async_get(climate_id)
+    if entry is None or entry.device_id is None:
+        return None
+    for e in er.async_entries_for_device(reg, entry.device_id, include_disabled_entities=True):
+        if e.domain != "sensor":
+            continue
+        text = f"{e.entity_id} {e.original_name or ''} {e.name or ''}".lower()
+        if "stage" in text:
+            return e.entity_id
+    return None
+
+
 def _user_schema(notify_options: list[str]) -> vol.Schema:
     notify_selector: selector.Selector = (
         selector.SelectSelector(
@@ -127,8 +157,8 @@ def _user_schema(notify_options: list[str]) -> vol.Schema:
 
 
 def _options_schema(current: dict[str, Any], celsius: bool) -> vol.Schema:
-    """Tunables + the vane overrides (the Configure dialog)."""
-    vane_fields = {
+    """Tunables + the vane + airflow-sensor overrides (the Configure dialog)."""
+    override_fields: dict[Any, Any] = {
         vol.Optional(
             key, description={"suggested_value": current.get(key)}
         ): _VANE_SELECTOR
@@ -139,7 +169,11 @@ def _options_schema(current: dict[str, Any], celsius: bool) -> vol.Schema:
             CONF_SECONDARY_VANE_HORIZONTAL,
         )
     }
-    return _tunables_schema(current, celsius).extend(vane_fields)
+    for key in (CONF_PRIMARY_STAGE, CONF_SECONDARY_STAGE):
+        override_fields[
+            vol.Optional(key, description={"suggested_value": current.get(key)})
+        ] = _STAGE_SELECTOR
+    return _tunables_schema(current, celsius).extend(override_fields)
 
 
 def _num() -> selector.NumberSelector:
@@ -280,17 +314,19 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 # Auto-detect each head's vane selects from its own device so the
                 # user never has to pick them (overridable later via Configure).
                 data = dict(user_input)
-                for climate_key, vkey, hkey in (
+                for climate_key, vkey, hkey, skey in (
                     (CONF_PRIMARY_CLIMATE, CONF_PRIMARY_VANE_VERTICAL,
-                     CONF_PRIMARY_VANE_HORIZONTAL),
+                     CONF_PRIMARY_VANE_HORIZONTAL, CONF_PRIMARY_STAGE),
                     (CONF_SECONDARY_CLIMATE, CONF_SECONDARY_VANE_VERTICAL,
-                     CONF_SECONDARY_VANE_HORIZONTAL),
+                     CONF_SECONDARY_VANE_HORIZONTAL, CONF_SECONDARY_STAGE),
                 ):
                     vanes = _detect_vanes(self.hass, user_input[climate_key])
                     if "vertical" in vanes:
                         data[vkey] = vanes["vertical"]
                     if "horizontal" in vanes:
                         data[hkey] = vanes["horizontal"]
+                    if stage := _detect_stage(self.hass, user_input[climate_key]):
+                        data[skey] = stage
                 self._base_data = data
                 return await self.async_step_tuning()
 

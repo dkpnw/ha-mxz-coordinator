@@ -17,6 +17,7 @@ from homeassistant.helpers import entity_registry as er  # noqa: E402
 
 from custom_components.mxz_coordinator.config_flow import (  # noqa: E402
     MXZOptionsFlow,
+    _detect_stage,
     _detect_vanes,
 )
 from custom_components.mxz_coordinator.const import (  # noqa: E402
@@ -24,8 +25,10 @@ from custom_components.mxz_coordinator.const import (  # noqa: E402
     CONF_DEMAND_THRESHOLD,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
+    CONF_PRIMARY_STAGE,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
+    CONF_SECONDARY_STAGE,
     DOMAIN,
 )
 
@@ -72,6 +75,37 @@ async def test_detect_vanes_from_head_device(hass: HomeAssistant) -> None:
 def test_detect_vanes_no_device_is_safe(hass: HomeAssistant) -> None:
     """A head with no registry/device entry just yields nothing (no crash)."""
     assert _detect_vanes(hass, "climate.not_registered") == {}
+
+
+async def test_detect_stage_from_head_device(hass: HomeAssistant) -> None:
+    """The head's airflow (`stage`) sensor is inferred from its own device."""
+    src = MockConfigEntry(domain="test")
+    src.add_to_hass(hass)
+    dev_reg = dr.async_get(hass)
+    device = dev_reg.async_get_or_create(
+        config_entry_id=src.entry_id, identifiers={("test", "head_s")}
+    )
+    ent_reg = er.async_get(hass)
+    climate = ent_reg.async_get_or_create(
+        "climate", "test", "head_s", device_id=device.id,
+        suggested_object_id="head_s_heat_pump",
+    )
+    stage = ent_reg.async_get_or_create(
+        "sensor", "test", "head_s_stage", device_id=device.id,
+        suggested_object_id="head_s_stage",
+    )
+    # An unrelated sensor on the same device must be ignored.
+    ent_reg.async_get_or_create(
+        "sensor", "test", "head_s_comp", device_id=device.id,
+        suggested_object_id="head_s_compressor_frequency",
+    )
+
+    assert _detect_stage(hass, climate.entity_id) == stage.entity_id
+
+
+def test_detect_stage_absent_is_none(hass: HomeAssistant) -> None:
+    """No device / no stage sensor -> None (no crash)."""
+    assert _detect_stage(hass, "climate.not_registered") is None
 
 
 async def test_user_flow_creates_entry(hass: HomeAssistant) -> None:
@@ -147,6 +181,35 @@ async def test_options_flow_merges_and_mirrors_to_data(hass: HomeAssistant) -> N
     # mirror: entry.data now carries the config for out-of-band recovery.
     assert entry.data[CONF_CHANGEOVER_ENTITY] == "weather.home"
     assert entry.data[CONF_DEMAND_THRESHOLD] == 5.0
+
+
+async def test_options_flow_stage_override_lands_on_the_right_head(
+    hass: HomeAssistant,
+) -> None:
+    """A per-head override (here the airflow/stage sensor) lands in the RIGHT
+    head's flat conf key, mirrored into entry.data, and never bleeds onto the
+    other head — the flat analogue of the zones fold-in on main."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=_VALID,
+        options={CONF_DEMAND_THRESHOLD: 3.0},
+        title="MXZ Coordinator",
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_PRIMARY_STAGE: "sensor.primary_stage"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    # Wired to the primary head's key only, mirrored into data for recovery.
+    assert entry.data[CONF_PRIMARY_STAGE] == "sensor.primary_stage"
+    assert result["data"][CONF_PRIMARY_STAGE] == "sensor.primary_stage"
+    # The other head is untouched (no stale shadow on secondary).
+    assert CONF_SECONDARY_STAGE not in entry.data
+    assert CONF_SECONDARY_STAGE not in entry.options
+    # The un-submitted tunable survives the merge.
+    assert entry.data[CONF_DEMAND_THRESHOLD] == 3.0
 
 
 async def test_options_flow_refuses_empty(hass: HomeAssistant) -> None:

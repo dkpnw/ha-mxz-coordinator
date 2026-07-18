@@ -91,8 +91,10 @@
           "fan_boost_max": "Fan boost maximum speed",
           "primary_vane_vertical": "Primary vertical vane (auto-detected; override if needed)",
           "primary_vane_horizontal": "Primary horizontal vane (auto-detected; override if needed)",
+          "primary_stage": "Primary airflow sensor (auto-detected; override if needed)",
           "secondary_vane_vertical": "Secondary vertical vane (auto-detected; override if needed)",
-          "secondary_vane_horizontal": "Secondary horizontal vane (auto-detected; override if needed)"
+          "secondary_vane_horizontal": "Secondary horizontal vane (auto-detected; override if needed)",
+          "secondary_stage": "Secondary airflow sensor (auto-detected; override if needed)"
         },
         "data_description": {
           "demand_threshold": "How far off target a room must be before the whole system may SWITCH between heating and cooling. Bigger = fewer mode changes. Most homes are fine with the default.",
@@ -112,8 +114,10 @@
           "fan_boost_max": "The fastest fan speed the boost may use. Lower it if full blast is too loud for a bedroom.",
           "primary_vane_vertical": "Auto-detected at setup — only change if the detection picked the wrong select entity.",
           "primary_vane_horizontal": "Auto-detected at setup — only change if the detection picked the wrong select entity.",
+          "primary_stage": "Airflow sensor — reports the actual fan speed some firmwares expose (e.g. 'stage' on CN105/ESPHome heads); lets the thermostat show real airflow while the fan is in auto. Auto-detected at setup — only change if the detection picked the wrong sensor, or clear it if your head doesn't report airflow.",
           "secondary_vane_vertical": "Auto-detected at setup — only change if the detection picked the wrong select entity.",
-          "secondary_vane_horizontal": "Auto-detected at setup — only change if the detection picked the wrong select entity."
+          "secondary_vane_horizontal": "Auto-detected at setup — only change if the detection picked the wrong select entity.",
+          "secondary_stage": "Airflow sensor — reports the actual fan speed some firmwares expose (e.g. 'stage' on CN105/ESPHome heads); lets the thermostat show real airflow while the fan is in auto. Auto-detected at setup — only change if the detection picked the wrong sensor, or clear it if your head doesn't report airflow."
         }
       }
     }

@@ -54,11 +54,13 @@ from .const import (
     CONF_NOTIFY_SERVICE,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
+    CONF_PRIMARY_STAGE,
     CONF_PRIMARY_VANE_HORIZONTAL,
     CONF_PRIMARY_VANE_VERTICAL,
     CONF_RESTING_MODE_BIAS,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
+    CONF_SECONDARY_STAGE,
     CONF_SECONDARY_VANE_HORIZONTAL,
     CONF_SECONDARY_VANE_VERTICAL,
     DEFAULT_FAN_BOOST_ENABLE,
@@ -160,6 +162,16 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.secondary_vane_horizontal_id: str | None = (
             conf.get(CONF_SECONDARY_VANE_HORIZONTAL) or None
+        )
+
+        # Optional actual-airflow (`stage`) sensors — DISPLAY ONLY, read by the
+        # climate tiles to show real airflow while the fan is in firmware `auto`
+        # (never consulted by the coordinator's own control logic).
+        self.primary_stage_sensor_id: str | None = (
+            conf.get(CONF_PRIMARY_STAGE) or None
+        )
+        self.secondary_stage_sensor_id: str | None = (
+            conf.get(CONF_SECONDARY_STAGE) or None
         )
 
         # Unit-dependent tunables fall back to the system-unit profile default;

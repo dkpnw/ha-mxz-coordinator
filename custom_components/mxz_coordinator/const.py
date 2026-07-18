@@ -21,6 +21,13 @@ CONF_PRIMARY_VANE_HORIZONTAL = "primary_vane_horizontal"
 CONF_SECONDARY_VANE_VERTICAL = "secondary_vane_vertical"
 CONF_SECONDARY_VANE_HORIZONTAL = "secondary_vane_horizontal"
 
+# Optional per-room "airflow" sensor: the actual blower speed some firmwares
+# expose (CN105/ESPHome heads publish a `stage` text_sensor decoded from the
+# 0x09 power packet). Mirrored onto the tile so it shows REAL airflow while the
+# fan is handed to the firmware's own `auto` (display only — see climate.py).
+CONF_PRIMARY_STAGE = "primary_stage"
+CONF_SECONDARY_STAGE = "secondary_stage"
+
 # --- Options keys (tunable constants; were hardcoded in the YAML package) ---
 CONF_DEMAND_THRESHOLD = "demand_threshold"
 CONF_ENGAGE_DEADBAND = "engage_deadband"
@@ -75,6 +82,26 @@ FAN_BOOST_DOWN_AT = (0.5, 1.5, 2.5, 3.5)
 # False in an entry's options is always honored.
 DEFAULT_FAN_BOOST_ENABLE = True
 DEFAULT_FAN_BOOST_MAX = FAN_HIGH
+
+# --- Airflow (stage) sensor -> settable fan token, for LIVE display only ------
+# CN105/ESPHome heads publish the actual blower speed as a `stage` text_sensor
+# (decoded from the 0x09 power packet — see echavet MitsubishiCN105ESPHome
+# README ~line 902, "actual fan speed of the indoor unit"). It reports SEVEN
+# granular stages, but the head only accepts FIVE settable speeds, so this map
+# is approximate & monotonic (7-vs-5 mismatch: two stages collapse onto `quiet`,
+# and DIFFUSE — the low-airflow wide-throw mode — maps to `low`, not a top rung).
+# Values arrive uppercase from ESPHome; we normalize case/whitespace before
+# lookup. Used ONLY to make the tile honest while the fan is in firmware `auto`;
+# it never influences what the coordinator commands.
+STAGE_TO_FAN = {
+    "IDLE": FAN_QUIET,
+    "LOW": FAN_QUIET,
+    "GENTLE": FAN_LOW,
+    "MEDIUM": FAN_MEDIUM,
+    "MODERATE": FAN_MIDDLE,
+    "HIGH": FAN_HIGH,
+    "DIFFUSE": FAN_LOW,
+}
 
 # Resting-mode bias: which shared mode to settle on when NO room is calling.
 #   "last" (default) -> hold whatever was last called (original behavior).

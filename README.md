@@ -209,6 +209,15 @@ deliberate, not a fight:
   the slider afterwards and the hold is back under the slider rules above). I read fan state once per cycle rather than watching
   slider events, so re-selecting the speed a head is already on is invisible to me — change
   to something else first if you want a fresh gesture registered.
+- **The tile shows REAL airflow while the fan's in auto.** When a satisfied room's fan is back
+  on the firmware's own `auto`, the head only reports the token `auto` — the slider would
+  otherwise freeze on the last speed and lie about what's actually blowing. If your firmware
+  publishes its actual blower speed (CN105/ESPHome heads expose a `stage` sensor), I
+  auto-detect it at setup and mirror it onto the tile, so the dial tracks the real airflow as
+  the firmware ramps. It's display only — it never changes what I command, and picking a speed
+  yourself is still a manual hold. The reading is approximate: the firmware reports more
+  stages than there are speeds you can set, so I map each to the nearest rung. No such sensor,
+  or it drops out? The tile just shows the commanded token, same as before.
 
 ---
 
