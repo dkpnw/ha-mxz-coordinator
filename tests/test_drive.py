@@ -765,9 +765,9 @@ async def test_hold_survives_slider_moves_until_a_release_gesture(
     """A hold is only released by a gesture: the switch, or an observed "auto".
 
     Moving the slider around while held re-aims the hold but never releases it —
-    including a move to the top token, which through v2.18.0 folded the hold back
-    into auto (a hold releasing itself with no user gesture, the surprise this
-    removed). Each move re-latches at the new token and records it as the
+    including a move to the top token, which through v3.0.0-beta.17 folded the hold
+    back into auto (a hold releasing itself with no user gesture, the surprise
+    this removed). Each move re-latches at the new token and records it as the
     baseline, so the hold simply follows the slider.
     """
     hass.config.units = US_CUSTOMARY_SYSTEM
