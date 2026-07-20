@@ -107,9 +107,8 @@ class MXZZoneEnableSwitch(MXZBaseSwitch):
             if zone.index < len(_ZONE_ICONS)
             else "mdi:home-thermometer-outline"
         )
-        if zone.index >= 2:
-            self._attr_translation_key = "zone_enable"
-            self._attr_translation_placeholders = {"zone": zone.name}
+        self._attr_translation_key = "zone_enable"
+        self._attr_translation_placeholders = {"zone": zone.name}
 
     def _seed(self) -> None:
         self._zone.enable = self._attr_is_on

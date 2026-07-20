@@ -32,11 +32,10 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
     def __init__(self, coordinator: MXZCoordinator, zone: Zone) -> None:
         super().__init__(coordinator, f"{zone.slug}_target")
         self._zone = zone
-        if zone.index >= 2:
-            # Zones beyond the legacy pair use the generic translated name with
-            # the zone's own name substituted in ("Bedroom target").
-            self._attr_translation_key = "zone_target"
-            self._attr_translation_placeholders = {"zone": zone.name}
+        # Every zone uses the generic translated name with its own name
+        # substituted in ("Bedroom target").
+        self._attr_translation_key = "zone_target"
+        self._attr_translation_placeholders = {"zone": zone.name}
         # Track the HA system temperature unit + resolution (°F: whole degrees;
         # °C: 0.5° steps). Match the climate tile: bound the target to the
         # firmware operating band [clamp_min, clamp_max].
