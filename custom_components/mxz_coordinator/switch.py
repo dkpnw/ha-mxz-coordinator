@@ -138,9 +138,8 @@ class MXZZoneFanAutoSwitch(MXZEntity, CoordinatorEntity[MXZCoordinator], SwitchE
         MXZEntity.__init__(self, coordinator, f"{zone.slug}_fan_auto")
         CoordinatorEntity.__init__(self, coordinator)
         self._zone = zone
-        if zone.index >= 2:
-            self._attr_translation_key = "zone_fan_auto"
-            self._attr_translation_placeholders = {"zone": zone.name}
+        self._attr_translation_key = "zone_fan_auto"
+        self._attr_translation_placeholders = {"zone": zone.name}
 
     @property
     def is_on(self) -> bool:

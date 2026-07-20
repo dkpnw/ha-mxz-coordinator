@@ -160,3 +160,57 @@ async def test_six_zone_drive(hass: HomeAssistant) -> None:
     assert hass.states.get(_eid(hass, entry, "_plan")).state == "heat"
     assert hass.states.get(heads[5].entity_id).state == "heat"
     assert hass.states.get(heads[0].entity_id).state == "fan_only"
+
+
+async def test_every_zone_is_named_after_itself(hass: HomeAssistant) -> None:
+    """Zones 0/1 name their entities after the zone, like zones 3+ always have.
+
+    Their slugs stay "primary"/"secondary" (stable unique ids), but the DISPLAY
+    name follows the name the user gave the head — a 6-zone setup shouldn't have
+    four rooms and two "Primary"/"Secondary" strangers on the device page.
+    """
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    heads = [MockHead("a"), MockHead("b"), MockHead("c")]
+    names = ["Bedroom", "Rec room", "Snug"]
+
+    async def _setup_platform(hass, config, async_add_entities, discovery_info=None):  # noqa: ANN001
+        async_add_entities(heads)
+
+    mock_integration(hass, MockModule("test"))
+    mock_platform(hass, "test.climate", MockPlatform(async_setup_platform=_setup_platform))
+    assert await async_setup_component(hass, "climate", {"climate": {"platform": "test"}})
+    await hass.async_block_till_done()
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=2,
+        title="MXZ Coordinator",
+        data={
+            CONF_ZONES: [
+                {
+                    ZONE_NAME: names[i],
+                    ZONE_CLIMATE: heads[i].entity_id,
+                    ZONE_SENSOR: f"sensor.zone_{i}_temp",
+                }
+                for i in range(3)
+            ]
+        },
+    )
+    entry.add_to_hass(hass)
+    for i in range(3):
+        await _set_temp(hass, f"sensor.zone_{i}_temp", 70)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    slugs = [z.slug for z in entry.runtime_data.zones]
+    assert slugs == ["primary", "secondary", "zone_3"]  # unique ids unchanged
+
+    for name, slug in zip(names, slugs, strict=True):
+        for suffix, label in (
+            ("_target", "target"),
+            ("_enable", "enable"),
+            ("_fan_auto", "fan auto"),
+            ("_thermostat", "thermostat"),
+        ):
+            state = hass.states.get(_eid(hass, entry, f"_{slug}{suffix}"))
+            assert state.attributes["friendly_name"].endswith(f"{name} {label}")

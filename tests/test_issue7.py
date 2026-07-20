@@ -38,7 +38,10 @@ from custom_components.mxz_coordinator.const import (  # noqa: E402
 from .test_drive import _set_temp  # noqa: E402
 from .test_single_setpoint import MockSingleSetpointHead  # noqa: E402
 
-TARGET_EID = "number.mxz_coordinator_primary_target"
+# Restore states must be seeded BEFORE setup, so this is the entity_id HA will
+# generate: zone entities are named after the zone ("Zone 1" -> _zone_1_target),
+# so it tracks _zones() below, not the zone's slug.
+TARGET_EID = "number.mxz_coordinator_zone_1_target"
 KILL_EID = "switch.mxz_coordinator_coordinator_enable"
 
 
