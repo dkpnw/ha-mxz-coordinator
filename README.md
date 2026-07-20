@@ -141,14 +141,15 @@ coordinator.
 ## How it works
 
 The coordinator is the **sole writer** of the heads, in three parts (Python in
-`custom_components/mxz_coordinator/`; mirrored 1:1 by the legacy
-[`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml)):
+`custom_components/mxz_coordinator/`; the legacy
+[`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml) implements the same three
+parts for two fixed zones, and doesn't track newer features):
 
 1. **Decide** — `sensor.*_plan`, side-effect-free. Two thresholds: **demand** (default 3 °F
-   off-target) before the shared mode may flip, primary wins standoffs, 600 s hysteresis;
-   **re-engage drift** (default 1 °F): a running head goes all the way to its target, then
-   coasts in `fan_only` until it drifts this far off. Eco/away swaps both for the wide
-   protection extremes.
+   off-target) before the shared mode may flip, highest-priority room wins standoffs, 600 s
+   hysteresis; **re-engage drift** (default 1 °F): a running head goes all the way to its
+   target, then coasts in `fan_only` until it drifts this far off. Eco/away swaps both for
+   the wide protection extremes.
 2. **Act** — the only component that commands heads. Derives each room's setpoint band from
    its single target (`cool → [target−2, target]`, `heat → [target, target+2]`), clamps to
    the firmware range (default `[59, 88] °F` / `[15, 31] °C`), sends both edges with the
@@ -227,7 +228,9 @@ deliberate, not a fight:
 4. Pick **all the heads on this outdoor unit** (2–8; selection order = standoff priority),
    then one **room temperature sensor** per head, and optionally a notify target for drift
    alerts. Vane controls are detected automatically. A final tuning step shows every option
-   pre-filled — Submit as-is or adjust.
+   pre-filled — Submit as-is or adjust. Each zone takes its **name from the head you picked**,
+   so name your heads for their rooms first and every entity lands labelled "Bedroom target",
+   "Bedroom enable", and so on.
 5. Turn on **Coordinator enable**, set each room's target, enable the rooms. Done.
 
 <p align="center">
@@ -257,6 +260,12 @@ room's target. (Delete-and-re-add also has a trap: HA's restore cache can resurr
 install's values onto the new entities for up to ~7 days. Since v3.0.0-beta.7 the
 coordinator detects and ignores those stale restores.)
 
+**Renaming a room.** A zone's name is captured from the head when the zone is *added*, and
+there's no rename field — renaming the head afterwards doesn't relabel anything. To change a
+label, rename the entity itself in HA (**Settings → Devices & Services → MXZ Coordinator →**
+the entity **→ ⚙**). Entity IDs are fixed when the entity is created, so nothing you rename
+later moves them, and your history and dashboards keep working.
+
 ### Removing
 
 Delete the **config entry**, not the device: **Settings → Devices & Services →
@@ -270,7 +279,7 @@ Your heads keep their last commanded state after removal — if they were parked
 
 ---
 
-### Best practice: give the firmware your room sensor too
+## Best practice: give the firmware your room sensor too
 
 The coordinator reads your room sensors — but each head's own control loop still runs on its
 internal thermistor, which reads several degrees warm when the unit is idle. Feed the SAME
@@ -344,11 +353,12 @@ heat+cool (single-compressor MXZ hardware can't; that's branch-box VRF).
 
 ## The single-target thermostat surface
 
-Each room ships as a native thermostat (`climate.*_thermostat`): one number + Heat/Cool
-auto, rendered as a clean single-setpoint tile in HA/HomeKit/Google. It's a thin facade over
-the room's `number.*_target` and `switch.*_enable` — the coordinator remains the sole writer
-of the real heads. Expose these tiles (not the raw heads) to avoid two fighting controls per
-room; fan and vanes pass through, bounded to the firmware band.
+Each room ships as a native thermostat (`climate.*_<zone>_thermostat`): one number +
+Heat/Cool auto, rendered as a clean single-setpoint tile in HA/HomeKit/Google. It's a thin
+facade over the room's `number.*_<zone>_target` and `switch.*_<zone>_enable` — the
+coordinator remains the sole writer of the real heads. Expose these tiles (not the raw heads)
+to avoid two fighting controls per room; fan and vanes pass through, bounded to the firmware
+band.
 
 Legacy note: the YAML package got this surface from the CN105 proxy's
 `coordinator_single_target` option. The integration no longer needs the proxy — its native
@@ -359,6 +369,8 @@ proxy/automation nudges keep working.
 
 - [@helicopterrun](https://github.com/helicopterrun) — 3-zone hardware validation and
   relentless, root-caused QA through the v3 beta (#5, #6, #7).
+- [@andrewblane](https://github.com/andrewblane) — caught on a 6-zone system that the first
+  two zones ignored their own names, and sent the fix (#8).
 - [BarrettPalmer/Smart-HVAC-Automation-for-Home-Assistant-Mini-Splits](https://github.com/BarrettPalmer/Smart-HVAC-Automation-for-Home-Assistant-Mini-Splits)
 - [bjrnptrsn/climate_group_helper](https://github.com/bjrnptrsn/climate_group_helper)
 - [bartmachielsen/smart_climate](https://github.com/bartmachielsen/smart_climate)
