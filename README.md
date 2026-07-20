@@ -31,8 +31,8 @@ detected automatically; everything else has sensible defaults. No YAML editing.
 - ✋ **Manual fan hold.** Reach in and pick a fan speed yourself and the coordinator backs off
   that head entirely: it stops writing the fan, and won't yank you back to `auto` when the room
   settles. Each room gets a **Fan auto** switch: ON means boost drives, OFF means you're
-  holding a speed. Flip it back ON to hand control to boost — or set the fan to `auto`, or (from
-  HomeKit) slide to max when boost is already running flat out.
+  holding a speed. Flip it back ON to hand control to boost — or set the fan to `auto`. Every
+  other speed holds, max included.
 - 🌦️ **Local-weather seasonal changeover.** Point it at any `weather.*` entity (or an
   outdoor temp sensor) and it auto-locks out heating in summer / cooling in winter from
   your own forecast. No calendar, no cloud.
