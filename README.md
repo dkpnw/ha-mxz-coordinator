@@ -190,23 +190,21 @@ deliberate, not a fight:
   separate toggle for a plain reason: Apple's Home app renders only a climate service's fixed
   set of characteristics, so there's no way to put a custom control *inside* the climate tile —
   the switch has to ride alongside it. It's also your at-a-glance who's-driving indicator.
-- **Slider-only handbacks (if you'd rather not touch the switch).** Set the fan to `auto` and
-  boost resumes on the next cycle. From HomeKit — whose fan slider has no `auto` stop — slide
-  it to **max while boost would already be running flat out**: a max command that changes
-  nothing reads as "you drive," so I adopt it and resume control (still at max, ramping down as
-  the room closes in). Slide to max when boost would be running *slower* than that, and it's a
-  genuine request for more air — it holds at max like any other manual pick. Same if the head
-  is idling or your boost ceiling is set below the head's top speed: max always holds there,
-  because boost would never have chosen it.
+- **Or hand it back from the slider.** Set the fan to `auto` and boost resumes on the next
+  cycle. That's the only slider gesture that releases a hold — every other speed, max
+  included, holds. (Through v2.18.0, sliding to max while boost was already running flat out
+  handed control back too. That was the escape hatch for HomeKit, whose fan slider has no
+  `auto` stop; the **Fan auto** switch is the escape hatch now, and it's unambiguous where a
+  slide to max never was — it could equally mean "give me more air".)
 - **A hold waits for your gesture — always.** However you placed it, at whatever speed, a
-  hold is yours until you make one: flip **Fan auto** back ON, set the fan to `auto`, or use
-  the slider handback above. Nothing else releases it — not room drift, not a target change,
-  not a restart, at any speed, max included. (Before v2.18.0 a slider hold at max quietly
-  folded back into auto as soon as boost would have commanded max anyway — a hold releasing
-  itself with no gesture from you. The **Fan auto** switch is the discoverable handback that
-  rule was standing in for, so it's gone.) One limit worth knowing: I read fan state once per
-  cycle rather than watching slider events, so re-selecting the speed a head is already on is
-  invisible to me — change to something else first if you want a fresh gesture registered.
+  hold is yours until you make one: flip **Fan auto** back ON, or set the fan to `auto`.
+  Nothing else releases it — not room drift, not a target change, not a restart, at any
+  speed, max included. One limit worth knowing: I read fan state once per cycle rather than
+  watching slider events, so re-selecting the speed a head is already on is invisible to me —
+  change to something else first if you want a fresh gesture registered.
+- **A restart doesn't take the fan back from you, or hand it over.** At startup I read each
+  head's current speed: if it's exactly what I'd command for that room right now it's my own
+  speed and I keep driving, and anything else is your hold, which survives the restart.
 - **The tile shows REAL airflow while the fan's in auto.** When a satisfied room's fan is back
   on the firmware's own `auto`, the head only reports the token `auto` — the slider would
   otherwise freeze on the last speed and lie about what's actually blowing. If your firmware

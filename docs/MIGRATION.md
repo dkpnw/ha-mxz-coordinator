@@ -107,12 +107,20 @@ coast-offset option — if you ever saved one, it's simply ignored.
 delta-proportional fan is now active; opt out anytime under **Configure → Fan boost**.
 An explicitly-saved off stays off.
 
-**Manual fan holds no longer release themselves (v2.18.0).** A hold you set with the slider
-at the head's top speed used to fold back into `auto` on any cycle where the fan boost would
-have commanded that speed anyway. Now every hold — whichever way you set it, at whatever
-speed — stays until you release it with the **Fan auto** switch, by setting the fan to
-`auto`, or with the slider handback (sliding TO max while boost would already be commanding
-max, unchanged). If you relied on the old self-release, use the switch instead.
+**Manual fan holds no longer release themselves (v2.19.0).** Two rules used to end a hold
+without you asking: one folded a slider hold at the head's top speed back into `auto`
+whenever the fan boost would have commanded that speed anyway, and one read *sliding to* max
+as handing control back. Both are gone — every hold, at every speed, stays until you release
+it with the **Fan auto** switch or by setting the fan to `auto`. If you relied on either, use
+the switch instead. (v2.18.0 removed the first only partially: a slider hold could still
+release itself on drift. v2.19.0 is the complete change.)
+
+**A restart no longer parks a boost-driven head as "held" (v2.19.0).** The fan latch seeds
+from whatever speed each head reports at startup, and a head the boost had been driving
+reports *our* speed — which used to seed as a manual hold, turning **Fan auto** off and
+stopping the boost for that room until someone flipped it back on. Now a startup reading that
+matches what the ladder would command right now is recognised as ours; a genuine manual hold
+still survives the restart.
 
 **Manual fan latch & max-speed handback (v2.15.0).** Pick a fan speed yourself on any
 head and I stop writing that head's fan until you hand it back — set `auto`, or (from a

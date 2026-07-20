@@ -656,42 +656,27 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
           the head still reports the token we wrote one cycle ago)
         * no _fan_cmd memory yet (first compute / post-restart seed): a non-"auto"
           reading seeds LATCHED, mirroring the engage-latch's "resume from the
-          head's own state" — a manual pick that predates the restart is honored
-          (the accepted tradeoff: a restart mid-boost latches at the boost speed
-          until someone sets "auto" — except a seed AT the top token while the
-          ladder would command it, which the max handback below adopts instead,
-          so a restart mid-boost at max self-heals).
+          head's own state" — a manual pick that predates the restart is honored —
+          UNLESS the reading is exactly what the ladder would command right now,
+          which is our own boost speed echoing back (see ``_seed_matches_boost``).
 
-        Max-speed handback: HomeKit's fan slider has no "auto" stop, so a user who
-        latched a zone by picking a speed has no on-slider gesture to hand control
-        back. The escape gesture is MAX: setting the fan to the head's top ladder
-        token means "give it back to auto" — UNLESS the boost would already be
-        running below max, in which case max is a real request for more air and
-        latches like any other manual pick. Concretely a departure to the top
-        token is a handback iff the head is actively conditioning AND the boost's
-        currently-computed token for this delta (respecting fan_boost_max and the
-        _fan_idx hysteresis) is itself that top token. On a handback we do NOT
-        latch: we ADOPT the observed token into _fan_cmd (rolling _fan_prev) and
-        set _fan_idx to the computed max index, so (a) the natural ramp-down
-        proceeds idempotently from max under DOWN_AT hysteresis and (b) the
-        still-at-max head doesn't read as a fresh departure and re-latch once the
-        ladder later steps below max.
+        A hold ends ONLY on a gesture: the Fan-auto switch, or an observed "auto".
+        Room drift, target changes, and slider moves between speeds never release
+        one, at any speed including max.
 
-        The handback is strictly EDGE-triggered: it fires on the gesture (a seed
-        or a departure), never on a standing hold. Once a hold is in place it is
-        yours until you make a gesture — the Fan-auto switch, an observed "auto",
-        or a departure to the top token that reads as the handback above. Room
-        drift and target changes alone never unlatch it, at any speed including
-        max. (Through v2.17.0 a slider-set hold at the top token ALSO merged
-        back into auto on any cycle where auto would have commanded max anyway,
-        which meant a hold could quietly release itself without the user doing
-        anything; the Fan-auto switch is the discoverable handback that gesture
-        was standing in for, so the merge — and the slider-vs-switch hold
-        distinction it required — is gone.)
+        History, because this rule got simpler twice: through v2.17.0 a slider-set
+        hold at the head's top token ALSO merged back into auto on any cycle where
+        the ladder would have commanded max anyway — a hold releasing itself with
+        no user gesture. Through v2.18.0 a *departure* to that top token was
+        likewise read as "hand it back", because HomeKit's fan slider has no
+        "auto" stop and a user who latched a zone from Apple Home had no on-slider
+        way out. The per-zone Fan-auto switch bridges to HomeKit as a plain toggle
+        and is that way out, so both readings of "max means give it back" are
+        gone: max now holds like any other speed.
 
         Because the coordinator only sees observed state per cycle — not events —
-        a re-gesture to the SAME non-top token the head already reports is
-        invisible; that limitation is accepted.
+        a re-gesture to the SAME token the head already reports is invisible; that
+        limitation is accepted.
         """
         observed = state.attributes.get("fan_mode")
         if observed == FAN_AUTO:
@@ -707,40 +692,46 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # A standing hold: no gesture this cycle, so nothing changes.
             return self._fan_latched.get(climate_id, False)
 
-        # A new manual reading (seed or departure). Check the max-speed handback
-        # before latching. Fresh readings use the current hysteresis index.
-        if observed is not None and self._is_max_handback(
-            climate_id, observed, act, delta, modes,
-            cur_idx=self._fan_idx.get(climate_id, 0),
-        ):
-            self._adopt_fan_handback(climate_id, observed)
-            return False
+        # A post-restart seed at exactly the speed the ladder would command right
+        # now is our own boost speed echoing back, not a manual pick -> adopt it
+        # and keep driving. A DEPARTURE never adopts: every slider move is a hold.
+        if seeding and observed is not None:
+            idx = self._seed_matches_boost(climate_id, observed, act, delta)
+            if idx is not None:
+                self._adopt_fan_speed(climate_id, observed, idx)
+                return False
 
         # Seed latched iff the head isn't at auto; a departure always latches.
         self._fan_latched[climate_id] = observed is not None
-        if seeding and observed is not None:
-            # Record the seed as the baseline command so the zone LEAVES the
-            # seeding state (same trick async_set_fan_auto OFF uses). Without it
-            # a seeded hold reads as a fresh seed every cycle and re-runs the
-            # handback check forever — the standing merge by another name: a
-            # pre-restart hold at the top token would release itself as soon as
-            # the room drifted far enough to demand max.
+        if observed is not None:
+            # Record the held token as the baseline so the zone becomes a
+            # STANDING hold next cycle (the same trick async_set_fan_auto OFF
+            # uses). Without this the identical reading re-reads as a fresh
+            # seed/departure every cycle and the latch decision is re-litigated
+            # forever — which is how the v2.18.0 "standing merge" removal was
+            # defeated for slider holds: the departure branch kept re-running
+            # the max handback, so a max hold still released itself on drift.
             self._fan_prev[climate_id] = observed
             self._fan_cmd[climate_id] = observed
         return self._fan_latched.get(climate_id, False)
 
-    def _adopt_fan_handback(self, climate_id: str, observed: str) -> None:
+    def _adopt_fan_speed(
+        self, climate_id: str, observed: str, idx: int | None = None
+    ) -> None:
         """Release the latch and adopt the max token into the boost's memory.
 
         Rolls _fan_prev, records the observed token as the last command, and pins
-        _fan_idx to the max index so the natural ramp-down proceeds idempotently
-        from max under DOWN_AT hysteresis and the still-at-max head doesn't read
-        as a fresh departure and re-latch once the ladder later steps below max.
+        _fan_idx so the ladder continues from where the head actually is: the
+        natural ramp proceeds idempotently under DOWN_AT hysteresis, and the head
+        doesn't read as a fresh departure and re-latch once the ladder steps off
+        that token. ``idx`` is the ladder index to resume from — the seed adopt
+        passes the index it matched; the Fan-auto switch passes none and resumes
+        from the top, which only ever ramps down from there.
         """
         self._fan_latched[climate_id] = False
         self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, observed)
         self._fan_cmd[climate_id] = observed
-        self._fan_idx[climate_id] = self._fan_max_idx()
+        self._fan_idx[climate_id] = self._fan_max_idx() if idx is None else idx
 
     # -- fan-auto switch (the discoverable manual-hold handback) --------------
     def fan_auto_is_on(self, climate_id: str) -> bool:
@@ -778,8 +769,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if observed is not None:
                 # Adopt the current speed so boost resumes from it without a
                 # spurious re-latch (rolls _fan_prev, pins _fan_idx to max for a
-                # clean DOWN_AT ramp-down — identical to the max handback).
-                self._adopt_fan_handback(climate_id, observed)
+                # clean DOWN_AT ramp-down).
+                self._adopt_fan_speed(climate_id, observed)
             else:
                 self._fan_latched[climate_id] = False
             await self.async_request_refresh()
@@ -796,40 +787,39 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fan_cmd[climate_id] = observed
         self._fan_latched[climate_id] = True
 
-    def _is_max_handback(
-        self,
-        climate_id: str,
-        observed: str,
-        act: str,
-        delta: float,
-        modes: list[str],
-        cur_idx: int,
-    ) -> bool:
-        """True if this observed token is the max-speed "hand it back to auto" gesture.
+    def _seed_matches_boost(
+        self, climate_id: str, observed: str, act: str, delta: float
+    ) -> int | None:
+        """Ladder index if a seed reading is our own boost speed, else ``None``.
 
-        The observed token must be the head's TOP available ladder token (highest
-        FAN_LADDER index present in this head's fan_modes — never hardcode "high",
-        a head may not carry the full ladder), the head must be actively
-        conditioning (cool/heat, not eco-idle), and the boost's computed token for
-        this delta (from ``cur_idx``) must ALSO be that top token. If the ladder
-        sits below the top (near target, or fan_boost_max caps below the head's
-        top token so the ladder can never reach it) then max is a genuine request
-        for more air, not a handback.
+        The latch seeds from whatever the head reports on the first compute after
+        a restart, and a head boost had been driving is reporting OUR speed — not
+        a manual pick. Latching that parks the zone silently (Fan auto reads OFF,
+        boost stops driving it) until a human hands it back, after EVERY restart
+        that catches a room conditioning — including the weekly update.
+
+        So: while actively conditioning, if the observed token is exactly what the
+        ladder would command for the current delta, it's ours — adopt it and keep
+        driving. The check runs the ladder from a cold start (cur_idx=0, so UP_AT
+        thresholds): _fan_idx is empty after a restart anyway, and the cold read is
+        the conservative one — adopt only when the delta genuinely demands that
+        speed, not off a stale index that DOWN_AT would still be holding.
+
+        A real manual hold that predates the restart reads as a token the ladder
+        would NOT choose right now, so it still latches. The accepted tradeoff:
+        someone who deliberately picked exactly the boost speed before a restart
+        loses that hold. Only reachable on a seed — a departure is always a hold.
         """
         if act not in (MODE_COOL, MODE_HEAT) or self.eco_idle:
-            return False
-        avail = [t for t in FAN_LADDER if t in modes]
-        if not avail or observed != avail[-1]:
-            return False  # not the head's top available token
-        max_idx = self._fan_max_idx()
+            return None
         idx = fan_for_delta(
             delta=delta,
-            cur_idx=cur_idx,
+            cur_idx=0,
             up_at=self.fan_up_at,
             down_at=self.fan_down_at,
-            max_idx=max_idx,
+            max_idx=self._fan_max_idx(),
         )
-        return FAN_LADDER[idx] == observed
+        return idx if FAN_LADDER[idx] == observed else None
 
     async def _write_fan(self, climate_id: str, token: str) -> None:
         """Issue a fan_mode write and remember it (last + prior, for the echo race)."""
