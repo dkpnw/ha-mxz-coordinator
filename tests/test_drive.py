@@ -896,15 +896,13 @@ async def test_max_fan_handback_far_off_target_hands_back(
     assert plan.attributes["zones"][0]["fan_hold"] is False  # never re-latched
 
 
-async def test_max_fan_handback_escapes_a_slower_hold(hass: HomeAssistant) -> None:
-    """Sliding a SLOWER hold up to max while boost would command max -> handback.
+async def test_sliding_a_hold_up_to_max_still_holds(hass: HomeAssistant) -> None:
+    """Sliding a hold up to max is a request for more air, not a handback.
 
-    A zone held at "low" (drift alone never releases a hold), then the delta grows
-    to where the ladder would command the top token. The slide to "high" is a
-    genuine DEPARTURE (differs from both remembered commands), but because the
-    ladder's pick for this delta IS the top token it reads as "you drive": adopt,
-    don't re-latch, and ramp down under normal hysteresis afterward. This is the
-    HomeKit escape hatch from any hold, not just a max one.
+    Through v2.18.0 a slide to the top token while the ladder would command it
+    read as "you drive" — the HomeKit escape hatch from before the Fan-auto
+    switch existed. The switch is the handback now, so max holds like any other
+    speed: the user asked for max air and gets it until they hand control back.
     """
     hass.config.units = US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(hass)
@@ -927,17 +925,65 @@ async def test_max_fan_handback_escapes_a_slower_hold(hass: HomeAssistant) -> No
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is True
 
-    # User slides the hold up to "high" -> departure + ladder-at-max = handback.
+    # User slides the hold up to "high": still a hold, now at max.
     await _user_set_fan(hass, head_a, "high")
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
-    assert plan.attributes["zones"][0]["fan_hold"] is False  # adopted, not latched
+    assert plan.attributes["zones"][0]["fan_hold"] is True
     assert hass.states.get(head_a).attributes["fan_mode"] == "high"
 
-    # Ramp-down proceeds from max under DOWN_AT hysteresis -> control resumed.
+    # The room reaching target does NOT ramp it down — the hold is still theirs.
     await _set_temp(hass, SENSOR_A, 62.4)
     await _recompute(hass, entry)
-    assert hass.states.get(head_a).attributes["fan_mode"] == "quiet"
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True
+
+    # Only a gesture ends it.
+    await _user_set_fan(hass, head_a, "auto")
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False
+
+
+async def test_restart_mid_boost_keeps_boost_driving(hass: HomeAssistant) -> None:
+    """A restart while boost is driving must not park the head as "held".
+
+    The latch seeds from whatever the head reports, and after a restart a
+    boost-driven head is reporting OUR speed. Seeding that as a manual hold turns
+    Fan auto OFF and stops boost driving the zone until a human intervenes —
+    after EVERY restart that catches a room conditioning, including the weekly
+    update. Observed live on the basement: a head at "low" came back held while
+    its neighbour at the top token self-healed (the old adopt only covered max).
+
+    So a seed matching what the ladder would command right now is adopted, at any
+    speed. Regression test for that gap.
+    """
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+    coord = entry.runtime_data
+
+    # Mid-ladder delta (temp 65, target 62): boost drives a NON-top token.
+    await _set_temp(hass, SENSOR_A, 65)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "middle"  # not the top
+
+    # Restart: decision memory gone, head still sitting at the boost speed.
+    coord._fan_cmd.clear()
+    coord._fan_prev.clear()
+    coord._fan_latched.clear()
+    coord._fan_idx.clear()
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False  # adopted, not held
+
+    # Boost is genuinely still driving: a bigger delta moves the fan up.
+    await _set_temp(hass, SENSOR_A, 67)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is False
 
@@ -1127,14 +1173,16 @@ async def test_max_fan_handback_uses_heads_top_available_token(
     assert plan.attributes["zones"][0]["fan_hold"] is False
 
 
-async def test_max_hold_merges_into_auto_when_target_moves(
-    hass: HomeAssistant,
-) -> None:
-    """Latched at the top token near target, then a TARGET change grows the delta
-    until the ladder would command max -> the hold MERGES into auto (releases),
-    and ramps DOWN as the room later closes in. This is the motivating scenario:
-    a max hold is never a hold "above" auto, so it folds in the moment auto would
-    be commanding max anyway."""
+async def test_max_hold_survives_a_target_move(hass: HomeAssistant) -> None:
+    """A target change never releases a hold, even one at the top token.
+
+    This is the scenario the old standing merge was built for: held at max near
+    target, then the target moves so the ladder would command max anyway. It used
+    to fold the hold into auto — a hold releasing itself with nothing from the
+    user. Now it holds. (Note this survived the v2.18.0 merge removal: a
+    departure-latched hold never recorded its baseline, so the identical reading
+    re-read as a fresh departure every cycle and re-ran the max handback.)
+    """
     hass.config.units = US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(hass)
     await _set_temp(hass, SENSOR_A, 70)
@@ -1156,15 +1204,14 @@ async def test_max_hold_merges_into_auto_when_target_moves(
     await _set_target(hass, _eid(hass, entry, "_primary_target"), 60)  # delta 4
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
-    assert plan.attributes["zones"][0]["fan_hold"] is False  # merged into auto
+    assert plan.attributes["zones"][0]["fan_hold"] is True  # no self-release
     assert hass.states.get(head_a).attributes["fan_mode"] == "high"
 
-    # As the room closes on the new target the fan eases down -> control resumed.
+    # And the room reaching the new target doesn't release it either.
     await _set_target(hass, _eid(hass, entry, "_primary_target"), 64)  # satisfied
     await _recompute(hass, entry)
-    assert hass.states.get(head_a).attributes["fan_mode"] != "high"
     plan = hass.states.get(_eid(hass, entry, "_plan"))
-    assert plan.attributes["zones"][0]["fan_hold"] is False  # never re-latched
+    assert plan.attributes["zones"][0]["fan_hold"] is True
 
 
 async def test_max_hold_stays_latched_when_delta_grows_only_partway(

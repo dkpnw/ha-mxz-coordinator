@@ -104,12 +104,20 @@ integration's entities. With the native thermostats you don't need the proxy at 
 delta-proportional fan is now active; opt out anytime under **Configure → Fan boost**.
 An explicitly-saved off stays off.
 
-**Manual fan holds no longer release themselves (v2.18.0/v3.0.0-beta.17).** A hold you set
-with the slider at the head's top speed used to fold back into `auto` on any cycle where the
-fan boost would have commanded that speed anyway. Now every hold — whichever way you set it,
-at whatever speed — stays until you release it with the **Fan auto** switch, by setting the
-fan to `auto`, or with the slider handback (sliding TO max while boost would already be
-commanding max, unchanged). If you relied on the old self-release, use the switch instead.
+**Manual fan holds no longer release themselves (v3.0.0-beta.18).** Two rules used to end a
+hold without you asking: one folded a slider hold at the head's top speed back into `auto`
+whenever the fan boost would have commanded that speed anyway, and one read *sliding to* max
+as handing control back. Both are gone — every hold, at every speed, stays until you release
+it with the **Fan auto** switch or by setting the fan to `auto`. If you relied on either, use
+the switch instead. (beta.17 removed the first only partially: a slider hold could still
+release itself on drift. beta.18 is the complete change.)
+
+**A restart no longer parks a boost-driven head as "held" (v3.0.0-beta.18).** The fan latch
+seeds from whatever speed each head reports at startup, and a head the boost had been driving
+reports *our* speed — which used to seed as a manual hold, turning **Fan auto** off and
+stopping the boost for that room until someone flipped it back on. Now a startup reading that
+matches what the ladder would command right now is recognised as ours; a genuine manual hold
+still survives the restart.
 
 Automatic — nothing to do. On first startup the config entry migrates from the flat
 primary/secondary shape to an ordered `zones` list. Zones 0/1 keep the `primary`/`secondary`
