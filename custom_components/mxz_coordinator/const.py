@@ -242,18 +242,14 @@ MODE_OFF = "off"
 DEMAND_NEUTRAL = "neutral"
 ENGAGE_SATISFIED = "satisfied"
 
-# Helper entity keys (used for unique_id suffixes and translation keys)
-KEY_PRIMARY_TARGET = "primary_target"
-KEY_SECONDARY_TARGET = "secondary_target"
-KEY_PRIMARY_ENABLE = "primary_enable"
-KEY_SECONDARY_ENABLE = "secondary_enable"
+# Global helper entity keys (used for unique_id suffixes and translation keys).
+# Per-zone entities build theirs from zone_slug() instead, and translate through
+# the generic zone_* keys with the zone's name substituted in.
 KEY_COORDINATOR_ENABLE = "coordinator_enable"
 KEY_ECO_IDLE = "eco_idle"
 KEY_HEAT_LOCKOUT = "heat_lockout"
 KEY_COOL_LOCKOUT = "cool_lockout"
 KEY_SHARED_MODE = "shared_mode"
 KEY_PLAN = "plan"
-KEY_PRIMARY_THERMOSTAT = "primary_thermostat"
-KEY_SECONDARY_THERMOSTAT = "secondary_thermostat"
 
 UNAVAILABLE_STATES = ("unknown", "unavailable", "none", "")
