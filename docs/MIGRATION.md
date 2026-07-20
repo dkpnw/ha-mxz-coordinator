@@ -107,6 +107,12 @@ coast-offset option — if you ever saved one, it's simply ignored.
 delta-proportional fan is now active; opt out anytime under **Configure → Fan boost**.
 An explicitly-saved off stays off.
 
+**Manual fan holds no longer release themselves (v2.18.0).** A hold you set with the slider
+at the head's top speed used to fold back into `auto` on any cycle where the fan boost would
+have commanded that speed anyway. Now every hold — whichever way you set it, at whatever
+speed — stays until you release it with the **Fan auto** switch or by setting the fan to
+`auto`. If you relied on the old self-release, use the switch instead.
+
 **Manual fan latch & max-speed handback (v2.15.0).** Pick a fan speed yourself on any
 head and I stop writing that head's fan until you hand it back — set `auto`, or (from a
 slider with no `auto` stop) slide to max while boost would already be commanding max. A

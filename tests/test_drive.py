@@ -719,14 +719,13 @@ async def test_fan_auto_switch_off_at_auto_is_noop(hass: HomeAssistant) -> None:
 
 
 async def test_fan_auto_switch_off_at_top_speed_sticks(hass: HomeAssistant) -> None:
-    """A switch-OFF hold at the head's TOP token sticks — no standing-merge.
+    """A switch-OFF hold at the head's TOP token sticks.
 
-    A slider-set top token is ambiguous with the max handback, so it merges into
-    auto whenever boost would command max anyway. The switch gesture is not
-    ambiguous: OFF means hold — even at max, even while boost keeps demanding
-    max — until the switch flips back ON (or the fan is observed at "auto").
-    Without the explicit-hold exemption the switch would bounce back ON on the
-    very next cycle, silently contradicting the user's gesture.
+    OFF means hold — even at max, even while boost keeps demanding max — until
+    the switch flips back ON (or the fan is observed at "auto"). This was the
+    original reason switch holds needed an exemption from the top-token standing
+    merge; the merge is gone, so it now holds for the same reason every other
+    hold does, and this test pins that it stays that way.
     """
     hass.config.units = US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(hass)
@@ -759,15 +758,17 @@ async def test_fan_auto_switch_off_at_top_speed_sticks(hass: HomeAssistant) -> N
     assert plan.attributes["primary_fan_hold"] is False
 
 
-async def test_fan_auto_switch_hold_demoted_by_slider_departure(
+async def test_hold_survives_slider_moves_until_a_release_gesture(
     hass: HomeAssistant,
 ) -> None:
-    """A slider departure demotes an explicit switch hold to slider semantics.
+    """A hold is only released by a gesture: the switch, or an observed "auto".
 
-    Explicit switch holds are exempt from the top-token standing-merge; but the
-    moment the user reaches for the SLIDER instead, the hold is theirs again
-    under the slider rules — including the merge, once they land back on the
-    top token while boost would command max.
+    Moving the slider around while held re-aims the hold but never releases it —
+    including a move back to the top token. (Through v2.17.0 that last move
+    folded the hold into auto via the standing merge; a hold that releases itself
+    with no user gesture is the surprise we removed.) Note the coordinator reads
+    state per cycle, not events: while held, _fan_cmd stays frozen at the
+    pre-hold token, so returning to it isn't even visible as a departure.
     """
     hass.config.units = US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(hass)
@@ -783,16 +784,22 @@ async def test_fan_auto_switch_hold_demoted_by_slider_departure(
     await _recompute(hass, entry)
     assert hass.states.get(sw).state == "off"
 
-    # User moves the slider to "quiet": a departure -> still held, but the hold
-    # is now slider-origin (the explicit exemption is gone).
+    # User moves the slider to "quiet": a departure -> still held, now at quiet.
     await _user_set_fan(hass, head_a, "quiet")
     await _recompute(hass, entry)
     assert hass.states.get(sw).state == "off"
     assert hass.states.get(head_a).attributes["fan_mode"] == "quiet"
 
-    # Back to the top token while boost would command max -> the slider merge
-    # applies again: the hold folds into auto and the switch reads ON.
+    # Back to the top token while boost would command max: still held. No
+    # self-release without a gesture.
     await _user_set_fan(hass, head_a, "high")
+    await _recompute(hass, entry)
+    assert hass.states.get(sw).state == "off"
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["primary_fan_hold"] is True
+
+    # The gesture releases it: set the head back to "auto".
+    await _user_set_fan(hass, head_a, "auto")
     await _recompute(hass, entry)
     assert hass.states.get(sw).state == "on"
     plan = hass.states.get(_eid(hass, entry, "_plan"))
