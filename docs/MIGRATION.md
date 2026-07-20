@@ -107,8 +107,9 @@ An explicitly-saved off stays off.
 **Manual fan holds no longer release themselves (v2.18.0/v3.0.0-beta.17).** A hold you set
 with the slider at the head's top speed used to fold back into `auto` on any cycle where the
 fan boost would have commanded that speed anyway. Now every hold — whichever way you set it,
-at whatever speed — stays until you release it with the **Fan auto** switch or by setting the
-fan to `auto`. If you relied on the old self-release, use the switch instead.
+at whatever speed — stays until you release it with the **Fan auto** switch, by setting the
+fan to `auto`, or with the slider handback (sliding TO max while boost would already be
+commanding max, unchanged). If you relied on the old self-release, use the switch instead.
 
 Automatic — nothing to do. On first startup the config entry migrates from the flat
 primary/secondary shape to an ordered `zones` list. Zones 0/1 keep the `primary`/`secondary`

@@ -195,14 +195,15 @@ deliberate, not a fight:
   is idling or your boost ceiling is set below the head's top speed: max always holds there,
   because boost would never have chosen it.
 - **A hold waits for your gesture — always.** However you placed it, at whatever speed, a
-  hold is yours until you release it: flip **Fan auto** back ON, or set the fan to `auto`.
-  Room drift and target changes never release it, max included. (Before v3.0.0-beta.17 a
-  slider hold at max quietly folded back into auto as soon as boost would have commanded max
-  anyway — a hold releasing itself with no gesture from you. The **Fan auto** switch is the
-  discoverable handback that rule was standing in for, so it's gone.) One limit worth knowing:
-  I read fan state once per cycle rather than watching slider events, so re-selecting the
-  speed a head is already on is invisible to me — change to something else first if you want
-  a fresh gesture registered.
+  hold is yours until you make one: flip **Fan auto** back ON, set the fan to `auto`, or use
+  the slider handback above. Nothing else releases it — not room drift, not a target change,
+  not a restart, at any speed, max included. (Before v3.0.0-beta.17 a slider hold at max
+  quietly folded back into auto as soon as boost would have commanded max anyway — a hold
+  releasing itself with no gesture from you. The **Fan auto** switch is the discoverable
+  handback that rule was standing in for, so it's gone.) One limit worth knowing: I read fan
+  state once per cycle rather than watching slider events, so re-selecting the speed a head
+  is already on is invisible to me — change to something else first if you want a fresh
+  gesture registered.
 - **The tile shows REAL airflow while the fan's in auto.** When a satisfied room's fan is back
   on the firmware's own `auto`, the head only reports the token `auto` — the slider would
   otherwise freeze on the last speed and lie about what's actually blowing. If your firmware

@@ -721,14 +721,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         The handback is strictly EDGE-triggered: it fires on the gesture (a seed
         or a departure), never on a standing hold. Once a hold is in place it is
-        yours until you release it — via the Fan-auto switch, or by setting the
-        head back to "auto". Room drift and target changes never unlatch it, at
-        any speed including max. (Through v3.0.0-beta.16 a slider-set hold at the
-        top token ALSO merged back into auto on any cycle where auto would have
-        commanded max anyway, which meant a hold could quietly release itself
-        without the user doing anything; the Fan-auto switch is the discoverable
-        handback that gesture was standing in for, so the merge — and the
-        slider-vs-switch hold distinction it required — is gone.)
+        yours until you make a gesture — the Fan-auto switch, an observed "auto",
+        or a departure to the top token that reads as the handback above. Room
+        drift and target changes alone never unlatch it, at any speed including
+        max. (Through v3.0.0-beta.16 a slider-set hold at the top token ALSO
+        merged back into auto on any cycle where auto would have commanded max
+        anyway, which meant a hold could quietly release itself without the user
+        doing anything; the Fan-auto switch is the discoverable handback that
+        gesture was standing in for, so the merge — and the slider-vs-switch hold
+        distinction it required — is gone.)
 
         Because the coordinator only sees observed state per cycle — not events —
         a re-gesture to the SAME non-top token the head already reports is
@@ -745,8 +746,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._fan_prev.get(climate_id),
         )
         if not (seeding or departed):
-            # A standing hold: no gesture this cycle, so nothing changes. Holds
-            # release only on a gesture (the switch, or an observed "auto").
+            # A standing hold: no gesture this cycle, so nothing changes.
             return self._fan_latched.get(climate_id, False)
 
         # A new manual reading (seed or departure). Check the max-speed handback
@@ -760,6 +760,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Seed latched iff the head isn't at auto; a departure always latches.
         self._fan_latched[climate_id] = observed is not None
+        if seeding and observed is not None:
+            # Record the seed as the baseline command so the zone LEAVES the
+            # seeding state (same trick async_set_fan_auto OFF uses). Without it
+            # a seeded hold reads as a fresh seed every cycle and re-runs the
+            # handback check forever — the standing merge by another name: a
+            # pre-restart hold at the top token would release itself as soon as
+            # the room drifted far enough to demand max.
+            self._fan_prev[climate_id] = observed
+            self._fan_cmd[climate_id] = observed
         return self._fan_latched.get(climate_id, False)
 
     def _adopt_fan_handback(self, climate_id: str, observed: str) -> None:

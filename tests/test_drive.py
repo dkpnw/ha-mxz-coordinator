@@ -899,7 +899,7 @@ async def test_max_fan_handback_far_off_target_hands_back(
 async def test_max_fan_handback_escapes_a_slower_hold(hass: HomeAssistant) -> None:
     """Sliding a SLOWER hold up to max while boost would command max -> handback.
 
-    A zone held at "low" (non-top: drift never merges it), then the delta grows
+    A zone held at "low" (drift alone never releases a hold), then the delta grows
     to where the ladder would command the top token. The slide to "high" is a
     genuine DEPARTURE (differs from both remembered commands), but because the
     ladder's pick for this delta IS the top token it reads as "you drive": adopt,
@@ -921,7 +921,7 @@ async def test_max_fan_handback_escapes_a_slower_hold(hass: HomeAssistant) -> No
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is True
 
-    # Room drifts hard (delta 5): a non-top hold never merges -> still held.
+    # Room drifts hard (delta 5): drift alone never releases a hold -> still held.
     await _set_temp(hass, SENSOR_A, 67)
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
@@ -938,6 +938,53 @@ async def test_max_fan_handback_escapes_a_slower_hold(hass: HomeAssistant) -> No
     await _set_temp(hass, SENSOR_A, 62.4)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).attributes["fan_mode"] == "quiet"
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False
+
+
+async def test_hold_seeded_by_a_restart_survives_drift(hass: HomeAssistant) -> None:
+    """A hold that predates a restart doesn't self-release when the room drifts.
+
+    The seed path adopts the head's token as the baseline command, so the zone
+    leaves the seeding state on the first cycle. Without that a seeded hold reads
+    as a fresh seed every cycle and re-runs the handback check — which for a hold
+    at the TOP token is the standing merge by another name: drift out far enough
+    and the hold would release itself with no gesture from the user.
+    """
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+    coord = entry.runtime_data
+
+    # Near target, so picking "high" is a genuine request for more air -> holds.
+    await _set_temp(hass, SENSOR_A, 63)
+    await _recompute(hass, entry)
+    await _user_set_fan(hass, head_a, "high")
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True
+
+    # Restart: decision memory gone, head still sitting at "high" -> seeds held.
+    coord._fan_cmd.clear()
+    coord._fan_prev.clear()
+    coord._fan_latched.clear()
+    coord._fan_idx.clear()
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True
+
+    # Room drifts out to where boost would command "high" itself: still held.
+    await _set_temp(hass, SENSOR_A, 67)
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+
+    # And the gesture still releases it.
+    await _user_set_fan(hass, head_a, "auto")
+    await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is False
 
