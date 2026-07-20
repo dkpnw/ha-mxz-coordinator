@@ -77,9 +77,8 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         MXZEntity.__init__(self, coordinator, f"{zone.slug}_thermostat")
         CoordinatorEntity.__init__(self, coordinator)
         self._zone = zone
-        if zone.index >= 2:
-            self._attr_translation_key = "zone_thermostat"
-            self._attr_translation_placeholders = {"zone": zone.name}
+        self._attr_translation_key = "zone_thermostat"
+        self._attr_translation_placeholders = {"zone": zone.name}
 
         # Report the HA system temperature unit + its resolution (°F: whole
         # degrees; °C: 0.5° steps).

@@ -231,23 +231,11 @@
   },
   "entity": {
     "number": {
-      "primary_target": {
-        "name": "Primary target"
-      },
-      "secondary_target": {
-        "name": "Secondary target"
-      },
       "zone_target": {
         "name": "{zone} target"
       }
     },
     "switch": {
-      "primary_enable": {
-        "name": "Primary enable"
-      },
-      "secondary_enable": {
-        "name": "Secondary enable"
-      },
       "coordinator_enable": {
         "name": "Coordinator enable"
       },
@@ -284,12 +272,6 @@
       }
     },
     "climate": {
-      "primary_thermostat": {
-        "name": "Primary thermostat"
-      },
-      "secondary_thermostat": {
-        "name": "Secondary thermostat"
-      },
       "zone_thermostat": {
         "name": "{zone} thermostat"
       }
