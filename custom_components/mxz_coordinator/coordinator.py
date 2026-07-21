@@ -657,8 +657,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         * no _fan_cmd memory yet (first compute / post-restart seed): a non-"auto"
           reading seeds LATCHED, mirroring the engage-latch's "resume from the
           head's own state" — a manual pick that predates the restart is honored —
-          UNLESS the reading is exactly what the ladder would command right now,
-          which is our own boost speed echoing back (see ``_seed_matches_boost``).
+          UNLESS the reading is a speed the ladder would hold at the current
+          delta, which is our own boost speed echoing back (see
+          ``_seed_matches_boost``).
 
         A hold ends ONLY on a gesture: the Fan-auto switch, or an observed "auto".
         Room drift, target changes, and slider moves between speeds never release
@@ -798,28 +799,38 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         boost stops driving it) until a human hands it back, after EVERY restart
         that catches a room conditioning — including the weekly update.
 
-        So: while actively conditioning, if the observed token is exactly what the
-        ladder would command for the current delta, it's ours — adopt it and keep
-        driving. The check runs the ladder from a cold start (cur_idx=0, so UP_AT
-        thresholds): _fan_idx is empty after a restart anyway, and the cold read is
-        the conservative one — adopt only when the delta genuinely demands that
-        speed, not off a stale index that DOWN_AT would still be holding.
+        So: while actively conditioning, if the observed token is a rung the
+        ladder would STAY on at the current delta — a fixed point under the
+        UP_AT/DOWN_AT hysteresis — it's a speed the boost could legitimately
+        have parked the head at, so it's ours: adopt it and keep driving. The
+        hysteresis makes this a BAND, not a single value (as a room closes in,
+        DOWN_AT holds the fan a rung or two above what a cold read would pick;
+        that is the boost's normal resting state, not a manual hold). Checking
+        only the cold read (cur_idx=0) — as v2.19.0 did — matched just the
+        bottom rung of that band, so a restart mid-ramp-down still parked the
+        head as "held".
 
-        A real manual hold that predates the restart reads as a token the ladder
-        would NOT choose right now, so it still latches. The accepted tradeoff:
-        someone who deliberately picked exactly the boost speed before a restart
-        loses that hold. Only reachable on a seed — a departure is always a hold.
+        A real manual hold that predates the restart reads as a token OUTSIDE
+        the band — above the boost ceiling, or past a hysteresis edge — so it
+        still latches. The accepted tradeoff: a hold deliberately placed inside
+        the band is indistinguishable from the boost's own speed and is lost to
+        adoption. Only reachable on a seed — a departure is always a hold.
         """
         if act not in (MODE_COOL, MODE_HEAT) or self.eco_idle:
             return None
+        if observed not in FAN_LADDER:
+            return None
+        obs_idx = FAN_LADDER.index(observed)
+        if obs_idx > self._fan_max_idx():
+            return None  # above the boost ceiling: never ours
         idx = fan_for_delta(
             delta=delta,
-            cur_idx=0,
+            cur_idx=obs_idx,
             up_at=self.fan_up_at,
             down_at=self.fan_down_at,
             max_idx=self._fan_max_idx(),
         )
-        return idx if FAN_LADDER[idx] == observed else None
+        return obs_idx if idx == obs_idx else None
 
     async def _write_fan(self, climate_id: str, token: str) -> None:
         """Issue a fan_mode write and remember it (last + prior, for the echo race)."""

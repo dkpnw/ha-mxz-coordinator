@@ -115,12 +115,14 @@ it with the **Fan auto** switch or by setting the fan to `auto`. If you relied o
 the switch instead. (v2.18.0 removed the first only partially: a slider hold could still
 release itself on drift. v2.19.0 is the complete change.)
 
-**A restart no longer parks a boost-driven head as "held" (v2.19.0).** The fan latch seeds
-from whatever speed each head reports at startup, and a head the boost had been driving
-reports *our* speed — which used to seed as a manual hold, turning **Fan auto** off and
-stopping the boost for that room until someone flipped it back on. Now a startup reading that
-matches what the ladder would command right now is recognised as ours; a genuine manual hold
-still survives the restart.
+**A restart no longer parks a boost-driven head as "held" (v2.19.0, completed in v2.20.0).**
+The fan latch seeds from whatever speed each head reports at startup, and a head the boost
+had been driving reports *our* speed — which used to seed as a manual hold, turning
+**Fan auto** off and stopping the boost for that room until someone flipped it back on.
+v2.19.0 fixed this only for a head sitting at the lowest speed the ladder would pick;
+mid-ramp-down — where hysteresis deliberately holds the fan a rung higher — it still parked
+the head as held. v2.20.0 accepts any speed the ladder would hold at the current delta. A
+genuine manual hold (a speed the boost wouldn't be using) still survives the restart.
 
 **Manual fan latch & max-speed handback (v2.15.0).** Pick a fan speed yourself on any
 head and I stop writing that head's fan until you hand it back — set `auto`, or (from a
