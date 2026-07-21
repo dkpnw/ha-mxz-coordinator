@@ -954,9 +954,8 @@ async def test_restart_adopts_a_rung_held_by_hysteresis(hass: HomeAssistant) -> 
     As a room closes on target, DOWN_AT hysteresis holds the fan a rung (or two)
     above what a cold ladder read would pick — that is the boost's NORMAL resting
     state. v2.19.0/beta.18 compared the seed against the cold read only, so a
-    restart here still latched the head (found by deliberately probing the case
-    the basement flip happened to miss). The seed check now accepts any rung the
-    ladder would STAY on at the current delta.
+    restart here still latched the head. The seed check now accepts any rung
+    the ladder would STAY on at the current delta.
     """
     hass.config.units = US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(hass)
