@@ -5,8 +5,10 @@
 Mitsubishi MXZ systems put several indoor heads on one outdoor compressor. In the stock
 AUTO mode, the heads fight over it — and the losing room sits in standby for hours. I
 measured it: a room 6 °F too hot drew **26 W for over an hour** while a satisfied head
-blocked it. The coordinator ends the fight. It reads your real room temperatures, picks
-heat or cool for the whole system, and never lets a satisfied room block a calling one.
+blocked it. The coordinator ends the fight — Tesla-style: you set one number per room,
+and it handles mode, fan, and arbitration in the background. It reads your real room
+temperatures, picks heat or cool for the whole system, and never lets a satisfied room
+block a calling one.
 
 ![Two rooms as single-target "Auto" dials alongside the coordinator's live decision state.](images/dashboard.png)
 
@@ -70,14 +72,15 @@ elapsed    draw       what's happening
 ## What you get over the stock logic
 
 ### Comfort
-- **One number per room.** Not a dual heat/cool band — one target, and the coordinator
-  picks the mode. Change it from HA, HomeKit, Google, or Assist.
+- **One number per room.** Not a dual heat/cool band — one target, like a Tesla, and the
+  coordinator picks the mode. Change it from HA, HomeKit, Google, or Assist.
 - **Runs to your number, then coasts.** A room conditions until it *reaches* the target —
   not "close enough". Then it rests, and resumes only after it drifts past an adjustable
   band (0.5–5 °F / 0.25–2.5 °C). A satisfied room is never dragged along by its neighbor.
-- **A fan that responds to need.** The firmware's own auto ramp is conservative. Fan boost (on by
-  default) runs the fan harder the farther the room is from target, and eases off as the
-  room arrives — with hysteresis, so it never chatters. Max speed configurable.
+- **A fan that responds to need.** The firmware's own auto ramp is conservative. Fan
+  boost (on by default) runs the fan harder the farther the room is from target and eases
+  off as the room arrives — the way a Tesla's auto climate does — with hysteresis, so it
+  never chatters. Max speed configurable.
 - **Room sensors, not head sensors.** A head's internal thermistor reads several degrees
   warm when the unit is idle. The coordinator trusts the sensor you place where people
   actually sit.
