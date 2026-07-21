@@ -948,6 +948,60 @@ async def test_sliding_a_hold_up_to_max_still_holds(hass: HomeAssistant) -> None
     assert plan.attributes["zones"][0]["fan_hold"] is False
 
 
+async def test_restart_adopts_a_rung_held_by_hysteresis(hass: HomeAssistant) -> None:
+    """A restart mid-ramp-down must not park the head as "held".
+
+    As a room closes on target, DOWN_AT hysteresis holds the fan a rung (or two)
+    above what a cold ladder read would pick — that is the boost's NORMAL resting
+    state. v2.19.0/beta.18 compared the seed against the cold read only, so a
+    restart here still latched the head (found by deliberately probing the case
+    the basement flip happened to miss). The seed check now accepts any rung the
+    ladder would STAY on at the current delta.
+    """
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+    coord = entry.runtime_data
+
+    # Ramp up at delta 3, then close to delta 1.5: DOWN_AT holds "medium" — one
+    # rung above the cold read ("low").
+    await _set_temp(hass, SENSOR_A, 65)
+    await _recompute(hass, entry)
+    await _set_temp(hass, SENSOR_A, 63.5)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "medium"
+
+    # Restart: decision memory gone, head still at the hysteresis-held rung.
+    coord._fan_cmd.clear()
+    coord._fan_prev.clear()
+    coord._fan_latched.clear()
+    coord._fan_idx.clear()
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False  # adopted, not held
+
+    # And the adopted index is the OBSERVED rung, so the ramp continues from
+    # where the head actually is: closing further steps it down normally.
+    await _set_temp(hass, SENSOR_A, 62.4)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "quiet"
+
+    # A hold OUTSIDE the band still latches: park the head above the band.
+    await _set_temp(hass, SENSOR_A, 63.5)
+    await _recompute(hass, entry)
+    await _user_set_fan(hass, head_a, "high")  # delta 1.5: high is past the band
+    await _recompute(hass, entry)
+    coord._fan_cmd.clear()
+    coord._fan_prev.clear()
+    coord._fan_latched.clear()
+    coord._fan_idx.clear()
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is True  # genuine hold kept
+
+
 async def test_restart_mid_boost_keeps_boost_driving(hass: HomeAssistant) -> None:
     """A restart while boost is driving must not park the head as "held".
 
