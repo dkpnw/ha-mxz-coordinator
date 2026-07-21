@@ -85,10 +85,10 @@ elapsed    draw       what's happening
   used (default) — or pin it to cool or heat for one-sided climates.
 
 <p align="center">
-  <img src="images/thermostat-bedroom.png" width="45%" alt="Bedroom ~2° from target — fan boosted to Medium" />
-  <img src="images/thermostat-recroom.png" width="45%" alt="Rec Room ~1° from target — fan eased to Low" />
+  <img src="images/thermostat-bedroom-named.png" width="45%" alt="Bedroom thermostat: cooling to 60, 3° out — fan boosted to Medium" />
+  <img src="images/thermostat-recroom-named.png" width="45%" alt="Rec room thermostat: cooling to 63, 1° out — fan eased to Low" />
 </p>
-<sub>Fan dynamics live: the bedroom (~2° out) at <b>Medium</b> while the rec room (~1° out) has eased to <b>Low</b>.</sub>
+<sub>Fan dynamics live: the bedroom (3° out) at <b>Medium</b> while the rec room (1° out) has eased to <b>Low</b>.</sub>
 
 ### Control that stays yours
 - **Pick a fan speed and it stays picked.** Set any speed by hand and the coordinator
