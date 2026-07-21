@@ -3,14 +3,12 @@
 **Set one temperature per room. The coordinator does the rest.**
 
 Mitsubishi MXZ systems put several indoor heads on one outdoor compressor. In the stock
-AUTO mode, the heads fight over it — and the losing room sits in standby, sometimes for
-hours. The coordinator ends the fight. It reads your real room temperatures, picks heat or
-cool for the whole system, and never lets a satisfied room block a calling one.
+AUTO mode, the heads fight over it — and the losing room sits in standby for hours. I
+measured it: a room 6 °F too hot drew **26 W for over an hour** while a satisfied head
+blocked it. The coordinator ends the fight. It reads your real room temperatures, picks
+heat or cool for the whole system, and never lets a satisfied room block a calling one.
 
 ![Two rooms as single-target "Auto" dials alongside the coordinator's live decision state.](images/dashboard.png)
-
-> Shared as-is; support is best-effort ([Caveats](#caveats)). Built with AI assistance
-> (Claude); every line reviewed, tested, and run in production on my own system.
 
 [![Open your Home Assistant instance and open this repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration)
 [![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)
@@ -18,11 +16,17 @@ cool for the whole system, and never lets a satisfied room block a calling one.
 **Install:** Add to HACS → Download → restart → Add Integration → pick your heads and one
 temperature sensor per room. No YAML. [Details below.](#install)
 
+> Shared as-is; support is best-effort ([Caveats](#caveats)). Built with AI assistance
+> (Claude); every line reviewed, tested, and run in production on my own system.
+
 **Works with what you have.** The coordinator drives any standard `climate` entity with
-heat and cool modes. No firmware changes, no new hardware. Built and validated against
+heat and cool modes — no firmware changes. Built and validated against
 [echavet/MitsubishiCN105ESPHome](https://github.com/echavet/MitsubishiCN105ESPHome), the
-open-source ESP32/CN105 firmware for Mitsubishi heads. Kumo Cloud and MELCloud heads
-should work too.
+open-source ESP32/CN105 firmware for Mitsubishi heads. Kumo Cloud and MELCloud expose the
+same entity type and should work, but are untested — reports welcome. One requirement:
+**a temperature sensor entity per room**. Any sensor works — a $20 Bluetooth thermometer
+is the good answer. The head's own temperature entity works too, but it reads several
+degrees warm when the unit is idle ([why that matters](#best-practice-give-the-firmware-your-room-sensor-too)).
 
 ---
 
@@ -30,7 +34,7 @@ should work too.
 
 An MXZ outdoor unit has one compressor and one reversing valve. It can heat or cool at any
 moment — never both. In hardware AUTO, each head votes from its own room, and the
-lowest-address head is the mode master. An idle head can hold the outdoor unit neutral
+lowest-address head (the head wired first) is the mode master. An idle head can hold the outdoor unit neutral
 while another room calls and gets nothing. Mitsubishi's own manuals warn about this: AUTO
 is *"not recommended if this indoor unit is connected to a MXZ type outdoor unit… the
 indoor unit becomes standby mode"* (MSZ-SF); *"cooling and heating cannot be done at the
@@ -40,16 +44,15 @@ I measured it on my own system. A room 6 °F past its cooling target drew **~26 
 an hour** — parked in standby — because the other head was satisfied. The moment I turned
 that satisfied head off, the starved room ramped to ~460 W and cooled.
 
-The same scenario, coordinated:
+The same scenario, coordinated — both rooms served within minutes instead of an hour of
+starvation:
 
 ```
- 20s  675W  primary cool/high | secondary idle (satisfied)
- 80–220s 45W  compressor short-cycle off (~2.5 min, normal)
-240–380s 101→609W  both rooms served, sustained
+elapsed    draw       what's happening
+0:20       675 W      hot room cooling hard; satisfied room idle in fan_only
+1:20–3:40   45 W      compressor anti-short-cycle pause (~2.5 min — normal)
+4:00–6:20  101→609 W  both rooms served, sustained
 ```
-
-Over an hour of starvation under stock AUTO. Both rooms served within minutes under the
-coordinator.
 
 **The fix is three rules the stock logic doesn't have:**
 
@@ -59,8 +62,7 @@ coordinator.
    head's refrigerant valve (confirmed in the OCH573E service manual). It stops drawing
    capacity instead of blocking its neighbors.
 3. **When rooms disagree, your priority wins.** The room you ranked first gets its mode.
-   The other coasts until the system is free. Nobody oscillates — a 10-minute lockout
-   gates every mode flip.
+   The other coasts until the system is free.
 
 ---
 
@@ -72,7 +74,7 @@ coordinator.
 - **Runs to your number, then coasts.** A room conditions until it *reaches* the target —
   not "close enough". Then it rests, and resumes only after it drifts past an adjustable
   band (0.5–5 °F / 0.25–2.5 °C). A satisfied room is never dragged along by its neighbor.
-- **A fan that responds to need.** The firmware's own auto ramp is weak. Fan boost (on by
+- **A fan that responds to need.** The firmware's own auto ramp is conservative. Fan boost (on by
   default) runs the fan harder the farther the room is from target, and eases off as the
   room arrives — with hysteresis, so it never chatters. Max speed configurable.
 - **Room sensors, not head sensors.** A head's internal thermistor reads several degrees
@@ -93,6 +95,8 @@ coordinator.
   **Fan auto** switch that shows who is driving and hands control back with one tap,
   including from Apple Home. Details: [Who drives the fan](#who-drives-the-fan).
 - **Per-room enable switches.** Turn one room off without touching the others.
+- **Away/eco mode.** One switch parks every head off unless a room crosses wide
+  protection extremes (default 78/50 °F).
 - **One-switch kill.** Flip the coordinator off and your heads are instantly yours again,
   frozen where they were.
 - **Vane control on the tile**, plus a **vane kick**: change a louvre while the head is
@@ -108,17 +112,21 @@ coordinator.
 - **Passive-solar heat lockout.** A slightly-cool room waits for the sun instead of
   burning compressor energy. A safety floor still heats a genuinely cold room.
 - **Cool lockout** — the winter mirror, with a safety ceiling for genuinely hot days.
-- **Away/eco mode.** One switch parks every head off unless a room crosses wide
-  protection extremes (default 78/50 °F).
 
 ### It doesn't break, and it tells the truth
 - **Self-healing.** A head knocked off plan — wall remote, curious guest — is put back
-  after a debounce. Optional phone alert when that happens.
+  after a 20–30 s debounce. Optional phone alert when that happens.
 - **Restart-proof.** Every target, enable, mode, and switch survives an HA restart. Fan
-  holds survive too, with one honest edge: a hold at exactly the speed the boost would
-  pick itself is indistinguishable from the boost, and the boost resumes.
+  holds survive too, with one honest edge: if your held speed happens to equal what the
+  boost would choose right now, after a restart the coordinator can't tell it was a hold,
+  and the boost takes over.
 - **Sensor-dropout fail-safe.** A room whose sensor goes unavailable fails to *neutral* —
   no conditioning on garbage data — and recovers by itself.
+- **If HA itself goes down**, the heads keep their last commanded state and their own
+  control loops keep running — a cooling room keeps cooling on the head's thermistor. A
+  room parked in `fan_only` stays parked until HA returns; the
+  [remote-sensor timeout](#best-practice-give-the-firmware-your-room-sensor-too) keeps
+  the head's own loop on honest data meanwhile.
 - **Hardware protection.** A 10-minute minimum between mode flips protects the shared
   compressor. Every setpoint is clamped to the firmware's real range before sending.
   Writes happen only when something must change.
@@ -127,9 +135,8 @@ coordinator.
 - **A transparent brain.** The plan sensor exposes every decision input live — per-room
   demand, who is coasting, who holds the fan, the standoff state. "Why did it do that?"
   always has an answer.
-- **The tile shows real airflow.** If your firmware publishes actual blower speed
-  (CN105/ESPHome heads do), the fan dial tracks it while the fan is in auto — instead of
-  freezing on the last commanded speed.
+- **The tile shows real airflow** while the fan is in auto, if your firmware publishes
+  blower speed — see [Who drives the fan](#who-drives-the-fan).
 
 ### Fit & finish
 - **One-click install.** HACS + config flow; every option visible at setup, pre-filled
@@ -139,7 +146,7 @@ coordinator.
 - **Native HomeKit / Google / Assist tiles** — one clean dial per room, never a raw
   dual-setpoint firmware control.
 - **2–8 rooms per outdoor unit** *(v3 beta)*, plus multiple outdoor units, one entry
-  each. Existing 2-zone installs migrate automatically with no entity changes.
+  each — see [N zones](#n-zones-v3-beta).
 - **Automation-friendly.** A `recompute` service, an event hook, and every threshold
   tunable in the UI.
 
@@ -219,6 +226,9 @@ Simple rules, no surprises:
    their rooms first, and every entity lands labelled "Bedroom target", "Bedroom
    enable", and so on.
 5. Turn on **Coordinator enable**, set each room's target, enable the rooms. Done.
+6. Exposing to HomeKit or Google? Expose the per-room **thermostat tiles**
+   (`climate.*_<zone>_thermostat`), **not the raw heads** — two controls per room would
+   fight over the same hardware. [Details.](#the-single-target-thermostat-surface)
 
 <p align="center">
   <img src="images/setup-flow-dark.png" width="55%" alt="Setup: pick your heads and sensors — help text under every field" />
