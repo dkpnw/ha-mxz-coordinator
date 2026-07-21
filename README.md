@@ -24,9 +24,10 @@ heat and cool modes — no firmware changes. Built and validated against
 [echavet/MitsubishiCN105ESPHome](https://github.com/echavet/MitsubishiCN105ESPHome), the
 open-source ESP32/CN105 firmware for Mitsubishi heads. Kumo Cloud and MELCloud expose the
 same entity type and should work, but are untested — reports welcome. One requirement:
-**a temperature sensor entity per room**. Any sensor works — a $20 Bluetooth thermometer
-is the good answer. The head's own temperature entity works too, but it reads several
-degrees warm when the unit is idle ([why that matters](#best-practice-give-the-firmware-your-room-sensor-too)).
+**a temperature sensor entity per room**. Any temperature sensor works — a $20 Bluetooth
+thermometer is the good answer. If your head exposes its internal reading as a sensor
+entity, that works too — but it reads several degrees warm when the unit is idle
+([why that matters](#best-practice-give-the-firmware-your-room-sensor-too)).
 
 ---
 
@@ -34,8 +35,8 @@ degrees warm when the unit is idle ([why that matters](#best-practice-give-the-f
 
 An MXZ outdoor unit has one compressor and one reversing valve. It can heat or cool at any
 moment — never both. In hardware AUTO, each head votes from its own room, and the
-lowest-address head (the head wired first) is the mode master. An idle head can hold the outdoor unit neutral
-while another room calls and gets nothing. Mitsubishi's own manuals warn about this: AUTO
+lowest-address head (the head wired first) is the mode master. An idle head can hold the
+outdoor unit neutral while another room calls and gets nothing. Mitsubishi's own manuals warn about this: AUTO
 is *"not recommended if this indoor unit is connected to a MXZ type outdoor unit… the
 indoor unit becomes standby mode"* (MSZ-SF); *"cooling and heating cannot be done at the
 same time… the unit selected last goes into standby mode"* (MSZ-GE).
@@ -219,8 +220,9 @@ Simple rules, no surprises:
 3. **[Add Integration](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)**
    → *MXZ Coordinator*.
 4. Pick **all the heads on this outdoor unit** (2–8). Selection order is priority: the
-   first room wins standoffs. Then pick one **room temperature sensor** per head, and an
-   optional notify target for drift alerts. Vane and airflow sensors are detected
+   first room wins standoffs. Then pick one **room temperature sensor** per head (the
+   picker lists `sensor` entities with device class *temperature*), and an optional
+   notify target for drift alerts. Vane and airflow sensors are detected
    automatically. A final tuning step shows every option pre-filled — Submit as-is, or
    adjust. Each room takes its **name from the head you picked** — name your heads for
    their rooms first, and every entity lands labelled "Bedroom target", "Bedroom
@@ -231,7 +233,7 @@ Simple rules, no surprises:
    fight over the same hardware. [Details.](#the-single-target-thermostat-surface)
 
 <p align="center">
-  <img src="images/setup-flow-dark.png" width="55%" alt="Setup: pick your heads and sensors — help text under every field" />
+  <img src="images/setup-flow-dark.png" width="55%" alt="Setup: pick your heads in priority order — help text under every field" />
 </p>
 <p align="center">
   <img src="images/tuning-dark.png" width="95%" alt="Comfort tuning: every option pre-filled, explained in plain language" />
