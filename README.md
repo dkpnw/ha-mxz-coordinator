@@ -158,9 +158,10 @@ parts for two fixed zones, and doesn't track newer features):
    target, then coasts in `fan_only` until it drifts past the re-engage band (default
    1 °F). Away/eco swaps both thresholds for the wide protection extremes.
 2. **Act** — the only component that commands heads. It derives each room's setpoints
-   from its single target (`cool → [target−2, target]`, `heat → [target, target+2]`),
-   clamps to the firmware range (default 59–88 °F / 15–31 °C), and sends them with the
-   mode — or a single clamped target for single-setpoint firmware. Never `heat_cool`.
+   from its single target (`cool → [target−2, target]`, `heat → [target, target+2]`;
+   the band is 1° on °C systems), clamps to the firmware range (default 59–88 °F /
+   15–31 °C), and sends them with the mode — or a single clamped target for
+   single-setpoint firmware. Never `heat_cool`.
    Idempotent, and gated on the kill-switch. A head that rejects a command degrades only
    its own room; the rest keep running.
 3. **Trigger** — recompute on any decision-relevant change, a 15-minute heartbeat, HA
