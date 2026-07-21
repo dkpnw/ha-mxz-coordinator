@@ -124,12 +124,12 @@ mid-ramp-down — where hysteresis deliberately holds the fan a rung higher — 
 the head as held. v2.20.0 accepts any speed the ladder would hold at the current delta. A
 genuine manual hold (a speed the boost wouldn't be using) still survives the restart.
 
-**Manual fan latch & max-speed handback (v2.15.0).** Pick a fan speed yourself on any
-head and I stop writing that head's fan until you hand it back — set `auto`, or (from a
-slider with no `auto` stop) slide to max while boost would already be commanding max. A
-hold at any slower speed is a ceiling you chose: it never releases on its own. No new
-entities; the plan sensor gains `primary_fan_hold` / `secondary_fan_hold` (bool) so a
-dashboard can show who's driving the fan. Purely additive.
+**Manual fan latch (v2.15.0).** Pick a fan speed yourself on any head and I stop writing
+that head's fan until you hand it back — set `auto`, or use the **Fan auto** switch
+(v2.16.0+). No new entities; the plan sensor gains `primary_fan_hold` /
+`secondary_fan_hold` (bool) so a dashboard can show who's driving the fan. Purely
+additive. (v2.15.0–v2.18.0 also read a slide to max as handing control back; that gesture
+was removed in v2.19.0 — see below.)
 
 **v2.16.0 adds a per-room Fan auto switch** — two new entities on the existing device:
 
