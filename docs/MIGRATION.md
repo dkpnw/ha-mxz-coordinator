@@ -104,7 +104,9 @@ integration's entities. With the native thermostats you don't need the proxy at 
 delta-proportional fan is now active; opt out anytime under **Configure → Fan boost**.
 An explicitly-saved off stays off.
 
-**Manual fan holds no longer release themselves (v3.0.0-beta.18).** Two rules used to end a
+**Manual fan holds no longer release themselves (v3.0.0-beta.18; already in the v2
+stable line since v2.18.0–v2.20.0).** Coming from v2.20.0? You have this and the restart
+fix below already — nothing changes for you. Two rules used to end a
 hold without you asking: one folded a slider hold at the head's top speed back into `auto`
 whenever the fan boost would have commanded that speed anyway, and one read *sliding to* max
 as handing control back. Both are gone — every hold, at every speed, stays until you release
@@ -112,7 +114,8 @@ it with the **Fan auto** switch or by setting the fan to `auto`. If you relied o
 the switch instead. (beta.17 removed the first only partially: a slider hold could still
 release itself on drift. beta.18 is the complete change.)
 
-**A restart no longer parks a boost-driven head as "held" (beta.18, completed in beta.19).**
+**A restart no longer parks a boost-driven head as "held" (beta.18, completed in
+beta.19; ported to the stable line as v2.19.0/v2.20.0).**
 The fan latch seeds from whatever speed each head reports at startup, and a head the boost
 had been driving reports *our* speed — which used to seed as a manual hold, turning
 **Fan auto** off and stopping the boost for that room until someone flipped it back on.
