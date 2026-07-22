@@ -41,14 +41,23 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
         # firmware operating band [clamp_min, clamp_max].
         self._attr_native_unit_of_measurement = coordinator.temp_unit
         self._attr_native_step = coordinator.target_step
-        # [clamp_min, clamp_max] narrowed to what THIS head will actually accept
-        # (its native operating band), so a rejectable target can't be entered
-        # from the UI / HomeKit / voice in the first place (#10). Re-derived in
-        # async_added_to_hass once the head state has settled.
         lo, hi = coordinator.head_target_bounds(zone.climate_id)
-        self._attr_native_min_value = lo
-        self._attr_native_max_value = hi
         self._attr_native_value = min(max(coordinator.target_default, lo), hi)
+
+    # [clamp_min, clamp_max] narrowed to what THIS head will actually accept
+    # (its native operating band), so a rejectable target can't be entered from
+    # the UI / HomeKit / voice in the first place (#10). LIVE properties, not
+    # frozen at init: a head whose integration loads after ours would otherwise
+    # keep the wide fallback bounds until a reload. Validation reads these at
+    # set-time, so it is always against the head's real band; the UI slider
+    # refreshes its cached bounds on the entity's next state write.
+    @property
+    def native_min_value(self) -> float:
+        return self.coordinator.head_target_bounds(self._zone.climate_id)[0]
+
+    @property
+    def native_max_value(self) -> float:
+        return self.coordinator.head_target_bounds(self._zone.climate_id)[1]
 
     async def async_added_to_hass(self) -> None:
         """Restore the last setpoint and seed the coordinator's zone.
@@ -59,12 +68,6 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
         a 70 °F default vs a 66 °F room planned heat in July).
         """
         await super().async_added_to_hass()
-        # The head state may only have settled now (platforms forward
-        # concurrently), so re-derive the head-narrowed bounds before restoring
-        # or seeding a value against them (#10).
-        lo, hi = self.coordinator.head_target_bounds(self._zone.climate_id)
-        self._attr_native_min_value = lo
-        self._attr_native_max_value = hi
         last_state = await self.async_get_last_state()
         if (
             not self._restored_state_is_stale(last_state)
@@ -97,7 +100,7 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
             return None
         step = self.coordinator.target_step or 1.0
         value = round(value / step) * step
-        return min(max(value, self._attr_native_min_value), self._attr_native_max_value)
+        return min(max(value, self.native_min_value), self.native_max_value)
 
     async def async_set_native_value(self, value: float) -> None:
         """User changed the target -> persist, reset the latch, recompute."""

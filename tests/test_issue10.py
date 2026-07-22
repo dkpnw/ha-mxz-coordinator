@@ -226,3 +226,32 @@ async def test_safe_band_round_trips_at_float_boundary(hass: HomeAssistant) -> N
         )
         >= heads[0].min_temp
     )
+
+
+async def test_number_bounds_track_the_head_live(hass: HomeAssistant) -> None:
+    """The target number's bounds follow the head WITHOUT a reload.
+
+    Regression for the init-frozen edge: bounds were computed once when the
+    number entity was created, so a head whose integration loaded AFTER ours
+    kept the wide [clamp_min, clamp_max] fallback until a reload — and a
+    later change to the head's own limits was never picked up. The bounds
+    are live properties now: validation always checks the head's real band.
+    """
+    heads = [CelsiusSingleHead("a"), CelsiusSingleHead("b")]
+    await _setup(hass, heads)
+
+    reg_entity = None
+    component = hass.data["entity_components"]["number"]
+    for ent in component.entities:
+        if ent.unique_id.endswith("_primary_target"):
+            reg_entity = ent
+            break
+    assert reg_entity is not None
+    assert reg_entity.native_max_value == 78  # head-narrowed (26.0 C)
+
+    # The head's band changes in place (firmware update, config change) —
+    # the number's bounds must follow with no reload.
+    heads[0]._attr_max_temp = 24.0  # 75.2 F -> floor to 75
+    assert reg_entity.native_max_value == 75
+    heads[0]._attr_max_temp = 26.0
+    assert reg_entity.native_max_value == 78
