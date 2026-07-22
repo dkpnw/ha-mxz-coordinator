@@ -557,6 +557,14 @@ class MXZOptionsFlow(OptionsFlow):
             # them into the zones list in entry.data, never store them as flat
             # keys (a stale flat key would shadow the zones list in the
             # coordinator's {**data, **options} merge).
+            #
+            # Every override field is rendered for every zone (see
+            # _options_schema), and a pre-filled field the user leaves untouched
+            # is submitted with its value. So an ABSENT/empty key means the user
+            # cleared that field -> drop it from the zone. The old behavior
+            # skipped absent keys, so a cleared override could never be removed:
+            # an auto-detected vane/stage stuck forever, even on heads that have
+            # no vane (e.g. a ducted air handler advertising a phantom vane).
             for i, zone in enumerate(zones):
                 slug = zone_slug(i)
                 for suffix, zkey in (
@@ -564,8 +572,10 @@ class MXZOptionsFlow(OptionsFlow):
                     ("vane_horizontal", ZONE_VANE_HORIZONTAL),
                     ("stage", ZONE_STAGE_SENSOR),
                 ):
-                    if (value := user_input.get(f"{slug}_{suffix}")) is not None:
-                        zone[zkey] = value or None
+                    if value := user_input.get(f"{slug}_{suffix}"):
+                        zone[zkey] = value
+                    else:
+                        zone.pop(zkey, None)
             tunables = {
                 k: v for k, v in user_input.items() if k not in override_keys
             }

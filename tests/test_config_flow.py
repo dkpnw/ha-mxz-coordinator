@@ -34,6 +34,7 @@ from custom_components.mxz_coordinator.const import (  # noqa: E402
     ZONE_NAME,
     ZONE_SENSOR,
     ZONE_STAGE_SENSOR,
+    ZONE_VANE_VERTICAL,
 )
 
 _VALID = {
@@ -298,3 +299,84 @@ async def test_coordinator_recovers_config_from_data_mirror(hass: HomeAssistant)
     coordinator = MXZCoordinator(hass, entry)
     assert coordinator.changeover_entity == "weather.home"
     assert coordinator.demand_threshold == 5.0
+
+
+async def test_options_flow_clears_auto_detected_zone_override(
+    hass: HomeAssistant,
+) -> None:
+    """A per-zone override the user clears in Configure is removed from the zone.
+
+    Every vane/stage field is rendered for every zone, so an absent key on
+    submit means the user cleared it. Regression: an auto-detected vane could
+    never be removed (the flow skipped absent keys, so it stuck forever) — e.g.
+    a ducted air handler that has no vane still advertised a phantom one.
+    """
+    zones = [
+        {
+            ZONE_NAME: "Primary",
+            ZONE_CLIMATE: "climate.primary",
+            ZONE_SENSOR: "sensor.primary_temp",
+            ZONE_VANE_VERTICAL: "select.primary_vane",  # auto-detected at setup
+        },
+        {
+            ZONE_NAME: "Secondary",
+            ZONE_CLIMATE: "climate.secondary",
+            ZONE_SENSOR: "sensor.secondary_temp",
+        },
+    ]
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_ZONES: zones},
+        options={CONF_DEMAND_THRESHOLD: 3.0},
+        title="MXZ Coordinator",
+        version=2,
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    # Submit without the primary vane field — i.e. the user cleared it.
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_DEMAND_THRESHOLD: 3.0}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    # The auto-detected vane is gone from the zone (cleared, not stuck).
+    assert entry.data[CONF_ZONES][0].get(ZONE_VANE_VERTICAL) is None
+
+
+async def test_options_flow_preserves_untouched_zone_override(
+    hass: HomeAssistant,
+) -> None:
+    """A pre-filled override left untouched is resubmitted with its value and kept.
+
+    The frontend submits a suggested-value field the user does not clear, so
+    unchanged wiring survives a save (only an explicit clear removes it).
+    """
+    zones = [
+        {
+            ZONE_NAME: "Primary",
+            ZONE_CLIMATE: "climate.primary",
+            ZONE_SENSOR: "sensor.primary_temp",
+            ZONE_VANE_VERTICAL: "select.primary_vane",
+        },
+        {
+            ZONE_NAME: "Secondary",
+            ZONE_CLIMATE: "climate.secondary",
+            ZONE_SENSOR: "sensor.secondary_temp",
+        },
+    ]
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_ZONES: zones},
+        options={CONF_DEMAND_THRESHOLD: 3.0},
+        title="MXZ Coordinator",
+        version=2,
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_DEMAND_THRESHOLD: 3.0, "primary_vane_vertical": "select.primary_vane"},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_ZONES][0][ZONE_VANE_VERTICAL] == "select.primary_vane"
