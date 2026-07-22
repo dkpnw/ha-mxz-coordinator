@@ -2,8 +2,9 @@
 
 Replaces the input_boolean.* helpers from the YAML package. All default OFF on a
 fresh install (matching the package, where `initial` was omitted) and restore their
-last state across restarts — except the per-zone Fan auto switches, which are live
-mirrors of coordinator latch state and restore nothing of their own.
+last state across restarts. The per-zone Fan auto switches render live from the
+coordinator's latch, but restore one bool of their own — held or not — which is how
+the seed tells boost residue from a deliberate hold after a restart.
 """
 
 from __future__ import annotations

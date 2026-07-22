@@ -154,6 +154,22 @@ async def test_s5_idle_hold_quiet_across_restart(hass: HomeAssistant):
     _expect(hass, entry, head_a, hold=True, fan="quiet")
 
 
+async def test_s5b_held_hold_moved_during_outage(hass: HomeAssistant):
+    """Held at 'quiet' before the outage, moved to 'medium' via wall remote
+    while HA was down: still held — at the NEW token — and it must be a
+    STANDING hold next cycle, not re-litigated on drift."""
+    head_a, _b, entry = await _std(hass)
+    coord = entry.runtime_data
+    await _idle_hold(hass, entry, head_a, "quiet")
+    _restart(coord, {head_a: True})
+    await _user_set_fan(hass, head_a, "medium")  # moved during the outage
+    await _recompute(hass, entry)
+    _expect(hass, entry, head_a, hold=True, fan="medium")
+    await _set_temp(hass, SENSOR_A, 67)  # activates; boost must not reclaim
+    await _recompute(hass, entry)
+    _expect(hass, entry, head_a, hold=True, fan="medium")
+
+
 async def test_s6_gesture_during_outage_not_held_before(hass: HomeAssistant):
     head_a, _b, entry = await _std(hass)
     coord = entry.runtime_data
@@ -236,6 +252,24 @@ async def test_s11_satisfied_seed_above_boost_ceiling(hass: HomeAssistant):
     _restart(coord, {head_a: True})
     await _recompute(hass, entry)
     _expect(hass, entry, head_a, hold=True, fan="high")  # boost could never write high
+
+
+async def test_s11b_not_held_seed_above_boost_ceiling(hass: HomeAssistant):
+    """Ceiling=medium; restored NOT held, but the head reports 'high' while
+    satisfied. Boost could never have written high, so it cannot be residue —
+    a hand set it during the outage. The impossible-token guard must hold it
+    even against a not-held restore."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 61.5)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b, fan_boost_max="medium")
+    coord = entry.runtime_data
+    await _recompute(hass, entry)  # satisfied, fan auto, not held
+    _restart(coord, {head_a: False})
+    await _user_set_fan(hass, head_a, "high")  # wall remote during the outage
+    await _recompute(hass, entry)
+    _expect(hass, entry, head_a, hold=True, fan="high")
 
 
 async def test_s12_gestures_while_unresolved(hass: HomeAssistant):

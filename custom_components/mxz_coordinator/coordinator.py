@@ -838,8 +838,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         The switch is a live mirror of the latch: ON = auto/boost in charge,
         OFF = a manual speed is being held. The latch machinery is the single
-        source of truth (it already seeds from observed head state on restart),
-        so the switch stores nothing of its own.
+        source of truth while running; across restarts the switch restores the
+        held/not-held bool and hands it back via ``restore_fan_hold``.
         """
         return not self._fan_latched.get(climate_id, False)
 
