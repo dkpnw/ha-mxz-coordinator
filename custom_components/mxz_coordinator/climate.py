@@ -85,11 +85,10 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         self._attr_temperature_unit = coordinator.temp_unit
         self._attr_target_temperature_step = coordinator.target_step
 
-        # Clamp the setpoint slider to the firmware operating band (the same
-        # [clamp_min, clamp_max] the coordinator clamps head setpoints to), so
-        # HomeKit/Google won't offer targets the heads can't actually reach.
-        self._attr_min_temp = float(coordinator.clamp_min)
-        self._attr_max_temp = float(coordinator.clamp_max)
+        # Setpoint-slider bounds are derived live from the head (see min_temp /
+        # max_temp below): [clamp_min, clamp_max] narrowed to the head's own
+        # native operating band, so HomeKit/Google won't offer targets the head
+        # can't actually reach (#10).
 
         # The underlying head this tile passes fan/vane control through to.
         self._head_id = zone.climate_id
@@ -161,6 +160,16 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
             return float(state.state)
         except (ValueError, TypeError):
             return None
+
+    @property
+    def min_temp(self) -> float:
+        """Low slider bound: clamp_min narrowed to the head's native floor (#10)."""
+        return self.coordinator.head_target_bounds(self._head_id)[0]
+
+    @property
+    def max_temp(self) -> float:
+        """High slider bound: clamp_max narrowed to the head's native ceiling (#10)."""
+        return self.coordinator.head_target_bounds(self._head_id)[1]
 
     @property
     def target_temperature(self) -> float | None:

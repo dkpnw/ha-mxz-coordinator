@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import timedelta
 from functools import partial
@@ -25,6 +26,7 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_component import DATA_INSTANCES
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
@@ -33,6 +35,7 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.start import async_at_start
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
     BAND_DRIFT_DELAY,
@@ -555,6 +558,97 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_mode_change_ts = dt_util.utcnow().timestamp()
             self.async_update_listeners()  # let the shared-mode select re-render
 
+    # -- per-head operating band (native-unit safe clamp, #10) --------------
+    def _head_native_limits(
+        self, climate_id: str
+    ) -> tuple[float, float, str] | None:
+        """This head's UNROUNDED native (min, max, unit), or None if unknown.
+
+        Read from the live entity object — the same values HA's own
+        set_temperature validator range-checks against — because the head's
+        min_temp/max_temp STATE ATTRIBUTES are display-rounded to the system
+        unit's precision and so can read ABOVE the true native ceiling (a
+        26.0 °C max shows as 79 °F but rejects 79 °F). Best-effort: any missing
+        entity / odd unit / inverted band yields None and the caller falls back.
+        """
+        component = (self.hass.data.get(DATA_INSTANCES) or {}).get("climate")
+        entity = component.get_entity(climate_id) if component else None
+        if entity is None:
+            return None
+        try:
+            nmin = float(entity.min_temp)
+            nmax = float(entity.max_temp)
+            nunit = entity.temperature_unit
+        except (TypeError, ValueError, AttributeError):
+            return None
+        if nunit not in (
+            UnitOfTemperature.CELSIUS,
+            UnitOfTemperature.FAHRENHEIT,
+        ) or nmax <= nmin:
+            return None
+        return (nmin, nmax, nunit)
+
+    def _head_safe_band(self, climate_id: str) -> tuple[float, float] | None:
+        """The head's operating band as system-unit edges it will ACCEPT.
+
+        Convert the head's native limits into the system unit and snap the
+        ceiling DOWN / the floor UP to our step, so every edge round-trips back
+        through HA's unit conversion still inside the native band (78.8 °F ->
+        78 °F, which converts to 25.56 °C <= the 26.0 °C native max). For a head
+        already native to the system unit this is a no-op on whole values. Falls
+        back to the display-rounded state attributes when the entity object
+        isn't reachable (keeps the common same-unit case correct).
+        """
+        native = self._head_native_limits(climate_id)
+        if native is not None:
+            nmin, nmax, nunit = native
+            lo = TemperatureConverter.convert(nmin, nunit, self.temp_unit)
+            hi = TemperatureConverter.convert(nmax, nunit, self.temp_unit)
+        else:
+            st = self.hass.states.get(climate_id)
+            if st is None:
+                return None
+            lo = _as_float(st.attributes.get("min_temp"))
+            hi = _as_float(st.attributes.get("max_temp"))
+            if lo is None or hi is None:
+                return None
+        step = self.target_step or 1.0
+        # +/-1e-9 absorbs float noise so an exact 26.0/0.5 doesn't fall a step.
+        safe_low = math.ceil(lo / step - 1e-9) * step
+        safe_high = math.floor(hi / step + 1e-9) * step
+        if safe_low > safe_high:
+            return None  # degenerate band (narrower than a step) -> don't clamp
+        return (safe_low, safe_high)
+
+    def _clamp_to_head_band(
+        self, climate_id: str, low: float, high: float
+    ) -> tuple[float, float]:
+        """Clamp (low, high) into the head's accept-able band; pass through if unknown."""
+        band = self._head_safe_band(climate_id)
+        if band is None:
+            return (low, high)
+        safe_low, safe_high = band
+        return (
+            min(max(low, safe_low), safe_high),
+            min(max(high, safe_low), safe_high),
+        )
+
+    def head_target_bounds(self, climate_id: str) -> tuple[float, float]:
+        """UI setpoint bounds for a zone: [clamp_min, clamp_max] narrowed to the
+        head's own accept-able band, so the number/thermostat facade never offers
+        a target the head would reject (#10). If the head band is unknown or
+        disjoint from the clamp band, fall back to the plain clamp band.
+        """
+        lo, hi = float(self.clamp_min), float(self.clamp_max)
+        band = self._head_safe_band(climate_id)
+        if band is None:
+            return (lo, hi)
+        safe_low, safe_high = band
+        lo, hi = max(lo, safe_low), min(hi, safe_high)
+        if lo > hi:
+            return (float(self.clamp_min), float(self.clamp_max))
+        return (lo, hi)
+
     async def _apply_head(
         self, climate_id: str, act: str, low: float, high: float
     ) -> None:
@@ -563,6 +657,16 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cur_mode = state.state if state else None
 
         if act in (MODE_COOL, MODE_HEAT):
+            # Clamp each edge to what THIS head will actually accept. The global
+            # clamp_min/clamp_max can exceed an individual head's operating band,
+            # and HA validates set_temperature by converting our (system-unit)
+            # value into the head's NATIVE unit and range-checking there — so a
+            # °C-native head whose native max is 26.0 °C rejects 79 °F (26.11 °C)
+            # even though it REPORTS max_temp = 79 °F (78.8 rounded up). Clamping
+            # in the head's native band (rounded toward the safe interior) keeps
+            # a head-exceeding target from erroring every cycle / degrading the
+            # zone (#10) — it lands on the head's real ceiling/floor instead.
+            low, high = self._clamp_to_head_band(climate_id, low, high)
             tol = self.target_step / 2  # half a step = already-set (float noise)
             features = (
                 int(state.attributes.get("supported_features") or 0) if state else 0
