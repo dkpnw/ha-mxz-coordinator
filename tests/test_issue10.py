@@ -17,6 +17,24 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.const import UnitOfTemperature  # noqa: E402
 from homeassistant.core import HomeAssistant  # noqa: E402
+from homeassistant.setup import async_setup_component  # noqa: E402
+from homeassistant.util.unit_conversion import TemperatureConverter  # noqa: E402
+from homeassistant.util.unit_system import METRIC_SYSTEM  # noqa: E402
+from pytest_homeassistant_custom_component.common import (  # noqa: E402
+    MockConfigEntry,
+    MockModule,
+    MockPlatform,
+    mock_integration,
+    mock_platform,
+)
+
+from custom_components.mxz_coordinator.const import (  # noqa: E402
+    CONF_PRIMARY_CLIMATE,
+    CONF_PRIMARY_SENSOR,
+    CONF_SECONDARY_CLIMATE,
+    CONF_SECONDARY_SENSOR,
+    DOMAIN,
+)
 
 from .test_drive import MockHeadC  # noqa: E402
 from .test_single_setpoint import (  # noqa: E402
@@ -145,3 +163,66 @@ async def test_ui_bounds_narrowed_to_head_band(hass: HomeAssistant) -> None:
     tile = hass.states.get(_eid(hass, entry, "_primary_thermostat"))
     assert tile.attributes["min_temp"] == 59
     assert tile.attributes["max_temp"] == 78
+
+
+async def test_safe_band_round_trips_at_float_boundary(hass: HomeAssistant) -> None:
+    """A snapped edge must survive the EXACT conversion HA's validator performs.
+
+    A °F-native head with a fractional native max of 78.8 °F in a °C system:
+    convert(78.8 °F → °C) = 25.999999999999996, and the snap epsilon promotes it
+    to 26.0 °C — which converts BACK to 78.800…01 °F > 78.8 and would still be
+    rejected, a float-ulp past the true ceiling. The band must round-trip through
+    HA's own converter and land one step inward at 25.5 °C.
+    """
+
+    class FractionalFahrenheitHead(MockSingleSetpointHead):
+        _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
+        _attr_min_temp = 40.0
+        _attr_max_temp = 78.8
+
+    heads = [FractionalFahrenheitHead("a"), FractionalFahrenheitHead("b")]
+    hass.config.units = METRIC_SYSTEM
+
+    async def _climate(hass, config, async_add_entities, discovery_info=None):  # noqa: ANN001
+        async_add_entities(heads)
+
+    mock_integration(hass, MockModule("test"))
+    mock_platform(hass, "test.climate", MockPlatform(async_setup_platform=_climate))
+    assert await async_setup_component(hass, "climate", {"climate": {"platform": "test"}})
+    await hass.async_block_till_done()
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MXZ Coordinator",
+        data={
+            CONF_PRIMARY_CLIMATE: heads[0].entity_id,
+            CONF_SECONDARY_CLIMATE: heads[1].entity_id,
+            CONF_PRIMARY_SENSOR: "sensor.room_a_temp",
+            CONF_SECONDARY_SENSOR: "sensor.room_b_temp",
+        },
+    )
+    entry.add_to_hass(hass)
+    await _set_temp(hass, "sensor.room_a_temp", 21)
+    await _set_temp(hass, "sensor.room_b_temp", 21)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    coord = entry.runtime_data
+    band = coord._head_safe_band(heads[0].entity_id)
+    assert band is not None
+    lo_c, hi_c = band
+    # One step inward of the 1-ulp-overshooting 26.0 °C.
+    assert hi_c == 25.5
+    # Both edges survive the validator's conversion back into the native unit.
+    assert (
+        TemperatureConverter.convert(
+            hi_c, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+        )
+        <= heads[0].max_temp
+    )
+    assert (
+        TemperatureConverter.convert(
+            lo_c, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+        )
+        >= heads[0].min_temp
+    )

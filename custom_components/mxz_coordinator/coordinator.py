@@ -616,6 +616,16 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # +/-1e-9 absorbs float noise so an exact 26.0/0.5 doesn't fall a step.
         safe_low = math.ceil(lo / step - 1e-9) * step
         safe_high = math.floor(hi / step + 1e-9) * step
+        if native is not None and nunit != self.temp_unit:
+            # Verify each snapped edge round-trips through the SAME conversion
+            # HA's validator performs: the noise epsilon can promote an edge a
+            # float-ulp past the true native limit (a 78.8 °F native max in a
+            # °C system snaps to 26.0 °C, which converts back to 78.800…01).
+            # One extra step inward always clears a 1-ulp overshoot.
+            if TemperatureConverter.convert(safe_high, self.temp_unit, nunit) > nmax:
+                safe_high -= step
+            if TemperatureConverter.convert(safe_low, self.temp_unit, nunit) < nmin:
+                safe_low += step
         if safe_low > safe_high:
             return None  # degenerate band (narrower than a step) -> don't clamp
         return (safe_low, safe_high)
