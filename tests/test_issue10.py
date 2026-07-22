@@ -16,7 +16,7 @@ pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.const import UnitOfTemperature  # noqa: E402
-from homeassistant.core import HomeAssistant  # noqa: E402
+from homeassistant.core import HomeAssistant, State  # noqa: E402
 from homeassistant.setup import async_setup_component  # noqa: E402
 from homeassistant.util.unit_conversion import TemperatureConverter  # noqa: E402
 from homeassistant.util.unit_system import METRIC_SYSTEM  # noqa: E402
@@ -26,6 +26,7 @@ from pytest_homeassistant_custom_component.common import (  # noqa: E402
     MockPlatform,
     mock_integration,
     mock_platform,
+    mock_restore_cache_with_extra_data,
 )
 
 from custom_components.mxz_coordinator.const import (  # noqa: E402
@@ -33,10 +34,12 @@ from custom_components.mxz_coordinator.const import (  # noqa: E402
     CONF_PRIMARY_SENSOR,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
+    CONF_ZONES,
     DOMAIN,
 )
 
 from .test_drive import MockHeadC  # noqa: E402
+from .test_issue7 import TARGET_EID, _platform, _zones  # noqa: E402
 from .test_single_setpoint import (  # noqa: E402
     MockSingleSetpointHead,
     _eid,
@@ -255,3 +258,40 @@ async def test_number_bounds_track_the_head_live(hass: HomeAssistant) -> None:
     assert reg_entity.native_max_value == 75
     heads[0]._attr_max_temp = 26.0
     assert reg_entity.native_max_value == 78
+
+
+async def test_restored_target_clamped_into_head_band(hass: HomeAssistant) -> None:
+    """A restored out-of-band target is clamped into the head's band on restore.
+
+    A pre-narrowing install can hand back a 79 °F target that the 26.0 °C-native
+    head rejects. Set-time validation only guards NEW values — without a
+    restore-time clamp the 79 lands in zone.target and steers the plan until the
+    user touches the slider (the apply-time clamp masks it at the head, but the
+    coordinator would still be planning against a temperature the head can't do).
+    """
+    heads = [CelsiusSingleHead("a"), CelsiusSingleHead("b")]
+    await _platform(hass, heads)
+    entry = MockConfigEntry(
+        domain=DOMAIN, version=2, title="MXZ Coordinator",
+        data={CONF_ZONES: _zones(heads)},
+    )
+    entry.add_to_hass(hass)  # created FIRST, so the restore below is fresh (#7)
+    mock_restore_cache_with_extra_data(
+        hass,
+        [
+            (
+                State(TARGET_EID, "79.0"),  # pre-#10 wide-band restore
+                {
+                    "native_max_value": 88.0, "native_min_value": 59.0,
+                    "native_step": 1.0, "native_unit_of_measurement": "°F",
+                    "native_value": 79.0,
+                },
+            )
+        ],
+    )
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coord = entry.runtime_data
+    assert coord.zones[0].target == 78.0  # clamped to the head's real ceiling
+    state = hass.states.get(TARGET_EID)
+    assert state is not None and float(state.state) == 78.0

@@ -74,7 +74,16 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
             and (last := await self.async_get_last_number_data())
             and last.native_value is not None
         ):
-            self._attr_native_value = last.native_value
+            # Clamp the restored value into the current bounds: a pre-narrowing
+            # install can hand back a target the head would reject (a restored
+            # 79 °F on a 26.0 °C-native head, #10), and it would otherwise sit
+            # in zone.target steering the plan until the user touches the
+            # slider. Best-effort — if the head's integration hasn't loaded
+            # yet the bounds are still the wide clamp band, and the apply-time
+            # head-band clamp in _apply_head backstops whatever gets through.
+            self._attr_native_value = min(
+                max(last.native_value, self.native_min_value), self.native_max_value
+            )
         elif (seed := self._head_setpoint()) is not None:
             self._attr_native_value = seed
         self._zone.target = self._attr_native_value
