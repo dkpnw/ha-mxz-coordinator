@@ -114,6 +114,15 @@ it with the **Fan auto** switch or by setting the fan to `auto`. If you relied o
 the switch instead. (beta.17 removed the first only partially: a slider hold could still
 release itself on drift. beta.18 is the complete change.)
 
+**Fan holds now survive restarts by memory, not guesswork (v3.0.1).** The **Fan auto**
+switch remembers whether you were holding and reconciles that against what the head
+actually reports at startup — so a hold at any speed comes back as your hold, and the
+boost's leftover speed (even on a satisfied room, which earlier versions could mis-read
+as a hold) is recognized and cleared. Two narrow edges, documented: a fan speed set from
+a wall remote while HA itself was down, on a room that was not held, reads as leftover
+and is cleared; and the first restart after upgrading (before the switch has stored
+anything) behaves like v3.0.0.
+
 **A restart no longer parks a boost-driven head as "held" (beta.18, completed in
 beta.19; ported to the stable line as v2.19.0/v2.20.0).**
 The fan latch seeds from whatever speed each head reports at startup, and a head the boost

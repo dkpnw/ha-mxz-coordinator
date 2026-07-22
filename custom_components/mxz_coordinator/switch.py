@@ -117,19 +117,28 @@ class MXZZoneEnableSwitch(MXZBaseSwitch):
         self._zone.enable = self._attr_is_on
 
 
-class MXZZoneFanAutoSwitch(MXZEntity, CoordinatorEntity[MXZCoordinator], SwitchEntity):
+class MXZZoneFanAutoSwitch(
+    MXZEntity, CoordinatorEntity[MXZCoordinator], SwitchEntity, RestoreEntity
+):
     """Per-zone "Fan auto" toggle — a live mirror of the manual-fan latch.
 
     ON  = boost/auto drives this head's fan (zone not held).
     OFF = a manual speed is being held.
 
-    It is NOT restored: the latch machinery is the single source of truth and
-    seeds itself from observed head state on restart, so the switch just reflects
-    it (CoordinatorEntity re-renders every cycle). Turning it ON hands control
-    back to boost; turning it OFF pins the head's current speed. Apple's Home app
-    renders only a climate service's fixed characteristics — there's no room for a
-    custom control inside the climate tile — so this rides alongside it as a plain
-    toggle and doubles as a visible who's-driving-the-fan indicator.
+    The switch renders live from the latch (CoordinatorEntity re-renders every
+    cycle) — but it also RESTORES its last state across restarts, and hands
+    that one bool to the coordinator before the first compute. That bool is
+    what lets the seed tell boost residue from a deliberate hold: without it,
+    a head still carrying boost's last fan token at restart is
+    indistinguishable from a hold the user placed while the head idled (the
+    token value cannot separate them — four shipped bug shapes proved it).
+    Reconciliation always takes the TOKEN from the observed head, so a speed
+    changed via wall remote during the outage stays the user's. Turning the
+    switch ON hands control back to boost; OFF pins the head's current speed.
+    Apple's Home app renders only a climate service's fixed characteristics —
+    there's no room for a custom control inside the climate tile — so this
+    rides alongside it as a plain toggle and doubles as a visible
+    who's-driving-the-fan indicator.
     """
 
     _attr_icon = "mdi:fan-auto"
@@ -140,6 +149,27 @@ class MXZZoneFanAutoSwitch(MXZEntity, CoordinatorEntity[MXZCoordinator], SwitchE
         self._zone = zone
         self._attr_translation_key = "zone_fan_auto"
         self._attr_translation_placeholders = {"zone": zone.name}
+
+    async def async_added_to_hass(self) -> None:
+        """Hand the restored pre-restart hold truth to the coordinator.
+
+        Runs during platform setup, before the coordinator's first compute
+        (async_setup_entry awaits the platforms; STARTUP_RECOVER_DELAY adds
+        margin on HA start). A stale restore — older than the config entry —
+        belongs to a previous incarnation (#7) and is ignored, as is anything
+        but a clean on/off (a first restart after upgrading has no stored
+        state at all: one clean fallback to observed-state seeding).
+        """
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if (
+            last is not None
+            and not self._restored_state_is_stale(last)
+            and last.state in ("on", "off")
+        ):
+            self.coordinator.restore_fan_hold(
+                self._zone.climate_id, held=(last.state == "off")
+            )
 
     @property
     def is_on(self) -> bool:

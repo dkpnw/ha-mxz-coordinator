@@ -120,10 +120,11 @@ elapsed    draw       what's happening
 ### It doesn't break, and it tells the truth
 - **Self-healing.** A head knocked off plan — wall remote, curious guest — is put back
   after a 20–30 s debounce. Optional phone alert when that happens.
-- **Restart-proof.** Every target, enable, mode, and switch survives an HA restart. Fan
-  holds survive too, with one honest edge: if your held speed happens to equal what the
-  boost would choose right now, after a restart the coordinator can't tell it was a hold,
-  and the boost takes over.
+- **Restart-proof.** Every target, enable, mode, switch — and fan hold — survives an HA
+  restart: the **Fan auto** switch remembers whether you were holding, so a hold comes
+  back as your hold and the boost's own speed comes back as the boost's. One honest edge:
+  a fan speed set from a wall remote *while HA itself was down*, on a room that wasn't
+  held before, can be read as the boost's own residue and cleared.
 - **Sensor-dropout fail-safe.** A room whose sensor goes unavailable fails to *neutral* —
   no conditioning on garbage data — and recovers by itself.
 - **If HA itself goes down**, the heads keep their last commanded state and their own
@@ -197,9 +198,10 @@ Simple rules, no surprises:
   inside a climate tile, and its fan slider has no `auto` stop — so the handback rides
   beside the tile as a plain switch. It also doubles as the who-is-driving indicator:
   OFF means a hold is active.)
-- **Restarts are honest.** At startup the coordinator reads each head's fan speed. A
-  speed the boost would pick itself right now is recognized as its own, and it keeps
-  driving. Any other speed is your hold, and it is kept.
+- **Restarts are honest.** The **Fan auto** switch remembers across restarts whether you
+  were holding. Held stays held — at whatever speed the head actually shows, so a change
+  made from the wall remote during the outage is respected. Not held means any leftover
+  speed is the coordinator's own, and it resumes driving.
 - **The dial tells the truth.** If the firmware publishes its real blower speed
   (CN105/ESPHome heads expose a `stage` sensor — auto-detected at setup), the tile
   tracks real airflow while the fan is in auto, instead of freezing on the last

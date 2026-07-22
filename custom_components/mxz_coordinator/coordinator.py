@@ -297,6 +297,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fan_cmd: dict[str, str] = {}
         self._fan_prev: dict[str, str] = {}
         self._fan_latched: dict[str, bool] = {}
+        # Pre-restart latch truth restored by the Fan-auto switch
+        # (RestoreEntity), consumed once at the first seed observation per
+        # head. Only the held/not-held bool matters — reconciliation always
+        # reads the token from the OBSERVED head state. Absent or stale
+        # restore data -> plain seeding (below).
+        self._fan_restore: dict[str, bool] = {}
 
         # Engage latch (decision state, like _fan_idx): "" = coasting, cool|heat
         # = mid-run toward target (the head may still be parked in fan_only by a
@@ -723,7 +729,17 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         observed = state.attributes.get("fan_mode")
         if observed == FAN_AUTO:
+            # Observed auto releases everything — including a restored hold the
+            # user let go of during the outage. Consume any restore data.
+            self._fan_restore.pop(climate_id, None)
             self._fan_latched[climate_id] = False
+            if climate_id not in self._fan_cmd:
+                # Baseline stamp: without it a head idle-at-auto since startup
+                # keeps an empty command memory (the return-to-auto write is
+                # idempotency-skipped), so a LATER live pick would arrive as an
+                # ambiguous seed instead of a clean departure.
+                self._fan_prev[climate_id] = FAN_AUTO
+                self._fan_cmd[climate_id] = FAN_AUTO
             return False
 
         seeding = climate_id not in self._fan_cmd
@@ -739,6 +755,34 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # now is our own boost speed echoing back, not a manual pick -> adopt it
         # and keep driving. A DEPARTURE never adopts: every slider move is a hold.
         if seeding and observed is not None:
+            # Reconcile: restored pre-restart truth beats token guessing.
+            restored = self._fan_restore.pop(climate_id, None)
+            if restored is not None:
+                held = restored
+                if held:
+                    # Still held — at the observed token (same token: the hold
+                    # simply survived; different non-auto token: the user moved
+                    # the hold during the outage — theirs either way).
+                    self._fan_latched[climate_id] = True
+                    self._fan_prev[climate_id] = observed
+                    self._fan_cmd[climate_id] = observed
+                    return True
+                # Restored NOT held: boost was driving. An active seed still
+                # goes through the fixed-point check below; a satisfied/eco/off
+                # seed at a token boost could have written is residue of the
+                # interrupted satisfied->auto handback -> don't latch, let the
+                # return-to-auto write proceed (baseline stamped so a slow echo
+                # of the residue token isn't a fresh departure). A token boost
+                # could NEVER have written (outside the ladder / above the
+                # ceiling) appeared by hand during the outage -> hold.
+                if (act not in (MODE_COOL, MODE_HEAT) or self.eco_idle) and (
+                    observed in FAN_LADDER
+                    and FAN_LADDER.index(observed) <= self._fan_max_idx()
+                ):
+                    self._fan_latched[climate_id] = False
+                    self._fan_cmd[climate_id] = observed
+                    self._fan_prev[climate_id] = observed
+                    return False
             idx = self._seed_matches_boost(climate_id, observed, act, delta)
             if idx is not None:
                 self._adopt_fan_speed(climate_id, observed, idx)
@@ -775,6 +819,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, observed)
         self._fan_cmd[climate_id] = observed
         self._fan_idx[climate_id] = self._fan_max_idx() if idx is None else idx
+
+    def restore_fan_hold(self, climate_id: str, held: bool) -> None:
+        """Record the Fan-auto switch's restored pre-restart latch truth.
+
+        Called from the switch's async_added_to_hass (RestoreEntity) — which
+        runs during platform setup, BEFORE the coordinator's first compute —
+        and consumed once by the seed, which reconciles it against the
+        observed head state. Stale restores (older than the entry) are
+        filtered by the switch and never reach here. With fan boost disabled
+        the data is simply never consumed (the fan machinery is inert).
+        """
+        self._fan_restore[climate_id] = held
 
     # -- fan-auto switch (the discoverable manual-hold handback) --------------
     def fan_auto_is_on(self, climate_id: str) -> bool:
