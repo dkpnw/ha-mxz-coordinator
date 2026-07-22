@@ -41,9 +41,14 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
         # firmware operating band [clamp_min, clamp_max].
         self._attr_native_unit_of_measurement = coordinator.temp_unit
         self._attr_native_step = coordinator.target_step
-        self._attr_native_min_value = float(coordinator.clamp_min)
-        self._attr_native_max_value = float(coordinator.clamp_max)
-        self._attr_native_value = coordinator.target_default
+        # [clamp_min, clamp_max] narrowed to what THIS head will actually accept
+        # (its native operating band), so a rejectable target can't be entered
+        # from the UI / HomeKit / voice in the first place (#10). Re-derived in
+        # async_added_to_hass once the head state has settled.
+        lo, hi = coordinator.head_target_bounds(zone.climate_id)
+        self._attr_native_min_value = lo
+        self._attr_native_max_value = hi
+        self._attr_native_value = min(max(coordinator.target_default, lo), hi)
 
     async def async_added_to_hass(self) -> None:
         """Restore the last setpoint and seed the coordinator's zone.
@@ -54,6 +59,12 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
         a 70 °F default vs a 66 °F room planned heat in July).
         """
         await super().async_added_to_hass()
+        # The head state may only have settled now (platforms forward
+        # concurrently), so re-derive the head-narrowed bounds before restoring
+        # or seeding a value against them (#10).
+        lo, hi = self.coordinator.head_target_bounds(self._zone.climate_id)
+        self._attr_native_min_value = lo
+        self._attr_native_max_value = hi
         last_state = await self.async_get_last_state()
         if (
             not self._restored_state_is_stale(last_state)
