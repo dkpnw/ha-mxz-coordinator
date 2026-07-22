@@ -149,8 +149,8 @@ elapsed    draw       what's happening
   metric defaults on °C.
 - **Native HomeKit / Google / Assist tiles** — one clean dial per room, never a raw
   dual-setpoint firmware control.
-- **2–8 rooms per outdoor unit** *(v3 beta)*, plus multiple outdoor units, one entry
-  each — see [N zones](#n-zones-v3-beta).
+- **2–8 rooms per outdoor unit**, plus multiple outdoor units, one entry each — see
+  [N zones](#n-zones-v3).
 - **Automation-friendly.** A `recompute` service, an event hook, and every threshold
   tunable in the UI.
 
@@ -333,21 +333,21 @@ reading instead of holding a stale number.
 
 ---
 
-## N zones (v3, beta)
+## N zones (v3)
 
 v3 coordinates **2–8 heads on one outdoor unit** — selection order is standoff priority,
 every room gets its own target/enable/thermostat, and existing 2-zone installs migrate
 automatically with no entity changes. Multiple outdoor units: one entry each (independent
 mode, hysteresis, changeover, kill-switch — there is nothing to coordinate between
-compressors). The 2-zone path is validated on real hardware; >2-zone is
-simulation-validated and being beta-tested on real 6-zone and 2×3-zone systems —
-[issue #4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4). Out of scope:
-simultaneous heat+cool (single-compressor MXZ hardware can't; that is branch-box VRF).
+compressors). Validated on real 2-zone and 3-zone hardware through the beta program
+([issue #4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4)); 6-zone and 2×3-zone
+systems run it in the field. Out of scope: simultaneous heat+cool (single-compressor MXZ
+hardware can't; that is branch-box VRF).
 
 ## Caveats
 
 - Built on one real two-zone setup (MSZ heads, dual-setpoint firmware) and validated on a
-  second: a three-zone system with single-setpoint heads, running the v3 beta
+  second: a three-zone system with single-setpoint heads, through the full v3 beta program
   ([#4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4) — thanks @helicopterrun).
   Other models/firmware may still differ — especially the cool→heat reversal lag and the
   per-zone power blindness.
