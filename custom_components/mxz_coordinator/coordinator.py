@@ -1444,7 +1444,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         for zone in self.zones:
             cid = zone.climate_id
-            self._fan_restore[cid] = self._fan_latched.get(cid, False)
+            # An UNCONSUMED startup restore outranks the latch: a restart during
+            # the hold seeds _fan_restore before any fan write can consume it
+            # (fan writes are frozen while held), and the latch is empty at that
+            # point — overwriting the slot here would drop a pre-restart manual
+            # hold on release. Only fill the slot when it is empty.
+            if cid not in self._fan_restore:
+                self._fan_restore[cid] = self._fan_latched.get(cid, False)
             self._fan_cmd.pop(cid, None)
             self._fan_prev.pop(cid, None)
             self._fan_latched.pop(cid, None)

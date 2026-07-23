@@ -431,3 +431,36 @@ async def test_s11_standby_release_drops_boost_residue(hass: HomeAssistant):
     await _recompute(hass, entry)
     assert _fan_hold(hass, entry) is False  # residue not latched
     assert hass.states.get(head_a).attributes["fan_mode"] in FAN_LADDER  # boost still driving
+
+
+async def test_s12_restart_during_standby_keeps_restored_hold(hass: HomeAssistant):
+    """HA restarts DURING the hold: the switch's restore must survive release.
+
+    The restart seeds _fan_restore before any fan write can consume it (fan
+    writes are frozen while held), so the latch is empty when the hold releases.
+    The release reseed must not overwrite that unconsumed restore with the empty
+    latch — a pre-restart manual hold would silently dissolve into boost.
+
+    The hold sits at an IN-BAND token on purpose: that is the case only the
+    restored truth can decide (token-guessing would adopt it as boost residue),
+    so overwriting the restore is observable as the hold releasing itself.
+    """
+    entry, head_a, _b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 62)
+    await _set_temp(hass, SENSOR_A, 63.5)  # boost drives an in-band token
+    await _recompute(hass, entry)
+    token = hass.states.get(head_a).attributes["fan_mode"]
+    assert token in FAN_LADDER
+
+    await _set_hold(hass, "on")  # grid down -> park off (fan frozen at token)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "off"
+
+    coord = entry.runtime_data
+    # Restart mid-outage: the Fan-auto switch restores "held" (the user had
+    # latched this zone at that in-band speed before the restart).
+    _restart(coord, restore={head_a: True})
+    await _set_hold(hass, "off")  # grid restored -> reseed must keep the restore
+    await _recompute(hass, entry)
+    assert _fan_hold(hass, entry) is True  # pre-restart hold survived
+    assert hass.states.get(head_a).attributes["fan_mode"] == token

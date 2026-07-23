@@ -24,6 +24,7 @@ from custom_components.mxz_coordinator.config_flow import (  # noqa: E402
 from custom_components.mxz_coordinator.const import (  # noqa: E402
     CONF_CHANGEOVER_ENTITY,
     CONF_DEMAND_THRESHOLD,
+    CONF_INHIBIT_ENTITY,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
     CONF_SECONDARY_CLIMATE,
@@ -271,6 +272,37 @@ async def test_options_flow_zone_override_folds_into_zones(hass: HomeAssistant) 
     # Never stored flat (options or the data mirror).
     assert "primary_stage" not in entry.options
     assert "primary_stage" not in entry.data
+
+
+async def test_options_flow_clears_inhibit_entity(hass: HomeAssistant) -> None:
+    """A real submit with the standby-hold entity field cleared actually clears it.
+
+    The field is always rendered and a pre-filled value is submitted back, so an
+    absent key on a non-empty submit is a deliberate clear — the resilience merge
+    must not resurrect the old entity (in options OR the data mirror). The
+    coordinator then reads it as "no standby hold configured".
+    """
+    from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=_VALID,
+        options={CONF_INHIBIT_ENTITY: "binary_sensor.grid", CONF_DEMAND_THRESHOLD: 3.0},
+        title="MXZ Coordinator",
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_DEMAND_THRESHOLD: 5.0}  # inhibit field cleared
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_INHIBIT_ENTITY] is None
+    assert entry.data[CONF_INHIBIT_ENTITY] is None  # mirror cleared too
+    assert result["data"][CONF_DEMAND_THRESHOLD] == 5.0  # merge still merges
+
+    coordinator = MXZCoordinator(hass, entry)
+    assert coordinator.inhibit_entity is None
 
 
 async def test_options_flow_refuses_empty(hass: HomeAssistant) -> None:

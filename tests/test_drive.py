@@ -1950,6 +1950,27 @@ async def test_inhibit_stands_down_off_heal(hass: HomeAssistant) -> None:
     assert not any(kind == "off" for (_, kind) in coord._heal_timers)
 
 
+async def test_inhibit_active_at_startup_parks_immediately(hass: HomeAssistant) -> None:
+    """The watched entity is ALREADY active when the entry loads: the initial
+    evaluate must park the heads without waiting for a state-change event."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry, head_a, head_b = await _setup_inhibit(
+        hass, INHIBIT_ACTION_OFF, active_state="off"
+    )
+    # active_state="off" and the helper seeds the entity at "on" (not held), so
+    # this entry has only ever seen the initial evaluate... flip it before a
+    # fresh reload to model "already active at startup" with no event edge.
+    hass.states.async_set(INHIBIT, "off")
+    await hass.async_block_till_done()
+    await _set_temp(hass, SENSOR_A, 76)  # would want cool if not held
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    await _recompute(hass, entry)
+    assert _inhibited(hass, entry) is True
+    assert hass.states.get(head_a).state == "off"
+    assert hass.states.get(head_b).state == "off"
+
+
 async def test_inhibit_suppresses_vane_kick(hass: HomeAssistant) -> None:
     """A vane change during a hold does not wake a parked head (no kick)."""
     hass.config.units = US_CUSTOMARY_SYSTEM

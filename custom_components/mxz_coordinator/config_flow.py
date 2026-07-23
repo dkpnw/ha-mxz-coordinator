@@ -609,6 +609,16 @@ class MXZOptionsFlow(OptionsFlow):
             tunables = {
                 k: v for k, v in user_input.items() if k not in override_keys
             }
+            # The standby-hold entity is clearable the same way the zone
+            # overrides are: the field is always rendered, a pre-filled value
+            # the user leaves alone is submitted back, so an absent/empty key
+            # on a real (non-empty) submit means the user cleared it. Write an
+            # explicit None so the resilience merge below doesn't resurrect the
+            # old entity — and note the failure direction is safe: losing this
+            # key means "no standby hold", i.e. normal coordination. A
+            # degenerate empty submit (schema bypass) still wipes nothing.
+            if user_input and not user_input.get(CONF_INHIBIT_ENTITY):
+                tunables[CONF_INHIBIT_ENTITY] = None
             # Resilience: MERGE onto the existing options (a partial/empty submit
             # must never wipe the rest) and refuse to persist an empty set. Also
             # MIRROR the tuned config into entry.data — the coordinator reads
