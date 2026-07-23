@@ -165,3 +165,37 @@ a `stage` sensor just keep showing the commanded token.
 **New plan-sensor attributes.** The `zones` list above is the additive surface: each
 zone dict now carries `fan_hold` (true while that zone's fan is manually held) — the same
 value the Fan auto switch mirrors. Existing top-level attributes are unchanged.
+
+## External inhibit / low-power standby hold
+
+**Purely additive, opt-in — nothing to do on upgrade.** A new optional **standby hold**
+lets an external signal drop the whole coordinator into a low-power state and bring it
+back on its own. Under **Configure → options**, set:
+
+- **Standby hold entity** (`inhibit_entity`) — a `binary_sensor` / `switch` /
+  `input_boolean` to watch: a grid-status sensor, a load-shed switch, a "vacation" boolean.
+- **Hold when the standby entity reads this state** (`inhibit_active_state`) — default
+  `on`. Many grid sensors are inverted (they read `off` when the grid is down); set this
+  to `off` for those.
+- **What held heads do** (`inhibit_action`) — `eco` (default: protection-only band, low
+  draw *and* freeze-safe), `off` (zero draw, no protection), or `fan_only`.
+
+While the watched entity is in its active state, normal coordination is suspended and
+every coordinated head is parked at the chosen action; when it clears, normal coordination
+resumes on its own. The hold is a **separate gate from the kill-switch**
+(`switch.*_coordinator_enable`) — it never changes your enable setting, so there is no
+prior state to snapshot or restore. This replaces the common grid-down automation pattern
+of snapshotting the master switch, disabling it for the outage, and restoring it after.
+
+**Fail-safe direction, on purpose:** if the watched entity is missing or reads
+`unavailable` / `unknown`, the coordinator treats it as **not held** and keeps
+coordinating normally. A stuck or dropped sensor must never park the house indefinitely —
+even at the cost that a grid sensor which *itself* loses power during an outage will let
+coordination resume. Point `inhibit_entity` at a signal that stays reported through the
+event (e.g. a UPS-backed grid sensor).
+
+**Interactions.** During a hold the fan machinery is frozen (a manual fan hold is
+preserved and reconciled on release, the same way a restart reconciles it); vane kicks are
+suppressed (a kick would wake a parked head); and the off-while-enabled self-heal stands
+down (a head the hold parked is not "drift"). The plan sensor gains a top-level
+`inhibited` attribute (true while held).

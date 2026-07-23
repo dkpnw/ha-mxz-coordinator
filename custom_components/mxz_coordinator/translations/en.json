@@ -55,7 +55,10 @@
           "changeover_heat_above": "Heat-lockout when forecast daily high ≥ (°)",
           "changeover_cool_below": "Cool-lockout when forecast daily high ≤ (°)",
           "fan_boost_enable": "Fan boost: drive fan speed by how far the room is from target",
-          "fan_boost_max": "Fan boost maximum speed"
+          "fan_boost_max": "Fan boost maximum speed",
+          "inhibit_entity": "Standby hold entity (optional — a grid-down/load-shed signal that parks the heads)",
+          "inhibit_active_state": "Hold when the standby entity reads this state",
+          "inhibit_action": "What held heads do during a standby hold"
         },
         "data_description": {
           "demand_threshold": "How far off target a room must be before the whole system may SWITCH between heating and cooling. Bigger = fewer mode changes. Most homes are fine with the default.",
@@ -72,7 +75,10 @@
           "changeover_heat_above": "When the forecast daily high is at or above this, heating locks out (summer behavior).",
           "changeover_cool_below": "When the forecast daily high is at or below this, cooling locks out (winter behavior).",
           "fan_boost_enable": "Ramps the fan harder the further a room is from target, easing off as it arrives — like a car's auto climate. Recommended on.",
-          "fan_boost_max": "The fastest fan speed the boost may use. Lower it if full blast is too loud for a bedroom."
+          "fan_boost_max": "The fastest fan speed the boost may use. Lower it if full blast is too loud for a bedroom.",
+          "inhibit_entity": "Optional. Point this at a grid-status sensor, load-shed switch, or a 'vacation' boolean. While it's in the active state below, the coordinator parks its heads in a low-power hold and resumes normal coordination on its own when it clears — no automations needed. If this entity drops out (unavailable/unknown), the coordinator treats it as NOT held and keeps coordinating: a stuck sensor never parks the house.",
+          "inhibit_active_state": "The state that means 'hold now' (default 'on'). Many grid sensors are inverted — they read 'off' when the grid is down — so set this to 'off' for those.",
+          "inhibit_action": "How held heads sit during a hold. 'Eco' keeps freeze/overheat protection only (very low draw, recommended); 'Off' is zero draw with no protection; 'Fan only' just circulates air."
         }
       },
       "reconfigure": {
@@ -145,6 +151,9 @@
           "changeover_cool_below": "Cool-lockout when forecast daily high ≤ (°)",
           "fan_boost_enable": "Fan boost: drive fan speed by how far the room is from target",
           "fan_boost_max": "Fan boost maximum speed",
+          "inhibit_entity": "Standby hold entity (optional — a grid-down/load-shed signal that parks the heads)",
+          "inhibit_active_state": "Hold when the standby entity reads this state",
+          "inhibit_action": "What held heads do during a standby hold",
           "primary_vane_vertical": "Primary vertical vane (auto-detected; override if needed)",
           "primary_vane_horizontal": "Primary horizontal vane (auto-detected; override if needed)",
           "primary_stage": "Primary airflow sensor (auto-detected; override if needed)",
@@ -186,6 +195,9 @@
           "changeover_cool_below": "When the forecast daily high is at or below this, cooling locks out (winter behavior).",
           "fan_boost_enable": "Ramps the fan harder the further a room is from target, easing off as it arrives — like a car's auto climate. Recommended on.",
           "fan_boost_max": "The fastest fan speed the boost may use. Lower it if full blast is too loud for a bedroom.",
+          "inhibit_entity": "Optional. Point this at a grid-status sensor, load-shed switch, or a 'vacation' boolean. While it's in the active state below, the coordinator parks its heads in a low-power hold and resumes normal coordination on its own when it clears — no automations needed. If this entity drops out (unavailable/unknown), the coordinator treats it as NOT held and keeps coordinating: a stuck sensor never parks the house.",
+          "inhibit_active_state": "The state that means 'hold now' (default 'on'). Many grid sensors are inverted — they read 'off' when the grid is down — so set this to 'off' for those.",
+          "inhibit_action": "How held heads sit during a hold. 'Eco' keeps freeze/overheat protection only (very low draw, recommended); 'Off' is zero draw with no protection; 'Fan only' just circulates air.",
           "primary_vane_vertical": "Auto-detected at setup — only change if the detection picked the wrong select entity.",
           "primary_vane_horizontal": "Auto-detected at setup — only change if the detection picked the wrong select entity.",
           "primary_stage": "Airflow sensor — reports the actual fan speed some firmwares expose (e.g. 'stage' on CN105/ESPHome heads); lets the thermostat show real airflow while the fan is in auto. Auto-detected at setup — only change if the detection picked the wrong sensor, or clear it if your head doesn't report airflow.",
@@ -220,6 +232,13 @@
         "last": "Last called mode (default)",
         "cool": "Always rest in cool",
         "heat": "Always rest in heat"
+      }
+    },
+    "inhibit_action": {
+      "options": {
+        "off": "Off (zero draw, no protection)",
+        "fan_only": "Fan only (circulate)",
+        "eco": "Eco — protection only (recommended)"
       }
     }
   },

@@ -54,6 +54,9 @@ from .const import (
     CONF_FAN_BOOST_ENABLE,
     CONF_FAN_BOOST_MAX,
     CONF_HEAT_LOCKOUT_FLOOR,
+    CONF_INHIBIT_ACTION,
+    CONF_INHIBIT_ACTIVE_STATE,
+    CONF_INHIBIT_ENTITY,
     CONF_MODE_HYSTERESIS,
     CONF_NOTIFY_SERVICE,
     CONF_PRIMARY_CLIMATE,
@@ -70,6 +73,8 @@ from .const import (
     CONF_ZONES,
     DEFAULT_FAN_BOOST_ENABLE,
     DEFAULT_FAN_BOOST_MAX,
+    DEFAULT_INHIBIT_ACTION,
+    DEFAULT_INHIBIT_ACTIVE_STATE,
     DEFAULT_MODE_HYSTERESIS,
     DEFAULT_RESTING_MODE_BIAS,
     DEMAND_NEUTRAL,
@@ -78,6 +83,9 @@ from .const import (
     EVENT_RECOMPUTE,
     FAN_AUTO,
     FAN_LADDER,
+    INHIBIT_ACTION_ECO,
+    INHIBIT_ACTION_FAN_ONLY,
+    INHIBIT_ACTION_OFF,
     KEY_COOL_LOCKOUT,
     KEY_HEAT_LOCKOUT,
     MODE_COOL,
@@ -279,6 +287,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.changeover_cool_below: float = conf.get(
             CONF_CHANGEOVER_COOL_BELOW, _defaults[CONF_CHANGEOVER_COOL_BELOW]
         )
+        # Optional external inhibit / low-power standby (grid-down, load-shed):
+        # while the watched entity reads `inhibit_active_state` the coordinator
+        # parks its heads at `inhibit_action` and self-restores on release.
+        # Orthogonal to the enable kill-switch -> no prior state to snapshot.
+        self.inhibit_entity: str | None = conf.get(CONF_INHIBIT_ENTITY) or None
+        self.inhibit_active_state: str = conf.get(
+            CONF_INHIBIT_ACTIVE_STATE, DEFAULT_INHIBIT_ACTIVE_STATE
+        )
+        self.inhibit_action: str = conf.get(
+            CONF_INHIBIT_ACTION, DEFAULT_INHIBIT_ACTION
+        )
+        self.inhibited: bool = False
         # Delta-proportional fan boost (overrides the firmware's weak "auto").
         self.fan_boost_enable: bool = bool(
             conf.get(CONF_FAN_BOOST_ENABLE, DEFAULT_FAN_BOOST_ENABLE)
@@ -381,6 +401,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
             )
             self.hass.async_create_task(self._evaluate_changeover())
+        # Optional external inhibit / low-power standby: re-read on the watched
+        # entity's own updates and evaluate the initial state.
+        if self.inhibit_entity:
+            self._unsubs.append(
+                async_track_state_change_event(
+                    self.hass, [self.inhibit_entity], self._on_inhibit_change
+                )
+            )
+            self.hass.async_create_task(self._evaluate_inhibit())
         self._unsubs.append(async_at_start(self.hass, self._on_ha_start))
         await self.async_refresh()
 
@@ -407,7 +436,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         list for display.
         """
         common = {
-            "eco": self.eco_idle,
+            "eco": self._eco_active(),
             "eco_cool_max": self.eco_cool_max,
             "eco_heat_min": self.eco_heat_min,
             "heat_lockout": self.heat_lockout,
@@ -491,6 +520,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "sensors_ok": all_ok,
                 "seconds_since_mode_change": int(elapsed),
                 "mode_change_allowed": allowed,
+                "inhibited": self.inhibited,
             }
         )
         return plan
@@ -512,6 +542,20 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.coordinator_enable:
             return  # kill-switch: leave the heads untouched
 
+        # External standby hold (grid-down / load-shed): a fixed-mode park is a
+        # no-plan short-circuit; the `eco` hold falls through to the normal plan
+        # with eco forced on (see _eco_active) so protection extremes still run.
+        if self.inhibited and self.inhibit_action in (
+            INHIBIT_ACTION_OFF,
+            INHIBIT_ACTION_FAN_ONLY,
+        ):
+            await self._park_heads(
+                MODE_OFF
+                if self.inhibit_action == INHIBIT_ACTION_OFF
+                else MODE_FAN_ONLY
+            )
+            return
+
         state = plan["state"]
         valid_eng = (MODE_COOL, MODE_HEAT, ENGAGE_SATISFIED, MODE_OFF)
         if state not in (MODE_COOL, MODE_HEAT):
@@ -523,11 +567,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for zone, engage in zip(self.zones, engages):
             if zone.climate_id in self._vane_kicks:
                 continue  # mid vane-kick: leave the head alone until it finishes
-            act = head_action(engage=engage, mode=state, eco=self.eco_idle)
+            act = head_action(engage=engage, mode=state, eco=self._eco_active())
             low, high = setpoints(
                 mode=state,
                 target=float(zone.target),
-                eco=self.eco_idle,
+                eco=self._eco_active(),
                 clamp_min=self.clamp_min,
                 clamp_max=self.clamp_max,
                 band=self.setpoint_band,
@@ -539,11 +583,16 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # zone (logged), never the whole coordinator (#6).
             try:
                 await self._apply_head(zone.climate_id, act, low, high)
-                await self._apply_fan(
-                    zone.climate_id,
-                    act,
-                    abs(plan[f"{zone.slug}_temp"] - float(zone.target)),
-                )
+                # No fan writes while held (the `eco` hold reaches here): the
+                # fan-boost/latch machinery stays frozen so standby residue
+                # can't be read as a manual hold on release — it is reseeded
+                # via _reseed_fan_after_standby on the release edge.
+                if not self.inhibited:
+                    await self._apply_fan(
+                        zone.climate_id,
+                        act,
+                        abs(plan[f"{zone.slug}_temp"] - float(zone.target)),
+                    )
             except HomeAssistantError as err:
                 _LOGGER.error(
                     "MXZ: applying %s to %s failed (zone degraded, others continue): %s",
@@ -557,6 +606,34 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.current_shared_mode = state
             self._last_mode_change_ts = dt_util.utcnow().timestamp()
             self.async_update_listeners()  # let the shared-mode select re-render
+
+    def _eco_active(self) -> bool:
+        """Whether the eco protection band is in effect: the user's eco-idle
+        switch, OR an external inhibit hold configured to hold at the eco band."""
+        return self.eco_idle or (
+            self.inhibited and self.inhibit_action == INHIBIT_ACTION_ECO
+        )
+
+    async def _park_heads(self, mode: str) -> None:
+        """Standby: drive every coordinated head to a fixed mode (off/fan_only).
+
+        Mode-only — never the fan-boost/latch machinery — so a manual fan hold
+        survives the hold (reconciled on release, see _reseed_fan_after_standby).
+        Same per-zone isolation as _apply, and skips a head mid vane-kick.
+        """
+        for zone in self.zones:
+            if zone.climate_id in self._vane_kicks:
+                continue
+            try:
+                await self._apply_head(zone.climate_id, mode, 0.0, 0.0)
+            except HomeAssistantError as err:
+                _LOGGER.error(
+                    "MXZ: standby-parking %s to %s failed "
+                    "(zone degraded, others continue): %s",
+                    zone.climate_id,
+                    mode,
+                    err,
+                )
 
     # -- per-head operating band (native-unit safe clamp, #10) --------------
     def _head_native_limits(
@@ -1071,7 +1148,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             MODE_OFF,
             *UNAVAILABLE_STATES,
         )
-        if running or not self.coordinator_enable:
+        # Suppress the kick while held: a kick runs an off head in fan_only,
+        # which would wake a head the standby hold deliberately parked. A
+        # best-effort select write only (a powered-off head ignores it).
+        if running or not self.coordinator_enable or self.inhibited:
             await self._select_option(vane_id, option)
             return
         self._vane_pending[climate_id] = (vane_id, option)
@@ -1151,8 +1231,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._arm_or_cancel(
             entity_id, "band", mode in BANNED_MODES, BAND_DRIFT_DELAY
         )
+        # Never heal a head the standby hold parked off (nor a wall override
+        # mid-hold — a human turning a parked head on during an outage wins).
         off_drift = (
-            mode == MODE_OFF and self._enable_for(entity_id) and not self.eco_idle
+            mode == MODE_OFF
+            and self._enable_for(entity_id)
+            and not self.eco_idle
+            and not self.inhibited
         )
         self._arm_or_cancel(entity_id, "off", off_drift, OFF_WHILE_ENABLED_DELAY)
 
@@ -1194,7 +1279,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 and self._enable_for(entity_id)
                 and not self.eco_idle
             )
-        if still and self.coordinator_enable:
+        if still and self.coordinator_enable and not self.inhibited:
             self.hass.async_create_task(self._heal_and_notify())
 
     async def _heal_and_notify(self) -> None:
@@ -1313,6 +1398,63 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             {"entity_id": eid},
             blocking=True,
         )
+
+    # -- external inhibit / low-power standby --------------------------------
+    def _read_inhibit(self) -> bool:
+        """True iff the watched entity is in its active state.
+
+        A missing entity, or one reading unavailable/unknown, is NOT held: fail
+        toward normal coordination — a stuck or dropped sensor must never park
+        the house. A genuine "off" from an inverted grid sensor is a real state,
+        not a dropout, so it still holds when inhibit_active_state == "off".
+        """
+        if not self.inhibit_entity:
+            return False
+        st = self.hass.states.get(self.inhibit_entity)
+        if st is None or st.state in UNAVAILABLE_STATES:
+            return False
+        return st.state == self.inhibit_active_state
+
+    @callback
+    def _on_inhibit_change(self, _event: Event) -> None:
+        """The watched inhibit entity changed -> re-evaluate the hold."""
+        self.hass.async_create_task(self._evaluate_inhibit())
+
+    async def _evaluate_inhibit(self) -> None:
+        """Re-read the inhibit entity; act only on a change of hold state.
+
+        On the RELEASE edge, reseed the fan latch (the fan the hold left behind
+        must not read as a manual departure) before re-applying the live plan.
+        """
+        new = self._read_inhibit()
+        if new == self.inhibited:
+            return
+        released = self.inhibited and not new
+        self.inhibited = new
+        if released:
+            self._reseed_fan_after_standby()
+        await self.async_request_refresh()
+
+    def _reseed_fan_after_standby(self) -> None:
+        """Release edge: carry each head's pre-hold latch truth into the restore
+        slot and clear the per-head command memory, so the next fan observation
+        reconciles restored-truth-vs-observed (the same path a restart takes)
+        instead of reading the fan the hold left behind as a fresh user
+        departure and latching a phantom hold.
+        """
+        for zone in self.zones:
+            cid = zone.climate_id
+            # An UNCONSUMED startup restore outranks the latch: a restart during
+            # the hold seeds _fan_restore before any fan write can consume it
+            # (fan writes are frozen while held), and the latch is empty at that
+            # point — overwriting the slot here would drop a pre-restart manual
+            # hold on release. Only fill the slot when it is empty.
+            if cid not in self._fan_restore:
+                self._fan_restore[cid] = self._fan_latched.get(cid, False)
+            self._fan_cmd.pop(cid, None)
+            self._fan_prev.pop(cid, None)
+            self._fan_latched.pop(cid, None)
+            self._fan_idx.pop(cid, None)
 
 
 def _as_float(value: Any) -> float | None:

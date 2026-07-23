@@ -101,6 +101,14 @@ elapsed    draw       what's happening
 - **Per-room enable switches.** Turn one room off without touching the others.
 - **Away/eco mode.** One switch parks every head off unless a room crosses wide
   protection extremes (default 78/50 °F).
+- **Grid-down / load-shed standby.** Point an optional watched entity — a grid-status
+  sensor, a load-shed switch, a "vacation" boolean — at the coordinator, and while it's
+  active the whole system drops into a **low-power hold** (protection-only `eco` by
+  default, or `off` / `fan_only`) and resumes normal coordination on its own when it
+  clears. It's a *separate gate* from the kill-switch, so there's no state to snapshot and
+  nothing to restore. If that watched entity ever drops out (unavailable/unknown) the
+  coordinator treats it as **not** held and keeps coordinating — a stuck sensor never
+  parks your house.
 - **One-switch kill.** Flip the coordinator off and your heads are instantly yours again,
   frozen where they were.
 - **Vane control on the tile**, plus a **vane kick**: change a louvre while the head is
@@ -138,8 +146,8 @@ elapsed    draw       what's happening
 - **Durable config.** Options saves merge instead of replace, and settings are mirrored,
   so a corrupted save self-recovers instead of resetting to defaults.
 - **A transparent brain.** The plan sensor exposes every decision input live — per-room
-  demand, who is coasting, who holds the fan, the standoff state. "Why did it do that?"
-  always has an answer.
+  demand, who is coasting, who holds the fan, the standoff state, whether a standby hold
+  is active. "Why did it do that?" always has an answer.
 - **The tile shows real airflow** while the fan is in auto, if your firmware publishes
   blower speed — see [Who drives the fan](#who-drives-the-fan).
 
