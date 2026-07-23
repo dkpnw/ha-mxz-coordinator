@@ -21,17 +21,27 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 from homeassistant.core import HomeAssistant  # noqa: E402
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM  # noqa: E402
 
+from custom_components.mxz_coordinator.const import (  # noqa: E402
+    FAN_LADDER,
+    INHIBIT_ACTION_OFF,
+)
 from tests.test_drive import (  # noqa: E402
     SENSOR_A,
     SENSOR_B,
     _eid,
     _recompute,
     _set_fan_auto,
+    _set_hold,
     _set_temp,
     _setup_fan_boost,
+    _setup_inhibit,
     _setup_mock_heads,
     _user_set_fan,
 )
+
+
+def _fan_hold(hass, entry) -> bool:
+    return hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][0]["fan_hold"]
 
 
 def _restart(coord, restore: dict | None = None) -> None:
@@ -375,3 +385,46 @@ async def test_switch_restore_path_end_to_end(hass: HomeAssistant) -> None:
     await _recompute(hass, entry)
     _expect(hass, entry, head_a, hold=True, fan="quiet")  # hold survived
 
+
+
+# ---------------------------------------------------------------------------
+# S10/S11: a standby (inhibit) hold releases like a restart for the fan latch.
+# The hold parks the heads with the fan machinery FROZEN (no fan writes); on
+# release _reseed_fan_after_standby carries the pre-hold latch truth into the
+# restore slot and clears the command memory, so the fan the hold left behind
+# reconciles the same way a restart's does — a real hold is kept, boost residue
+# is not mistaken for one.
+# ---------------------------------------------------------------------------
+async def test_s10_standby_release_preserves_real_hold(hass: HomeAssistant):
+    """A manual fan hold placed before the hold survives it (S3, via standby)."""
+    entry, head_a, _b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
+    await _set_temp(hass, SENSOR_A, 63.5)  # delta 6.5 -> actively cooling
+    await _recompute(hass, entry)
+    await _user_set_fan(hass, head_a, "high")  # deliberate out-of-band hold
+    await _recompute(hass, entry)
+    assert _fan_hold(hass, entry) is True
+
+    await _set_hold(hass, "on")  # grid down -> park off (fan frozen at "high")
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "off"
+
+    await _set_hold(hass, "off")  # grid restored -> reseed + reconcile
+    await _recompute(hass, entry)
+    assert _fan_hold(hass, entry) is True  # the real hold is preserved
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+
+
+async def test_s11_standby_release_drops_boost_residue(hass: HomeAssistant):
+    """Boost residue left through a hold is NOT read as a manual hold (S2)."""
+    entry, head_a, _b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
+    await _set_temp(hass, SENSOR_A, 63.5)  # boost drives the fan, no manual pick
+    await _recompute(hass, entry)
+    assert _fan_hold(hass, entry) is False
+    assert hass.states.get(head_a).attributes["fan_mode"] in FAN_LADDER
+
+    await _set_hold(hass, "on")  # park off (fan frozen at the boost speed)
+    await _recompute(hass, entry)
+    await _set_hold(hass, "off")  # reseed + reconcile
+    await _recompute(hass, entry)
+    assert _fan_hold(hass, entry) is False  # residue not latched
+    assert hass.states.get(head_a).attributes["fan_mode"] in FAN_LADDER  # boost still driving

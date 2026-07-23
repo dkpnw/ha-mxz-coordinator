@@ -142,6 +142,28 @@ RESTING_BIAS_HEAT = "heat"
 RESTING_BIAS_OPTIONS = (RESTING_BIAS_LAST, RESTING_BIAS_COOL, RESTING_BIAS_HEAT)
 DEFAULT_RESTING_MODE_BIAS = RESTING_BIAS_LAST
 
+# --- External inhibit / low-power standby (grid-down, load-shed, DR) ----------
+# An optional watched entity (a grid-status binary_sensor, a load-shed switch, a
+# "vacation" boolean, ...): while it reads ``inhibit_active_state`` the
+# coordinator parks its heads in a low-power hold and self-restores on release.
+# Orthogonal to the enable kill-switch, so there is NO prior state to snapshot.
+# A dropout of the watched entity (unavailable/unknown/missing) reads as NOT
+# held — fail toward normal coordination; a stuck sensor must never park the
+# house.
+CONF_INHIBIT_ENTITY = "inhibit_entity"
+CONF_INHIBIT_ACTIVE_STATE = "inhibit_active_state"
+CONF_INHIBIT_ACTION = "inhibit_action"
+INHIBIT_ACTION_OFF = "off"  # zero draw, no protection
+INHIBIT_ACTION_FAN_ONLY = "fan_only"  # circulate only
+INHIBIT_ACTION_ECO = "eco"  # protection-only band: low draw AND freeze-safe
+INHIBIT_ACTION_OPTIONS = (
+    INHIBIT_ACTION_OFF,
+    INHIBIT_ACTION_FAN_ONLY,
+    INHIBIT_ACTION_ECO,
+)
+DEFAULT_INHIBIT_ACTION = INHIBIT_ACTION_ECO  # freeze-safe beats lowest-draw
+DEFAULT_INHIBIT_ACTIVE_STATE = "on"  # grid sensors are often inverted -> "off"
+
 # Target setpoint number bounds (input_number hvac_*_target in the YAML)
 TARGET_MIN = 55
 TARGET_MAX = 85

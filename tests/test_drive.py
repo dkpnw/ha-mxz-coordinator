@@ -39,12 +39,19 @@ from custom_components.mxz_coordinator.const import (  # noqa: E402
     CONF_ENGAGE_DEADBAND,
     CONF_FAN_BOOST_ENABLE,
     CONF_FAN_BOOST_MAX,
+    CONF_INHIBIT_ACTION,
+    CONF_INHIBIT_ACTIVE_STATE,
+    CONF_INHIBIT_ENTITY,
+    CONF_MODE_HYSTERESIS,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
     DOMAIN,
     FAN_LADDER,
+    INHIBIT_ACTION_ECO,
+    INHIBIT_ACTION_FAN_ONLY,
+    INHIBIT_ACTION_OFF,
 )
 
 SENSOR_A = "sensor.room_a_temp"
@@ -1791,3 +1798,172 @@ async def test_fan_change_triggers_prompt_refresh(hass: HomeAssistant) -> None:
     )
     await hass.async_block_till_done()
     assert hass.states.get(sw).state == "on"
+
+
+# ---------------------------------------------------------------------------
+# External inhibit / low-power standby hold (#12)
+# ---------------------------------------------------------------------------
+INHIBIT = "binary_sensor.grid_hold"
+
+
+async def _setup_inhibit(
+    hass: HomeAssistant, action: str, active_state: str = "on"
+) -> tuple[MockConfigEntry, str, str]:
+    """Heads + an inhibit-configured entry, coordinator and both rooms enabled.
+
+    Mode hysteresis is pinned to 0 so a cool<->heat flip inside a test isn't
+    gated. The watched entity starts in its NOT-held state.
+    """
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    hass.states.async_set(INHIBIT, "off" if active_state == "on" else "on")
+    await hass.async_block_till_done()
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MXZ Coordinator",
+        data={
+            CONF_PRIMARY_CLIMATE: head_a,
+            CONF_SECONDARY_CLIMATE: head_b,
+            CONF_PRIMARY_SENSOR: SENSOR_A,
+            CONF_SECONDARY_SENSOR: SENSOR_B,
+            CONF_INHIBIT_ENTITY: INHIBIT,
+            CONF_INHIBIT_ACTION: action,
+            CONF_INHIBIT_ACTIVE_STATE: active_state,
+            CONF_MODE_HYSTERESIS: 0,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    for suffix in ("_primary_enable", "_secondary_enable", "_coordinator_enable"):
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": _eid(hass, entry, suffix)}, blocking=True
+        )
+    await hass.async_block_till_done()
+    return entry, head_a, head_b
+
+
+def _inhibited(hass: HomeAssistant, entry: MockConfigEntry) -> bool:
+    return hass.states.get(_eid(hass, entry, "_plan")).attributes["inhibited"]
+
+
+async def _set_hold(hass: HomeAssistant, state: str) -> None:
+    hass.states.async_set(INHIBIT, state)
+    await hass.async_block_till_done()
+
+
+async def test_inhibit_off_parks_and_resumes(hass: HomeAssistant) -> None:
+    """An `off` hold parks every coordinated head off, and normal coordination
+    resumes on release. The plan surfaces the held state both ways."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry, head_a, head_b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
+
+    await _set_temp(hass, SENSOR_A, 76)  # primary hot -> wants cool
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "cool"
+    assert _inhibited(hass, entry) is False
+
+    await _set_hold(hass, "on")  # grid down
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "off"
+    assert hass.states.get(head_b).state == "off"
+    assert _inhibited(hass, entry) is True
+
+    await _set_hold(hass, "off")  # grid restored
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "cool"
+    assert _inhibited(hass, entry) is False
+
+
+async def test_inhibit_fan_only_parks_fan_only(hass: HomeAssistant) -> None:
+    """A `fan_only` hold parks every coordinated head in fan_only."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry, head_a, head_b = await _setup_inhibit(hass, INHIBIT_ACTION_FAN_ONLY)
+    await _set_temp(hass, SENSOR_A, 76)
+    await _set_hold(hass, "on")
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "fan_only"
+    assert hass.states.get(head_b).state == "fan_only"
+
+
+async def test_inhibit_eco_holds_protection_band(hass: HomeAssistant) -> None:
+    """The default `eco` hold: a room inside the 50-78 protection band parks off,
+    but a room past the extreme still runs — freeze/overheat safe."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry, head_a, head_b = await _setup_inhibit(hass, INHIBIT_ACTION_ECO)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    await _set_hold(hass, "on")
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "off"  # comfortable -> off
+    assert hass.states.get(head_b).state == "off"
+
+    await _set_temp(hass, SENSOR_A, 45)  # below the 50 eco heat extreme
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "heat"  # still protects (freeze-safe)
+
+
+async def test_inhibit_unavailable_fails_safe(hass: HomeAssistant) -> None:
+    """A watched entity that drops out reads as NOT held: fail toward normal
+    coordination. A stuck/dropped sensor must never park the house."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry, head_a, head_b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
+    await _set_temp(hass, SENSOR_A, 76)
+    await _set_hold(hass, "on")
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "off"  # held
+
+    await _set_hold(hass, "unavailable")  # sensor dropout
+    await _recompute(hass, entry)
+    assert _inhibited(hass, entry) is False
+    assert hass.states.get(head_a).state == "cool"  # resumed, not parked
+
+
+async def test_inhibit_inverted_active_state(hass: HomeAssistant) -> None:
+    """A grid sensor that reads 'off' when down: inhibit_active_state='off'
+    holds on 'off' and runs on 'on'."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry, head_a, head_b = await _setup_inhibit(
+        hass, INHIBIT_ACTION_OFF, active_state="off"
+    )
+    await _set_temp(hass, SENSOR_A, 76)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "cool"  # "on" = grid up = not held
+
+    await _set_hold(hass, "off")  # grid down (inverted)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "off"
+    assert _inhibited(hass, entry) is True
+
+
+async def test_inhibit_stands_down_off_heal(hass: HomeAssistant) -> None:
+    """Heads parked off by the hold must not arm the off-while-enabled self-heal:
+    a head the hold parked is not drift."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry, head_a, head_b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
+    await _set_hold(hass, "on")
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "off"
+    coord = entry.runtime_data
+    assert not any(kind == "off" for (_, kind) in coord._heal_timers)
+
+
+async def test_inhibit_suppresses_vane_kick(hass: HomeAssistant) -> None:
+    """A vane change during a hold does not wake a parked head (no kick)."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry, head_a, head_b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
+
+    async def _noop(call: Any) -> None:  # noqa: ANN001
+        return None
+
+    hass.services.async_register("select", "select_option", _noop)
+    await _set_hold(hass, "on")
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "off"
+
+    coord = entry.runtime_data
+    await coord.async_apply_vane(head_a, "select.dummy_vane", "SWING")
+    await hass.async_block_till_done()
+    assert head_a not in coord._vane_kicks  # no kick scheduled
+    assert hass.states.get(head_a).state == "off"  # not woken to fan_only

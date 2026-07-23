@@ -29,6 +29,9 @@ from .const import (
     CONF_FAN_BOOST_ENABLE,
     CONF_FAN_BOOST_MAX,
     CONF_HEAT_LOCKOUT_FLOOR,
+    CONF_INHIBIT_ACTION,
+    CONF_INHIBIT_ACTIVE_STATE,
+    CONF_INHIBIT_ENTITY,
     CONF_MODE_HYSTERESIS,
     CONF_NOTIFY_SERVICE,
     CONF_RESTING_MODE_BIAS,
@@ -45,10 +48,13 @@ from .const import (
     DEFAULT_FAN_BOOST_ENABLE,
     DEFAULT_FAN_BOOST_MAX,
     DEFAULT_HEAT_LOCKOUT_FLOOR,
+    DEFAULT_INHIBIT_ACTION,
+    DEFAULT_INHIBIT_ACTIVE_STATE,
     DEFAULT_MODE_HYSTERESIS,
     DEFAULT_RESTING_MODE_BIAS,
     DOMAIN,
     FAN_LADDER,
+    INHIBIT_ACTION_OPTIONS,
     MAX_ZONES,
     MIN_ZONES,
     RESTING_BIAS_OPTIONS,
@@ -315,6 +321,30 @@ def _tunables_schema(
                     CONF_CHANGEOVER_COOL_BELOW, DEFAULT_CHANGEOVER_COOL_BELOW
                 ),
             ): _num(),
+            vol.Optional(
+                CONF_INHIBIT_ENTITY,
+                description={"suggested_value": eff.get(CONF_INHIBIT_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=["binary_sensor", "switch", "input_boolean"]
+                )
+            ),
+            vol.Optional(
+                CONF_INHIBIT_ACTIVE_STATE,
+                default=eff.get(
+                    CONF_INHIBIT_ACTIVE_STATE, DEFAULT_INHIBIT_ACTIVE_STATE
+                ),
+            ): selector.TextSelector(),
+            vol.Optional(
+                CONF_INHIBIT_ACTION,
+                default=eff.get(CONF_INHIBIT_ACTION, DEFAULT_INHIBIT_ACTION),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(INHIBIT_ACTION_OPTIONS),
+                    translation_key="inhibit_action",
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             vol.Optional(
                 CONF_FAN_BOOST_ENABLE,
                 default=eff.get(
