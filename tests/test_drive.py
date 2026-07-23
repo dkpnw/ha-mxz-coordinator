@@ -1814,6 +1814,7 @@ async def _setup_inhibit(
     Mode hysteresis is pinned to 0 so a cool<->heat flip inside a test isn't
     gated. The watched entity starts in its NOT-held state.
     """
+    hass.config.units = US_CUSTOMARY_SYSTEM  # keep setpoints/targets in °F
     head_a, head_b = await _setup_mock_heads(hass)
     await _set_temp(hass, SENSOR_A, 70)
     await _set_temp(hass, SENSOR_B, 70)
