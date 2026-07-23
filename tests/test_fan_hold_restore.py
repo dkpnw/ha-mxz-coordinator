@@ -32,6 +32,7 @@ from tests.test_drive import (  # noqa: E402
     _recompute,
     _set_fan_auto,
     _set_hold,
+    _set_target,
     _set_temp,
     _setup_fan_boost,
     _setup_inhibit,
@@ -398,7 +399,8 @@ async def test_switch_restore_path_end_to_end(hass: HomeAssistant) -> None:
 async def test_s10_standby_release_preserves_real_hold(hass: HomeAssistant):
     """A manual fan hold placed before the hold survives it (S3, via standby)."""
     entry, head_a, _b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
-    await _set_temp(hass, SENSOR_A, 63.5)  # delta 6.5 -> actively cooling
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 62)
+    await _set_temp(hass, SENSOR_A, 63.5)  # delta 1.5 -> actively cooling
     await _recompute(hass, entry)
     await _user_set_fan(hass, head_a, "high")  # deliberate out-of-band hold
     await _recompute(hass, entry)
@@ -417,7 +419,8 @@ async def test_s10_standby_release_preserves_real_hold(hass: HomeAssistant):
 async def test_s11_standby_release_drops_boost_residue(hass: HomeAssistant):
     """Boost residue left through a hold is NOT read as a manual hold (S2)."""
     entry, head_a, _b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
-    await _set_temp(hass, SENSOR_A, 63.5)  # boost drives the fan, no manual pick
+    await _set_target(hass, _eid(hass, entry, "_primary_target"), 62)
+    await _set_temp(hass, SENSOR_A, 63.5)  # delta 1.5 -> boost drives, no manual pick
     await _recompute(hass, entry)
     assert _fan_hold(hass, entry) is False
     assert hass.states.get(head_a).attributes["fan_mode"] in FAN_LADDER
