@@ -101,14 +101,13 @@ elapsed    draw       what's happening
 - **Per-room enable switches.** Turn one room off without touching the others.
 - **Away/eco mode.** One switch parks every head off unless a room crosses wide
   protection extremes (default 78/50 °F).
-- **Grid-down / load-shed standby.** Point an optional watched entity — a grid-status
-  sensor, a load-shed switch, a "vacation" boolean — at the coordinator, and while it's
-  active the whole system drops into a **low-power hold** (protection-only `eco` by
-  default, or `off` / `fan_only`) and resumes normal coordination on its own when it
-  clears. It's a *separate gate* from the kill-switch, so there's no state to snapshot and
-  nothing to restore. If that watched entity ever drops out (unavailable/unknown) the
-  coordinator treats it as **not** held and keeps coordinating — a stuck sensor never
-  parks your house.
+- **Grid-down / load-shed standby.** Watch any entity — a grid-status sensor, a
+  load-shed switch, a vacation toggle. While it is active, every head drops into a
+  low-power hold: the protection-only `eco` band by default (freeze-safe), or `off` /
+  `fan_only`. When it clears, coordination resumes on its own. The hold is a separate
+  gate from the kill-switch, so there is nothing to snapshot and nothing to restore.
+  And if the watched entity drops out, the coordinator keeps coordinating — a stuck
+  sensor never parks your house. (Designed and built by @calvindomenico, #12.)
 - **One-switch kill.** Flip the coordinator off and your heads are instantly yours again,
   frozen where they were.
 - **Vane control on the tile**, plus a **vane kick**: change a louvre while the head is
@@ -384,6 +383,9 @@ existing proxy/automation nudges keep working.
   relentless, root-caused QA through the v3 beta (#5, #6, #7).
 - [@andrewblane](https://github.com/andrewblane) — caught on a 6-zone system that the
   first two zones ignored their own names, and sent the fix (#8).
+- [@calvindomenico](https://github.com/calvindomenico) — two real bugs found on a ducted
+  air handler with the fixes to match (#9, #10), then the standby hold: proposed,
+  designed, and built (#12, #13).
 - [BarrettPalmer/Smart-HVAC-Automation-for-Home-Assistant-Mini-Splits](https://github.com/BarrettPalmer/Smart-HVAC-Automation-for-Home-Assistant-Mini-Splits)
 - [bjrnptrsn/climate_group_helper](https://github.com/bjrnptrsn/climate_group_helper)
 - [bartmachielsen/smart_climate](https://github.com/bartmachielsen/smart_climate)
