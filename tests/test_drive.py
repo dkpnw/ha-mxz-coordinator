@@ -19,8 +19,8 @@ from homeassistant.components.climate import (  # noqa: E402
     ClimateEntityFeature,
     HVACMode,
 )
-from homeassistant.const import UnitOfTemperature  # noqa: E402
-from homeassistant.core import HomeAssistant  # noqa: E402
+from homeassistant.const import EVENT_CALL_SERVICE, UnitOfTemperature  # noqa: E402
+from homeassistant.core import HomeAssistant, callback  # noqa: E402
 from homeassistant.helpers import entity_registry as er  # noqa: E402
 from homeassistant.setup import async_setup_component  # noqa: E402
 from homeassistant.util.unit_system import (  # noqa: E402
@@ -1905,6 +1905,21 @@ async def test_inhibit_eco_holds_protection_band(hass: HomeAssistant) -> None:
     assert hass.states.get(head_a).state == "heat"  # still protects (freeze-safe)
 
 
+async def test_inhibit_eco_hold_freezes_fan(hass: HomeAssistant) -> None:
+    """Fan writes are skipped while held, even on the eco path's protection run:
+    the boost/latch machinery stays frozen so standby residue can't accumulate
+    (it reconciles on release via the reseed)."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    entry, head_a, head_b = await _setup_inhibit(hass, INHIBIT_ACTION_ECO)
+    await _set_hold(hass, "on")
+    await _set_temp(hass, SENSOR_A, 45)  # far past the 50 eco heat extreme
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "heat"  # protection still runs
+    # ... but the huge delta must NOT ramp the fan: it stays where the hold
+    # found it (firmware auto), untouched until release.
+    assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
+
+
 async def test_inhibit_unavailable_fails_safe(hass: HomeAssistant) -> None:
     """A watched entity that drops out reads as NOT held: fail toward normal
     coordination. A stuck/dropped sensor must never park the house."""
@@ -1940,12 +1955,17 @@ async def test_inhibit_inverted_active_state(hass: HomeAssistant) -> None:
 
 async def test_inhibit_stands_down_off_heal(hass: HomeAssistant) -> None:
     """Heads parked off by the hold must not arm the off-while-enabled self-heal:
-    a head the hold parked is not drift."""
+    a head the hold parked is not drift. The head is actively cooling first so
+    the park is a real running->off transition (the drift listener's trigger)."""
     hass.config.units = US_CUSTOMARY_SYSTEM
     entry, head_a, head_b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
+    await _set_temp(hass, SENSOR_A, 76)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "cool"  # running pre-hold
+
     await _set_hold(hass, "on")
     await _recompute(hass, entry)
-    assert hass.states.get(head_a).state == "off"
+    assert hass.states.get(head_a).state == "off"  # parked: cool->off observed
     coord = entry.runtime_data
     assert not any(kind == "off" for (_, kind) in coord._heal_timers)
 
@@ -1984,8 +2004,19 @@ async def test_inhibit_suppresses_vane_kick(hass: HomeAssistant) -> None:
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "off"
 
+    # Capture every service call from here: a kick would set_hvac_mode fan_only
+    # on the parked head — and a completed kick cleans up after itself, so
+    # inspecting _vane_kicks afterwards can't tell "suppressed" from "ran".
+    calls: list[dict[str, Any]] = []
+    hass.bus.async_listen(
+        EVENT_CALL_SERVICE, callback(lambda e: calls.append(dict(e.data)))
+    )
     coord = entry.runtime_data
     await coord.async_apply_vane(head_a, "select.dummy_vane", "SWING")
     await hass.async_block_till_done()
     assert head_a not in coord._vane_kicks  # no kick scheduled
     assert hass.states.get(head_a).state == "off"  # not woken to fan_only
+    assert any(c["domain"] == "select" for c in calls)  # best-effort write sent
+    assert not any(  # and the head itself was never touched (no fan_only kick)
+        c["domain"] == "climate" and c["service"] == "set_hvac_mode" for c in calls
+    )
