@@ -1122,9 +1122,23 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return obs_idx if idx == obs_idx else None
 
     async def _write_fan(self, climate_id: str, token: str) -> None:
-        """Issue a fan_mode write and remember it (last + prior, for the echo race)."""
-        self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, token)
-        self._fan_cmd[climate_id] = token
+        """Issue a fan_mode write and remember it (last + prior, for the echo race).
+
+        A REWRITE of the token already commanded (the idempotency path retrying
+        a write a slow head hasn't applied yet) must NOT roll the memory: prev
+        keeps the pre-write token for as long as the head lags, so the stale
+        reading stays echo-tolerated instead of counting as a user departure.
+        Rolling it was #14 — at the satisfied auto-handback, a compute burst
+        rewrote auto until prev==cmd==auto and the head's own stale boost token
+        latched as a manual hold with no user anywhere near it.
+
+        prev therefore survives until the next DISTINCT command — the original
+        design's invariant. The cost is unchanged from what the README already
+        documents: a user re-pick of the token prev remembers is invisible.
+        """
+        if token != self._fan_cmd.get(climate_id):
+            self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, token)
+            self._fan_cmd[climate_id] = token
         await self.hass.services.async_call(
             "climate",
             "set_fan_mode",

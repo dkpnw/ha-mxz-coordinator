@@ -640,7 +640,14 @@ class MXZOptionsFlow(OptionsFlow):
             }
             if zones:
                 data[CONF_ZONES] = zones
-            self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+            # ONE combined update: writing data and options separately fired
+            # the update listener twice -> two full back-to-back entry reloads
+            # per options save (#14's compute-burst trigger). With options
+            # already set here, the create_entry below is a no-change update
+            # and fires nothing.
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, data=data, options=merged
+            )
             return self.async_create_entry(title="", data=merged)
         current = {**self.config_entry.data, **self.config_entry.options}
         celsius = (
