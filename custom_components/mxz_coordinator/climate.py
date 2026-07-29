@@ -23,7 +23,7 @@ changes what the coordinator commands or what the latch machinery reads.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -69,7 +69,7 @@ async def async_setup_entry(
 class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity):
     """A single-target thermostat facade over one zone's helper entities."""
 
-    _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT_COOL]
+    _attr_hvac_modes: ClassVar[list[HVACMode]] = [HVACMode.OFF, HVACMode.HEAT_COOL]
     _attr_icon = "mdi:home-thermometer"
     _enable_turn_on_off_backwards_compatibility = False
 
