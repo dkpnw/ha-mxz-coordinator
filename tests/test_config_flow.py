@@ -412,3 +412,68 @@ async def test_options_flow_preserves_untouched_zone_override(
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.data[CONF_ZONES][0][ZONE_VANE_VERTICAL] == "select.primary_vane"
+
+
+async def test_reconfigure_save_reloads_the_entry_exactly_once(
+    hass: HomeAssistant,
+) -> None:
+    """#15: one reconfigure save = one reload; an unchanged save = zero.
+
+    async_update_reload_and_abort fired the update listener AND scheduled its
+    own reload — two full back-to-back reloads per save, the reconfigure twin
+    of #14's options-save double. The entry is now updated directly and the
+    listener does the single reload.
+    """
+    from unittest.mock import patch
+
+    from homeassistant import config_entries
+
+    from tests.test_drive import (
+        SENSOR_A,
+        SENSOR_B,
+        _set_temp,
+        _setup_fan_boost,
+        _setup_mock_heads,
+    )
+
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b)
+
+    reloads = 0
+    real_reload = hass.config_entries.async_reload
+
+    async def _counting_reload(entry_id):
+        nonlocal reloads
+        reloads += 1
+        return await real_reload(entry_id)
+
+    async def _run_reconfigure(sensor_for_head_1: str) -> None:
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_RECONFIGURE,
+                "entry_id": entry.entry_id,
+            },
+        )
+        assert result["step_id"] == "reconfigure"
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"heads": [head_a, head_b]}
+        )
+        assert result["step_id"] == "reconfigure_sensors"
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"sensor_1": sensor_for_head_1, "sensor_2": SENSOR_B},
+        )
+        assert result["reason"] == "reconfigure_successful"
+        await hass.async_block_till_done()
+
+    with patch.object(
+        hass.config_entries, "async_reload", side_effect=_counting_reload
+    ):
+        await _run_reconfigure(SENSOR_B)  # a real change (swap head 1's sensor)
+        assert reloads == 1, f"changed reconfigure ran {reloads} reloads"
+        await _run_reconfigure(SENSOR_B)  # identical submit: nothing changed
+        assert reloads == 1, f"unchanged reconfigure ran {reloads - 1} extra reloads"

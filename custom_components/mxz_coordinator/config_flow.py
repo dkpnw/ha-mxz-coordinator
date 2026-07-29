@@ -542,11 +542,18 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_ZONES: zones,
                 CONF_NOTIFY_SERVICE: self._notify,
             }
-            return self.async_update_reload_and_abort(
+            # ONE reload per save (#15): async_update_reload_and_abort both
+            # fires the update listener (which reloads) AND schedules its own
+            # reload — two full back-to-back reloads, the same double the
+            # options save had (#14). Update the entry directly and let the
+            # listener do the single reload; an unchanged submit reloads
+            # nothing, which is the correct amount of nothing.
+            self.hass.config_entries.async_update_entry(
                 entry,
-                data_updates=data_updates,
+                data={**entry.data, **data_updates},
                 unique_id="|".join(self._heads),
             )
+            return self.async_abort(reason="reconfigure_successful")
 
         # Prefill each slot with the head's current sensor where known.
         schema_fields = {}
