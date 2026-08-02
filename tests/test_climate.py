@@ -303,6 +303,33 @@ async def test_hvac_mode_and_action(hass: HomeAssistant) -> None:
     assert hass.states.get(prim).state == "heat_cool"
 
 
+async def test_hvac_action_idle_while_parked_on_opposite_mode(hass: HomeAssistant) -> None:
+    """A room engaged on the side the shared compressor ISN'T running reads idle.
+
+    Regression for: in a standoff the higher-priority zone's demand wins the
+    shared mode (see logic.shared_mode), so the lower-priority zone can be
+    engaged (its own call is real) while its head sits parked off. That room's
+    tile must report idle, not heating/cooling, until the compressor actually
+    serves it.
+    """
+    entry, _, _ = await _setup(hass)
+    await _enable(hass, entry, "_primary_enable", "_secondary_enable", "_coordinator_enable")
+
+    # Hysteresis arms at startup (#6): age the clock so this test's flip is allowed.
+    entry.runtime_data._last_mode_change_ts = 0.0
+
+    # Primary (higher priority) wants heat; secondary wants cool -> standoff,
+    # primary wins the shared mode.
+    await _set_temp(hass, SENSOR_A, 60)
+    await _set_temp(hass, SENSOR_B, 80)
+    await _recompute(hass, entry)
+
+    assert hass.states.get(_eid(hass, entry, "_plan")).state == "heat"
+    assert hass.states.get(_eid(hass, entry, "_primary_thermostat")).attributes["hvac_action"] == "heating"
+    sec = hass.states.get(_eid(hass, entry, "_secondary_thermostat"))
+    assert sec.attributes["hvac_action"] == "idle"
+
+
 async def test_facade_never_writes_head_directly(hass: HomeAssistant) -> None:
     """With the kill-switch OFF, a tile write must not touch the head."""
     entry, head_a, _ = await _setup(hass)
