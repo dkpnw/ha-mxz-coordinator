@@ -77,6 +77,12 @@ elapsed    draw       what's happening
 - **Runs to your number, then coasts.** A room conditions until it *reaches* the target —
   not "close enough". Then it rests, and resumes only after it drifts past an adjustable
   band (0.5–5 °F / 0.25–2.5 °C). A satisfied room is never dragged along by its neighbor.
+- **Per-room tolerance, automatable.** Every room has its own drift number — how far it
+  may wander before conditioning resumes. Write it from a presence automation: tight
+  while the room is in use, wide while it's empty. Tightening re-engages at once, so the
+  room snaps back the moment someone walks in. A wide room also gives up its vote on the
+  shared compressor inside its own band. Touch nothing and every room follows the global
+  drift, exactly as before. (Asked for, and shaped, by @amosyuen — #18.)
 - **A fan that responds to need.** The firmware's own auto ramp is conservative. Fan
   boost (on by default) runs the fan harder the farther the room is from target and eases
   off as the room arrives — the way a Tesla's auto climate does — with hysteresis, so it

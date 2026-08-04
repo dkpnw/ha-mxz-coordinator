@@ -152,6 +152,10 @@ class Zone:
     stage_sensor_id: str | None = None
     target: float = 70.0
     enable: bool = field(default=False)
+    # Per-room re-engage drift override (#18). None = use the global
+    # engage_deadband. Owned by the zone's drift number entity, exactly like
+    # target/enable; automations write it (presence tiers etc.).
+    drift: float | None = None
 
 
 def _parse_zones(conf: dict[str, Any], target_default: float) -> list[Zone]:
@@ -453,9 +457,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass.states.get(zone.sensor_id), self.target_default
             )
             all_ok = all_ok and ok
+            zdrift = self.zone_drift(zone)
             demand = room_call(
                 temp=temp, target=zone.target, enabled=zone.enable,
-                sensor_ok=ok, band=self.demand_threshold, neutral=DEMAND_NEUTRAL,
+                # A room's demand vote respects its OWN drift (#18): a room
+                # told to tolerate a wide band must not steer the shared
+                # compressor inside it. max() reproduces today's behavior
+                # exactly whenever drift <= demand_threshold (the default).
+                sensor_ok=ok, band=max(self.demand_threshold, zdrift),
+                neutral=DEMAND_NEUTRAL,
                 **common,
             )
             if zone.slug not in self._engage_latch:
@@ -470,7 +480,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             engage = engage_with_latch(
                 prior=self._engage_latch[zone.slug] or None,
                 temp=temp, target=zone.target, enabled=zone.enable,
-                sensor_ok=ok, band=self.engage_deadband, neutral=ENGAGE_SATISFIED,
+                sensor_ok=ok, band=zdrift, neutral=ENGAGE_SATISFIED,
                 **common,
             )
             self._engage_latch[zone.slug] = (
@@ -512,6 +522,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "temp": plan[f"{zone.slug}_temp"],
                         "target": zone.target,
                         "enabled": zone.enable,
+                        "drift": self.zone_drift(zone),
                         "fan_hold": self._fan_latched.get(zone.climate_id, False),
                     }
                     for i, zone in enumerate(self.zones)
@@ -1322,6 +1333,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     # -- entity-driven mutations --------------------------------------------
+    def zone_drift(self, zone: Zone) -> float:
+        """The zone's re-engage drift: its own override, else the global.
+
+        Clamped to the unit profile's bounds at READ, same as the global — a
+        restored or hand-edited value must not collapse the coast window or
+        park a room degrees off target.
+        """
+        if zone.drift is None:
+            return self.engage_deadband
+        lo, hi = self._profile["engage_bounds"]
+        return min(max(float(zone.drift), lo), hi)
+
     def reset_engage_latch(self, slug: str) -> None:
         """Forget a zone's engage latch (its target changed -> fresh decision).
 

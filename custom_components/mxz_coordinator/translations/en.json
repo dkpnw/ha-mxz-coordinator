@@ -252,6 +252,9 @@
     "number": {
       "zone_target": {
         "name": "{zone} target"
+      },
+      "zone_drift": {
+        "name": "{zone} drift"
       }
     },
     "switch": {

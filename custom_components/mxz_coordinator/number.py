@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.components.number import NumberMode, RestoreNumber
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -16,11 +17,15 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up one target number per zone."""
+    """Set up one target number and one drift number per zone."""
     coordinator: MXZCoordinator = entry.runtime_data
-    async_add_entities(
+    entities: list[RestoreNumber] = [
         MXZTargetNumber(coordinator, zone) for zone in coordinator.zones
+    ]
+    entities.extend(
+        MXZDriftNumber(coordinator, zone) for zone in coordinator.zones
     )
+    async_add_entities(entities)
 
 
 class MXZTargetNumber(MXZEntity, RestoreNumber):
@@ -116,5 +121,67 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
         self._attr_native_value = value
         self._zone.target = value
         self.coordinator.reset_engage_latch(self._zone.slug)
+        self.async_write_ha_state()
+        await self.coordinator.async_user_changed()
+
+
+class MXZDriftNumber(MXZEntity, RestoreNumber):
+    """A room's re-engage drift band — per-room, automatable (#18).
+
+    How far this room may wander past its target before conditioning resumes.
+    Defaults to the global drift; write it from automations to widen an empty
+    room's tolerance (presence tiers) and tighten it on arrival — tightening
+    re-engages on the next compute. The zone's demand vote respects this band
+    too, so a wide-tolerance room never steers the shared compressor inside
+    its own comfort window. CONFIG category: on the device page and writable
+    by automations, out of auto-populated dashboards and voice.
+    """
+
+    _attr_mode = NumberMode.BOX
+    _attr_icon = "mdi:arrow-expand-vertical"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: MXZCoordinator, zone: Zone) -> None:
+        super().__init__(coordinator, f"{zone.slug}_drift")
+        self._zone = zone
+        self._attr_translation_key = "zone_drift"
+        self._attr_translation_placeholders = {"zone": zone.name}
+        self._attr_native_unit_of_measurement = coordinator.temp_unit
+        lo, hi = coordinator._profile["engage_bounds"]
+        self._attr_native_min_value = lo
+        self._attr_native_max_value = hi
+        self._attr_native_step = lo  # 0.5 °F / 0.25 °C — the bounds' grain
+        self._attr_native_value = coordinator.engage_deadband
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the last per-room drift; absent/stale -> the global default.
+
+        A restored value is clamped into the profile bounds (hand-edited or
+        pre-upgrade values bypass the UI). zone.drift stays None until a value
+        is actually restored or set, so an untouched room follows the GLOBAL
+        drift — including live changes to it — instead of a frozen copy.
+        """
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if (
+            not self._restored_state_is_stale(last_state)
+            and (last := await self.async_get_last_number_data())
+            and last.native_value is not None
+        ):
+            value = min(
+                max(last.native_value, self._attr_native_min_value),
+                self._attr_native_max_value,
+            )
+            self._attr_native_value = value
+            self._zone.drift = value
+
+    async def async_set_native_value(self, value: float) -> None:
+        """An automation (or user) set this room's drift -> recompute.
+
+        Tightening below the room's current wander re-engages on this very
+        compute — the walk-in snap-back.
+        """
+        self._attr_native_value = value
+        self._zone.drift = value
         self.async_write_ha_state()
         await self.coordinator.async_user_changed()

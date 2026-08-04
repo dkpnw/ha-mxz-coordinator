@@ -154,6 +154,12 @@ fan". Purely additive: no existing entity IDs
 change, and the switch stores no state of its own (it mirrors the coordinator's latch, which
 seeds from observed head state on restart).
 
+**Per-room drift (v3.2.0).** Each room gains a `number.*_<zone>_drift` — its own
+re-engage band, for presence automations (tight when occupied, wide when empty). Purely
+additive: it defaults to the global drift and nothing changes until you write it. The
+entity is config-category, so it sits on the device page and stays out of auto-populated
+dashboards.
+
 **Live airflow display.** If a head publishes its actual blower speed (CN105/ESPHome
 heads expose a `stage` text_sensor), I auto-detect it at setup and mirror it onto that
 zone's thermostat tile, so the fan dial tracks real airflow while the firmware runs its
