@@ -396,7 +396,7 @@ existing proxy/automation nudges keep working.
   (#12, #13).
 - [@amosyuen](https://github.com/amosyuen) — caught that the room tile dropped
   `hvac_mode` from `climate.set_temperature`, with the root cause and the exact code
-  pointer (#17).
+  pointer (#17); asked for per-room drift and shaped its presence-tier design (#18).
 - [BarrettPalmer/Smart-HVAC-Automation-for-Home-Assistant-Mini-Splits](https://github.com/BarrettPalmer/Smart-HVAC-Automation-for-Home-Assistant-Mini-Splits)
 - [bjrnptrsn/climate_group_helper](https://github.com/bjrnptrsn/climate_group_helper)
 - [bartmachielsen/smart_climate](https://github.com/bartmachielsen/smart_climate)

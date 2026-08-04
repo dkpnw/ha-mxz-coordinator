@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from homeassistant.components.number import NumberMode, RestoreNumber
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import MXZCoordinator, Zone
@@ -150,38 +150,55 @@ class MXZDriftNumber(MXZEntity, RestoreNumber):
         lo, hi = coordinator._profile["engage_bounds"]
         self._attr_native_min_value = lo
         self._attr_native_max_value = hi
-        self._attr_native_step = lo  # 0.5 °F / 0.25 °C — the bounds' grain
-        self._attr_native_value = coordinator.engage_deadband
+        # Same grain as the global drift's options selector, so any value the
+        # global can hold can be copied into a room verbatim.
+        self._attr_native_step = lo / 2
+
+    # LIVE, not a frozen _attr: an untouched room (zone.drift is None) must
+    # DISPLAY the global drift it actually follows — including a new global
+    # after an options change — not the value seeded at construction.
+    @property
+    def native_value(self) -> float:
+        return self.coordinator.zone_drift(self._zone)
+
+    # Persisted alongside the state so restore can tell a room the user set
+    # apart from one merely displaying the global (RestoreNumber saves the
+    # displayed value either way).
+    @property
+    def extra_state_attributes(self) -> dict[str, bool]:
+        return {"override": self._zone.drift is not None}
 
     async def async_added_to_hass(self) -> None:
-        """Restore the last per-room drift; absent/stale -> the global default.
+        """Restore the last per-room drift; absent/stale/not set -> the global.
 
-        A restored value is clamped into the profile bounds (hand-edited or
-        pre-upgrade values bypass the UI). zone.drift stays None until a value
-        is actually restored or set, so an untouched room follows the GLOBAL
-        drift — including live changes to it — instead of a frozen copy.
+        Only a state marked ``override`` restores: an untouched room's saved
+        state is just yesterday's global, and writing it back would freeze the
+        room on a copy. A restored value is clamped into the profile bounds
+        (hand-edited or pre-upgrade values bypass the UI). zone.drift stays
+        None otherwise, so the room follows the GLOBAL drift live.
         """
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
         if (
             not self._restored_state_is_stale(last_state)
+            and last_state is not None
+            and last_state.attributes.get("override")
             and (last := await self.async_get_last_number_data())
             and last.native_value is not None
         ):
-            value = min(
+            self._zone.drift = min(
                 max(last.native_value, self._attr_native_min_value),
                 self._attr_native_max_value,
             )
-            self._attr_native_value = value
-            self._zone.drift = value
 
     async def async_set_native_value(self, value: float) -> None:
         """An automation (or user) set this room's drift -> recompute.
 
         Tightening below the room's current wander re-engages on this very
-        compute — the walk-in snap-back.
+        compute — the walk-in snap-back. The engage latch is deliberately NOT
+        reset: a band change redraws the coast window, it does not invalidate
+        a run already headed for the (unchanged) target.
         """
-        self._attr_native_value = value
         self._zone.drift = value
         self.async_write_ha_state()
         await self.coordinator.async_user_changed()

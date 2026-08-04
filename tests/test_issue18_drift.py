@@ -125,20 +125,36 @@ async def test_drift_is_per_room(hass: HomeAssistant) -> None:
     )
 
 
-async def test_restored_drift_survives_and_clamps(hass: HomeAssistant) -> None:
-    """A restored per-room drift lands (clamped into the profile bounds)."""
+async def test_widening_mid_run_does_not_truncate_the_approach(
+    hass: HomeAssistant,
+) -> None:
+    """An ENGAGED room runs to EXACTLY the target even if its drift widens.
+
+    The band gates re-engagement only; widening it mid-run must not stop a
+    room short of the number the user set (and must not reset the latch).
+    """
+    head_a, _b, entry = await _setup(hass)
+    await _set_temp(hass, SENSOR_A, 68)  # 6° past target 62: engages
+    await _recompute(hass, entry)
+    assert _zone0(hass, entry)["engage"] == "cool"
+
+    await _set_drift(hass, entry, 5.0)   # vacation tier while mid-run
+    await _set_temp(hass, SENSOR_A, 64)  # inside the new band, above target
+    await _recompute(hass, entry)
+    assert _zone0(hass, entry)["engage"] == "cool"  # still running to 62
+
+    await _set_temp(hass, SENSOR_A, 62)  # target reached
+    await _recompute(hass, entry)
+    assert _zone0(hass, entry)["engage"] == "satisfied"
+
+
+async def _restore_setup(hass, restored):
+    """Set up a fresh entry with a seeded restore cache for the primary drift."""
     from homeassistant.core import State
     from pytest_homeassistant_custom_component.common import (
+        MockConfigEntry,
         mock_restore_cache_with_extra_data,
     )
-
-    hass.config.units = US_CUSTOMARY_SYSTEM
-    head_a, head_b = await _setup_mock_heads(hass)
-    await _set_temp(hass, SENSOR_A, 70)
-    await _set_temp(hass, SENSOR_B, 70)
-
-    from homeassistant.const import UnitOfTemperature
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
 
     from custom_components.mxz_coordinator.const import (
         CONF_FAN_BOOST_ENABLE,
@@ -149,6 +165,10 @@ async def test_restored_drift_survives_and_clamps(hass: HomeAssistant) -> None:
         DOMAIN,
     )
 
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="MXZ Coordinator",
@@ -161,22 +181,46 @@ async def test_restored_drift_survives_and_clamps(hass: HomeAssistant) -> None:
         },
     )
     entry.add_to_hass(hass)  # created FIRST -> fresh restore
+    value, attrs = restored
     eid = "number.mxz_coordinator_primary_drift"
     mock_restore_cache_with_extra_data(
         hass,
         [
             (
-                State(eid, "9.0"),  # above the °F bound (5.0) -> must clamp
+                State(eid, str(value), attributes=attrs),
                 {
                     "native_max_value": 5.0,
                     "native_min_value": 0.5,
-                    "native_step": 0.5,
-                    "native_unit_of_measurement": UnitOfTemperature.FAHRENHEIT,
-                    "native_value": 9.0,
+                    "native_step": 0.25,
+                    "native_unit_of_measurement": "°F",
+                    "native_value": value,
                 },
             )
         ],
     )
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    return entry
+
+
+async def test_restored_drift_survives_and_clamps(hass: HomeAssistant) -> None:
+    """A restored per-room override lands (clamped into the profile bounds)."""
+    entry = await _restore_setup(hass, (9.0, {"override": True}))
     assert entry.runtime_data.zones[0].drift == 5.0  # clamped, not 9
+
+
+async def test_untouched_room_restore_does_not_freeze_the_global(
+    hass: HomeAssistant,
+) -> None:
+    """Restart must not turn yesterday's global into a per-room override.
+
+    RestoreNumber saves the DISPLAYED value even for a room the user never
+    touched. Only a state marked ``override`` may restore; otherwise the room
+    keeps following the live global — and displays it truthfully.
+    """
+    entry = await _restore_setup(hass, (1.0, {"override": False}))
+    coord = entry.runtime_data
+    assert coord.zones[0].drift is None  # NOT frozen at the saved 1.0
+    coord.engage_deadband = 2.0
+    await _recompute(hass, entry)
+    assert _zone0(hass, entry)["drift"] == 2.0  # follows the new global live
