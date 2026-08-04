@@ -38,8 +38,8 @@ entity, that works too — but it reads several degrees warm when the unit is id
 An MXZ outdoor unit has one compressor and one reversing valve. It can heat or cool at any
 moment — never both. In hardware AUTO, each head votes from its own room, and the
 lowest-address head (the head wired first) is the mode master. An idle head can hold the
-outdoor unit neutral while another room calls and gets nothing. Mitsubishi's own manuals warn about this: AUTO
-is *"not recommended if this indoor unit is connected to a MXZ type outdoor unit… the
+outdoor unit neutral while another room calls and gets nothing. Mitsubishi's own manuals
+warn about this: AUTO is *"not recommended if this indoor unit is connected to a MXZ type outdoor unit… the
 indoor unit becomes standby mode"* (MSZ-SF); *"cooling and heating cannot be done at the
 same time… the unit selected last goes into standby mode"* (MSZ-GE).
 
@@ -133,8 +133,8 @@ elapsed    draw       what's happening
 ### It doesn't break, and it tells the truth
 - **Self-healing.** A head knocked off plan — wall remote, curious guest — is put back
   after a 20–30 s debounce. Optional phone alert when that happens.
-- **Restart-proof.** Every target, enable, mode, switch — and fan hold — survives an HA
-  restart: the **Fan auto** switch remembers whether you were holding, so a hold comes
+- **Restart-proof.** Every target, drift, enable, mode, switch — and fan hold — survives
+  an HA restart: the **Fan auto** switch remembers whether you were holding, so a hold comes
   back as your hold and the boost's own speed comes back as the boost's. One honest edge:
   a fan speed set from a wall remote *while HA itself was down*, on a room that wasn't
   held before, can be read as the boost's own residue and cleared.
@@ -178,10 +178,11 @@ The coordinator is the **sole writer** of the heads. Three parts (Python in
 parts for two fixed zones, and doesn't track newer features):
 
 1. **Decide** — `sensor.*_plan`, side-effect-free. A room must be 3 °F off target
-   (default) before the shared mode may flip. The highest-priority room wins standoffs,
-   and a 600-second hysteresis gates every flip. A running room goes all the way to its
-   target, then coasts in `fan_only` until it drifts past the re-engage band (default
-   1 °F). Away/eco swaps both thresholds for the wide protection extremes.
+   (default) before the shared mode may flip — or past its own drift band, if you set
+   that wider. The highest-priority room wins standoffs, and a 600-second hysteresis
+   gates every flip. A running room goes all the way to its target, then coasts in
+   `fan_only` until it drifts past its re-engage band (default 1 °F, settable per
+   room). Away/eco swaps both thresholds for the wide protection extremes.
 2. **Act** — the only component that commands heads. It derives each room's setpoints
    from its single target (`cool → [target−2, target]`, `heat → [target, target+2]`;
    the band is 1° on °C systems), clamps to the firmware range (default 59–88 °F /
