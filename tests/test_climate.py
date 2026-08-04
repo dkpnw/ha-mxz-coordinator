@@ -246,6 +246,60 @@ async def test_set_temperature_propagates(hass: HomeAssistant) -> None:
     assert a.attributes["target_temp_low"] == 70
 
 
+async def test_set_temperature_with_hvac_mode_turns_room_on(hass: HomeAssistant) -> None:
+    """set_temperature carrying hvac_mode must apply the mode too (#17).
+
+    HA's climate.set_temperature service passes hvac_mode straight through in
+    kwargs, and a script that sends `hvac_mode: heat_cool` + a temperature to a
+    room that is OFF expects the room to come on. The tile used to read only
+    `temperature` and silently drop the mode, so the room stayed off.
+    """
+    entry, head_a, _ = await _setup(hass)
+    # Secondary + kill-switch on; the PRIMARY room stays off (the repro).
+    await _enable(hass, entry, "_secondary_enable", "_coordinator_enable")
+    await _set_temp(hass, SENSOR_A, 75)  # primary hot -> will want cool once on
+    await _set_temp(hass, SENSOR_B, 70)
+
+    prim = _eid(hass, entry, "_primary_thermostat")
+    assert hass.states.get(prim).state == "off"
+
+    await hass.services.async_call(
+        "climate", "set_temperature",
+        {"entity_id": prim, "hvac_mode": "heat_cool", "temperature": 72},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    # The mode landed on the room's enable switch (the facade's only write path)
+    # and the setpoint landed on the number entity.
+    assert hass.states.get(_eid(hass, entry, "_primary_enable")).state == "on"
+    assert entry.runtime_data.zones[0].enable is True
+    assert float(hass.states.get(_eid(hass, entry, "_primary_target")).state) == 72.0
+    assert entry.runtime_data.zones[0].target == 72
+
+    # Both halves reach the head on the next recompute, and the tile now reads
+    # heat_cool (like every other facade write, it re-renders on that refresh).
+    await _recompute(hass, entry)
+    assert hass.states.get(prim).state == "heat_cool"
+    a = hass.states.get(head_a)
+    assert a.state == "cool"
+    assert a.attributes["target_temp_high"] == 72
+
+    # The other direction: hvac_mode off in the same call turns the room off.
+    await hass.services.async_call(
+        "climate", "set_temperature",
+        {"entity_id": prim, "hvac_mode": "off", "temperature": 71},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(_eid(hass, entry, "_primary_enable")).state == "off"
+    assert entry.runtime_data.zones[0].enable is False
+    assert float(hass.states.get(_eid(hass, entry, "_primary_target")).state) == 71.0
+    await _recompute(hass, entry)
+    assert hass.states.get(prim).state == "off"
+    assert hass.states.get(head_a).state == "off"  # disabled room -> head off
+
+
 async def test_turn_off_disables_room(hass: HomeAssistant) -> None:
     """Turning the tile off flips the room enable switch and stops the head."""
     entry, head_a, _ = await _setup(hass)
