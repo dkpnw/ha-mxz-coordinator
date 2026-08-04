@@ -387,6 +387,9 @@ existing proxy/automation nudges keep working.
   phantom vane and sent the fix (#9), root-caused a rejected setpoint on °C-native heads
   down to the rounding step (#10), then the standby hold: proposed, designed, and built
   (#12, #13).
+- [@amosyuen](https://github.com/amosyuen) — caught that the room tile dropped
+  `hvac_mode` from `climate.set_temperature`, with the root cause and the exact code
+  pointer (#17).
 - [BarrettPalmer/Smart-HVAC-Automation-for-Home-Assistant-Mini-Splits](https://github.com/BarrettPalmer/Smart-HVAC-Automation-for-Home-Assistant-Mini-Splits)
 - [bjrnptrsn/climate_group_helper](https://github.com/bjrnptrsn/climate_group_helper)
 - [bartmachielsen/smart_climate](https://github.com/bartmachielsen/smart_climate)
