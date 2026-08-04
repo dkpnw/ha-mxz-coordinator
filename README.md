@@ -382,7 +382,8 @@ existing proxy/automation nudges keep working.
 - [@helicopterrun](https://github.com/helicopterrun) — 3-zone hardware validation and
   relentless, root-caused QA through the v3 beta (#5, #6, #7).
 - [@andrewblane](https://github.com/andrewblane) — caught on a 6-zone system that the
-  first two zones ignored their own names, and sent the fix (#8).
+  first two zones ignored their own names, and sent the fix (#8); caught a parked room's
+  tile reporting heating/cooling during a standoff, and sent that fix too (#16).
 - [@calvindomenico](https://github.com/calvindomenico) — caught a ducted air handler's
   phantom vane and sent the fix (#9), root-caused a rejected setpoint on °C-native heads
   down to the rounding step (#10), then the standby hold: proposed, designed, and built
