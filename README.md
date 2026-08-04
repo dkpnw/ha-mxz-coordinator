@@ -39,9 +39,9 @@ An MXZ outdoor unit has one compressor and one reversing valve. It can heat or c
 moment — never both. In hardware AUTO, each head votes from its own room, and the
 lowest-address head (the head wired first) is the mode master. An idle head can hold the
 outdoor unit neutral while another room calls and gets nothing. Mitsubishi's own manuals
-warn about this: AUTO is *"not recommended if this indoor unit is connected to a MXZ type outdoor unit… the
-indoor unit becomes standby mode"* (MSZ-SF); *"cooling and heating cannot be done at the
-same time… the unit selected last goes into standby mode"* (MSZ-GE).
+warn about this: AUTO is *"not recommended if this indoor unit is connected to a MXZ type
+outdoor unit… the indoor unit becomes standby mode"* (MSZ-SF); *"cooling and heating
+cannot be done at the same time… the unit selected last goes into standby mode"* (MSZ-GE).
 
 I measured it on my own system. A room 6 °F past its cooling target drew **~26 W for over
 an hour** — parked in standby — because the other head was satisfied. The moment I turned
@@ -76,7 +76,8 @@ elapsed    draw       what's happening
   coordinator picks the mode. Change it from HA, HomeKit, Google, or Assist.
 - **Runs to your number, then coasts.** A room conditions until it *reaches* the target —
   not "close enough". Then it rests, and resumes only after it drifts past an adjustable
-  band (0.5–5 °F / 0.25–2.5 °C). A satisfied room is never dragged along by its neighbor.
+  drift band (0.5–5 °F / 0.25–2.5 °C). A satisfied room is never dragged along by its
+  neighbor.
 - **Per-room tolerance, automatable.** Every room has its own drift number — how far it
   may wander before conditioning resumes. Write it from a presence automation: tight
   while the room is in use, wide while it's empty. Tightening re-engages at once, so the
@@ -397,7 +398,8 @@ existing proxy/automation nudges keep working.
   (#12, #13).
 - [@amosyuen](https://github.com/amosyuen) — caught that the room tile dropped
   `hvac_mode` from `climate.set_temperature`, with the root cause and the exact code
-  pointer (#17); asked for per-room drift and shaped its presence-tier design (#18).
+  pointer (#17); asked for per-room drift and shaped its presence-tier design (#18);
+  caught the entry filing itself under Helpers instead of Integrations (#19).
 - [BarrettPalmer/Smart-HVAC-Automation-for-Home-Assistant-Mini-Splits](https://github.com/BarrettPalmer/Smart-HVAC-Automation-for-Home-Assistant-Mini-Splits)
 - [bjrnptrsn/climate_group_helper](https://github.com/bjrnptrsn/climate_group_helper)
 - [bartmachielsen/smart_climate](https://github.com/bartmachielsen/smart_climate)
