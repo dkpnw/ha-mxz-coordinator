@@ -26,6 +26,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from homeassistant.components.climate import (
+    ATTR_HVAC_MODE,
     ClimateEntity,
     ClimateEntityFeature,
     HVACAction,
@@ -292,7 +293,22 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
 
     # -- write paths (drive the helper entities; never coordinator state) ---
     async def async_set_temperature(self, **kwargs: Any) -> None:
-        """Single-target write -> drive the room's number entity."""
+        """Single-target write -> drive the room's number entity.
+
+        Honors ``hvac_mode`` when the caller includes it: HA's
+        ``climate.set_temperature`` service passes it straight through in
+        kwargs, and entities are expected to apply it, so a script that sends
+        ``hvac_mode: heat_cool`` + a temperature to a room that is OFF must
+        turn the room on rather than silently drop the mode (#17).
+
+        Applied FIRST, through the same enable switch ``async_set_hvac_mode``
+        drives (never the head): the mode then still lands if the temperature
+        half is a no-op (no ``temperature`` key, or the number entity isn't
+        resolvable). Both writes are absorbed by one debounced recompute, so
+        the plan sees the new mode and setpoint together.
+        """
+        if (hvac_mode := kwargs.get(ATTR_HVAC_MODE)) is not None:
+            await self.async_set_hvac_mode(hvac_mode)
         temp = kwargs.get(ATTR_TEMPERATURE)
         target_eid = self._sibling_eid("number", f"{self._zone.slug}_target")
         if temp is None or target_eid is None:
