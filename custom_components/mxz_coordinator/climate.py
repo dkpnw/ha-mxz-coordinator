@@ -182,15 +182,21 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
 
     @property
     def hvac_action(self) -> HVACAction:
-        """Derive from the coordinator's plan engage state for this room."""
+        """What this room's head is ACTUALLY doing under the plan.
+
+        A room may be engaged (wants heat) while the shared compressor runs the
+        other mode — its head is parked, so the action must read IDLE, not
+        HEATING. Only an engagement matching the plan's shared mode is active.
+        """
         if not self.coordinator.coordinator_enable or not self._enabled:
             return HVACAction.OFF
         engage = self.coordinator.data.get(f"{self._zone.slug}_engage")
-        if engage == MODE_COOL:
+        shared = self.coordinator.data.get("state")
+        if engage == MODE_COOL and shared == MODE_COOL:
             return HVACAction.COOLING
-        if engage == MODE_HEAT:
+        if engage == MODE_HEAT and shared == MODE_HEAT:
             return HVACAction.HEATING
-        return HVACAction.IDLE  # satisfied / off / neutral
+        return HVACAction.IDLE  # satisfied / parked (opposite mode) / neutral
 
     # -- vane / swing (optional passthrough to a select entity) -------------
     @property
