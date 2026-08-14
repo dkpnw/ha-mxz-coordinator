@@ -63,7 +63,8 @@ elapsed    draw       what's happening
    chosen from your real room temperatures against your targets.
 2. **A satisfied room steps aside.** It idles in `fan_only`, which fully closes that
    head's refrigerant valve (confirmed in the OCH573E service manual). It stops drawing
-   capacity instead of blocking its neighbors.
+   capacity instead of blocking its neighbors. (Prefer a stopped fan? The idle mode is
+   an option — see [How a satisfied head idles](#how-a-satisfied-head-idles).)
 3. **When rooms disagree, your priority wins.** The room you ranked first gets its mode.
    The other coasts until the system is free.
 
@@ -93,6 +94,11 @@ elapsed    draw       what's happening
   actually sit.
 - **Resting-mode bias.** When no room is calling, the system settles into the last mode
   used (default) — or pin it to cool or heat for one-sided climates.
+- **Choose how a satisfied head idles.** By default it circulates in `fan_only`. If that
+  air smells musty — airflow over a coil still wet from cooling does — park the head
+  `off` instead: the fan stops and the head closes its vanes. A third choice dries the
+  coil first: the fan runs for a set period after cooling, then the head turns off.
+  Details: [How a satisfied head idles](#how-a-satisfied-head-idles).
 
 <p align="center">
   <img src="images/thermostat-bedroom-named.png" width="45%" alt="Bedroom thermostat: cooling to 60, 3° out — fan boosted to Medium" />
@@ -143,7 +149,8 @@ elapsed    draw       what's happening
   no conditioning on garbage data — and recovers by itself.
 - **If HA itself goes down**, the heads keep their last commanded state and their own
   control loops keep running — a cooling room keeps cooling on the head's thermistor. A
-  room parked in `fan_only` stays parked until HA returns; the
+  room parked in `fan_only` (or `off`, if you chose that idle action) stays parked until
+  HA returns; the
   [remote-sensor timeout](#best-practice-give-the-firmware-your-room-sensor-too) keeps
   the head's own loop on honest data meanwhile.
 - **Hardware protection.** A 10-minute minimum between mode flips protects the shared
@@ -182,8 +189,9 @@ parts for two fixed zones, and doesn't track newer features):
    (default) before the shared mode may flip — or past its own drift band, if you set
    that wider. The highest-priority room wins standoffs, and a 600-second hysteresis
    gates every flip. A running room goes all the way to its target, then coasts in
-   `fan_only` until it drifts past its re-engage band (default 1 °F, settable per
-   room). Away/eco swaps both thresholds for the wide protection extremes.
+   `fan_only` — or parks `off`, if you chose that idle action — until it drifts past
+   its re-engage band (default 1 °F, settable per room). Away/eco swaps both
+   thresholds for the wide protection extremes.
 2. **Act** — the only component that commands heads. It derives each room's setpoints
    from its single target (`cool → [target−2, target]`, `heat → [target, target+2]`;
    the band is 1° on °C systems), clamps to the firmware range (default 59–88 °F /
@@ -228,6 +236,39 @@ Simple rules, no surprises:
 - **Mitsubishi trap, handled.** The real fan ladder is
   `quiet < low < medium < middle < high` — `middle` is *faster* than `medium`. The
   coordinator knows, and never commands a speed your unit lacks.
+
+### How a satisfied head idles
+
+`fan_only` idle keeps air moving, but it moves that air across the indoor coil. After a
+cooling run the coil is wet, and on some units that airflow carries a musty coil smell
+into the room. The hardware offers no middle ground: a powered-on MSZ head always runs
+its fan (the floor is `quiet`), and a powered-off head closes its vanes. So the
+**Idle action** option (Configure → options) picks one of three parks:
+
+| Setting | A satisfied head... |
+| --- | --- |
+| `Fan only` (default) | circulates in `fan_only`. Unchanged from earlier versions. |
+| `Off` | powers off. The fan stops and the head closes its vanes. |
+| `Off after a coil-dry period` | runs its fan for a set period after **cooling** (default 10 min, tunable), so the coil dries instead of being sealed wet, then powers off. After heating it powers off at once — a heated coil is dry. |
+
+Facts to know before you switch:
+
+- **The refrigerant valve position is the same in all three.** An `off` head on an MXZ
+  outdoor unit still receives a small refrigerant bleed (Mitsubishi documents this as
+  normal — it is how the system returns oil). The option changes airflow, not
+  refrigerant. If a room warms while parked off in heating season, that bleed is why —
+  same as it would in `fan_only`.
+- **The room's thermostat tile still reads *Idle*, not *Off*.** The room is enabled and
+  coordinated; only the head is parked. It wakes the moment the room drifts past its
+  re-engage band.
+- **Fan holds survive.** A head parked off keeps a manual fan hold and comes back
+  holding it. On the way into an `off` park the coordinator first returns a
+  boost-driven fan to `auto` — so a restart never mistakes the boost's leftover speed
+  for your hold.
+- **Vane changes still work.** Changing a louvre on a parked-off head briefly wakes it
+  (the usual [vane kick](#control-that-stays-yours)), then parks it again.
+- **Standoff losers park the same way.** A room waiting for the other mode idles in
+  the same configured action as a satisfied room.
 
 ---
 
@@ -338,7 +379,8 @@ reading instead of holding a stale number.
   minutes to engage after a cool→heat reversal. `hvac_action` flips instantly; the power
   draw lags. Normal.
 - **`fan_only` is the design working**, not a fault. It is what keeps a satisfied head
-  from starving the other room.
+  from starving the other room. (With the idle action set to `off`, a satisfied head
+  parks off instead — also the design working.)
 - **Respect the setpoint clamp.** Below-range setpoints made `climate.set_temperature`
   throw HTTP 500 on our heads — hence the clamp. Adjust it to your firmware's range.
 - **Minimum-capacity floor.** The compressor cannot modulate below ~40% of nameplate;

@@ -205,3 +205,32 @@ preserved and reconciled on release, the same way a restart reconciles it); vane
 suppressed (a kick would wake a parked head); and the off-while-enabled self-heal stands
 down (a head the hold parked is not "drift"). The plan sensor gains a top-level
 `inhibited` attribute (true while held).
+
+## Idle action (v3.3.0)
+
+**Purely additive, opt-in — nothing to do on upgrade.** A new **Idle action** option
+(Configure → options, `idle_action`) picks how a satisfied head (or a standoff loser)
+parks: `fan_only` (default — unchanged), `off` (the fan stops and the head closes its
+vanes), or `off_after_dry` (fan_only for a coil-dry period after active cooling —
+`coil_dry_minutes`, default 10 — then off; heating parks off at once). The `off` choices
+stop the airflow that carries a wet coil's smell into the room; they do **not** change
+the refrigerant valve — an MXZ outdoor unit bleeds refrigerant through idle heads either
+way. See the README's "How a satisfied head idles".
+
+**Interactions.**
+
+- The off-drift self-heal is now **plan-aware**: a head the plan parked off never arms
+  it, while a head someone turned off during an active call (or mid coil-dry dwell)
+  still heals. With the default `fan_only` this reduces to the previous condition
+  exactly.
+- On the way into an `off` park the coordinator first returns a boost-driven fan to
+  `auto`, while the head is still awake — so a restart never reads the boost's leftover
+  speed as a manual hold. A genuine manual hold gets no such write and survives the
+  park and the restart, restored by the **Fan auto** switch as before.
+- A vane change on a parked-off head wakes it briefly (the vane kick) and parks it
+  again, the same way an eco-off head always has.
+- The coil-dry dwell is a timestamp comparison re-derived on every recompute, so a
+  restart mid-dwell restarts the dwell — it can never strand a head in `fan_only`. A
+  head observed `off` at startup owes no dwell.
+- Eco/away and the standby hold are unchanged and take precedence as before.
+- The plan sensor gains a top-level `idle_action` attribute.
