@@ -392,12 +392,14 @@ reading instead of holding a stale number.
   speed, so the coordinator stopped driving the fan (the room's **Fan auto** switch reads
   OFF; `fan_hold` on the plan sensor agrees). Flip the switch back ON — or set the fan to
   `auto`. See [Who drives the fan](#who-drives-the-fan).
-- **Musty smell from an idle head?** That is `fan_only` airflow across a coil still wet
-  from cooling — not a refrigerant problem, and not the coordinator misbehaving. The
-  tell, from my own system: the smell stops while the head actively cools (cold coil,
-  valve open) and returns when it idles. Fix: set the idle action to **Off after a
-  coil-dry period** (Configure → options) so the coil dries and the fan then stops. See
-  [How a satisfied head idles](#how-a-satisfied-head-idles).
+- **Musty smell from an idle head?** Check the pattern first. On my own system the smell
+  stops while the head actively cools (cold coil, valve open) and returns when it idles.
+  That pattern is `fan_only` airflow across a coil still wet from cooling — not the
+  coordinator misbehaving. Fix: set the idle action to **Off after a coil-dry period**
+  (Configure → options) so the coil dries and the fan then stops. See
+  [How a satisfied head idles](#how-a-satisfied-head-idles). A sweet or chemical smell
+  that does not follow this pattern is not a wet coil. Have the refrigerant circuit
+  checked.
 
 ---
 
