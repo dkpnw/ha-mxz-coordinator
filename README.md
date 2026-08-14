@@ -241,9 +241,12 @@ Simple rules, no surprises:
 
 `fan_only` idle keeps air moving, but it moves that air across the indoor coil. After a
 cooling run the coil is wet, and on some units that airflow carries a musty coil smell
-into the room. The hardware offers no middle ground: a powered-on MSZ head always runs
-its fan (the floor is `quiet`), and a powered-off head closes its vanes. So the
-**Idle action** option (Configure → options) picks one of three parks:
+into the room. I hit this on my own heads: the idle air smelled off, and the smell went
+away whenever the refrigerant valve opened and the coil ran cold. That pattern is the
+tell — cold coil, no smell; wet idle coil plus airflow, smell. The hardware offers no
+middle ground: a powered-on MSZ head always runs its fan (the floor is `quiet`), and a
+powered-off head closes its vanes. So the **Idle action** option (Configure → options)
+picks one of three parks:
 
 | Setting | A satisfied head... |
 | --- | --- |
@@ -389,6 +392,12 @@ reading instead of holding a stale number.
   speed, so the coordinator stopped driving the fan (the room's **Fan auto** switch reads
   OFF; `fan_hold` on the plan sensor agrees). Flip the switch back ON — or set the fan to
   `auto`. See [Who drives the fan](#who-drives-the-fan).
+- **Musty smell from an idle head?** That is `fan_only` airflow across a coil still wet
+  from cooling — not a refrigerant problem, and not the coordinator misbehaving. The
+  tell, from my own system: the smell stops while the head actively cools (cold coil,
+  valve open) and returns when it idles. Fix: set the idle action to **Off after a
+  coil-dry period** (Configure → options) so the coil dries and the fan then stops. See
+  [How a satisfied head idles](#how-a-satisfied-head-idles).
 
 ---
 
