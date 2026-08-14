@@ -58,7 +58,9 @@
           "fan_boost_max": "Fan boost maximum speed",
           "inhibit_entity": "Standby hold entity (optional — a grid-down/load-shed signal that parks the heads)",
           "inhibit_active_state": "Hold when the standby entity reads this state",
-          "inhibit_action": "What held heads do during a standby hold"
+          "inhibit_action": "What held heads do during a standby hold",
+          "idle_action": "How a satisfied room's head idles",
+          "coil_dry_minutes": "Coil-dry minutes (used only by 'Off after a coil-dry period')"
         },
         "data_description": {
           "demand_threshold": "How far off target a room must be before the whole system may SWITCH between heating and cooling. Bigger = fewer mode changes. Most homes are fine with the default.",
@@ -78,7 +80,9 @@
           "fan_boost_max": "The fastest fan speed the boost may use. Lower it if full blast is too loud for a bedroom.",
           "inhibit_entity": "Optional. Point this at a grid-status sensor, load-shed switch, or a 'vacation' boolean. While it's in the active state below, the coordinator parks its heads in a low-power hold and resumes normal coordination on its own when it clears — no automations needed. If this entity drops out (unavailable/unknown), the coordinator treats it as NOT held and keeps coordinating: a stuck sensor never parks the house.",
           "inhibit_active_state": "The state that means 'hold now' (default 'on'). Many grid sensors are inverted — they read 'off' when the grid is down — so set this to 'off' for those.",
-          "inhibit_action": "How held heads sit during a hold. 'Eco' keeps freeze/overheat protection only (very low draw, recommended); 'Off' is zero draw with no protection; 'Fan only' just circulates air."
+          "inhibit_action": "How held heads sit during a hold. 'Eco' keeps freeze/overheat protection only (very low draw, recommended); 'Off' is zero draw with no protection; 'Fan only' just circulates air.",
+          "idle_action": "'Fan only' (default) keeps air moving while a room is satisfied. 'Off' stops the fan and the head closes its vanes — no airflow over the wet coil, which is what carries the after-cooling smell. The refrigerant valve behaves the same either way. 'Off after a coil-dry period' runs the fan briefly after cooling so the coil is not sealed wet, then turns the head off.",
+          "coil_dry_minutes": "How long the fan runs after active cooling before the head turns off, so the coil dries instead of being sealed wet. Heating skips this — a heated coil is dry. Used only with 'Off after a coil-dry period'."
         }
       },
       "reconfigure": {
@@ -154,6 +158,8 @@
           "inhibit_entity": "Standby hold entity (optional — a grid-down/load-shed signal that parks the heads)",
           "inhibit_active_state": "Hold when the standby entity reads this state",
           "inhibit_action": "What held heads do during a standby hold",
+          "idle_action": "How a satisfied room's head idles",
+          "coil_dry_minutes": "Coil-dry minutes (used only by 'Off after a coil-dry period')",
           "primary_vane_vertical": "Primary vertical vane (auto-detected; override if needed)",
           "primary_vane_horizontal": "Primary horizontal vane (auto-detected; override if needed)",
           "primary_stage": "Primary airflow sensor (auto-detected; override if needed)",
@@ -198,6 +204,8 @@
           "inhibit_entity": "Optional. Point this at a grid-status sensor, load-shed switch, or a 'vacation' boolean. While it's in the active state below, the coordinator parks its heads in a low-power hold and resumes normal coordination on its own when it clears — no automations needed. If this entity drops out (unavailable/unknown), the coordinator treats it as NOT held and keeps coordinating: a stuck sensor never parks the house.",
           "inhibit_active_state": "The state that means 'hold now' (default 'on'). Many grid sensors are inverted — they read 'off' when the grid is down — so set this to 'off' for those.",
           "inhibit_action": "How held heads sit during a hold. 'Eco' keeps freeze/overheat protection only (very low draw, recommended); 'Off' is zero draw with no protection; 'Fan only' just circulates air.",
+          "idle_action": "'Fan only' (default) keeps air moving while a room is satisfied. 'Off' stops the fan and the head closes its vanes — no airflow over the wet coil, which is what carries the after-cooling smell. The refrigerant valve behaves the same either way. 'Off after a coil-dry period' runs the fan briefly after cooling so the coil is not sealed wet, then turns the head off.",
+          "coil_dry_minutes": "How long the fan runs after active cooling before the head turns off, so the coil dries instead of being sealed wet. Heating skips this — a heated coil is dry. Used only with 'Off after a coil-dry period'.",
           "primary_vane_vertical": "Auto-detected at setup — only change if the detection picked the wrong select entity.",
           "primary_vane_horizontal": "Auto-detected at setup — only change if the detection picked the wrong select entity.",
           "primary_stage": "Airflow sensor — reports the actual fan speed some firmwares expose (e.g. 'stage' on CN105/ESPHome heads); lets the thermostat show real airflow while the fan is in auto. Auto-detected at setup — only change if the detection picked the wrong sensor, or clear it if your head doesn't report airflow.",
@@ -239,6 +247,13 @@
         "off": "Off (zero draw, no protection)",
         "fan_only": "Fan only (circulate)",
         "eco": "Eco — protection only (recommended)"
+      }
+    },
+    "idle_action": {
+      "options": {
+        "fan_only": "Fan only — circulate (default)",
+        "off": "Off — fan stops, vanes close",
+        "off_after_dry": "Off after a coil-dry period"
       }
     }
   },

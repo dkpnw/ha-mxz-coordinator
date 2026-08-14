@@ -326,6 +326,26 @@ def test_head_action(engage_state, mode, eco, expected):
     assert logic.head_action(engage=engage_state, mode=mode, eco=eco) == expected
 
 
+# --- head action with a resolved idle mode (idle_action option) -----------------
+@pytest.mark.parametrize(
+    ("engage_state", "mode", "eco", "idle", "expected"),
+    [
+        (SAT, COOL, False, OFF, OFF),  # satisfied -> parks off
+        (HEAT, COOL, False, OFF, OFF),  # standoff loser -> parks off too
+        (COOL, COOL, False, OFF, COOL),  # running room is untouched
+        (OFF, COOL, False, OFF, OFF),  # disabled zone -> off (unchanged path)
+        (SAT, COOL, True, OFF, OFF),  # eco precedence still lands off
+        (SAT, COOL, False, FAN, FAN),  # explicit default = original behavior
+        (SAT, HEAT, False, OFF, OFF),  # heat season satisfied -> off as well
+    ],
+)
+def test_head_action_idle(engage_state, mode, eco, idle, expected):
+    assert (
+        logic.head_action(engage=engage_state, mode=mode, eco=eco, idle=idle)
+        == expected
+    )
+
+
 # --- fan boost: delta -> ladder INDEX (pure) -----------------------------------
 UP_AT = const.FAN_BOOST_UP_AT       # (1.0, 2.0, 3.0, 4.0)
 DOWN_AT = const.FAN_BOOST_DOWN_AT   # (0.5, 1.5, 2.5, 3.5)

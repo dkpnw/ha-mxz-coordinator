@@ -164,6 +164,28 @@ INHIBIT_ACTION_OPTIONS = (
 DEFAULT_INHIBIT_ACTION = INHIBIT_ACTION_ECO  # freeze-safe beats lowest-draw
 DEFAULT_INHIBIT_ACTIVE_STATE = "on"  # grid sensors are often inverted -> "off"
 
+# --- Idle action: how a non-running head parks ---------------------------------
+# A satisfied room (or a standoff loser parked by a shared-mode mismatch) idles
+# in fan_only by default. On a wet coil after cooling, that airflow carries the
+# coil smell into the room — "off" stops the fan and lets the head close its
+# vanes instead. NOTE: "off" is NOT a tighter refrigerant seal; MXZ outdoor
+# units bleed refrigerant through idle heads either way (oil return, and the
+# SW5-7/8 dip options) — the only thing this changes is airflow.
+# "off_after_dry" idles in fan_only for a coil-dry period after ACTIVE COOLING
+# (heat leaves no wet coil), then powers off — so the coil isn't sealed wet.
+CONF_IDLE_ACTION = "idle_action"
+IDLE_ACTION_FAN_ONLY = "fan_only"  # circulate (original behavior)
+IDLE_ACTION_OFF = "off"  # fan stops, vanes close
+IDLE_ACTION_OFF_AFTER_DRY = "off_after_dry"  # dry the coil first, then off
+IDLE_ACTION_OPTIONS = (
+    IDLE_ACTION_FAN_ONLY,
+    IDLE_ACTION_OFF,
+    IDLE_ACTION_OFF_AFTER_DRY,
+)
+DEFAULT_IDLE_ACTION = IDLE_ACTION_FAN_ONLY
+CONF_COIL_DRY_MINUTES = "coil_dry_minutes"
+DEFAULT_COIL_DRY_MINUTES = 10
+
 # Target setpoint number bounds (input_number hvac_*_target in the YAML)
 TARGET_MIN = 55
 TARGET_MAX = 85

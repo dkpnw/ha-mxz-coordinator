@@ -46,6 +46,7 @@ from .const import (
     CONF_CHANGEOVER_HEAT_ABOVE,
     CONF_CLAMP_MAX,
     CONF_CLAMP_MIN,
+    CONF_COIL_DRY_MINUTES,
     CONF_COOL_LOCKOUT_CEILING,
     CONF_DEMAND_THRESHOLD,
     CONF_ECO_COOL_MAX,
@@ -54,6 +55,7 @@ from .const import (
     CONF_FAN_BOOST_ENABLE,
     CONF_FAN_BOOST_MAX,
     CONF_HEAT_LOCKOUT_FLOOR,
+    CONF_IDLE_ACTION,
     CONF_INHIBIT_ACTION,
     CONF_INHIBIT_ACTIVE_STATE,
     CONF_INHIBIT_ENTITY,
@@ -71,12 +73,17 @@ from .const import (
     CONF_SECONDARY_VANE_HORIZONTAL,
     CONF_SECONDARY_VANE_VERTICAL,
     CONF_ZONES,
+    DEFAULT_COIL_DRY_MINUTES,
     DEFAULT_FAN_BOOST_ENABLE,
     DEFAULT_FAN_BOOST_MAX,
+    DEFAULT_IDLE_ACTION,
     DEFAULT_INHIBIT_ACTION,
     DEFAULT_INHIBIT_ACTIVE_STATE,
     DEFAULT_MODE_HYSTERESIS,
     DEFAULT_RESTING_MODE_BIAS,
+    IDLE_ACTION_FAN_ONLY,
+    IDLE_ACTION_OFF,
+    IDLE_ACTION_OFF_AFTER_DRY,
     DEMAND_NEUTRAL,
     DOMAIN,
     ENGAGE_SATISFIED,
@@ -303,6 +310,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             CONF_INHIBIT_ACTION, DEFAULT_INHIBIT_ACTION
         )
         self.inhibited: bool = False
+        # How a satisfied (or standoff-parked) head idles: fan_only (default),
+        # off, or off after a coil-dry fan run following active cooling. Airflow
+        # only — the refrigerant valve position is the same either way.
+        self.idle_action: str = conf.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION)
+        self.coil_dry_seconds: float = 60.0 * float(
+            conf.get(CONF_COIL_DRY_MINUTES, DEFAULT_COIL_DRY_MINUTES)
+        )
+        # Per-head memory of the last ACTIVE mode we commanded (mode, utc ts),
+        # re-stamped every apply cycle while running — so the timestamp reads
+        # as "when conditioning stopped". Drives the off_after_dry dwell.
+        self._last_active: dict[str, tuple[str, float]] = {}
+        self._dry_timers: dict[str, Any] = {}
         # Delta-proportional fan boost (overrides the firmware's weak "auto").
         self.fan_boost_enable: bool = bool(
             conf.get(CONF_FAN_BOOST_ENABLE, DEFAULT_FAN_BOOST_ENABLE)
@@ -425,6 +444,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for cancel in self._heal_timers.values():
             cancel()
         self._heal_timers.clear()
+        for cancel in self._dry_timers.values():
+            cancel()
+        self._dry_timers.clear()
 
     # -- decision (mirrors sensor.mxz_plan) ---------------------------------
     def _compute(self) -> dict[str, Any]:
@@ -532,6 +554,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "seconds_since_mode_change": int(elapsed),
                 "mode_change_allowed": allowed,
                 "inhibited": self.inhibited,
+                "idle_action": self.idle_action,
             }
         )
         return plan
@@ -578,7 +601,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for zone, engage in zip(self.zones, engages):
             if zone.climate_id in self._vane_kicks:
                 continue  # mid vane-kick: leave the head alone until it finishes
-            act = head_action(engage=engage, mode=state, eco=self._eco_active())
+            act = head_action(
+                engage=engage,
+                mode=state,
+                eco=self._eco_active(),
+                idle=self._idle_act_for(zone.climate_id),
+            )
             low, high = setpoints(
                 mode=state,
                 target=float(zone.target),
@@ -593,17 +621,42 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Per-zone isolation: one head rejecting a command degrades THAT
             # zone (logged), never the whole coordinator (#6).
             try:
+                delta = abs(plan[f"{zone.slug}_temp"] - float(zone.target))
+                if act in (MODE_COOL, MODE_HEAT):
+                    # Dwell memory: re-stamped every cycle while running, so
+                    # the timestamp reads "when conditioning stopped".
+                    self._last_active[zone.climate_id] = (
+                        act,
+                        dt_util.utcnow().timestamp(),
+                    )
+                if act != MODE_FAN_ONLY:
+                    self._cancel_dry_timer(zone.climate_id)
+                # Idle-off transition edge: hand the fan back to "auto" while
+                # the head is still awake, so it never rests on a boost ladder
+                # token (which a later restart would seed as a manual hold).
+                # Eco and zone-disable offs keep their original no-handback
+                # behavior; a latched (held) head gets no write either way.
+                cur = self.hass.states.get(zone.climate_id)
+                handback = (
+                    act == MODE_OFF
+                    and self.idle_action != IDLE_ACTION_FAN_ONLY
+                    and engage != MODE_OFF
+                    and not self._eco_active()
+                    and not self.inhibited
+                    and cur is not None
+                    and cur.state not in (MODE_OFF, *UNAVAILABLE_STATES)
+                )
+                if handback:
+                    await self._apply_fan(zone.climate_id, MODE_FAN_ONLY, delta)
                 await self._apply_head(zone.climate_id, act, low, high)
                 # No fan writes while held (the `eco` hold reaches here): the
                 # fan-boost/latch machinery stays frozen so standby residue
                 # can't be read as a manual hold on release — it is reseeded
                 # via _reseed_fan_after_standby on the release edge.
-                if not self.inhibited:
-                    await self._apply_fan(
-                        zone.climate_id,
-                        act,
-                        abs(plan[f"{zone.slug}_temp"] - float(zone.target)),
-                    )
+                if handback:
+                    self._fan_idx.pop(zone.climate_id, None)
+                elif not self.inhibited:
+                    await self._apply_fan(zone.climate_id, act, delta)
             except HomeAssistantError as err:
                 _LOGGER.error(
                     "MXZ: applying %s to %s failed (zone degraded, others continue): %s",
@@ -624,6 +677,102 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self.eco_idle or (
             self.inhibited and self.inhibit_action == INHIBIT_ACTION_ECO
         )
+
+    # -- idle action (fan_only / off / off_after_dry) -----------------------
+    def _idle_act_for(self, climate_id: str) -> str:
+        """The terminal parking mode (fan_only|off) for a non-running head now.
+
+        ``off_after_dry`` resolves per head: off immediately unless the head
+        was actively COOLING within the coil-dry window (a wet coil sealed
+        behind closed vanes is what grows the smell), in which case it dwells
+        in fan_only until the coil-dry clock runs out.
+        """
+        if self.idle_action == IDLE_ACTION_OFF:
+            return MODE_OFF
+        if self.idle_action == IDLE_ACTION_OFF_AFTER_DRY:
+            return self._resolve_dry_idle(climate_id)
+        return MODE_FAN_ONLY
+
+    def _resolve_dry_idle(self, climate_id: str) -> str:
+        """off_after_dry: fan_only while the post-cooling dry dwell runs, else off.
+
+        The dwell is a timestamp comparison — the recompute cycle is the clock,
+        so a restart can never strand a head in fan_only. The one-shot nudge
+        timer only makes the flip prompt (the 15-min heartbeat would otherwise
+        stretch a 10-min dwell).
+        """
+        rec = self._last_active.get(climate_id)
+        if rec is None:
+            rec = self._seed_last_active(climate_id)
+        if rec is None or rec[0] != MODE_COOL:
+            return MODE_OFF  # heat leaves no wet coil; never-ran owes no dwell
+        remaining = self.coil_dry_seconds - (
+            dt_util.utcnow().timestamp() - rec[1]
+        )
+        if remaining <= 0:
+            return MODE_OFF
+        self._arm_dry_timer(climate_id, remaining)
+        return MODE_FAN_ONLY
+
+    def _seed_last_active(self, climate_id: str) -> tuple[str, float] | None:
+        """Reconstruct dwell memory after a restart from the observed head.
+
+        A head observed still cooling was cooling until the restart; one
+        observed in fan_only may be mid-dwell. Both restart the full dwell
+        from now — erring a few minutes toward coil-dry, never stranding the
+        head (the stamped clock runs out regardless). off/heat/unavailable
+        owe nothing.
+        """
+        state = self.hass.states.get(climate_id)
+        mode = state.state if state is not None else None
+        if mode in (MODE_COOL, MODE_FAN_ONLY):
+            rec = (MODE_COOL, dt_util.utcnow().timestamp())
+            self._last_active[climate_id] = rec
+            return rec
+        return None
+
+    def _arm_dry_timer(self, climate_id: str, remaining: float) -> None:
+        """One-shot refresh nudge at dwell expiry (idempotent per head)."""
+        if climate_id in self._dry_timers:
+            return  # the stamped timestamp doesn't move while idle
+
+        @callback
+        def _fire(_now: Any) -> None:
+            self._dry_timers.pop(climate_id, None)
+            self.hass.async_create_task(self.async_request_refresh())
+
+        self._dry_timers[climate_id] = async_call_later(
+            self.hass, remaining + 1, _fire
+        )
+
+    def _cancel_dry_timer(self, climate_id: str) -> None:
+        cancel = self._dry_timers.pop(climate_id, None)
+        if cancel is not None:
+            cancel()
+
+    def _planned_act_for(self, entity_id: str) -> str | None:
+        """The act the LAST computed plan implies for this head, or None.
+
+        Lets the off-drift self-heal tell a plan-parked off head (idle_action
+        off, eco) from a genuine wall-remote off during an active call — the
+        former must not be "healed" back awake.
+        """
+        data = self.data or {}
+        state = data.get("state")
+        if state not in (MODE_COOL, MODE_HEAT):
+            return None
+        for zone in self.zones:
+            if zone.climate_id == entity_id:
+                engage = data.get(f"{zone.slug}_engage")
+                if engage not in (MODE_COOL, MODE_HEAT, ENGAGE_SATISFIED, MODE_OFF):
+                    return None
+                return head_action(
+                    engage=engage,
+                    mode=state,
+                    eco=self._eco_active(),
+                    idle=self._idle_act_for(entity_id),
+                )
+        return None
 
     async def _park_heads(self, mode: str) -> None:
         """Standby: drive every coordinated head to a fixed mode (off/fan_only).
@@ -1257,12 +1406,16 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             entity_id, "band", mode in BANNED_MODES, BAND_DRIFT_DELAY
         )
         # Never heal a head the standby hold parked off (nor a wall override
-        # mid-hold — a human turning a parked head on during an outage wins).
+        # mid-hold — a human turning a parked head on during an outage wins),
+        # and never heal a head the PLAN itself parked off (idle_action) — but
+        # a wall-remote off during an active call or a coil-dry dwell is still
+        # drift (the plan wants that head awake).
         off_drift = (
             mode == MODE_OFF
             and self._enable_for(entity_id)
             and not self.eco_idle
             and not self.inhibited
+            and self._planned_act_for(entity_id) != MODE_OFF
         )
         self._arm_or_cancel(entity_id, "off", off_drift, OFF_WHILE_ENABLED_DELAY)
 
@@ -1303,6 +1456,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 mode == MODE_OFF
                 and self._enable_for(entity_id)
                 and not self.eco_idle
+                and self._planned_act_for(entity_id) != MODE_OFF
             )
         if still and self.coordinator_enable and not self.inhibited:
             self.hass.async_create_task(self._heal_and_notify())

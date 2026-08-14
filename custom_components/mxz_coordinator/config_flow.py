@@ -22,6 +22,7 @@ from .const import (
     CONF_CHANGEOVER_HEAT_ABOVE,
     CONF_CLAMP_MAX,
     CONF_CLAMP_MIN,
+    CONF_COIL_DRY_MINUTES,
     CONF_COOL_LOCKOUT_CEILING,
     CONF_DEMAND_THRESHOLD,
     CONF_ECO_COOL_MAX,
@@ -30,6 +31,7 @@ from .const import (
     CONF_FAN_BOOST_ENABLE,
     CONF_FAN_BOOST_MAX,
     CONF_HEAT_LOCKOUT_FLOOR,
+    CONF_IDLE_ACTION,
     CONF_INHIBIT_ACTION,
     CONF_INHIBIT_ACTIVE_STATE,
     CONF_INHIBIT_ENTITY,
@@ -41,6 +43,7 @@ from .const import (
     DEFAULT_CHANGEOVER_HEAT_ABOVE,
     DEFAULT_CLAMP_MAX,
     DEFAULT_CLAMP_MIN,
+    DEFAULT_COIL_DRY_MINUTES,
     DEFAULT_COOL_LOCKOUT_CEILING,
     DEFAULT_DEMAND_THRESHOLD,
     DEFAULT_ECO_COOL_MAX,
@@ -49,12 +52,14 @@ from .const import (
     DEFAULT_FAN_BOOST_ENABLE,
     DEFAULT_FAN_BOOST_MAX,
     DEFAULT_HEAT_LOCKOUT_FLOOR,
+    DEFAULT_IDLE_ACTION,
     DEFAULT_INHIBIT_ACTION,
     DEFAULT_INHIBIT_ACTIVE_STATE,
     DEFAULT_MODE_HYSTERESIS,
     DEFAULT_RESTING_MODE_BIAS,
     DOMAIN,
     FAN_LADDER,
+    IDLE_ACTION_OPTIONS,
     INHIBIT_ACTION_OPTIONS,
     MAX_ZONES,
     MIN_ZONES,
@@ -346,6 +351,20 @@ def _tunables_schema(
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
+            vol.Optional(
+                CONF_IDLE_ACTION,
+                default=eff.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(IDLE_ACTION_OPTIONS),
+                    translation_key="idle_action",
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                CONF_COIL_DRY_MINUTES,
+                default=eff.get(CONF_COIL_DRY_MINUTES, DEFAULT_COIL_DRY_MINUTES),
+            ): _num(),
             vol.Optional(
                 CONF_FAN_BOOST_ENABLE,
                 default=eff.get(

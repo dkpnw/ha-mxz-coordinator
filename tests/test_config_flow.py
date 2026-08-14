@@ -24,6 +24,7 @@ from custom_components.mxz_coordinator.config_flow import (  # noqa: E402
 from custom_components.mxz_coordinator.const import (  # noqa: E402
     CONF_CHANGEOVER_ENTITY,
     CONF_DEMAND_THRESHOLD,
+    CONF_IDLE_ACTION,
     CONF_INHIBIT_ENTITY,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
@@ -206,6 +207,19 @@ async def test_options_flow_round_trips(hass: HomeAssistant) -> None:
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_DEMAND_THRESHOLD] == 4.0
+
+
+async def test_options_flow_round_trips_idle_action(hass: HomeAssistant) -> None:
+    """The idle_action select saves and reads back through the options flow."""
+    entry = MockConfigEntry(domain=DOMAIN, data=_VALID, title="MXZ Coordinator")
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_IDLE_ACTION: "off_after_dry"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_IDLE_ACTION] == "off_after_dry"
 
 
 async def test_options_flow_merges_and_mirrors_to_data(hass: HomeAssistant) -> None:

@@ -233,12 +233,17 @@ def fan_for_delta(
     return min(cur_idx, max_idx)
 
 
-def head_action(*, engage: str, mode: str, eco: bool) -> str:
-    """Map a head's engage state to the mode to command. Mirrors p_act/s_act."""
+def head_action(*, engage: str, mode: str, eco: bool, idle: str = MODE_FAN_ONLY) -> str:
+    """Map a head's engage state to the mode to command. Mirrors p_act/s_act.
+
+    ``idle`` is the pre-resolved parking mode (fan_only or off) for a head that
+    is neither disabled nor running — satisfied rooms and standoff losers both
+    land there. Precedence: disabled > eco-satisfied > running > idle.
+    """
     if engage == MODE_OFF:
         return MODE_OFF
     if eco and engage == ENGAGE_SATISFIED:
         return MODE_OFF
     if engage == mode:
         return mode
-    return MODE_FAN_ONLY
+    return idle
