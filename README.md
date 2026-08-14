@@ -253,11 +253,11 @@ its fan (the floor is `quiet`), and a powered-off head closes its vanes. So the
 
 Facts to know before you switch:
 
-- **The refrigerant valve position is the same in all three.** An `off` head on an MXZ
-  outdoor unit still receives a small refrigerant bleed (Mitsubishi documents this as
-  normal — it is how the system returns oil). The option changes airflow, not
-  refrigerant. If a room warms while parked off in heating season, that bleed is why —
-  same as it would in `fan_only`.
+- **`off` is not a tighter refrigerant seal.** The head's valve closes the same way in
+  all three parks. An MXZ outdoor unit still bleeds a little refrigerant through a
+  closed idle head (Mitsubishi documents this as normal — it is how the system returns
+  oil). The option changes airflow, not refrigerant. If a room warms while parked off
+  in heating season, that bleed is why — the same as in `fan_only`.
 - **The room's thermostat tile still reads *Idle*, not *Off*.** The room is enabled and
   coordinated; only the head is parked. It wakes the moment the room drifts past its
   re-engage band.

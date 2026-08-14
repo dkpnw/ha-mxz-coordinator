@@ -232,5 +232,6 @@ way. See the README's "How a satisfied head idles".
 - The coil-dry dwell is a timestamp comparison re-derived on every recompute, so a
   restart mid-dwell restarts the dwell — it can never strand a head in `fan_only`. A
   head observed `off` at startup owes no dwell.
-- Eco/away and the standby hold are unchanged and take precedence as before.
+- Eco/away and the standby hold are unchanged and take precedence as before — an
+  eco-satisfied head parks off at once, with no coil-dry dwell.
 - The plan sensor gains a top-level `idle_action` attribute.
