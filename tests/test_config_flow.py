@@ -7,21 +7,20 @@ import pytest
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-from homeassistant import config_entries  # noqa: E402
-from homeassistant.core import HomeAssistant  # noqa: E402
-from homeassistant.data_entry_flow import FlowResultType  # noqa: E402
-from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM  # noqa: E402
-from pytest_homeassistant_custom_component.common import MockConfigEntry  # noqa: E402
+from homeassistant import config_entries
+from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from homeassistant.helpers import device_registry as dr  # noqa: E402
-from homeassistant.helpers import entity_registry as er  # noqa: E402
-
-from custom_components.mxz_coordinator.config_flow import (  # noqa: E402
+from custom_components.mxz_coordinator.config_flow import (
     MXZOptionsFlow,
     _detect_stage,
     _detect_vanes,
 )
-from custom_components.mxz_coordinator.const import (  # noqa: E402
+from custom_components.mxz_coordinator.const import (
     CONF_CHANGEOVER_ENTITY,
     CONF_DEMAND_THRESHOLD,
     CONF_IDLE_ACTION,

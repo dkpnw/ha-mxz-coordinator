@@ -7,11 +7,11 @@ import pytest
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-from homeassistant.core import HomeAssistant  # noqa: E402
-from homeassistant.helpers import device_registry as dr  # noqa: E402
-from pytest_homeassistant_custom_component.common import MockConfigEntry  # noqa: E402
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.mxz_coordinator.const import (  # noqa: E402
+from custom_components.mxz_coordinator.const import (
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
     CONF_SECONDARY_CLIMATE,
@@ -74,8 +74,12 @@ async def test_kill_switch_blocks_writes(hass: HomeAssistant) -> None:
 async def test_device_carries_docs_link(hass: HomeAssistant) -> None:
     """The service device links to the docs (incl. Removing) via its Visit button."""
     entry = await _setup(hass)
-    device = dr.async_get(hass).async_get_device({(DOMAIN, entry.entry_id)})
-    assert device is not None
+    # Look the device up through its config entry: the identifier-set lookup
+    # (async_get_device) is deprecated and raises in observed HA 2026.9.0.
+    devices = dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
+    assert len(devices) == 1
+    device = devices[0]
+    assert (DOMAIN, entry.entry_id) in device.identifiers
     assert (
         device.configuration_url
         == "https://github.com/dkpnw/ha-mxz-coordinator#removing"

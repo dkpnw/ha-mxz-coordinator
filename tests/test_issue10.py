@@ -15,12 +15,12 @@ import pytest
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-from homeassistant.const import UnitOfTemperature  # noqa: E402
-from homeassistant.core import HomeAssistant, State  # noqa: E402
-from homeassistant.setup import async_setup_component  # noqa: E402
-from homeassistant.util.unit_conversion import TemperatureConverter  # noqa: E402
-from homeassistant.util.unit_system import METRIC_SYSTEM  # noqa: E402
-from pytest_homeassistant_custom_component.common import (  # noqa: E402
+from homeassistant.const import UnitOfTemperature
+from homeassistant.core import HomeAssistant, State
+from homeassistant.setup import async_setup_component
+from homeassistant.util.unit_conversion import TemperatureConverter
+from homeassistant.util.unit_system import METRIC_SYSTEM
+from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     MockModule,
     MockPlatform,
@@ -29,7 +29,7 @@ from pytest_homeassistant_custom_component.common import (  # noqa: E402
     mock_restore_cache_with_extra_data,
 )
 
-from custom_components.mxz_coordinator.const import (  # noqa: E402
+from custom_components.mxz_coordinator.const import (
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
     CONF_SECONDARY_CLIMATE,
@@ -38,9 +38,9 @@ from custom_components.mxz_coordinator.const import (  # noqa: E402
     DOMAIN,
 )
 
-from .test_drive import MockHeadC  # noqa: E402
-from .test_issue7 import TARGET_EID, _platform, _zones  # noqa: E402
-from .test_single_setpoint import (  # noqa: E402
+from .test_drive import MockHeadC
+from .test_issue7 import TARGET_EID, _platform, _zones
+from .test_single_setpoint import (
     MockSingleSetpointHead,
     _eid,
     _enable,
@@ -186,7 +186,7 @@ async def test_safe_band_round_trips_at_float_boundary(hass: HomeAssistant) -> N
     heads = [FractionalFahrenheitHead("a"), FractionalFahrenheitHead("b")]
     hass.config.units = METRIC_SYSTEM
 
-    async def _climate(hass, config, async_add_entities, discovery_info=None):  # noqa: ANN001
+    async def _climate(hass, config, async_add_entities, discovery_info=None):
         async_add_entities(heads)
 
     mock_integration(hass, MockModule("test"))

@@ -7,10 +7,10 @@ import pytest
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-from homeassistant.core import HomeAssistant  # noqa: E402
-from homeassistant.setup import async_setup_component  # noqa: E402
-from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM  # noqa: E402
-from pytest_homeassistant_custom_component.common import (  # noqa: E402
+from homeassistant.core import HomeAssistant
+from homeassistant.setup import async_setup_component
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     MockModule,
     MockPlatform,
@@ -18,7 +18,7 @@ from pytest_homeassistant_custom_component.common import (  # noqa: E402
     mock_platform,
 )
 
-from custom_components.mxz_coordinator.const import (  # noqa: E402
+from custom_components.mxz_coordinator.const import (
     CONF_CHANGEOVER_ENTITY,
     CONF_DEMAND_THRESHOLD,
     CONF_MODE_HYSTERESIS,
@@ -42,7 +42,7 @@ from custom_components.mxz_coordinator.const import (  # noqa: E402
     ZONE_VANE_VERTICAL,
 )
 
-from .test_drive import MockHead, _eid, _set_temp  # noqa: E402
+from .test_drive import MockHead, _eid, _set_temp
 
 
 async def test_v1_entry_migrates_to_zones(hass: HomeAssistant) -> None:
@@ -50,7 +50,7 @@ async def test_v1_entry_migrates_to_zones(hass: HomeAssistant) -> None:
     hass.config.units = US_CUSTOMARY_SYSTEM
     heads = [MockHead("a"), MockHead("b")]
 
-    async def _setup_platform(hass, config, async_add_entities, discovery_info=None):  # noqa: ANN001
+    async def _setup_platform(hass, config, async_add_entities, discovery_info=None):
         async_add_entities(heads)
 
     mock_integration(hass, MockModule("test"))
@@ -100,7 +100,7 @@ async def test_v2200_shaped_entry_migrates_intact(hass: HomeAssistant) -> None:
     hass.config.units = US_CUSTOMARY_SYSTEM
     heads = [MockHead("a"), MockHead("b")]
 
-    async def _setup_platform(hass, config, async_add_entities, discovery_info=None):  # noqa: ANN001
+    async def _setup_platform(hass, config, async_add_entities, discovery_info=None):
         async_add_entities(heads)
 
     mock_integration(hass, MockModule("test"))
@@ -175,7 +175,7 @@ async def test_six_zone_drive(hass: HomeAssistant) -> None:
     heads = [MockHead(chr(ord("a") + i)) for i in range(6)]
     sensors = [f"sensor.zone_{i}_temp" for i in range(6)]
 
-    async def _setup_platform(hass, config, async_add_entities, discovery_info=None):  # noqa: ANN001
+    async def _setup_platform(hass, config, async_add_entities, discovery_info=None):
         async_add_entities(heads)
 
     mock_integration(hass, MockModule("test"))
@@ -264,7 +264,7 @@ async def test_every_zone_is_named_after_itself(hass: HomeAssistant) -> None:
     heads = [MockHead("a"), MockHead("b"), MockHead("c")]
     names = ["Bedroom", "Rec room", "Snug"]
 
-    async def _setup_platform(hass, config, async_add_entities, discovery_info=None):  # noqa: ANN001
+    async def _setup_platform(hass, config, async_add_entities, discovery_info=None):
         async_add_entities(heads)
 
     mock_integration(hass, MockModule("test"))

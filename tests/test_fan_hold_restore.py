@@ -18,14 +18,14 @@ import pytest
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-from homeassistant.core import HomeAssistant  # noqa: E402
-from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM  # noqa: E402
+from homeassistant.core import HomeAssistant
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
-from custom_components.mxz_coordinator.const import (  # noqa: E402
+from custom_components.mxz_coordinator.const import (
     FAN_LADDER,
     INHIBIT_ACTION_OFF,
 )
-from tests.test_drive import (  # noqa: E402
+from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
     _eid,

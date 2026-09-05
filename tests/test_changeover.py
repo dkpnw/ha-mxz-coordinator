@@ -10,29 +10,29 @@ Requires pytest-homeassistant-custom-component (Python 3.12+).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-from homeassistant.components.climate import (  # noqa: E402
+from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
     HVACMode,
 )
-from homeassistant.components.weather import (  # noqa: E402
+from homeassistant.components.weather import (
     Forecast,
     WeatherEntity,
     WeatherEntityFeature,
 )
-from homeassistant.const import UnitOfTemperature  # noqa: E402
-from homeassistant.core import HomeAssistant  # noqa: E402
-from homeassistant.helpers import entity_registry as er  # noqa: E402
-from homeassistant.setup import async_setup_component  # noqa: E402
-from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM  # noqa: E402
-from pytest_homeassistant_custom_component.common import (  # noqa: E402
+from homeassistant.const import UnitOfTemperature
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from homeassistant.setup import async_setup_component
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     MockModule,
     MockPlatform,
@@ -40,7 +40,7 @@ from pytest_homeassistant_custom_component.common import (  # noqa: E402
     mock_platform,
 )
 
-from custom_components.mxz_coordinator.const import (  # noqa: E402
+from custom_components.mxz_coordinator.const import (
     CONF_CHANGEOVER_ENTITY,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
@@ -59,7 +59,7 @@ class MockHead(ClimateEntity):
     _attr_should_poll = False
     _attr_has_entity_name = False
     _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
-    _attr_hvac_modes = [HVACMode.OFF, HVACMode.COOL, HVACMode.HEAT, HVACMode.FAN_ONLY]
+    _attr_hvac_modes: ClassVar[list[HVACMode]] = [HVACMode.OFF, HVACMode.COOL, HVACMode.HEAT, HVACMode.FAN_ONLY]
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
         | ClimateEntityFeature.TURN_ON
@@ -114,7 +114,7 @@ class MockWeather(WeatherEntity):
 async def _setup_mock_heads(hass: HomeAssistant) -> tuple[str, str]:
     heads = [MockHead("a"), MockHead("b")]
 
-    async def _setup_platform(hass, config, async_add_entities, discovery_info=None):  # noqa: ANN001
+    async def _setup_platform(hass, config, async_add_entities, discovery_info=None):
         async_add_entities(heads)
 
     mock_integration(hass, MockModule("test"))
@@ -129,7 +129,7 @@ async def _setup_mock_heads(hass: HomeAssistant) -> tuple[str, str]:
 async def _setup_mock_weather(hass: HomeAssistant) -> MockWeather:
     weather = MockWeather()
 
-    async def _setup_platform(hass, config, async_add_entities, discovery_info=None):  # noqa: ANN001
+    async def _setup_platform(hass, config, async_add_entities, discovery_info=None):
         async_add_entities([weather])
 
     mock_platform(

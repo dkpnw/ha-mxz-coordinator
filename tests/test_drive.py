@@ -7,27 +7,27 @@ Requires pytest-homeassistant-custom-component (Python 3.12+).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-from homeassistant.components.climate import (  # noqa: E402
+from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
     HVACMode,
 )
-from homeassistant.const import EVENT_CALL_SERVICE, UnitOfTemperature  # noqa: E402
-from homeassistant.core import HomeAssistant, callback  # noqa: E402
-from homeassistant.helpers import entity_registry as er  # noqa: E402
-from homeassistant.setup import async_setup_component  # noqa: E402
-from homeassistant.util.unit_system import (  # noqa: E402
+from homeassistant.const import EVENT_CALL_SERVICE, UnitOfTemperature
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
+from homeassistant.setup import async_setup_component
+from homeassistant.util.unit_system import (
     METRIC_SYSTEM,
     US_CUSTOMARY_SYSTEM,
 )
-from pytest_homeassistant_custom_component.common import (  # noqa: E402
+from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     MockModule,
     MockPlatform,
@@ -35,7 +35,7 @@ from pytest_homeassistant_custom_component.common import (  # noqa: E402
     mock_platform,
 )
 
-from custom_components.mxz_coordinator.const import (  # noqa: E402
+from custom_components.mxz_coordinator.const import (
     CONF_ENGAGE_DEADBAND,
     CONF_FAN_BOOST_ENABLE,
     CONF_FAN_BOOST_MAX,
@@ -64,9 +64,9 @@ class MockHead(ClimateEntity):
     _attr_should_poll = False
     _attr_has_entity_name = False
     _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
-    _attr_hvac_modes = [HVACMode.OFF, HVACMode.COOL, HVACMode.HEAT, HVACMode.FAN_ONLY]
+    _attr_hvac_modes: ClassVar[list[HVACMode]] = [HVACMode.OFF, HVACMode.COOL, HVACMode.HEAT, HVACMode.FAN_ONLY]
     # RAW/unsorted order, as reported by the real head (includes "middle" and "high").
-    _attr_fan_modes = ["auto", "low", "medium", "middle", "high", "quiet"]
+    _attr_fan_modes: ClassVar[list[str]] = ["auto", "low", "medium", "middle", "high", "quiet"]
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
         | ClimateEntityFeature.FAN_MODE
@@ -114,7 +114,7 @@ async def _setup_mock_heads(
     heads = [cls("a"), cls("b")]
 
     async def _async_setup_platform(
-        hass, config, async_add_entities, discovery_info=None  # noqa: ANN001
+        hass, config, async_add_entities, discovery_info=None
     ):
         async_add_entities(heads)
 
@@ -235,14 +235,16 @@ async def test_coordinator_drives_heads(hass: HomeAssistant) -> None:
     )
     await hass.async_block_till_done()
     # Force a head off-band; with the kill-switch OFF the coordinator must not touch it.
+    # Use a mode the mock head advertises: HA >= 2025.4 rejects unsupported modes
+    # in the set_hvac_mode service instead of warning.
     await hass.services.async_call(
         "climate", "set_hvac_mode",
-        {"entity_id": head_a, "hvac_mode": "heat_cool"}, blocking=True
+        {"entity_id": head_a, "hvac_mode": "heat"}, blocking=True
     )
     await _set_temp(hass, SENSOR_A, 80)  # would normally trigger a cool command
     await _recompute(hass, entry)
-    assert hass.states.get(head_a).state == "heat_cool"  # untouched while disabled
-    print("S4 (kill-switch off) primary stayed heat_cool -> coordinator did not write")
+    assert hass.states.get(head_a).state == "heat"  # untouched while disabled
+    print("S4 (kill-switch off) primary stayed heat -> coordinator did not write")
 
 
 async def test_heat_lockout_suppresses_then_floors(hass: HomeAssistant) -> None:
@@ -588,7 +590,7 @@ async def test_manual_fan_latch_inert_without_auto_token(
     hass.config.units = US_CUSTOMARY_SYSTEM
 
     class NoAutoHead(MockHead):
-        _attr_fan_modes = ["low", "medium", "high"]  # no "auto"
+        _attr_fan_modes: ClassVar[list[str]] = ["low", "medium", "high"]  # no "auto"
 
         def __init__(self, suffix: str) -> None:
             super().__init__(suffix)
@@ -1220,7 +1222,7 @@ async def test_seed_adopt_never_false_positives_on_a_partial_ladder(
 
     class GappyHead(MockHead):
         # No "middle": the ladder's pick at a 3° delta is a token this head lacks.
-        _attr_fan_modes = ["auto", "quiet", "low", "medium", "high"]
+        _attr_fan_modes: ClassVar[list[str]] = ["auto", "quiet", "low", "medium", "high"]
 
     head_a, head_b = await _setup_mock_heads(hass, cls=GappyHead)
     await _set_temp(hass, SENSOR_A, 70)
@@ -1910,7 +1912,7 @@ async def test_inhibit_eco_hold_freezes_fan(hass: HomeAssistant) -> None:
     the boost/latch machinery stays frozen so standby residue can't accumulate
     (it reconciles on release via the reseed)."""
     hass.config.units = US_CUSTOMARY_SYSTEM
-    entry, head_a, head_b = await _setup_inhibit(hass, INHIBIT_ACTION_ECO)
+    entry, head_a, _b = await _setup_inhibit(hass, INHIBIT_ACTION_ECO)
     await _set_hold(hass, "on")
     await _set_temp(hass, SENSOR_A, 45)  # far past the 50 eco heat extreme
     await _recompute(hass, entry)
@@ -1924,7 +1926,7 @@ async def test_inhibit_unavailable_fails_safe(hass: HomeAssistant) -> None:
     """A watched entity that drops out reads as NOT held: fail toward normal
     coordination. A stuck/dropped sensor must never park the house."""
     hass.config.units = US_CUSTOMARY_SYSTEM
-    entry, head_a, head_b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
+    entry, head_a, _b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
     await _set_temp(hass, SENSOR_A, 76)
     await _set_hold(hass, "on")
     await _recompute(hass, entry)
@@ -1940,7 +1942,7 @@ async def test_inhibit_inverted_active_state(hass: HomeAssistant) -> None:
     """A grid sensor that reads 'off' when down: inhibit_active_state='off'
     holds on 'off' and runs on 'on'."""
     hass.config.units = US_CUSTOMARY_SYSTEM
-    entry, head_a, head_b = await _setup_inhibit(
+    entry, head_a, _b = await _setup_inhibit(
         hass, INHIBIT_ACTION_OFF, active_state="off"
     )
     await _set_temp(hass, SENSOR_A, 76)
@@ -1958,7 +1960,7 @@ async def test_inhibit_stands_down_off_heal(hass: HomeAssistant) -> None:
     a head the hold parked is not drift. The head is actively cooling first so
     the park is a real running->off transition (the drift listener's trigger)."""
     hass.config.units = US_CUSTOMARY_SYSTEM
-    entry, head_a, head_b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
+    entry, head_a, _b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
     await _set_temp(hass, SENSOR_A, 76)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "cool"  # running pre-hold
@@ -1994,9 +1996,9 @@ async def test_inhibit_active_at_startup_parks_immediately(hass: HomeAssistant) 
 async def test_inhibit_suppresses_vane_kick(hass: HomeAssistant) -> None:
     """A vane change during a hold does not wake a parked head (no kick)."""
     hass.config.units = US_CUSTOMARY_SYSTEM
-    entry, head_a, head_b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
+    entry, head_a, _b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
 
-    async def _noop(call: Any) -> None:  # noqa: ANN001
+    async def _noop(call: Any) -> None:
         return None
 
     hass.services.async_register("select", "select_option", _noop)

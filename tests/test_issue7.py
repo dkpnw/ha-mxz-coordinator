@@ -9,14 +9,14 @@ import pytest
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-from homeassistant import config_entries  # noqa: E402
-from homeassistant.core import HomeAssistant, State  # noqa: E402
-from homeassistant.data_entry_flow import FlowResultType  # noqa: E402
-from homeassistant.helpers import entity_registry as er  # noqa: E402
-from homeassistant.setup import async_setup_component  # noqa: E402
-from homeassistant.util import dt as dt_util  # noqa: E402
-from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM  # noqa: E402
-from pytest_homeassistant_custom_component.common import (  # noqa: E402
+from homeassistant import config_entries
+from homeassistant.core import HomeAssistant, State
+from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import entity_registry as er
+from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     MockModule,
     MockPlatform,
@@ -26,7 +26,7 @@ from pytest_homeassistant_custom_component.common import (  # noqa: E402
     mock_restore_cache_with_extra_data,
 )
 
-from custom_components.mxz_coordinator.const import (  # noqa: E402
+from custom_components.mxz_coordinator.const import (
     CONF_NOTIFY_SERVICE,
     CONF_ZONES,
     DOMAIN,
@@ -35,8 +35,8 @@ from custom_components.mxz_coordinator.const import (  # noqa: E402
     ZONE_SENSOR,
 )
 
-from .test_drive import _set_temp  # noqa: E402
-from .test_single_setpoint import MockSingleSetpointHead  # noqa: E402
+from .test_drive import _set_temp
+from .test_single_setpoint import MockSingleSetpointHead
 
 # Restore states must be seeded BEFORE setup, so this is the entity_id HA will
 # generate: zone entities are named after the zone ("Zone 1" -> _zone_1_target),
@@ -59,7 +59,7 @@ def _zones(heads) -> list[dict]:
 async def _platform(hass: HomeAssistant, heads: list) -> None:
     hass.config.units = US_CUSTOMARY_SYSTEM
 
-    async def _climate(hass, config, async_add_entities, discovery_info=None):  # noqa: ANN001
+    async def _climate(hass, config, async_add_entities, discovery_info=None):
         async_add_entities(heads)
 
     mock_integration(hass, MockModule("test"))

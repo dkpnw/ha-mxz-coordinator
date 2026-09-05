@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-from homeassistant.components.climate import ClimateEntityFeature  # noqa: E402
-from homeassistant.core import HomeAssistant  # noqa: E402
-from homeassistant.exceptions import ServiceValidationError  # noqa: E402
-from homeassistant.setup import async_setup_component  # noqa: E402
-from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM  # noqa: E402
-from pytest_homeassistant_custom_component.common import (  # noqa: E402
+from homeassistant.components.climate import ClimateEntityFeature
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.setup import async_setup_component
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     MockModule,
     MockPlatform,
@@ -22,7 +22,7 @@ from pytest_homeassistant_custom_component.common import (  # noqa: E402
     mock_platform,
 )
 
-from custom_components.mxz_coordinator.const import (  # noqa: E402
+from custom_components.mxz_coordinator.const import (
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
     CONF_SECONDARY_CLIMATE,
@@ -30,7 +30,7 @@ from custom_components.mxz_coordinator.const import (  # noqa: E402
     DOMAIN,
 )
 
-from .test_drive import MockHead, _eid, _set_temp  # noqa: E402
+from .test_drive import MockHead, _eid, _set_temp
 
 
 class MockSingleSetpointHead(MockHead):
@@ -48,7 +48,7 @@ class MockSingleSetpointHead(MockHead):
         | ClimateEntityFeature.TURN_ON
         | ClimateEntityFeature.TURN_OFF
     )
-    _attr_swing_modes = ["auto"]
+    _attr_swing_modes: ClassVar[list[str]] = ["auto"]
 
     def __init__(self, suffix: str) -> None:
         super().__init__(suffix)
@@ -70,7 +70,7 @@ class MockSingleSetpointHead(MockHead):
 async def _setup(hass: HomeAssistant, heads: list) -> MockConfigEntry:
     hass.config.units = US_CUSTOMARY_SYSTEM
 
-    async def _climate(hass, config, async_add_entities, discovery_info=None):  # noqa: ANN001
+    async def _climate(hass, config, async_add_entities, discovery_info=None):
         async_add_entities(heads)
 
     mock_integration(hass, MockModule("test"))
