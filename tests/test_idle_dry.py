@@ -15,23 +15,23 @@ import pytest
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-from homeassistant.core import HomeAssistant  # noqa: E402
-from homeassistant.util import dt as dt_util  # noqa: E402
-from pytest_homeassistant_custom_component.common import (  # noqa: E402
+from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from custom_components.mxz_coordinator.const import (  # noqa: E402
+from custom_components.mxz_coordinator.const import (
     IDLE_ACTION_OFF_AFTER_DRY,
     MODE_COOL,
 )
-from tests.test_drive import (  # noqa: E402
+from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
     _recompute,
     _set_temp,
 )
-from tests.test_idle_action import _setup_idle  # noqa: E402
+from tests.test_idle_action import _setup_idle
 
 
 async def _setup_dry(hass: HomeAssistant):
@@ -189,6 +189,9 @@ async def test_mode_flip_cool_then_heat_owes_no_dwell(hass: HomeAssistant) -> No
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "cool"
     await _set_temp(hass, SENSOR_A, 60)
+    # A direction flip disengages the room for one cycle (no whiplash): the
+    # head parks for that cycle and engages heat on the next compute.
+    await _recompute(hass, entry)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "heat"
 

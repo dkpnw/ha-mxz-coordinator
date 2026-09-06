@@ -390,7 +390,7 @@ def test_fan_max_idx_clamp():
 @pytest.mark.parametrize("cur", [0])
 def test_fan_monotonic_non_decreasing_in_delta(cur):
     prev = -1
-    for tenths in range(0, 61):  # delta 0.0 .. 6.0
+    for tenths in range(61):  # delta 0.0 .. 6.0
         idx = fan(tenths / 10.0, cur)
         assert idx >= prev
         prev = idx

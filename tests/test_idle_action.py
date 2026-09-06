@@ -17,13 +17,13 @@ import pytest
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-from homeassistant.core import HomeAssistant, callback  # noqa: E402
-from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM  # noqa: E402
-from pytest_homeassistant_custom_component.common import (  # noqa: E402
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
 )
 
-from custom_components.mxz_coordinator.const import (  # noqa: E402
+from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
     CONF_IDLE_ACTION,
     CONF_MODE_HYSTERESIS,
@@ -34,7 +34,7 @@ from custom_components.mxz_coordinator.const import (  # noqa: E402
     DOMAIN,
     IDLE_ACTION_OFF,
 )
-from tests.test_drive import (  # noqa: E402
+from tests.test_drive import (
     EVENT_CALL_SERVICE,
     SENSOR_A,
     SENSOR_B,
@@ -44,7 +44,7 @@ from tests.test_drive import (  # noqa: E402
     _setup_mock_heads,
     _user_set_fan,
 )
-from tests.test_fan_hold_restore import _restart  # noqa: E402
+from tests.test_fan_hold_restore import _restart
 
 
 async def _setup_idle(
@@ -106,7 +106,7 @@ async def test_idle_off_satisfied_parks_off_after_auto_handback(
     hass: HomeAssistant,
 ) -> None:
     """Satisfied -> fan handed back to auto FIRST (head still awake), then off."""
-    entry, head_a, head_b = await _setup_idle(hass)
+    entry, head_a, _b = await _setup_idle(hass)
 
     # Drive the primary so the boost holds a non-auto ladder token.
     await _set_temp(hass, SENSOR_A, 75)
@@ -251,7 +251,7 @@ async def test_vane_change_on_idle_off_head_kicks_and_returns_off(
     coord._vane_kick_spinup = 0
     coord._vane_kick_apply = 0
 
-    async def _noop(call: Any) -> None:  # noqa: ANN001
+    async def _noop(call: Any) -> None:
         return None
 
     hass.services.async_register("select", "select_option", _noop)
@@ -273,7 +273,7 @@ async def test_vane_change_on_idle_off_head_kicks_and_returns_off(
 
 async def test_facade_reads_idle_while_parked_off(hass: HomeAssistant) -> None:
     """The room thermostat tile shows IDLE (not OFF) for an idle-off room."""
-    entry, head_a, _b = await _setup_idle(hass)
+    entry, _a, _b = await _setup_idle(hass)
     await _set_temp(hass, SENSOR_A, 70)
     await _recompute(hass, entry)
     tile = hass.states.get(_eid(hass, entry, "_primary_thermostat"))

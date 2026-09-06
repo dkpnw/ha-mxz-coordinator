@@ -6,10 +6,10 @@ import pytest
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-from homeassistant.core import HomeAssistant  # noqa: E402
-from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM  # noqa: E402
+from homeassistant.core import HomeAssistant
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
-from tests.test_drive import (  # noqa: E402
+from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
     _eid,
@@ -48,7 +48,7 @@ async def test_default_drift_matches_global_and_tracks_it(
     hass: HomeAssistant,
 ) -> None:
     """Untouched room: drift == the global engage_deadband, live, not a copy."""
-    head_a, _b, entry = await _setup(hass)
+    _a, _b, entry = await _setup(hass)
     coord = entry.runtime_data
     await _recompute(hass, entry)
     assert _zone0(hass, entry)["drift"] == coord.engage_deadband
@@ -62,7 +62,7 @@ async def test_widened_room_coasts_where_default_would_engage(
     hass: HomeAssistant,
 ) -> None:
     """Drift 4: a room 3° past target coasts; at default 1 it would re-engage."""
-    head_a, _b, entry = await _setup(hass)
+    _a, _b, entry = await _setup(hass)
     await _recompute(hass, entry)
     assert _zone0(hass, entry)["engage"] == "satisfied"  # at target, coasting
 
@@ -86,7 +86,7 @@ async def test_demand_respects_the_rooms_own_drift(hass: HomeAssistant) -> None:
     global demand threshold (3) but inside its own tolerance. The shared mode
     must follow the room that actually wants service.
     """
-    head_a, head_b, entry = await _setup(hass)
+    _a, _b, entry = await _setup(hass)
     await _set_drift(hass, entry, 4.0)
     await _set_temp(hass, SENSOR_A, 65.5)  # 3.5° past cool target: in-band
     # Secondary: target 62 default? the harness sets primary target 62 only;
@@ -101,7 +101,7 @@ async def test_demand_respects_the_rooms_own_drift(hass: HomeAssistant) -> None:
 
 async def test_tightening_reengages_immediately(hass: HomeAssistant) -> None:
     """The walk-in snap-back: occupied -> tight band -> conditioning resumes."""
-    head_a, _b, entry = await _setup(hass)
+    _a, _b, entry = await _setup(hass)
     await _set_drift(hass, entry, 4.0)
     await _set_temp(hass, SENSOR_A, 65)  # 3° past target, coasting in-band
     await _recompute(hass, entry)
@@ -114,7 +114,7 @@ async def test_tightening_reengages_immediately(hass: HomeAssistant) -> None:
 
 async def test_drift_is_per_room(hass: HomeAssistant) -> None:
     """Widening one room leaves the other room's band untouched."""
-    head_a, head_b, entry = await _setup(hass)
+    _a, _b, entry = await _setup(hass)
     await _set_drift(hass, entry, 4.0)
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
@@ -133,7 +133,7 @@ async def test_widening_mid_run_does_not_truncate_the_approach(
     The band gates re-engagement only; widening it mid-run must not stop a
     room short of the number the user set (and must not reset the latch).
     """
-    head_a, _b, entry = await _setup(hass)
+    _a, _b, entry = await _setup(hass)
     await _set_temp(hass, SENSOR_A, 68)  # 6° past target 62: engages
     await _recompute(hass, entry)
     assert _zone0(hass, entry)["engage"] == "cool"

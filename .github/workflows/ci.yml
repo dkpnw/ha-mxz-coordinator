@@ -41,17 +41,31 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install ruff==0.16.0
-      - run: ruff check custom_components/
+      - run: ruff check custom_components/ tests/
 
   pytest:
-    name: pytest
+    name: pytest (${{ matrix.lane }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Declared minimum: hacs.json "homeassistant": "2024.12.0".
+          - lane: py3.12-ha2024.12.0
+            python-version: "3.12"
+            constraints: requirements/constraints-py312-ha2024.12.0.txt
+          # HA 2026.9.0 on Python 3.14 is outside this matrix: testing retains
+          # one parked-head timer failure, test_plan_parked_off_head_never_arms_heal.
+          - lane: py3.13-ha2026.2.3
+            python-version: "3.13"
+            constraints: requirements/constraints-py313-ha2026.2.3.txt
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - run: pip install -r requirements_test.txt
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -c ${{ matrix.constraints }} -r requirements_test.txt
+      - run: pip check
       - run: pytest tests/ -q
 
   yamllint:
@@ -59,5 +73,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: pip install yamllint
+      - run: pip install yamllint==1.38.0
       - run: yamllint -c .yamllint packages/ examples/

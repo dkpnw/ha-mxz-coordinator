@@ -8,11 +8,11 @@ import pytest
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-from homeassistant.components.select import SelectEntity  # noqa: E402
-from homeassistant.core import HomeAssistant  # noqa: E402
-from homeassistant.setup import async_setup_component  # noqa: E402
-from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM  # noqa: E402
-from pytest_homeassistant_custom_component.common import (  # noqa: E402
+from homeassistant.components.select import SelectEntity
+from homeassistant.core import HomeAssistant
+from homeassistant.setup import async_setup_component
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     MockModule,
     MockPlatform,
@@ -20,7 +20,7 @@ from pytest_homeassistant_custom_component.common import (  # noqa: E402
     mock_platform,
 )
 
-from custom_components.mxz_coordinator.const import (  # noqa: E402
+from custom_components.mxz_coordinator.const import (
     CONF_ZONES,
     DOMAIN,
     ZONE_CLIMATE,
@@ -29,7 +29,7 @@ from custom_components.mxz_coordinator.const import (  # noqa: E402
     ZONE_VANE_VERTICAL,
 )
 
-from .test_drive import MockHead, _eid, _set_temp  # noqa: E402
+from .test_drive import MockHead, _eid, _set_temp
 
 VANE_OPTIONS = ["AUTO", "↑↑", "↑", "—", "↓", "↓↓", "SWING"]
 
@@ -58,10 +58,10 @@ async def _setup(hass: HomeAssistant):
     heads = [MockHead("a"), MockHead("b")]
     vane = MockVane()
 
-    async def _climate(hass, config, async_add_entities, discovery_info=None):  # noqa: ANN001
+    async def _climate(hass, config, async_add_entities, discovery_info=None):
         async_add_entities(heads)
 
-    async def _select(hass, config, async_add_entities, discovery_info=None):  # noqa: ANN001
+    async def _select(hass, config, async_add_entities, discovery_info=None):
         async_add_entities([vane])
 
     mock_integration(hass, MockModule("test"))
