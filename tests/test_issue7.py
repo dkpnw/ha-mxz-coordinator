@@ -160,10 +160,17 @@ async def test_reconfigure_swaps_a_sensor_in_place(hass: HomeAssistant) -> None:
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"heads": [h.entity_id for h in heads]}
     )
+    assert result["step_id"] == "reconfigure_rooms"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["step_id"] == "reconfigure_sensors"
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {"sensor_1": "sensor.room_0_temp", "sensor_2": "sensor.the_right_one"},
+    )
+    assert result["type"] is FlowResultType.MENU
+    assert result["step_id"] == "reconfigure_review"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "reconfigure_finish"}
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
@@ -193,9 +200,13 @@ async def test_reconfigure_reorder_zone_dicts_follow_heads(hass: HomeAssistant) 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"heads": [heads[1].entity_id, heads[0].entity_id]}
     )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {"sensor_1": "sensor.room_1_temp", "sensor_2": "sensor.room_0_temp"},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "reconfigure_finish"}
     )
     assert result["type"] is FlowResultType.ABORT
     await hass.async_block_till_done()

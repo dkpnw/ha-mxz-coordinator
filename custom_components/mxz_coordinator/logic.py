@@ -7,16 +7,27 @@ unit-tested directly.
 
 from __future__ import annotations
 
+import math
+from typing import Any
+
 from .const import (
     ECO_COOL_HIGH,
     ECO_COOL_LOW,
     ECO_HEAT_HIGH,
     ECO_HEAT_LOW,
     ENGAGE_SATISFIED,
+    EVIDENCE_HA_WRITE,
+    EVIDENCE_SAMPLE_TIMESTAMP,
+    HEALTH_AWAITING,
+    HEALTH_CADENCE_UNKNOWN,
+    HEALTH_HEALTHY,
+    HEALTH_INVALID,
+    HEALTH_STALE,
     MODE_COOL,
     MODE_FAN_ONLY,
     MODE_HEAT,
     MODE_OFF,
+    STALE_MISSED_REPORTS,
 )
 
 
@@ -49,13 +60,13 @@ def room_call(
     """
     if not enabled:
         return MODE_OFF
+    if not sensor_ok:
+        return neutral
     if eco:
         if temp > eco_cool_max:
             return MODE_COOL
         if temp < eco_heat_min:
             return MODE_HEAT
-        return neutral
-    if not sensor_ok:
         return neutral
     if temp > target + band:
         if cool_lockout and temp <= cool_lockout_ceiling:
@@ -103,6 +114,169 @@ def engage_with_latch(
             return raw
         return neutral  # target reached / lockout / direction flip -> coast
     return room_call(band=band, neutral=neutral, **call_kwargs)
+
+
+def freshness_window(
+    *,
+    report_interval: Any,
+    max_age: Any,
+    startup_grace: Any,
+) -> tuple[float, float] | None:
+    """Resolve one sensor's ``(maximum_age, startup_grace)``, or None.
+
+    Same duration unit in and out (the coordinator passes minutes). ``None``
+    means the sensor's cadence is UNKNOWN — no age cutoff applies to it, which
+    is the honest default for a change-only or uncontracted source. There is no
+    universal fallback interval to invent one from.
+
+    * ``report_interval`` (P) alone -> ``3P``: stale at the third due instant.
+    * an explicit ``max_age`` wins over that derivation, and must be at least
+      P: a window narrower than one report would park a healthy room on its
+      first quiet interval.
+    * ``max_age`` alone is enough: a documented maximum age needs no cadence.
+    * ``startup_grace`` defaults to the resolved maximum age.
+
+    An input that is set must be a real, finite, positive number. A profile
+    with one that is not — or with a maximum age shorter than its interval —
+    is INVALID as a whole, and an invalid profile is no profile: ``None``,
+    exactly as if nothing had been configured. Nothing in it is read as
+    unset, raised, rounded or otherwise coerced into a cutoff the person did
+    not write (the caller reports the rejection once).
+    """
+    durations: list[float | None] = []
+    for value in (report_interval, max_age, startup_grace):
+        if value is not None and (value := _positive(value)) is None:
+            return None
+        durations.append(value)
+    interval, window, grace = durations
+    if window is None:
+        window = None if interval is None else interval * STALE_MISSED_REPORTS
+    elif interval is not None and window < interval:
+        return None
+    if window is None:
+        return None
+    return (window, window if grace is None else grace)
+
+
+def evidence_contract(
+    *,
+    basis: Any,
+    sample_timestamp_attribute: Any,
+    sample_sequence_attribute: Any,
+) -> tuple[str, str | None, bool] | None:
+    """Resolve one sensor's evidence basis, or None when nothing is trusted.
+
+    Returns ``(basis, marker_attribute, marker_is_a_time)``. ``None`` is both
+    the default and the answer to every unrecognised or unusable declaration:
+    an untrusted source shows its age and is never enforced, however precise
+    its configured cadence is.
+
+    ``ha_state_write`` is a claim about the SOURCE, not about Home Assistant:
+    it may be declared only where every accepted write — including the first
+    one after setup or reload — is a current acquisition. ``sample_timestamp``
+    needs exactly one marker attribute named; naming both is ambiguous, and an
+    ambiguous marker is not trustworthy evidence.
+    """
+    if basis == EVIDENCE_HA_WRITE:
+        return (EVIDENCE_HA_WRITE, None, False)
+    if basis == EVIDENCE_SAMPLE_TIMESTAMP:
+        stamp = _attribute(sample_timestamp_attribute)
+        sequence = _attribute(sample_sequence_attribute)
+        if stamp is not None and sequence is None:
+            return (EVIDENCE_SAMPLE_TIMESTAMP, stamp, True)
+        if sequence is not None and stamp is None:
+            return (EVIDENCE_SAMPLE_TIMESTAMP, sequence, False)
+    return None
+
+
+def _attribute(name: Any) -> str | None:
+    """``name`` as a usable attribute name, else None."""
+    return name if isinstance(name, str) and name else None
+
+
+def sample_evidence(
+    *,
+    marker: float | None,
+    last: float | None,
+    now: float,
+    receipt: float | None,
+    marker_is_a_time: bool,
+) -> tuple[float | None, float | None]:
+    """One marker observation -> ``(marker to remember, evidence time)``.
+
+    Pure, and the whole of the marker contract. ``marker`` is the trusted
+    marker carried by this write (a POSIX sample time, or a sample sequence
+    number, compared exactly as the number it is — an integer sequence is
+    never rounded through a float); ``last`` is the last marker accepted for
+    this sensor.
+
+    * a missing, equal or older marker is a cached or replayed write: it is
+      diagnostic only, moves no deadline and recovers nothing;
+    * a sample TIME later than the evaluation clock is not evidence either —
+      it is a clock fault, and accepting it would grant a free window;
+    * an accepted sample time IS the evidence time, so a genuinely old sample
+      arrives already aged and recovers nothing;
+    * a sample SEQUENCE has no wall-clock meaning, so its evidence time is the
+      HA receipt time of the write that carried the advance. The first
+      sequence seen is a baseline only: nothing has advanced yet.
+    """
+    if marker is None or (last is not None and marker <= last):
+        return (last, None)
+    if marker_is_a_time:
+        if marker > now:
+            return (last, None)
+        return (marker, marker)
+    if last is None or receipt is None:
+        return (marker, None)
+    return (marker, min(receipt, now))
+
+
+def _positive(value: Any) -> float | None:
+    """``value`` as a finite positive float, else None (unset or unusable)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        return None
+    return number
+
+
+def sensor_health(
+    *,
+    valid: bool,
+    max_age: float | None,
+    evidence_age: float | None,
+    in_grace: bool,
+) -> str:
+    """Classify one room sensor. Pure; the whole freshness decision lives here.
+
+    Evaluation order is validity, then basis, then age — M13's value handling
+    precedes every age question, so freshness can never make a bad value good.
+
+    ``max_age`` is None for every sensor that is not enforcement-capable: no
+    trusted evidence basis, or no maximum age. Such a room is
+    ``cadence_unknown`` — its age is shown and no cutoff exists for it.
+
+    ``evidence_age`` is how long ago this incarnation witnessed a qualifying
+    report, or ``None`` when it has witnessed none. A report qualifies when it
+    is a state write of a valid value that this incarnation saw; it is FRESH —
+    the word every recovery rule turns on — when its own deadline is still in
+    the future, so a backlog flush delivering an already-aged report recovers
+    nothing. A negative age is a write stamped in the future: not evidence.
+
+    ``in_grace`` is the bounded startup grace. It makes a configured room
+    provisionally eligible while it awaits its first witnessed report; it never
+    claims the current value is fresh, and it never excuses an invalid one.
+    """
+    if not valid:
+        return HEALTH_INVALID
+    if max_age is None:
+        return HEALTH_CADENCE_UNKNOWN
+    if evidence_age is not None and 0.0 <= evidence_age < max_age:
+        return HEALTH_HEALTHY
+    if in_grace:
+        return HEALTH_AWAITING
+    return HEALTH_STALE
 
 
 def season_lockouts(

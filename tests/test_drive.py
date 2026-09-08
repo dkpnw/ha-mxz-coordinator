@@ -19,7 +19,11 @@ from homeassistant.components.climate import (
     ClimateEntityFeature,
     HVACMode,
 )
-from homeassistant.const import EVENT_CALL_SERVICE, UnitOfTemperature
+from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
+    EVENT_CALL_SERVICE,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
@@ -139,7 +143,11 @@ def _eid(hass: HomeAssistant, entry: MockConfigEntry, suffix: str) -> str:
 
 
 async def _set_temp(hass: HomeAssistant, entity_id: str, value: float) -> None:
-    hass.states.async_set(entity_id, str(value))
+    hass.states.async_set(
+        entity_id,
+        str(value),
+        {ATTR_UNIT_OF_MEASUREMENT: hass.config.units.temperature_unit},
+    )
     await hass.async_block_till_done()
 
 

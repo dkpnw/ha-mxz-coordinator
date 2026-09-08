@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from homeassistant.components.number import NumberMode, RestoreNumber
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -133,8 +133,9 @@ class MXZDriftNumber(MXZEntity, RestoreNumber):
     room's tolerance (presence tiers) and tighten it on arrival — tightening
     re-engages on the next compute. The zone's demand vote respects this band
     too, so a wide-tolerance room never steers the shared compressor inside
-    its own comfort window. CONFIG category: on the device page and writable
-    by automations, out of auto-populated dashboards and voice.
+    its own comfort window. The room's follow-global button hands the band
+    back. CONFIG category: on the device page and writable by automations, out
+    of auto-populated dashboards and voice.
     """
 
     _attr_mode = NumberMode.BOX
@@ -144,6 +145,7 @@ class MXZDriftNumber(MXZEntity, RestoreNumber):
     def __init__(self, coordinator: MXZCoordinator, zone: Zone) -> None:
         super().__init__(coordinator, f"{zone.slug}_drift")
         self._zone = zone
+        self._last_published_state: tuple[float, bool] | None = None
         self._attr_translation_key = "zone_drift"
         self._attr_translation_placeholders = {"zone": zone.name}
         self._attr_native_unit_of_measurement = coordinator.temp_unit
@@ -190,6 +192,28 @@ class MXZDriftNumber(MXZEntity, RestoreNumber):
                 max(last.native_value, self._attr_native_min_value),
                 self._attr_native_max_value,
             )
+        self._last_published_state = self._state_signature()
+        self.async_on_remove(self.coordinator.async_add_listener(self._sync))
+
+    def _state_signature(self) -> tuple[float, bool]:
+        """Return the displayed value and the persisted override flag."""
+        return self.native_value, self._zone.drift is not None
+
+    @callback
+    def _sync(self) -> None:
+        """Redraw a FOLLOWER, whose displayed value this entity doesn't own.
+
+        A follower shows the global drift, which moves under it: the room's
+        follow-global button hands the room back to it, and an options change
+        replaces it. An override's value only ever changes when this entity is
+        written, and that write already publishes its own state, so there is
+        nothing here for an override to redraw.
+        """
+        state = self._state_signature()
+        if state == self._last_published_state:
+            return
+        self._last_published_state = state
+        self.async_write_ha_state()
 
     async def async_set_native_value(self, value: float) -> None:
         """An automation (or user) set this room's drift -> recompute.
@@ -200,5 +224,6 @@ class MXZDriftNumber(MXZEntity, RestoreNumber):
         a run already headed for the (unchanged) target.
         """
         self._zone.drift = value
+        self._last_published_state = self._state_signature()
         self.async_write_ha_state()
         await self.coordinator.async_user_changed()

@@ -27,7 +27,7 @@ from homeassistant.components.weather import (
     WeatherEntity,
     WeatherEntityFeature,
 )
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
@@ -177,8 +177,9 @@ async def test_changeover_from_temperature_sensor(hass: HomeAssistant) -> None:
     """A plain outdoor-temp sensor drives the lockouts across a season sweep."""
     hass.config.units = US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(hass)
-    hass.states.async_set(SENSOR_A, "70")
-    hass.states.async_set(SENSOR_B, "70")
+    temp_attrs = {ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.FAHRENHEIT}
+    hass.states.async_set(SENSOR_A, "70", temp_attrs)
+    hass.states.async_set(SENSOR_B, "70", temp_attrs)
     hass.states.async_set("sensor.outdoor_high", "72")  # start warm (defaults 68/50)
     await hass.async_block_till_done()
 
@@ -209,8 +210,9 @@ async def test_changeover_from_weather_forecast(hass: HomeAssistant) -> None:
     """A real weather entity's daily forecast high drives the lockouts."""
     hass.config.units = US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(hass)
-    hass.states.async_set(SENSOR_A, "70")
-    hass.states.async_set(SENSOR_B, "70")
+    temp_attrs = {ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.FAHRENHEIT}
+    hass.states.async_set(SENSOR_A, "70", temp_attrs)
+    hass.states.async_set(SENSOR_B, "70", temp_attrs)
     weather = await _setup_mock_weather(hass)
     weather.set_high(85)  # summer forecast
     await hass.async_block_till_done()
@@ -231,8 +233,9 @@ async def test_changeover_end_to_end_head_behavior(hass: HomeAssistant) -> None:
     """Summer changeover -> a below-target room idles instead of heating."""
     hass.config.units = US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(hass)
-    hass.states.async_set(SENSOR_A, "63")  # 7 below the default 70 target -> wants heat
-    hass.states.async_set(SENSOR_B, "70")
+    temp_attrs = {ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.FAHRENHEIT}
+    hass.states.async_set(SENSOR_A, "63", temp_attrs)  # 7 below target -> heat
+    hass.states.async_set(SENSOR_B, "70", temp_attrs)
     hass.states.async_set("sensor.outdoor_high", "80")  # summer
     await hass.async_block_till_done()
 

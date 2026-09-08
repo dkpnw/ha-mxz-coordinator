@@ -40,6 +40,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .capabilities import head_fan_modes
 from .const import (
     DOMAIN,
     FAN_AUTO,
@@ -48,7 +49,7 @@ from .const import (
     STAGE_TO_FAN,
     UNAVAILABLE_STATES,
 )
-from .coordinator import MXZCoordinator, Zone
+from .coordinator import MXZCoordinator, Zone, read_room_temp
 from .entity import MXZEntity
 
 # Independent horizontal swing was added in HA 2024.12; guard for older cores.
@@ -99,17 +100,22 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         # firmware `auto` (see module docstring + fan_mode below).
         self._stage_sensor_id = zone.stage_sensor_id
 
-        features = (
+        self._base_features = (
             ClimateEntityFeature.TARGET_TEMPERATURE
-            | ClimateEntityFeature.FAN_MODE
             | ClimateEntityFeature.TURN_ON
             | ClimateEntityFeature.TURN_OFF
         )
         if self._vane_vertical_id:
-            features |= ClimateEntityFeature.SWING_MODE
+            self._base_features |= ClimateEntityFeature.SWING_MODE
         if self._vane_horizontal_id and _HAS_HORIZONTAL_SWING:
-            features |= ClimateEntityFeature.SWING_HORIZONTAL_MODE
-        self._attr_supported_features = features
+            self._base_features |= ClimateEntityFeature.SWING_HORIZONTAL_MODE
+
+    @property
+    def supported_features(self) -> ClimateEntityFeature:
+        """Advertise fan control only when the underlying head really does."""
+        if head_fan_modes(self.hass, self._head_id) is not None:
+            return self._base_features | ClimateEntityFeature.FAN_MODE
+        return self._base_features
 
     async def async_added_to_hass(self) -> None:
         """Re-render when the underlying head changes (fan/vane reflected live)."""
@@ -153,14 +159,18 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
     # -- display ------------------------------------------------------------
     @property
     def current_temperature(self) -> float | None:
-        """The room sensor the coordinator reads; None on dropout (no fake value)."""
-        state = self.hass.states.get(self._sensor_id)
-        if state is None or state.state in UNAVAILABLE_STATES:
-            return None
-        try:
-            return float(state.state)
-        except (ValueError, TypeError):
-            return None
+        """The room sensor the coordinator reads; None when it rejects it.
+
+        Shares the coordinator's own reader, so the tile shows exactly what the
+        plan acted on, in the unit this entity declares. A reading the
+        coordinator rejected (dropout, non-numeric, ``nan``/``±inf``, an
+        unsupported unit) shows as unknown rather than as a fake room
+        temperature — and a non-finite one never reaches HA's ``display_temp``,
+        whose ``round()`` would raise inside ``async_write_ha_state``.
+        """
+        return read_room_temp(
+            self.hass.states.get(self._sensor_id), self.coordinator.temp_unit
+        )
 
     @property
     def min_temp(self) -> float:
@@ -249,8 +259,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
     # -- fan (passthrough to the underlying head) ---------------------------
     @property
     def fan_modes(self) -> list[str] | None:
-        state = self.hass.states.get(self._head_id)
-        return state.attributes.get("fan_modes") if state else None
+        return head_fan_modes(self.hass, self._head_id)
 
     @property
     def fan_mode(self) -> str | None:

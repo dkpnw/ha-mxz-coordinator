@@ -36,6 +36,7 @@ from .const import (
     PLATFORMS,
     SERVICE_RECOMPUTE,
     ZONE_CLIMATE,
+    ZONE_ENTITY_SUFFIXES,
     ZONE_NAME,
     ZONE_SENSOR,
     ZONE_STAGE_SENSOR,
@@ -149,13 +150,17 @@ def _async_prune_stale_entities(
         "coordinator_enable", "eco_idle", "heat_lockout", "cool_lockout",
         "shared_mode", "plan",
     )}
+    # Every per-zone suffix the platforms register (ZONE_ENTITY_SUFFIXES, whose
+    # comment records what a missing suffix costs). A record outside this set
+    # belongs to a room this entry no longer has — a dropped room, or one
+    # parked by the reorder move in the config flow.
     for zone in coordinator.zones:
-        for suffix in ("target", "enable", "thermostat"):
+        for suffix in ZONE_ENTITY_SUFFIXES:
             valid.add(f"{entry.entry_id}_{zone.slug}_{suffix}")
     registry = er.async_get(hass)
     for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
         if entity.unique_id not in valid:
-            _LOGGER.info("Pruning stale entity %s (dropped zone)", entity.entity_id)
+            _LOGGER.info("Pruning stale entity %s (dropped room)", entity.entity_id)
             registry.async_remove(entity.entity_id)
 
 

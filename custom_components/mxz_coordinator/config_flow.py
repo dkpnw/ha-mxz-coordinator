@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import voluptuous as vol
@@ -11,11 +12,14 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlow,
 )
-from homeassistant.const import UnitOfTemperature
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfTemperature
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
+from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 
+from .capabilities import head_mode_problem, supported_idle_actions
 from .const import (
     CONF_CHANGEOVER_COOL_BELOW,
     CONF_CHANGEOVER_ENTITY,
@@ -37,7 +41,9 @@ from .const import (
     CONF_INHIBIT_ENTITY,
     CONF_MODE_HYSTERESIS,
     CONF_NOTIFY_SERVICE,
+    CONF_PRIMARY_CLIMATE,
     CONF_RESTING_MODE_BIAS,
+    CONF_SECONDARY_CLIMATE,
     CONF_ZONES,
     DEFAULT_CHANGEOVER_COOL_BELOW,
     DEFAULT_CHANGEOVER_HEAT_ABOVE,
@@ -64,7 +70,9 @@ from .const import (
     MAX_ZONES,
     MIN_ZONES,
     RESTING_BIAS_OPTIONS,
+    UNAVAILABLE_STATES,
     ZONE_CLIMATE,
+    ZONE_ENTITY_SUFFIXES,
     ZONE_NAME,
     ZONE_SENSOR,
     ZONE_STAGE_SENSOR,
@@ -73,6 +81,7 @@ from .const import (
     unit_profile,
     zone_slug,
 )
+from .coordinator import read_room_temp
 
 _CLIMATE_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="climate")
@@ -88,6 +97,11 @@ _VANE_SELECTOR = selector.EntitySelector(
 _STAGE_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor")
 )
+_ROOM_NAME_SELECTOR = selector.TextSelector()
+
+# Reserved slug for a record parked mid-reorder. zone_slug() only ever returns
+# "primary", "secondary" or "zone_N", so this can collide with no real room.
+_PARKED_SLUG = "reordering"
 
 
 def _notify_options(hass: HomeAssistant) -> list[str]:
@@ -147,12 +161,312 @@ def _detect_stage(hass: HomeAssistant, climate_id: str) -> str | None:
 
 # Flow-local key for the multi-head picker on the first step.
 _CONF_HEADS = "heads"
+_CONTEXT_HEADS = "mxz_selected_heads"
+_CONTEXT_ENTRY_ID = "mxz_reconfigure_entry_id"
+
+# The config entry's own title. Flow-input only: a title is not a unique_id,
+# not an option key and not stored in entry.data, so naming the outdoor unit
+# cannot move an entity or change what the coordinator does.
+_CONF_ENTRY_TITLE = "entry_title"
+DEFAULT_ENTRY_TITLE = "MXZ Coordinator"
+
+
+def _entry_head_order(entry: ConfigEntry) -> list[str]:
+    """Heads explicitly stored by one v1 or v2 entry, in PRIORITY order.
+
+    The order is the slot order, and the slot is where a room's entity
+    unique_ids come from (``zone_slug``), so a reorder needs the sequence and
+    not just the membership.
+    """
+    zones = entry.data.get(CONF_ZONES)
+    if isinstance(zones, list) and zones:
+        return [
+            climate_id
+            for zone in zones
+            if isinstance(zone, dict)
+            and isinstance((climate_id := zone.get(ZONE_CLIMATE)), str)
+        ]
+    return [
+        climate_id
+        for key in (CONF_PRIMARY_CLIMATE, CONF_SECONDARY_CLIMATE)
+        if isinstance((climate_id := entry.data.get(key)), str)
+    ]
+
+
+def _entry_heads(entry: ConfigEntry) -> set[str]:
+    """Return heads explicitly stored by one v1 or v2 coordinator entry."""
+    return set(_entry_head_order(entry))
+
+
+def _room_name_key(index: int) -> str:
+    """Flow-input-only room-name field for priority slot ``index``."""
+    return f"room_name_{index + 1}"
+
+
+def _resolve_room_name(submitted: Any, fallback: str) -> str:
+    """Turn one submitted room-name field into the name that will be stored.
+
+    An ABSENT key is not an edit: the room keeps the name it already had. A
+    submitted EMPTY string is the user clearing the box, and stays empty here
+    so each step can apply its own rule — setup refuses it (a room must be
+    named before it exists), reconfigure reads it as "go back to the head's own
+    name", which is the behaviour its help text has always promised.
+    """
+    if submitted is None:
+        return fallback
+    return str(submitted).strip()
+
+
+def _room_name_problem(names: list[str]) -> tuple[str, dict[str, str]] | None:
+    """Reject an unnamed room, or two rooms a picker could not tell apart.
+
+    Duplicate names break no invariant — entity unique_ids come from the
+    priority slot, never the name — but two identically named thermostats are
+    indistinguishable in every Home Assistant picker, which is the problem this
+    step exists to prevent.
+    """
+    if any(not name for name in names):
+        return "room_name_empty", {}
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for name in names:
+        folded = name.casefold()
+        if folded in seen:
+            if name not in duplicates:
+                duplicates.append(name)
+        else:
+            seen.add(folded)
+    if duplicates:
+        return "duplicate_room_names", {"problem_names": ", ".join(duplicates)}
+    return None
+
+
+def _sensor_unit_supported(state: State) -> bool:
+    """Whether ``read_room_temp`` could ever read this sensor's unit.
+
+    Deliberately the same rule as the shared reader (``coordinator.py``): an
+    ABSENT or explicitly null unit means the system unit, any other non-string
+    is malformed, and a string must be a temperature unit Home Assistant can
+    convert. Anything stricter would refuse sensors the coordinator reads
+    correctly — kelvin is the case that catches people out.
+    """
+    unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+    if unit is None:
+        return True
+    if not isinstance(unit, str):
+        return False
+    return unit in TemperatureConverter.VALID_UNITS
+
+
+def _sensor_problem(
+    hass: HomeAssistant, sensors: list[str]
+) -> tuple[str, dict[str, str]] | None:
+    """Describe a PERMANENT room-sensor misconfiguration, for a flow error.
+
+    Only conditions that retrying later cannot fix belong here, because a
+    config flow's only feedback channel blocks the whole install: two rooms
+    sharing one thermometer, an entity that does not exist, and a unit the
+    coordinator will always refuse. A sensor that is merely asleep or
+    momentarily non-numeric is reported on the review step instead
+    (``_sensor_status``), because blocking on it would make a legitimate
+    install impossible at the wrong hour — and because the coordinator itself
+    treats those as a temporarily neutral room, not a fatal entry.
+    """
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for entity_id in sensors:
+        if entity_id in seen and entity_id not in duplicates:
+            duplicates.append(entity_id)
+        seen.add(entity_id)
+    if duplicates:
+        return "duplicate_sensors", {"problem_sensors": ", ".join(duplicates)}
+
+    states = {entity_id: hass.states.get(entity_id) for entity_id in sensors}
+    missing = [entity_id for entity_id, state in states.items() if state is None]
+    if missing:
+        return "sensor_missing", {"problem_sensors": ", ".join(missing)}
+
+    unsupported = [
+        entity_id
+        for entity_id, state in states.items()
+        if state is not None and not _sensor_unit_supported(state)
+    ]
+    if unsupported:
+        return "sensor_unit_unsupported", {"problem_sensors": ", ".join(unsupported)}
+    return None
+
+
+def _relative_age(state: State) -> str:
+    """Plain-English age of one state report.
+
+    The ONE age formatter this flow has, so the sensors step and the review
+    step never describe the same reading two different ways.
+    """
+    reported = getattr(state, "last_reported", None) or state.last_updated
+    seconds = max(0.0, (dt_util.utcnow() - reported).total_seconds())
+    for limit, size, unit in (
+        (60.0, 1.0, "second"),
+        (3600.0, 60.0, "minute"),
+        (86400.0, 3600.0, "hour"),
+    ):
+        if seconds < limit:
+            count = int(seconds // size)
+            return f"{count} {unit}{'' if count == 1 else 's'} ago"
+    count = int(seconds // 86400.0)
+    return f"{count} day{'' if count == 1 else 's'} ago"
+
+
+def _sensor_status(hass: HomeAssistant, entity_id: str, system_unit: str) -> str:
+    """One line describing what this room's sensor is reporting right now.
+
+    Says what the coordinator would read, using the coordinator's own reader,
+    so the flow can never promise a number the control loop rejects. The
+    recovery sentence is attached here rather than raised as an error: the room
+    is neutral until a valid number arrives, and saying so is more use than
+    refusing the install.
+    """
+    recovery = (
+        ' Fix the sensor, or pick another one with "Go back to heads and rooms".'
+        " Until it reports a valid number this room makes no automatic demand."
+    )
+    state = hass.states.get(entity_id)
+    if state is None:
+        return f"{entity_id} — Home Assistant has no state for this entity.{recovery}"
+    value = read_room_temp(state, system_unit)
+    if value is None:
+        reason = (
+            "unavailable"
+            if state.state in UNAVAILABLE_STATES
+            else "not reporting a number"
+        )
+        return f"{entity_id} — {reason}.{recovery}"
+    return f"{entity_id} — {value:g} {system_unit}, {_relative_age(state)}"
+
+
+@callback
+def _async_move_room_entities(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    old_heads: list[str],
+    new_heads: list[str],
+) -> list[str]:
+    """Re-key each moved room's entities onto that room's NEW priority slot.
+
+    A room's target, drift, enable and Fan-auto hold are restored by its own
+    entities, and those entities are keyed by the priority SLOT (``zone_slug``).
+    Reordering the heads therefore hands every room the settings of whoever
+    used to sit in its new position — a silent swap, because each value on its
+    own is plausible. Moving the registry records with the room fixes that at
+    the identity level: the record keeps its entity_id, its registry id and the
+    customizations HA cannot rebuild (name, area, disabled flag), and only the
+    slot-derived unique_id changes, so the room's stored values restore onto
+    the room they belong to.
+
+    Two passes, because a swap is a cycle: park every moving record at a
+    reserved id first, then place it. Records left parked belong to rooms this
+    save removed; ``_async_prune_stale_entities`` deletes them on the setup
+    that follows, which is where removal is documented and tested.
+
+    Returns the entity_ids that were moved (empty when nothing was reordered).
+    """
+    registry = er.async_get(hass)
+    by_unique_id = {
+        entity.unique_id: entity.entity_id
+        for entity in er.async_entries_for_config_entry(registry, entry.entry_id)
+    }
+    new_slot = {head: index for index, head in enumerate(new_heads)}
+    parked: list[tuple[str, str, str]] = []
+    for old_index, head in enumerate(old_heads):
+        if new_slot.get(head) == old_index:
+            continue  # this room stayed put: leave its records untouched
+        for suffix in ZONE_ENTITY_SUFFIXES:
+            entity_id = by_unique_id.get(
+                f"{entry.entry_id}_{zone_slug(old_index)}_{suffix}"
+            )
+            if entity_id is None:
+                continue  # never registered, or already removed by hand
+            registry.async_update_entity(
+                entity_id,
+                new_unique_id=f"{entry.entry_id}_{_PARKED_SLUG}_{old_index}_{suffix}",
+            )
+            parked.append((entity_id, head, suffix))
+
+    moved: list[str] = []
+    for entity_id, head, suffix in parked:
+        if (new_index := new_slot.get(head)) is None:
+            continue  # this room is gone; its parked record is pruned at setup
+        registry.async_update_entity(
+            entity_id,
+            new_unique_id=f"{entry.entry_id}_{zone_slug(new_index)}_{suffix}",
+        )
+        moved.append(entity_id)
+    return moved
+
+
+def _head_conflicts(
+    hass: HomeAssistant,
+    heads: list[str],
+    *,
+    exclude_entry_id: str | None = None,
+    exclude_flow_id: str | None = None,
+    grandfathered_heads: set[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Return separately committed and in-progress head conflicts.
+
+    A reconfigure may retain heads already stored by its target entry even when
+    an older installation also stored them elsewhere. It may not add another
+    entry's head. Reservations give earlier feedback between open flows; the
+    committed-entry check at the final step remains authoritative.
+    """
+    committed = set().union(
+        *(
+            _entry_heads(entry)
+            for entry in hass.config_entries.async_entries(DOMAIN)
+            if entry.entry_id != exclude_entry_id
+        )
+    )
+    committed.difference_update(grandfathered_heads or ())
+
+    reserved: set[str] = set()
+    for progress in hass.config_entries.flow.async_progress_by_handler(DOMAIN):
+        if progress["flow_id"] == exclude_flow_id:
+            continue
+        context = progress["context"]
+        if (
+            exclude_entry_id is not None
+            and context.get(_CONTEXT_ENTRY_ID) == exclude_entry_id
+        ):
+            continue
+        reserved.update(context.get(_CONTEXT_HEADS, ()))
+
+    return (
+        [head for head in heads if head in committed],
+        [head for head in heads if head in reserved and head not in committed],
+    )
+
+
+def _conflict_error(
+    conflicts: tuple[list[str], list[str]],
+) -> tuple[str, list[str]] | None:
+    """Choose the truthful error and heads for one submitted selection."""
+    committed, reserved = conflicts
+    if committed:
+        return "heads_already_configured", committed
+    if reserved:
+        return "heads_reserved_by_flow", reserved
+    return None
+
+
+def _conflict_placeholders(conflicts: list[str]) -> dict[str, str]:
+    """Build the translated error value that names every conflicting head."""
+    return {"conflicting_heads": ", ".join(conflicts)}
 
 
 def _user_schema(
     notify_options: list[str],
     default_heads: list[str] | None = None,
     default_notify: str | None = None,
+    default_title: str | None = None,
 ) -> vol.Schema:
     notify_selector: selector.Selector = (
         selector.SelectSelector(
@@ -171,6 +485,12 @@ def _user_schema(
                 selector.EntitySelectorConfig(domain="climate", multiple=True)
             ),
             vol.Optional(
+                _CONF_ENTRY_TITLE,
+                description={
+                    "suggested_value": default_title or DEFAULT_ENTRY_TITLE
+                },
+            ): selector.TextSelector(),
+            vol.Optional(
                 CONF_NOTIFY_SERVICE,
                 description={"suggested_value": default_notify},
             ): notify_selector,
@@ -178,10 +498,40 @@ def _user_schema(
     )
 
 
-def _sensors_schema(count: int) -> vol.Schema:
-    """One room-temperature picker per chosen head (sensor_1..sensor_N)."""
+def _rooms_schema(suggestions: list[str]) -> vol.Schema:
+    """One room-name box per priority slot (room_name_1..room_name_N).
+
+    Optional markers with a suggested value, not required ones: the box arrives
+    pre-filled, and a user who clears it must reach ``room_name_empty`` rather
+    than a schema rejection Home Assistant renders without our copy.
+    """
     return vol.Schema(
-        {vol.Required(f"sensor_{i + 1}"): _SENSOR_SELECTOR for i in range(count)}
+        {
+            vol.Optional(
+                _room_name_key(index), description={"suggested_value": name}
+            ): _ROOM_NAME_SELECTOR
+            for index, name in enumerate(suggestions)
+        }
+    )
+
+
+def _sensors_schema(count: int, suggestions: list[str] | None = None) -> vol.Schema:
+    """One room-temperature picker per chosen head (sensor_1..sensor_N).
+
+    Pre-filled from ``suggestions`` so returning to this step from the review
+    screen — or from a rejected submission — shows the answers already given.
+    """
+    chosen = suggestions or []
+    return vol.Schema(
+        {
+            vol.Required(
+                f"sensor_{i + 1}",
+                description={
+                    "suggested_value": chosen[i] if i < len(chosen) else None
+                },
+            ): _SENSOR_SELECTOR
+            for i in range(count)
+        }
     )
 
 
@@ -208,7 +558,10 @@ def _num() -> selector.NumberSelector:
 
 
 def _options_schema(
-    current: dict[str, Any], celsius: bool, zones: list[dict[str, Any]]
+    current: dict[str, Any],
+    celsius: bool,
+    zones: list[dict[str, Any]],
+    idle_options: tuple[str, ...],
 ) -> vol.Schema:
     # Unset temperature tunables fall back to the system-unit profile (clean
     # metric values on a °C system, the legacy °F values otherwise); an
@@ -242,12 +595,126 @@ def _options_schema(
             )
         ] = _STAGE_SELECTOR
 
-    return _tunables_schema(eff, engage_min, engage_max).extend(zone_fields)
+    return _tunables_schema(
+        eff, engage_min, engage_max, idle_options
+    ).extend(zone_fields)
+
+
+# Duration/magnitude tunables where a negative value is meaningless. Temperature
+# tunables are deliberately absent: below zero is an ordinary °C reading.
+_NONNEGATIVE_TUNABLES = (
+    CONF_DEMAND_THRESHOLD,
+    CONF_ENGAGE_DEADBAND,
+    CONF_MODE_HYSTERESIS,
+    CONF_COIL_DRY_MINUTES,
+)
+# Every numeric tunable that must be a finite real number. `NumberSelector`
+# coerces via `float()`, which happily accepts "nan"/"inf" and passes them
+# through unchanged (NaN fails every min/max comparison, so the selector's own
+# bounds never catch it) — so finiteness must be checked explicitly here.
+_FINITE_TUNABLES = _NONNEGATIVE_TUNABLES + (
+    CONF_ECO_COOL_MAX,
+    CONF_ECO_HEAT_MIN,
+    CONF_CLAMP_MIN,
+    CONF_CLAMP_MAX,
+    CONF_HEAT_LOCKOUT_FLOOR,
+    CONF_COOL_LOCKOUT_CEILING,
+    CONF_CHANGEOVER_HEAT_ABOVE,
+    CONF_CHANGEOVER_COOL_BELOW,
+)
+# (low, high, error, may_be_equal) for every pair a single field's selector can't
+# see. Inverted (low above high) always breaks its consumer:
+#   eco    — `room_call` tests `temp > eco_cool_max` BEFORE
+#            `temp < eco_heat_min`, so an inverted band silently calls cool for
+#            rooms that also qualify as too cold.
+#   clamp  — `setpoints` computes max(min(t, clamp_max), clamp_min), which
+#            returns clamp_min and ignores clamp_max entirely once inverted.
+#   lockout— between an inverted floor and ceiling NEITHER safety override is
+#            suppressed, so a heat-locked and cool-locked room can call both.
+#   changeover — `season_lockouts` checks `high >= heat_above` BEFORE
+#            `high <= cool_below` and returns on the first match, so an inverted
+#            pair reads the warm season for every high at or above heat_above,
+#            including forecasts the user set cool_below to call cold.
+# Equality is rejected ONLY for the changeover pair. The gap between those two
+# thresholds is the shoulder season documented on `season_lockouts`: the
+# hysteresis that keeps the forecast from chattering the lockouts. Equal values
+# leave a zero-width shoulder, so a single reading flips the heat lockout to the
+# cool lockout. It never turns both on — those branches return, they don't OR.
+# For the other three pairs, equality merely collapses the band to zero width —
+# degenerate, but the consumers handle it consistently, so refusing it would
+# reject a combination that works today.
+_ORDERED_PAIRS: tuple[tuple[str, str, str, bool], ...] = (
+    (CONF_ECO_HEAT_MIN, CONF_ECO_COOL_MAX, "eco_band_inverted", True),
+    (CONF_CLAMP_MIN, CONF_CLAMP_MAX, "clamp_inverted", True),
+    (CONF_HEAT_LOCKOUT_FLOOR, CONF_COOL_LOCKOUT_CEILING, "lockout_inverted", True),
+    (
+        CONF_CHANGEOVER_COOL_BELOW,
+        CONF_CHANGEOVER_HEAT_ABOVE,
+        "changeover_inverted",
+        False,
+    ),
+)
+
+
+def _validate_tunables(user_input: dict[str, Any]) -> dict[str, str]:
+    """Return {field: error_key} for every submitted tunable that fails validation.
+
+    Runs after the schema/selectors have already coerced the submission, so
+    this only needs to catch what they miss: non-finite numbers, negative
+    durations, and the cross-field orderings in ``_ORDERED_PAIRS``. An ordering
+    error names BOTH fields, because either one of them can be the wrong number.
+    """
+    errors: dict[str, str] = {}
+    parsed: dict[str, float] = {}
+    for key in _FINITE_TUNABLES:
+        if key not in user_input:
+            continue
+        try:
+            value = float(user_input[key])
+        except (TypeError, ValueError):
+            errors[key] = "not_a_number"
+        else:
+            if math.isfinite(value):
+                parsed[key] = value
+            else:
+                errors[key] = "not_a_number"
+
+    for key in _NONNEGATIVE_TUNABLES:
+        if parsed.get(key, 0.0) < 0:
+            errors[key] = "must_not_be_negative"
+
+    for low_key, high_key, error, may_be_equal in _ORDERED_PAIRS:
+        if low_key in errors or high_key in errors:
+            continue  # the value itself is wrong; ordering it says nothing
+        low, high = parsed.get(low_key), parsed.get(high_key)
+        if low is None or high is None:
+            continue  # a field this submission never carried
+        if high < low or (high == low and not may_be_equal):
+            errors[low_key] = errors[high_key] = error
+    return errors
 
 
 def _tunables_schema(
-    eff: dict[str, Any], engage_min: float, engage_max: float
+    eff: dict[str, Any],
+    engage_min: float,
+    engage_max: float,
+    idle_options: tuple[str, ...] = IDLE_ACTION_OPTIONS,
 ) -> vol.Schema:
+    idle_action = eff.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION)
+    idle_field: dict[vol.Marker, selector.SelectSelector] = {}
+    if idle_options:
+        idle_marker: vol.Marker = (
+            vol.Optional(CONF_IDLE_ACTION, default=idle_action)
+            if idle_action in idle_options
+            else vol.Required(CONF_IDLE_ACTION)
+        )
+        idle_field[idle_marker] = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=list(idle_options),
+                translation_key="idle_action",
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        )
     return vol.Schema(
         {
             vol.Optional(
@@ -351,16 +818,7 @@ def _tunables_schema(
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
-            vol.Optional(
-                CONF_IDLE_ACTION,
-                default=eff.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=list(IDLE_ACTION_OPTIONS),
-                    translation_key="idle_action",
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            ),
+            **idle_field,
             vol.Optional(
                 CONF_COIL_DRY_MINUTES,
                 default=eff.get(CONF_COIL_DRY_MINUTES, DEFAULT_COIL_DRY_MINUTES),
@@ -392,7 +850,11 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._heads: list[str] = []
         self._notify: str | None = None
+        self._title: str = DEFAULT_ENTRY_TITLE
+        self._room_names: list[str] = []
+        self._sensors: list[str] = []
         self._zones: list[dict[str, Any]] = []
+        self._tunables: dict[str, Any] | None = None
 
     def _head_name(self, entity_id: str) -> str:
         """Friendly display name for a head (used as the zone name)."""
@@ -406,6 +868,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Step 1: pick 2..MAX_ZONES heads (first = highest standoff priority)."""
         errors: dict[str, str] = {}
+        placeholders: dict[str, str] | None = None
         if user_input is not None:
             heads: list[str] = user_input.get(_CONF_HEADS) or []
             if len(set(heads)) != len(heads):
@@ -414,76 +877,384 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "need_two_heads"
             elif len(heads) > MAX_ZONES:
                 errors["base"] = "too_many_heads"
+            elif conflict := _conflict_error(
+                _head_conflicts(self.hass, heads, exclude_flow_id=self.flow_id)
+            ):
+                error, conflicts = conflict
+                errors[_CONF_HEADS] = error
+                placeholders = _conflict_placeholders(conflicts)
+            elif problem := head_mode_problem(self.hass, heads):
+                error, placeholders = problem
+                errors[_CONF_HEADS] = error
             else:
+                self.context[_CONTEXT_HEADS] = tuple(heads)
                 await self.async_set_unique_id("|".join(heads))
                 self._abort_if_unique_id_configured()
+                if heads != self._heads:
+                    # A different selection invalidates the answers keyed to the
+                    # old slots; the same selection keeps them, which is what
+                    # "go back and look again" has to mean.
+                    self._room_names = []
+                    self._sensors = []
                 self._heads = heads
                 self._notify = user_input.get(CONF_NOTIFY_SERVICE) or None
-                return await self.async_step_sensors()
+                self._title = (
+                    str(user_input.get(_CONF_ENTRY_TITLE) or "").strip()
+                    or DEFAULT_ENTRY_TITLE
+                )
+                return await self.async_step_rooms()
 
+        # Re-showing this step is also how the review screen goes back, so the
+        # answers already given have to survive the round trip.
         return self.async_show_form(
             step_id="user",
-            data_schema=_user_schema(_notify_options(self.hass)),
+            data_schema=_user_schema(
+                _notify_options(self.hass),
+                default_heads=(
+                    user_input.get(_CONF_HEADS) if user_input else self._heads or None
+                ),
+                default_notify=(
+                    user_input.get(CONF_NOTIFY_SERVICE)
+                    if user_input
+                    else self._notify
+                ),
+                default_title=(
+                    user_input.get(_CONF_ENTRY_TITLE) if user_input else self._title
+                ),
+            ),
             errors=errors,
+            description_placeholders=placeholders,
         )
+
+    async def async_step_rooms(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Step 2: name each room, in the priority order chosen on step 1.
+
+        Names are display copy: they land in the existing ``ZONE_NAME`` and no
+        new key is stored. Priority is shown, not edited — the picker order on
+        the previous step already IS the priority, and a second control for one
+        list would be a second source of truth.
+        """
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
+        suggestions = [
+            self._room_names[index]
+            if index < len(self._room_names)
+            else self._head_name(head)
+            for index, head in enumerate(self._heads)
+        ]
+        if user_input is not None:
+            names = [
+                _resolve_room_name(user_input.get(_room_name_key(index)), suggestion)
+                for index, suggestion in enumerate(suggestions)
+            ]
+            suggestions = names
+            if problem := _room_name_problem(names):
+                error, placeholders = problem
+                errors["base"] = error
+            else:
+                self._room_names = names
+                return await self.async_step_sensors()
+
+        placeholders["rooms"] = "\n".join(
+            f"{index + 1}. {head} (priority {index + 1})"
+            for index, head in enumerate(self._heads)
+        )
+        return self.async_show_form(
+            step_id="rooms",
+            data_schema=_rooms_schema(suggestions),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
+
+    def _system_unit(self) -> str:
+        """The unit Home Assistant displays temperatures in."""
+        return str(self.hass.config.units.temperature_unit)
+
+    def _room_map(self, sensors: list[str] | None = None) -> str:
+        """The room-to-head-to-sensor mapping, one line per priority slot.
+
+        Rendered through the STEP DESCRIPTION, which is the placeholder surface
+        shipped code already relies on. Field labels are not used to carry a
+        room name: whether the frontend substitutes placeholders into a field
+        label is unverified (M11 review R5), and a literal ``{room_1}`` on
+        screen would be worse than the static label it replaced.
+        """
+        chosen = sensors if sensors is not None else self._sensors
+        unit = self._system_unit()
+        lines: list[str] = []
+        for index, head in enumerate(self._heads):
+            name = (
+                self._room_names[index]
+                if index < len(self._room_names)
+                else self._head_name(head)
+            )
+            line = f"{index + 1}. {name} — {head}"
+            if index < len(chosen) and chosen[index]:
+                line += f"\n   Sensor: {_sensor_status(self.hass, chosen[index], unit)}"
+            lines.append(line)
+        return "\n".join(lines)
 
     async def async_step_sensors(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Step 2: one room temperature sensor per chosen head."""
+        """Step 3: one room temperature sensor per room, by room name."""
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
+        suggestions = list(self._sensors)
         if user_input is not None:
-            zones: list[dict[str, Any]] = []
-            for i, head in enumerate(self._heads):
-                # Auto-detect each head's vane selects from its own device so
-                # the user never has to pick them (overridable via Configure).
-                vanes = _detect_vanes(self.hass, head)
-                zones.append(
-                    {
-                        ZONE_NAME: self._head_name(head),
-                        ZONE_CLIMATE: head,
-                        ZONE_SENSOR: user_input[f"sensor_{i + 1}"],
-                        ZONE_VANE_VERTICAL: vanes.get("vertical"),
-                        ZONE_VANE_HORIZONTAL: vanes.get("horizontal"),
-                        ZONE_STAGE_SENSOR: _detect_stage(self.hass, head),
-                    }
-                )
-            self._zones = zones
-            return await self.async_step_tuning()
+            sensors = [
+                user_input[f"sensor_{index + 1}"] for index in range(len(self._heads))
+            ]
+            suggestions = sensors
+            if problem := _sensor_problem(self.hass, sensors):
+                error, placeholders = problem
+                errors["base"] = error
+            else:
+                self._sensors = sensors
+                self._zones = self._build_zones()
+                return await self.async_step_review()
 
-        heads_list = "\n".join(
-            f"{i + 1}. {self._head_name(h)}" for i, h in enumerate(self._heads)
-        )
+        placeholders["rooms"] = self._room_map(suggestions)
         return self.async_show_form(
             step_id="sensors",
-            data_schema=_sensors_schema(len(self._heads)),
-            description_placeholders={"heads": heads_list},
+            data_schema=_sensors_schema(len(self._heads), suggestions),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
+
+    def _build_zones(self) -> list[dict[str, Any]]:
+        """Assemble the stored zone list from the answers given so far."""
+        zones: list[dict[str, Any]] = []
+        for index, head in enumerate(self._heads):
+            # Auto-detect each head's vane selects from its own device so
+            # the user never has to pick them (overridable via Configure).
+            vanes = _detect_vanes(self.hass, head)
+            zones.append(
+                {
+                    ZONE_NAME: self._room_names[index],
+                    ZONE_CLIMATE: head,
+                    ZONE_SENSOR: self._sensors[index],
+                    ZONE_VANE_VERTICAL: vanes.get("vertical"),
+                    ZONE_VANE_HORIZONTAL: vanes.get("horizontal"),
+                    ZONE_STAGE_SENSOR: _detect_stage(self.hass, head),
+                }
+            )
+        return zones
+
+    def _default_tunables(self) -> dict[str, Any] | None:
+        """The option set a submit-as-is of the advanced step would produce.
+
+        Built by validating an EMPTY submission against the very schema that
+        step would have rendered, so skipping advanced and accepting its
+        defaults are the same values by construction rather than by a second
+        hand-written list that could drift. Returns None when the schema cannot
+        fill itself — the M12 case where no head advertises the default parking
+        mode, so the choice has to be made explicitly.
+        """
+        profile = unit_profile(
+            self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+        )
+        engage_min, engage_max = profile["engage_bounds"]
+        idle_options = supported_idle_actions(self.hass, self._heads)
+        try:
+            return _tunables_schema(
+                profile["defaults"], engage_min, engage_max, idle_options
+            )({})
+        except vol.Invalid:
+            return None
+
+    def _summary(self) -> str:
+        """The review screen's body: everything about to be saved, in order."""
+        unit = self._system_unit()
+        lines = [
+            f"Outdoor unit: {self._title}",
+            f"Drift alerts: {self._notify or 'none'}",
+            "",
+        ]
+        for index, head in enumerate(self._heads):
+            lines.append(f"Priority {index + 1}  {self._room_names[index]}")
+            lines.append(f"  Head:   {head}")
+            lines.append(
+                f"  Sensor: {_sensor_status(self.hass, self._sensors[index], unit)}"
+            )
+            lines.append(
+                "  Cadence: unknown — MXZ does not time out this sensor."
+            )
+            lines.append("")
+        if self._tunables is not None:
+            lines.append(
+                f"Comfort settings: your choices ({len(self._tunables)} values)."
+                f" Idle: {self._tunables.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION)}."
+            )
+        elif (defaults := self._default_tunables()) is not None:
+            lines.append(
+                f"Comfort settings: defaults for {unit} ({len(defaults)} values)."
+                f" Idle: {defaults.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION)}."
+            )
+        else:
+            lines.append(
+                "Comfort settings: needs your choice — these heads cannot idle in"
+                f' "{DEFAULT_IDLE_ACTION}". Use "Change advanced settings".'
+            )
+        return "\n".join(lines)
+
+    async def async_step_review(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Step 4: check everything, then save. The ONLY save point.
+
+        A menu step, so the summary is the description and the actions are the
+        buttons: Home Assistant reads the text before it offers anything to
+        press, which is exactly what review-before-save means. Advanced tuning
+        hangs off this step too, which is why the twenty knobs are no longer on
+        the way in.
+        """
+        return self.async_show_menu(
+            step_id="review",
+            menu_options=["finish", "tuning", "user"],
+            description_placeholders={"summary": self._summary()},
+        )
+
+    def _back_to_user(
+        self, error: str, placeholders: dict[str, str] | None
+    ) -> ConfigFlowResult:
+        """Return to the head picker, releasing this flow's reservation.
+
+        A flow parked on an error is not entitled to keep other flows out of
+        heads it has just been told it cannot have.
+        """
+        self.context.pop(_CONTEXT_HEADS, None)
+        return self.async_show_form(
+            step_id="user",
+            data_schema=_user_schema(
+                _notify_options(self.hass), self._heads, self._notify, self._title
+            ),
+            errors={_CONF_HEADS: error},
+            description_placeholders=placeholders,
+        )
+
+    async def async_step_finish(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Save. Every final recheck happens here, once, and then the entry.
+
+        Ownership and capability can both change while the user is reading the
+        review screen, so they are re-asked at the last possible moment and in
+        the order the flow already used.
+        """
+        if problem := head_mode_problem(self.hass, self._heads):
+            error, placeholders = problem
+            return self._back_to_user(error, placeholders)
+        if conflict := _conflict_error(
+            _head_conflicts(self.hass, self._heads, exclude_flow_id=self.flow_id)
+        ):
+            error, conflicts = conflict
+            return self._back_to_user(error, _conflict_placeholders(conflicts))
+        if problem := _sensor_problem(self.hass, self._sensors):
+            error, placeholders = problem
+            placeholders = {**placeholders, "rooms": self._room_map()}
+            return self.async_show_form(
+                step_id="sensors",
+                data_schema=_sensors_schema(len(self._heads), self._sensors),
+                errors={"base": error},
+                description_placeholders=placeholders,
+            )
+        tunables = self._tunables
+        if tunables is None and (tunables := self._default_tunables()) is None:
+            # M12: the stored default parking mode is not advertised by every
+            # head, so advanced is not skippable. Say which choice is missing
+            # instead of saving something a head cannot do.
+            return await self.async_step_tuning()
+        if head_mode_problem(
+            self.hass, self._heads, tunables.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION)
+        ):
+            # An advanced answer given earlier is only final if it still fits
+            # the heads being saved: a head can drop the parking mode while the
+            # review screen is open, and going back can swap the heads out from
+            # under the answer. Re-ask the advanced step with those same answers
+            # so it raises its own idle error, on its own field, and keeps every
+            # answer that is still valid.
+            return await self.async_step_tuning(tunables)
+        data: dict[str, Any] = {CONF_ZONES: self._zones, **tunables}
+        if self._notify:
+            data[CONF_NOTIFY_SERVICE] = self._notify
+        # Tunables live in options (with the data mirror above), exactly as
+        # an options-flow save would leave them.
+        return self.async_create_entry(
+            title=self._title, data=data, options=dict(tunables)
         )
 
     async def async_step_tuning(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Step 3: every tunable, pre-filled with unit-appropriate defaults.
+        """Advanced: every tunable, pre-filled with unit-appropriate defaults.
 
-        Nothing here is required — Submit as-is accepts the defaults. The same
-        values stay editable later via the integration's Configure dialog.
+        Reached only from the review screen, and it returns there — this step
+        no longer creates the entry. Nothing here is required; the same values
+        stay editable later via the integration's Configure dialog.
         """
-        if user_input is not None:
-            data: dict[str, Any] = {CONF_ZONES: self._zones, **user_input}
-            if self._notify:
-                data[CONF_NOTIFY_SERVICE] = self._notify
-            # Tunables live in options (with the data mirror above), exactly as
-            # an options-flow save would leave them.
-            return self.async_create_entry(
-                title="MXZ Coordinator", data=data, options=dict(user_input)
-            )
-        celsius = (
+        if problem := head_mode_problem(self.hass, self._heads):
+            error, placeholders = problem
+            return self._back_to_user(error, placeholders)
+        idle_options = supported_idle_actions(self.hass, self._heads)
+        profile = unit_profile(
             self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
         )
-        profile = unit_profile(celsius)
         engage_min, engage_max = profile["engage_bounds"]
+        if user_input is not None:
+            idle_action = user_input.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION)
+            if problem := head_mode_problem(self.hass, self._heads, idle_action):
+                error, placeholders = problem
+                return self.async_show_form(
+                    step_id="tuning",
+                    data_schema=_tunables_schema(
+                        {**profile["defaults"], **user_input},
+                        engage_min,
+                        engage_max,
+                        idle_options,
+                    ),
+                    errors={CONF_IDLE_ACTION: error},
+                    description_placeholders=placeholders,
+                )
+            if tuning_errors := _validate_tunables(user_input):
+                return self.async_show_form(
+                    step_id="tuning",
+                    data_schema=_tunables_schema(
+                        {**profile["defaults"], **user_input},
+                        engage_min,
+                        engage_max,
+                        idle_options,
+                    ),
+                    errors=tuning_errors,
+                )
+            self._tunables = dict(user_input)
+            return await self.async_step_review()
+
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] | None = None
+        # Arrived here from "Save and finish" when the schema could not fill the
+        # parking mode itself: name the missing choice on the field that needs it.
+        if (
+            self._tunables is None
+            and self._default_tunables() is None
+            and (problem := head_mode_problem(
+                self.hass, self._heads, DEFAULT_IDLE_ACTION
+            ))
+        ):
+            error, placeholders = problem
+            errors[CONF_IDLE_ACTION] = error
         return self.async_show_form(
             step_id="tuning",
-            data_schema=_tunables_schema(profile["defaults"], engage_min, engage_max),
+            data_schema=_tunables_schema(
+                {**profile["defaults"], **(self._tunables or {})},
+                engage_min,
+                engage_max,
+                idle_options,
+            ),
+            errors=errors,
+            description_placeholders=placeholders,
         )
 
     async def async_step_reconfigure(
@@ -495,7 +1266,9 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         state) when a zone's sensor or head was mis-assigned at setup.
         """
         entry = self._get_reconfigure_entry()
+        current_heads = _entry_heads(entry)
         errors: dict[str, str] = {}
+        placeholders: dict[str, str] | None = None
         if user_input is not None:
             heads: list[str] = user_input.get(_CONF_HEADS) or []
             if len(set(heads)) != len(heads):
@@ -504,95 +1277,320 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "need_two_heads"
             elif len(heads) > MAX_ZONES:
                 errors["base"] = "too_many_heads"
+            elif conflict := _conflict_error(
+                _head_conflicts(
+                    self.hass,
+                    heads,
+                    exclude_entry_id=entry.entry_id,
+                    exclude_flow_id=self.flow_id,
+                    grandfathered_heads=current_heads,
+                )
+            ):
+                error, conflicts = conflict
+                errors[_CONF_HEADS] = error
+                placeholders = _conflict_placeholders(conflicts)
+            elif problem := head_mode_problem(
+                self.hass,
+                heads,
+                {**entry.data, **entry.options}.get(
+                    CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION
+                ),
+            ):
+                error, placeholders = problem
+                errors[_CONF_HEADS] = error
             else:
+                self.context[_CONTEXT_HEADS] = tuple(heads)
+                self.context[_CONTEXT_ENTRY_ID] = entry.entry_id
                 uid = "|".join(heads)
                 if any(
                     e.unique_id == uid and e.entry_id != entry.entry_id
                     for e in self.hass.config_entries.async_entries(DOMAIN)
                 ):
                     return self.async_abort(reason="already_configured")
+                if heads != self._heads:
+                    self._room_names = []
+                    self._sensors = []
                 self._heads = heads
                 self._notify = user_input.get(CONF_NOTIFY_SERVICE) or None
-                return await self.async_step_reconfigure_sensors()
+                self._title = (
+                    str(user_input.get(_CONF_ENTRY_TITLE) or "").strip()
+                    or entry.title
+                )
+                return await self.async_step_reconfigure_rooms()
 
         current = entry.data.get(CONF_ZONES, [])
+        # Also the way the reconfigure review screen goes back, so in-flight
+        # answers win over the stored ones when there are any.
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=_user_schema(
                 _notify_options(self.hass),
-                default_heads=[z[ZONE_CLIMATE] for z in current],
-                default_notify=entry.data.get(CONF_NOTIFY_SERVICE),
+                default_heads=(
+                    user_input.get(_CONF_HEADS)
+                    if user_input is not None
+                    else self._heads or [z[ZONE_CLIMATE] for z in current]
+                ),
+                default_notify=(
+                    user_input.get(CONF_NOTIFY_SERVICE)
+                    if user_input is not None
+                    # Keyed on whether this step has been answered, not on
+                    # whether the answer is truthy: an emptied box is an
+                    # answer, and re-suggesting the stored target would undo
+                    # the clearing every time the user goes back. Same test
+                    # the title below already uses.
+                    else self._notify
+                    if self._heads
+                    else entry.data.get(CONF_NOTIFY_SERVICE)
+                ),
+                default_title=(
+                    user_input.get(_CONF_ENTRY_TITLE)
+                    if user_input is not None
+                    else self._title
+                    if self._heads
+                    else entry.title
+                ),
             ),
             errors=errors,
+            description_placeholders=placeholders,
+        )
+
+    def _stored_room_name(self, entry: ConfigEntry, head: str) -> str:
+        """The name this entry already stores for ``head``, else the head's."""
+        for zone in entry.data.get(CONF_ZONES, []):
+            if isinstance(zone, dict) and zone.get(ZONE_CLIMATE) == head:
+                name = zone.get(ZONE_NAME)
+                if isinstance(name, str) and name:
+                    return name
+        return self._head_name(head)
+
+    async def async_step_reconfigure_rooms(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Room names for reconfigure, prefilled from the stored zone names.
+
+        Clearing a box here is not an error, unlike setup: on an entry that
+        already exists, an empty name is the documented way back to the head's
+        own name. Renaming changes no unique_id, so no entity moves.
+        """
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
+        suggestions = [
+            self._room_names[index]
+            if index < len(self._room_names)
+            else self._stored_room_name(entry, head)
+            for index, head in enumerate(self._heads)
+        ]
+        if user_input is not None:
+            names = [
+                _resolve_room_name(user_input.get(_room_name_key(index)), suggestion)
+                or self._head_name(self._heads[index])
+                for index, suggestion in enumerate(suggestions)
+            ]
+            suggestions = names
+            if problem := _room_name_problem(names):
+                error, placeholders = problem
+                errors["base"] = error
+            else:
+                self._room_names = names
+                return await self.async_step_reconfigure_sensors()
+
+        placeholders["rooms"] = "\n".join(
+            f"{index + 1}. {head} (priority {index + 1})"
+            for index, head in enumerate(self._heads)
+        )
+        return self.async_show_form(
+            step_id="reconfigure_rooms",
+            data_schema=_rooms_schema(suggestions),
+            errors=errors,
+            description_placeholders=placeholders,
         )
 
     async def async_step_reconfigure_sensors(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Per-head sensors for reconfigure, prefilled from the existing zones."""
+        """Per-room sensors for reconfigure, prefilled from the existing zones."""
         entry = self._get_reconfigure_entry()
-        old_by_climate = {
-            z[ZONE_CLIMATE]: z for z in entry.data.get(CONF_ZONES, [])
-        }
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
+        suggestions = list(self._sensors) or [
+            zone.get(ZONE_SENSOR)
+            for head in self._heads
+            for zone in [self._stored_zone(entry, head)]
+        ]
         if user_input is not None:
-            zones: list[dict[str, Any]] = []
-            for i, head in enumerate(self._heads):
-                old = old_by_climate.get(head)
-                if old is not None:
-                    # Unchanged head: keep its name + vane wiring (incl. any
-                    # user overrides), update only the sensor.
-                    zone = dict(old)
-                    zone[ZONE_SENSOR] = user_input[f"sensor_{i + 1}"]
-                else:
-                    vanes = _detect_vanes(self.hass, head)
-                    zone = {
-                        ZONE_NAME: self._head_name(head),
-                        ZONE_CLIMATE: head,
-                        ZONE_SENSOR: user_input[f"sensor_{i + 1}"],
-                        ZONE_VANE_VERTICAL: vanes.get("vertical"),
-                        ZONE_VANE_HORIZONTAL: vanes.get("horizontal"),
-                        ZONE_STAGE_SENSOR: _detect_stage(self.hass, head),
-                    }
-                zones.append(zone)
-            # Notify is always written (None included): data_updates merges
-            # and can't delete a key, so clearing the field in the form must
-            # store an explicit None to actually turn the alerts off.
-            data_updates: dict[str, Any] = {
-                CONF_ZONES: zones,
-                CONF_NOTIFY_SERVICE: self._notify,
-            }
-            # ONE reload per save (#15): async_update_reload_and_abort both
-            # fires the update listener (which reloads) AND schedules its own
-            # reload — two full back-to-back reloads, the same double the
-            # options save had (#14). Update the entry directly and let the
-            # listener do the single reload; an unchanged submit reloads
-            # nothing, which is the correct amount of nothing.
-            self.hass.config_entries.async_update_entry(
-                entry,
-                data={**entry.data, **data_updates},
-                unique_id="|".join(self._heads),
-            )
-            return self.async_abort(reason="reconfigure_successful")
+            sensors = [
+                user_input[f"sensor_{index + 1}"] for index in range(len(self._heads))
+            ]
+            suggestions = sensors
+            if problem := _sensor_problem(self.hass, sensors):
+                error, placeholders = problem
+                errors["base"] = error
+            else:
+                self._sensors = sensors
+                return await self.async_step_reconfigure_review()
 
-        # Prefill each slot with the head's current sensor where known.
-        schema_fields = {}
-        for i, head in enumerate(self._heads):
-            old = old_by_climate.get(head)
-            schema_fields[
-                vol.Required(
-                    f"sensor_{i + 1}",
-                    description={
-                        "suggested_value": old.get(ZONE_SENSOR) if old else None
-                    },
-                )
-            ] = _SENSOR_SELECTOR
-        heads_list = "\n".join(
-            f"{i + 1}. {self._head_name(h)}" for i, h in enumerate(self._heads)
+        placeholders["rooms"] = self._room_map(
+            [entity_id or "" for entity_id in suggestions]
         )
         return self.async_show_form(
             step_id="reconfigure_sensors",
-            data_schema=vol.Schema(schema_fields),
-            description_placeholders={"heads": heads_list},
+            data_schema=_sensors_schema(
+                len(self._heads), [entity_id or "" for entity_id in suggestions]
+            ),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
+
+    def _stored_zone(self, entry: ConfigEntry, head: str) -> dict[str, Any]:
+        """The zone dict this entry already stores for ``head``, else empty."""
+        for zone in entry.data.get(CONF_ZONES, []):
+            if isinstance(zone, dict) and zone.get(ZONE_CLIMATE) == head:
+                return zone
+        return {}
+
+    async def async_step_reconfigure_review(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Check the changes, then save. The only save point for reconfigure.
+
+        No advanced button: the comfort settings are edited with Configure, and
+        a second editing path for the same twenty keys would be a second writer
+        for one set of values.
+        """
+        return self.async_show_menu(
+            step_id="reconfigure_review",
+            menu_options=["reconfigure_finish", "reconfigure"],
+            description_placeholders={"summary": self._reconfigure_summary()},
+        )
+
+    def _reconfigure_summary(self) -> str:
+        """What this reconfigure is about to write, in priority order."""
+        entry = self._get_reconfigure_entry()
+        unit = self._system_unit()
+        lines = [
+            f"Outdoor unit: {self._title}",
+            f"Drift alerts: {self._notify or 'none'}",
+            "",
+        ]
+        old_order = _entry_head_order(entry)
+        for index, head in enumerate(self._heads):
+            lines.append(f"Priority {index + 1}  {self._room_names[index]}")
+            lines.append(f"  Head:   {head}")
+            lines.append(
+                f"  Sensor: {_sensor_status(self.hass, self._sensors[index], unit)}"
+            )
+            lines.append("  Cadence: unknown — MXZ does not time out this sensor.")
+            if head in old_order and old_order.index(head) != index:
+                lines.append(
+                    f"  Moved from priority {old_order.index(head) + 1}. Its name,"
+                    " sensor, vane wiring, target, drift, enable and fan hold"
+                    " move with it."
+                )
+            lines.append("")
+        for head in old_order:
+            if head not in self._heads:
+                lines.append(f"Removed: {head}. That room's entities are deleted.")
+        return "\n".join(lines)
+
+    async def async_step_reconfigure_finish(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Save the reconfigure. Every final recheck happens here, once."""
+        entry = self._get_reconfigure_entry()
+        if conflict := _conflict_error(
+            _head_conflicts(
+                self.hass,
+                self._heads,
+                exclude_entry_id=entry.entry_id,
+                exclude_flow_id=self.flow_id,
+                grandfathered_heads=_entry_heads(entry),
+            )
+        ):
+            error, conflicts = conflict
+            return self._back_to_reconfigure(
+                error, _conflict_placeholders(conflicts)
+            )
+        if problem := head_mode_problem(
+            self.hass,
+            self._heads,
+            {**entry.data, **entry.options}.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION),
+        ):
+            error, placeholders = problem
+            return self._back_to_reconfigure(error, placeholders)
+        if problem := _sensor_problem(self.hass, self._sensors):
+            error, sensor_placeholders = problem
+            return self.async_show_form(
+                step_id="reconfigure_sensors",
+                data_schema=_sensors_schema(len(self._heads), self._sensors),
+                errors={"base": error},
+                description_placeholders={
+                    **sensor_placeholders,
+                    "rooms": self._room_map(),
+                },
+            )
+
+        zones: list[dict[str, Any]] = []
+        for index, head in enumerate(self._heads):
+            old = self._stored_zone(entry, head)
+            if old:
+                # Kept head: keep its vane wiring (incl. any user overrides);
+                # the sensor and the room name come from the form.
+                zone = dict(old)
+                zone[ZONE_SENSOR] = self._sensors[index]
+            else:
+                vanes = _detect_vanes(self.hass, head)
+                zone = {
+                    ZONE_CLIMATE: head,
+                    ZONE_SENSOR: self._sensors[index],
+                    ZONE_VANE_VERTICAL: vanes.get("vertical"),
+                    ZONE_VANE_HORIZONTAL: vanes.get("horizontal"),
+                    ZONE_STAGE_SENSOR: _detect_stage(self.hass, head),
+                }
+            # The room name is display copy and lands in the existing
+            # ZONE_NAME; the field itself is flow-input-only.
+            zone[ZONE_NAME] = self._room_names[index]
+            zones.append(zone)
+        # Notify is always written (None included): data_updates merges
+        # and can't delete a key, so clearing the field in the form must
+        # store an explicit None to actually turn the alerts off.
+        data_updates: dict[str, Any] = {
+            CONF_ZONES: zones,
+            CONF_NOTIFY_SERVICE: self._notify,
+        }
+        # Move each reordered room's entity records onto its new slot
+        # BEFORE the entry is written: the update below triggers the
+        # reload that rebuilds the entities, and they must find the
+        # records — and the restored values — of their own room.
+        _async_move_room_entities(
+            self.hass, entry, _entry_head_order(entry), self._heads
+        )
+        # ONE reload per save (#15): async_update_reload_and_abort both
+        # fires the update listener (which reloads) AND schedules its own
+        # reload — two full back-to-back reloads, the same double the
+        # options save had (#14). Update the entry directly and let the
+        # listener do the single reload; an unchanged submit reloads
+        # nothing, which is the correct amount of nothing.
+        self.hass.config_entries.async_update_entry(
+            entry,
+            title=self._title,
+            data={**entry.data, **data_updates},
+            unique_id="|".join(self._heads),
+        )
+        return self.async_abort(reason="reconfigure_successful")
+
+    def _back_to_reconfigure(
+        self, error: str, placeholders: dict[str, str] | None
+    ) -> ConfigFlowResult:
+        """Return to the reconfigure head picker, releasing the reservation."""
+        self.context.pop(_CONTEXT_HEADS, None)
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_user_schema(
+                _notify_options(self.hass), self._heads, self._notify, self._title
+            ),
+            errors={_CONF_HEADS: error},
+            description_placeholders=placeholders,
         )
 
     @staticmethod
@@ -608,8 +1606,52 @@ class MXZOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         zones = [dict(z) for z in self.config_entry.data.get(CONF_ZONES, [])]
+        heads = [zone[ZONE_CLIMATE] for zone in zones]
+        if not heads:
+            heads = sorted(_entry_heads(self.config_entry))
+        current = {
+            **self.config_entry.data,
+            **self.config_entry.options,
+            **(user_input or {}),
+        }
+        celsius = (
+            self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+        )
+        if problem := head_mode_problem(self.hass, heads):
+            error, placeholders = problem
+            return self.async_show_form(
+                step_id="init",
+                data_schema=_options_schema(current, celsius, zones, ()),
+                errors={"base": error},
+                description_placeholders=placeholders,
+            )
+        idle_options = supported_idle_actions(self.hass, heads)
         override_keys = _zone_override_keys()
         if user_input is not None:
+            idle_action = user_input.get(
+                CONF_IDLE_ACTION,
+                {**self.config_entry.data, **self.config_entry.options}.get(
+                    CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION
+                ),
+            )
+            if problem := head_mode_problem(self.hass, heads, idle_action):
+                error, placeholders = problem
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=_options_schema(
+                        current, celsius, zones, idle_options
+                    ),
+                    errors={CONF_IDLE_ACTION: error},
+                    description_placeholders=placeholders,
+                )
+            if tuning_errors := _validate_tunables(user_input):
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=_options_schema(
+                        current, celsius, zones, idle_options
+                    ),
+                    errors=tuning_errors,
+                )
             # Per-zone vane + airflow-sensor overrides are flow-input-only: fold
             # them into the zones list in entry.data, never store them as flat
             # keys (a stale flat key would shadow the zones list in the
@@ -676,10 +1718,7 @@ class MXZOptionsFlow(OptionsFlow):
                 self.config_entry, data=data, options=merged
             )
             return self.async_create_entry(title="", data=merged)
-        current = {**self.config_entry.data, **self.config_entry.options}
-        celsius = (
-            self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
-        )
         return self.async_show_form(
-            step_id="init", data_schema=_options_schema(current, celsius, zones)
+            step_id="init",
+            data_schema=_options_schema(current, celsius, zones, idle_options),
         )
