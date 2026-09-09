@@ -53,9 +53,15 @@ from custom_components.mxz_coordinator.const import (
     IDLE_ACTION_OFF,
     IDLE_ACTION_OFF_AFTER_DRY,
     ZONE_CLIMATE,
+    ZONE_EVIDENCE_BASIS,
+    ZONE_MAX_AGE,
     ZONE_NAME,
+    ZONE_REPORT_INTERVAL,
+    ZONE_SAMPLE_SEQUENCE_ATTR,
+    ZONE_SAMPLE_TIMESTAMP_ATTR,
     ZONE_SENSOR,
     ZONE_STAGE_SENSOR,
+    ZONE_STARTUP_GRACE,
     ZONE_VANE_HORIZONTAL,
     ZONE_VANE_VERTICAL,
     unit_profile,
@@ -215,6 +221,193 @@ async def _start_reconfigure_flow(
             "entry_id": entry.entry_id,
         },
     )
+
+
+async def test_sensor_labels_follow_every_room_slot_and_keep_the_map(
+    hass: HomeAssistant,
+) -> None:
+    """The named field labels and the priority description have one source."""
+    result = await _start_user_flow(hass)
+    heads = [
+        "climate.primary",
+        "climate.secondary",
+        "climate.office",
+        "climate.a",
+        "climate.b",
+        "climate.c",
+        "climate.d",
+        "climate.e",
+    ]
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"heads": heads}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "room_name_1": "Cobalt",
+            "room_name_2": "Juniper",
+            "room_name_3": "Orchid",
+            "room_name_4": "Saffron",
+            "room_name_5": "Marigold",
+            "room_name_6": "Linden",
+            "room_name_7": "Mica",
+            "room_name_8": "Aster",
+        },
+    )
+
+    assert result["step_id"] == "sensors"
+    assert result["description_placeholders"] == {
+        "rooms": (
+            "1. Cobalt — climate.primary\n2. Juniper — climate.secondary"
+            "\n3. Orchid — climate.office\n4. Saffron — climate.a"
+            "\n5. Marigold — climate.b\n6. Linden — climate.c"
+            "\n7. Mica — climate.d\n8. Aster — climate.e"
+        ),
+        "room_1": "Cobalt",
+        "room_2": "Juniper",
+        "room_3": "Orchid",
+        "room_4": "Saffron",
+        "room_5": "Marigold",
+        "room_6": "Linden",
+        "room_7": "Mica",
+        "room_8": "Aster",
+    }
+
+
+def test_sensor_field_copy_uses_floor_supported_room_description_placeholders() -> None:
+    """Each static field label has its own correctly mapped named-room helper."""
+    import json
+    from pathlib import Path
+
+    import custom_components.mxz_coordinator as component
+
+    folder = Path(component.__file__).parent
+    raw = (folder / "strings.json").read_bytes()
+    assert raw == (folder / "translations" / "en.json").read_bytes()
+    strings = json.loads(raw.decode("utf-8"))
+
+    for step_id in ("sensors", "reconfigure_sensors"):
+        step = strings["config"]["step"][step_id]
+        for index in range(1, 9):
+            field = f"sensor_{index}"
+            assert step["data"][field] == f"Room {index} temperature sensor"
+            assert step["data_description"][field].startswith(
+                f"For **{{room_{index}}}**: The thermometer"
+            )
+            assert step["data_description"][field].count("{room_") == 1
+
+
+async def test_rejected_sensor_submit_keeps_matching_room_label_placeholders(
+    hass: HomeAssistant,
+) -> None:
+    """A wrong sensor selection does not detach labels from the room names."""
+    result = await _start_user_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"heads": ["climate.primary", "climate.secondary"]}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"room_name_1": "Cobalt", "room_name_2": "Juniper"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"sensor_1": "sensor.primary_temp", "sensor_2": "sensor.primary_temp"},
+    )
+
+    assert result["step_id"] == "sensors"
+    assert result["errors"] == {"base": "duplicate_sensors"}
+    assert result["description_placeholders"]["room_1"] == "Cobalt"
+    assert result["description_placeholders"]["room_2"] == "Juniper"
+    assert result["description_placeholders"]["rooms"].startswith(
+        "1. Cobalt — climate.primary"
+    )
+
+
+async def test_setup_final_sensor_recheck_keeps_named_field_descriptions(
+    hass: HomeAssistant,
+) -> None:
+    """A sensor lost on Review re-shows setup with both room associations."""
+    result = await _start_user_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"heads": ["climate.primary", "climate.secondary"]}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"room_name_1": "Cobalt", "room_name_2": "Juniper"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"sensor_1": "sensor.primary_temp", "sensor_2": "sensor.secondary_temp"},
+    )
+    hass.states.async_remove("sensor.secondary_temp")
+    result = await _press(hass, result, "finish")
+
+    assert result["step_id"] == "sensors"
+    assert result["errors"] == {"base": "sensor_missing"}
+    assert result["description_placeholders"]["room_1"] == "Cobalt"
+    assert result["description_placeholders"]["room_2"] == "Juniper"
+    assert _form_suggested(result, "sensor_1") == "sensor.primary_temp"
+    assert _form_suggested(result, "sensor_2") == "sensor.secondary_temp"
+
+
+async def test_reconfigure_sensor_labels_follow_reordered_stored_rooms(
+    hass: HomeAssistant,
+) -> None:
+    """Reordering heads changes slots, not the room name carried by each label."""
+    zones = _zones("climate.a", "climate.b")
+    zones[0][ZONE_NAME] = "Cobalt"
+    zones[1][ZONE_NAME] = "Juniper"
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_ZONES: zones}, version=2)
+    entry.add_to_hass(hass)
+    result = await _start_reconfigure_flow(hass, entry)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"heads": ["climate.b", "climate.a"]}
+    )
+    result = await _pass_rooms(hass, result, "reconfigure_rooms")
+
+    assert result["step_id"] == "reconfigure_sensors"
+    assert result["description_placeholders"]["room_1"] == "Juniper"
+    assert result["description_placeholders"]["room_2"] == "Cobalt"
+    assert result["description_placeholders"]["rooms"].startswith(
+        "1. Juniper — climate.b"
+    )
+
+
+async def test_reconfigure_final_sensor_recheck_keeps_room_identity_and_answers(
+    hass: HomeAssistant,
+) -> None:
+    """A late bad sensor re-shows reversed rooms without mutating the entry."""
+    zones = _zones("climate.a", "climate.b")
+    zones[0][ZONE_NAME] = "Cobalt"
+    zones[1][ZONE_NAME] = "Juniper"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_ZONES: zones},
+        unique_id="climate.a|climate.b",
+        version=2,
+    )
+    entry.add_to_hass(hass)
+    entry_id = entry.entry_id
+    before = _entry_snapshot(entry)
+
+    result = await _start_reconfigure_flow(hass, entry)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"heads": ["climate.b", "climate.a"]}
+    )
+    result = await _pass_rooms(hass, result, "reconfigure_rooms")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"sensor_1": "sensor.b_new", "sensor_2": "sensor.a_new"},
+    )
+    hass.states.async_remove("sensor.a_new")
+    result = await _press(hass, result, "reconfigure_finish")
+
+    assert result["step_id"] == "reconfigure_sensors"
+    assert result["errors"] == {"base": "sensor_missing"}
+    assert result["description_placeholders"]["room_1"] == "Juniper"
+    assert result["description_placeholders"]["room_2"] == "Cobalt"
+    assert _form_suggested(result, "sensor_1") == "sensor.b_new"
+    assert _form_suggested(result, "sensor_2") == "sensor.a_new"
+    assert entry.entry_id == entry_id
+    assert _entry_snapshot(entry) == before
 
 
 async def test_detect_vanes_from_head_device(hass: HomeAssistant) -> None:
@@ -1047,6 +1240,7 @@ async def test_reconfigure_allows_reordered_heads_owned_by_current_entry(
         version=2,
     )
     current.add_to_hass(hass)
+    entry_id = current.entry_id
 
     result = await _start_reconfigure_flow(hass, current)
     result = await hass.config_entries.flow.async_configure(
@@ -1064,9 +1258,15 @@ async def test_reconfigure_allows_reordered_heads_owned_by_current_entry(
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     assert current.unique_id == "climate.b|climate.a"
+    assert current.entry_id == entry_id
     assert [zone[ZONE_CLIMATE] for zone in current.data[CONF_ZONES]] == [
         "climate.b",
         "climate.a",
+    ]
+    assert [zone[ZONE_NAME] for zone in current.data[CONF_ZONES]] == ["B", "A"]
+    assert [zone[ZONE_SENSOR] for zone in current.data[CONF_ZONES]] == [
+        "sensor.b_new",
+        "sensor.a_new",
     ]
 
 
@@ -1806,6 +2006,399 @@ async def test_options_flow_keeps_every_untouched_tunable_on_rejection(
     assert dict(entry.options) == stored
 
 
+# --- M41: per-room sensor freshness profiles ---------------------------------
+
+
+def _freshness_submission(prefix: str, **overrides: object) -> dict[str, object]:
+    """Return one complete trusted sample-time profile for a room."""
+    profile: dict[str, object] = {
+        f"{prefix}_report_interval": 60.0,
+        f"{prefix}_max_age": 180.0,
+        f"{prefix}_startup_grace": 180.0,
+        f"{prefix}_evidence_basis": "sample_timestamp",
+        f"{prefix}_sample_timestamp_attribute": "sampled_at",
+        f"{prefix}_sample_sequence_attribute": "",
+    }
+    profile.update(overrides)
+    return profile
+
+
+async def test_options_flow_round_trips_freshness_profile_into_zone_config(
+    hass: HomeAssistant,
+) -> None:
+    """The six form values retain the exact M36 zone keys and values."""
+    zones = [
+        {ZONE_NAME: "Primary", ZONE_CLIMATE: "climate.primary", ZONE_SENSOR: "sensor.primary_temp"},
+        {ZONE_NAME: "Secondary", ZONE_CLIMATE: "climate.secondary", ZONE_SENSOR: "sensor.secondary_temp"},
+    ]
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_ZONES: zones}, title="MXZ Coordinator")
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], _freshness_submission("primary")
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    profile = entry.data[CONF_ZONES][0]
+    assert profile[ZONE_REPORT_INTERVAL] == 60.0
+    assert profile[ZONE_MAX_AGE] == 180.0
+    assert profile[ZONE_STARTUP_GRACE] == 180.0
+    assert profile[ZONE_EVIDENCE_BASIS] == "sample_timestamp"
+    assert profile[ZONE_SAMPLE_TIMESTAMP_ATTR] == "sampled_at"
+    assert "sample_sequence_attribute" not in profile
+
+
+@pytest.mark.parametrize(
+    "units", [US_CUSTOMARY_SYSTEM, METRIC_SYSTEM], ids=["fahrenheit", "celsius"]
+)
+async def test_options_flow_displayed_minutes_reach_coordinator_deadline(
+    hass: HomeAssistant, units
+) -> None:
+    """F1: form minutes reach M36's real deadline in both unit systems."""
+    from homeassistant.util import dt as dt_util
+
+    from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+
+    hass.config.units = units
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_ZONES: _zones("climate.primary", "climate.secondary")},
+        title="MXZ Coordinator",
+        version=2,
+    )
+    entry.add_to_hass(hass)
+    sample = dt_util.utcnow()
+    state = hass.states.get("sensor.primary_temp")
+    assert state is not None
+    hass.states.async_set(
+        "sensor.primary_temp",
+        state.state,
+        {**state.attributes, "sampled_at": sample.isoformat()},
+    )
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    submitted = result["data_schema"](
+        _freshness_submission("primary", primary_startup_grace=90.0)
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], submitted
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    coordinator = MXZCoordinator(hass, entry)
+    assert coordinator._freshness["primary"] == (180.0 * 60.0, 90.0 * 60.0)
+    assert (
+        coordinator._fresh_deadline["primary"] - sample.timestamp()
+        == 180.0 * 60.0
+    )
+
+
+async def test_options_profile_in_options_saves_and_reaches_consumer(
+    hass: HomeAssistant,
+) -> None:
+    """F2: the effective options profile is prefilled, saved and consumed."""
+    from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+
+    data_zones = _zones("climate.primary", "climate.secondary")
+    data_zones[0]["data_state"] = "kept"
+    option_zones = deepcopy(data_zones)
+    option_zones[0].update(
+        {
+            ZONE_REPORT_INTERVAL: 2.0,
+            ZONE_MAX_AGE: 6.0,
+            ZONE_EVIDENCE_BASIS: "ha_state_write",
+            "option_state": "kept",
+        }
+    )
+    option_zones[1]["peer_state"] = "untouched"
+    peer = deepcopy(option_zones[1])
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_ZONES: data_zones},
+        options={
+            CONF_ZONES: option_zones,
+            CONF_DEMAND_THRESHOLD: 4.5,
+            "unrelated_option": "kept",
+        },
+        title="MXZ Coordinator",
+        version=2,
+    )
+    entry.add_to_hass(hass)
+    assert MXZCoordinator(hass, entry)._freshness["primary"] == (360.0, 360.0)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert _form_suggested(result, "primary_report_interval") == 2.0
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        _freshness_submission(
+            "primary",
+            primary_report_interval=1.0,
+            primary_max_age=3.0,
+            primary_startup_grace=2.0,
+            primary_evidence_basis="ha_state_write",
+            primary_sample_timestamp_attribute="",
+        ),
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    expected = {
+        ZONE_REPORT_INTERVAL: 1.0,
+        ZONE_MAX_AGE: 3.0,
+        ZONE_STARTUP_GRACE: 2.0,
+        ZONE_EVIDENCE_BASIS: "ha_state_write",
+    }
+    for zones in (entry.data[CONF_ZONES], entry.options[CONF_ZONES]):
+        assert {key: zones[0][key] for key in expected} == expected
+        assert zones[0]["data_state"] == "kept"
+        assert zones[0]["option_state"] == "kept"
+        assert zones[1] == peer
+    assert entry.options["unrelated_option"] == "kept"
+    assert entry.options[CONF_DEMAND_THRESHOLD] == 4.5
+    assert MXZCoordinator(hass, entry)._freshness["primary"] == (180.0, 120.0)
+
+
+async def test_options_profile_in_options_clears_and_reaches_consumer(
+    hass: HomeAssistant,
+) -> None:
+    """F2: clearing removes the effective profile without touching its peer."""
+    from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+
+    option_zones = _zones("climate.primary", "climate.secondary")
+    option_zones[0].update(
+        {
+            ZONE_REPORT_INTERVAL: 2.0,
+            ZONE_MAX_AGE: 6.0,
+            ZONE_STARTUP_GRACE: 4.0,
+            ZONE_EVIDENCE_BASIS: "sample_timestamp",
+            ZONE_SAMPLE_SEQUENCE_ATTR: "sample_sequence",
+            "option_state": "kept",
+        }
+    )
+    option_zones[1]["peer_state"] = "untouched"
+    peer = deepcopy(option_zones[1])
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_ZONES: _zones("climate.primary", "climate.secondary")},
+        options={CONF_ZONES: option_zones, "unrelated_option": "kept"},
+        title="MXZ Coordinator",
+        version=2,
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert (
+        _form_suggested(result, "primary_sample_sequence_attribute")
+        == "sample_sequence"
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"primary_evidence_basis": "unknown"}
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    freshness_keys = {
+        ZONE_REPORT_INTERVAL,
+        ZONE_MAX_AGE,
+        ZONE_STARTUP_GRACE,
+        ZONE_EVIDENCE_BASIS,
+        ZONE_SAMPLE_TIMESTAMP_ATTR,
+        ZONE_SAMPLE_SEQUENCE_ATTR,
+    }
+    for zones in (entry.data[CONF_ZONES], entry.options[CONF_ZONES]):
+        assert not freshness_keys.intersection(zones[0])
+        assert zones[0]["option_state"] == "kept"
+        assert zones[1] == peer
+    assert entry.options["unrelated_option"] == "kept"
+    assert "primary" not in MXZCoordinator(hass, entry)._freshness
+
+
+async def test_options_profile_in_options_rejection_is_atomic(
+    hass: HomeAssistant,
+) -> None:
+    """F2/F4: a later invalid field rolls back every effective-store change."""
+    option_zones = _zones("climate.primary", "climate.secondary")
+    option_zones[0].update(
+        {
+            ZONE_REPORT_INTERVAL: 2.0,
+            ZONE_MAX_AGE: 6.0,
+            ZONE_EVIDENCE_BASIS: "ha_state_write",
+        }
+    )
+    option_zones[1]["peer_state"] = "untouched"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_ZONES: _zones("climate.primary", "climate.secondary")},
+        options={CONF_ZONES: option_zones, CONF_DEMAND_THRESHOLD: 3.0},
+        title="MXZ Coordinator",
+        version=2,
+    )
+    entry.add_to_hass(hass)
+    before = _entry_snapshot(entry)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            **_freshness_submission("primary", primary_report_interval=0.0),
+            **_freshness_submission("secondary"),
+            CONF_DEMAND_THRESHOLD: 5.0,
+        },
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "freshness_profile_invalid"}
+    assert _entry_snapshot(entry) == before
+
+
+async def test_reconfigure_review_discloses_effective_freshness_profiles(
+    hass: HomeAssistant,
+) -> None:
+    """F3: configured truth and an unconfigured peer share the review."""
+    from custom_components.mxz_coordinator.config_flow import _freshness_summary
+
+    derived = _freshness_summary(
+        {
+            ZONE_REPORT_INTERVAL: 2.0,
+            ZONE_EVIDENCE_BASIS: "ha_state_write",
+        }
+    )
+    assert "maximum age 6 min (three expected reports)" in derived
+    assert "startup grace 6 min (defaults to maximum age)" in derived
+
+    data_zones = _zones("climate.primary", "climate.secondary")
+    option_zones = deepcopy(data_zones)
+    option_zones[0].update(
+        {
+            ZONE_REPORT_INTERVAL: 1.0,
+            ZONE_MAX_AGE: 3.0,
+            ZONE_STARTUP_GRACE: 2.0,
+            ZONE_EVIDENCE_BASIS: "ha_state_write",
+        }
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_ZONES: data_zones},
+        options={CONF_ZONES: option_zones},
+        title="MXZ Coordinator",
+        version=2,
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": entry.entry_id,
+        },
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"heads": ["climate.primary", "climate.secondary"]},
+    )
+    result = await _pass_rooms(hass, result, "reconfigure_rooms")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "sensor_1": "sensor.primary_temp",
+            "sensor_2": "sensor.secondary_temp",
+        },
+    )
+
+    assert result["type"] is FlowResultType.MENU
+    summary = result["description_placeholders"]["summary"]
+    assert summary.count("Cadence: unknown") == 1
+    assert "expected every 1 min" in summary
+    assert "maximum age 3 min (explicit; overrides three-report default)" in summary
+    assert "startup grace 2 min (explicit)" in summary
+    assert "evidence: each HA state write (source contract required)" in summary
+
+
+async def test_options_freshness_error_has_english_copy() -> None:
+    """F4: the one emitted profile error resolves in both English files."""
+    import json
+    from pathlib import Path
+
+    messages = []
+    root = Path("custom_components/mxz_coordinator")
+    for path in (root / "strings.json", root / "translations/en.json"):
+        data = json.loads(path.read_text())
+        message = data["options"]["error"]["freshness_profile_invalid"]
+        assert "finite positive minutes" in message
+        assert "Nothing was saved" in message
+        step = data["options"]["step"]["init"]
+        assert "three missed reports" in step["description"]
+        assert "explicit maximum age overrides" in step["description"]
+        duration_labels = [
+            value
+            for key, value in step["data"].items()
+            if key.endswith(("_report_interval", "_max_age", "_startup_grace"))
+        ]
+        assert len(duration_labels) == 24
+        assert all("minutes" in label for label in duration_labels)
+        assert all("seconds" not in label for label in duration_labels)
+        messages.append(message)
+    assert messages[0] == messages[1]
+
+
+@pytest.mark.parametrize(
+    "submission",
+    [
+        _freshness_submission("primary", primary_report_interval=0),
+        _freshness_submission("primary", primary_max_age=float("inf")),
+        _freshness_submission("primary", primary_max_age=30),
+        _freshness_submission("primary", primary_evidence_basis="not_a_basis"),
+        _freshness_submission("primary", primary_sample_timestamp_attribute="", primary_sample_sequence_attribute=""),
+        _freshness_submission("primary", primary_evidence_basis="ha_state_write"),
+    ],
+    ids=["nonpositive", "nonfinite", "max_below_interval", "bad_basis", "missing_marker", "marker_for_ha_write"],
+)
+async def test_options_flow_rejects_invalid_freshness_profile_without_mutation(
+    hass: HomeAssistant, submission: dict[str, object]
+) -> None:
+    """Scenario 19 submission: one form error and the valid profile survives."""
+    stored_zone = {
+        ZONE_NAME: "Primary",
+        ZONE_CLIMATE: "climate.primary",
+        ZONE_SENSOR: "sensor.primary_temp",
+        ZONE_REPORT_INTERVAL: 120.0,
+        ZONE_MAX_AGE: 360.0,
+        ZONE_EVIDENCE_BASIS: "ha_state_write",
+    }
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_ZONES: [stored_zone, {ZONE_NAME: "Secondary", ZONE_CLIMATE: "climate.secondary", ZONE_SENSOR: "sensor.secondary_temp"}]},
+        options={CONF_DEMAND_THRESHOLD: 3.0},
+        title="MXZ Coordinator",
+    )
+    entry.add_to_hass(hass)
+    before = _entry_snapshot(entry)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], submission)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "freshness_profile_invalid"}
+    assert _entry_snapshot(entry) == before
+
+
+async def test_options_flow_clears_freshness_profile_to_unknown_cadence(
+    hass: HomeAssistant,
+) -> None:
+    """Clearing all six fields removes cadence and evidence from the room."""
+    zones = [
+        {ZONE_NAME: "Primary", ZONE_CLIMATE: "climate.primary", ZONE_SENSOR: "sensor.primary_temp", ZONE_REPORT_INTERVAL: 60.0, ZONE_MAX_AGE: 180.0, ZONE_EVIDENCE_BASIS: "ha_state_write"},
+        {ZONE_NAME: "Secondary", ZONE_CLIMATE: "climate.secondary", ZONE_SENSOR: "sensor.secondary_temp"},
+    ]
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_ZONES: zones}, title="MXZ Coordinator")
+    entry.add_to_hass(hass)
+    clear = {"primary_evidence_basis": "unknown"}
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], clear)
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert not set(entry.data[CONF_ZONES][0]).intersection({ZONE_REPORT_INTERVAL, ZONE_MAX_AGE, ZONE_STARTUP_GRACE, ZONE_EVIDENCE_BASIS, ZONE_SAMPLE_TIMESTAMP_ATTR})
+
+
 @pytest.mark.parametrize(
     "celsius", [False, True], ids=["fahrenheit", "celsius"]
 )
@@ -1940,3 +2533,165 @@ async def test_migration_does_not_revalidate_stored_tuning(hass: HomeAssistant) 
         CONF_ECO_HEAT_MIN: "eco_band_inverted",
         CONF_ECO_COOL_MAX: "eco_band_inverted",
     }
+
+
+def _stored_freshness_entry(
+    hass: HomeAssistant, profile: dict, options_owned: bool
+) -> MockConfigEntry:
+    """Give the effective profile a conflicting data control when options owns it."""
+    zones = _zones("climate.primary", "climate.secondary")
+    zones[0].update(profile)
+    data_zones = deepcopy(zones)
+    options = {CONF_DEMAND_THRESHOLD: 3.0, "unrelated_option": "retained"}
+    if options_owned:
+        data_zones = _zones("climate.primary", "climate.secondary")
+        data_zones[0].update(report_interval=20.0, evidence_basis="ha_state_write")
+        options[CONF_ZONES] = deepcopy(zones)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=2,
+        data={CONF_ZONES: data_zones},
+        options=options,
+        title="Stored profile",
+    )
+    entry.add_to_hass(hass)
+    return entry
+
+
+async def _stored_freshness_review(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> str:
+    """Read the actual heads → rooms → sensors → review disclosure."""
+    result = await _start_reconfigure_flow(hass, entry)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"heads": ["climate.primary", "climate.secondary"]}
+    )
+    result = await _pass_rooms(hass, result, "reconfigure_rooms")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"sensor_1": "sensor.primary_temp", "sensor_2": "sensor.secondary_temp"},
+    )
+    assert result["type"] is FlowResultType.MENU
+    summary = result["description_placeholders"]["summary"]
+    hass.config_entries.flow.async_abort(result["flow_id"])
+    return summary
+
+
+@pytest.mark.parametrize("options_owned", [False, True], ids=["data", "options"])
+@pytest.mark.parametrize(
+    "marker",
+    [None, ZONE_SAMPLE_TIMESTAMP_ATTR, ZONE_SAMPLE_SEQUENCE_ATTR],
+    ids=["clean", "timestamp", "sequence"],
+)
+async def test_reconfigure_stored_ha_write_profile_matches_consumer(
+    hass: HomeAssistant, options_owned: bool, marker: str | None
+) -> None:
+    """An ignored stored marker cannot hide the consumer's six-minute cutoff."""
+    from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+
+    profile = {ZONE_REPORT_INTERVAL: 2.0, ZONE_EVIDENCE_BASIS: "ha_state_write"}
+    if marker is not None:
+        profile[marker] = "previous_marker"
+    entry = _stored_freshness_entry(hass, profile, options_owned)
+    before = _entry_snapshot(entry)
+    coord = MXZCoordinator(hass, entry)
+    assert coord._freshness == {"primary": (360.0, 360.0)}
+    assert coord._evidence["primary"] == ("ha_state_write", None, False)
+    assert coord._fresh_deadline["primary"] - coord._started_ts == pytest.approx(360.0)
+    state = hass.states.get("sensor.primary_temp")
+    for elapsed, expected in [(359.0, "awaiting_report"), (360.0, "stale"), (361.0, "stale")]:
+        health, _ = coord._sensor_health(
+            coord.zones[0], state, True, coord._started_ts + elapsed
+        )
+        assert health == expected
+
+    summary = await _stored_freshness_review(hass, entry)
+    primary, secondary = summary.split("Priority 1", 1)[1].split("Priority 2", 1)
+    assert "does not time out" not in primary, "Review denies the enforced cutoff"
+    assert "invalid stored profile" not in primary
+    assert "expected every 2 min" in primary
+    assert "maximum age 6 min (three expected reports)" in primary
+    assert "startup grace 6 min (defaults to maximum age)" in primary
+    assert "evidence: each HA state write (source contract required)" in primary
+    assert "Cadence: unknown — MXZ does not time out this sensor." in secondary
+    assert _entry_snapshot(entry) == before
+
+
+@pytest.mark.parametrize("options_owned", [False, True], ids=["data", "options"])
+@pytest.mark.parametrize(
+    "marker", [ZONE_SAMPLE_TIMESTAMP_ATTR, ZONE_SAMPLE_SEQUENCE_ATTR],
+    ids=["timestamp", "sequence"],
+)
+async def test_options_ha_write_unused_marker_rejection_preserves_entry(
+    hass: HomeAssistant, options_owned: bool, marker: str
+) -> None:
+    """New HA-write submissions still reject either marker and every accompanying edit."""
+    from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+
+    entry = _stored_freshness_entry(
+        hass, {ZONE_REPORT_INTERVAL: 2.0, ZONE_EVIDENCE_BASIS: "ha_state_write"},
+        options_owned,
+    )
+    before = _entry_snapshot(entry)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    submission = result["data_schema"]({
+        "primary_report_interval": 2.0,
+        "primary_evidence_basis": "ha_state_write",
+        f"primary_{marker}": "previous_marker",
+        CONF_DEMAND_THRESHOLD: 4.0,
+    })
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], submission
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "freshness_profile_invalid"}
+    assert _entry_snapshot(entry) == before
+    assert MXZCoordinator(hass, entry)._freshness == {"primary": (360.0, 360.0)}
+    # Removing the marker permits the same form to save the accompanying edit.
+    submission.pop(f"primary_{marker}")
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], submission
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_DEMAND_THRESHOLD] == 4.0
+    assert entry.options["unrelated_option"] == "retained"
+    assert MXZCoordinator(hass, entry)._freshness == {"primary": (360.0, 360.0)}
+
+
+@pytest.mark.parametrize("options_owned", [False, True], ids=["data", "options"])
+@pytest.mark.parametrize(
+    ("profile", "disclosure"),
+    [
+        ({}, "Cadence: unknown"),
+        ({ZONE_REPORT_INTERVAL: 2.0, ZONE_MAX_AGE: 1.0,
+          ZONE_EVIDENCE_BASIS: "ha_state_write"}, "Cadence: invalid stored profile"),
+        ({ZONE_REPORT_INTERVAL: 2.0, ZONE_EVIDENCE_BASIS: "sample_timestamp",
+          ZONE_SAMPLE_TIMESTAMP_ATTR: "sample_time",
+          ZONE_SAMPLE_SEQUENCE_ATTR: "sample_number"}, "Cadence: invalid stored profile"),
+        ({ZONE_REPORT_INTERVAL: "2.0", ZONE_EVIDENCE_BASIS: "ha_state_write"},
+         "no maximum age"),
+    ],
+    ids=["unknown", "inverted-duration", "ambiguous-marker", "numeric-string"],
+)
+async def test_reconfigure_unenforced_profile_matches_consumer(
+    hass: HomeAssistant, options_owned: bool, profile: dict, disclosure: str
+) -> None:
+    """Unknown and consumer-rejected stored profiles must still disclose no cutoff."""
+    from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+
+    entry = _stored_freshness_entry(hass, profile, options_owned)
+    before = _entry_snapshot(entry)
+    coord = MXZCoordinator(hass, entry)
+    assert coord._freshness == {}
+    assert "primary" not in coord._fresh_deadline
+    assert "primary" not in coord._grace_until
+    health, _ = coord._sensor_health(
+        coord.zones[0], hass.states.get("sensor.primary_temp"), True,
+        coord._started_ts + 361.0,
+    )
+    assert health == "cadence_unknown"
+    summary = await _stored_freshness_review(hass, entry)
+    primary = summary.split("Priority 1", 1)[1].split("Priority 2", 1)[0]
+    assert disclosure in primary
+    assert "does not time out this sensor" in primary
+    assert _entry_snapshot(entry) == before

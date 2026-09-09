@@ -5,6 +5,22 @@ is identical (same thresholds, same decide→act→self-heal logic), but the int
 **owns its own entities** instead of relying on `input_*` helpers, so the entity IDs
 change. Automations or dashboards that reference the old IDs must be updated.
 
+## Per-room sensor freshness profiles
+
+Initial setup does not ask for a reporting cadence. After setup, open
+**Configure** and enter a room's documented report interval, maximum age and
+optional startup grace in the advanced per-room fields. Maximum age must be at
+least the interval. If maximum age is empty, MXZ uses three expected report
+intervals; an explicit maximum overrides that default. Startup grace defaults
+to the resulting maximum age. Choose `ha_state_write` only when every write is
+a current acquisition; choose `sample_timestamp` only with exactly one trusted
+sample timestamp or sequence attribute. When the source has no trustworthy
+heartbeat, clear all three duration fields and both marker fields before
+selecting `unknown`: MXZ then shows the room as cadence unknown and applies no
+timeout. Saving reloads the integration, so a valid profile takes effect on
+that reload. An invalid submission changes neither that profile nor any other
+setting in the form.
+
 ## Entity ID mapping
 
 | YAML package (`input_*` helper)        | Integration entity                  |
@@ -334,14 +350,13 @@ in **minutes**:
 | `sample_sequence_attribute` | the alternative marker: an attribute carrying a number that increases with each new reading. A sequence has no clock, so the room's window runs from when Home Assistant received the increase. Name this **or** `sample_timestamp_attribute`, not both. |
 
 A profile with a duration that is not a finite positive number, or with a maximum age
-shorter than its interval, is invalid as a whole: it is logged once, with the three values
-as written, and the room keeps an unknown cadence. Nothing in it is read as unset,
-raised or rounded into a cutoff — an invalid profile enforces nothing, exactly like no
-profile. A maximum age with no trusted basis is logged too, once, and enforces nothing —
-a duration says how often a source promises to write, not whether its writes are
-readings. There is no setup screen to submit a profile through yet, so "the last valid
-profile is kept" has nothing to keep it against: an invalid profile written into the
-entry is rejected on load and the room is simply unenforced until it is corrected.
+shorter than its interval, is invalid as a whole. **Configure** rejects the whole
+submission with one explanation and keeps the last valid profile and every other setting;
+nothing in the invalid submission reaches the entry. Nothing is read as unset, raised or
+rounded into a cutoff. A hand-edited invalid profile already in the entry is still logged
+once at load and enforces nothing, exactly like no profile. A maximum age with no trusted
+basis is logged too, once, and enforces nothing — a duration says how often a source
+promises to write, not whether its writes are readings.
 
 Only an **advancing** marker is a report. Two cache flushes carrying the same sample time
 leave the deadline where it was, and a marker from the future, or older than the last one
@@ -363,9 +378,8 @@ replays a restored or cached value makes that replay look current for one maximu
 and repeated cache writes can keep extending the deadline. Home Assistant's timestamps
 cannot detect that mistake; only the sample-marker basis can.
 
-This release adds no setup-form field for any of these keys: the coordinator reads them
-from the entry's data or options, and the screens that collect them land with the revamped
-room setup.
+After initial setup, configure these keys through **Configure**. The coordinator reads them
+from the entry's data or options.
 
 **Interactions.**
 
@@ -558,8 +572,10 @@ expected interval and no startup grace, and it times no sensor out.
 
 Reconfigure gained the same shape — heads, room names, sensors, summary — and its room
 names moved onto their own step. Clearing a name there still falls back to the head's own
-name. Comfort settings stay in **Configure**, which is unchanged: one form, the same
-per-room override fields, the same merge-and-mirror save.
+name. Its summary reports each effective stored freshness profile and leaves only
+unconfigured rooms at cadence unknown. Comfort and freshness settings stay in
+**Configure**: one form, the existing per-room override fields plus the six freshness
+fields per room, and the same merge-and-mirror save.
 
 ## A room can return to the global drift (unreleased)
 

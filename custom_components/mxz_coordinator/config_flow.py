@@ -64,6 +64,8 @@ from .const import (
     DEFAULT_MODE_HYSTERESIS,
     DEFAULT_RESTING_MODE_BIAS,
     DOMAIN,
+    EVIDENCE_BASES,
+    EVIDENCE_SAMPLE_TIMESTAMP,
     FAN_LADDER,
     IDLE_ACTION_OPTIONS,
     INHIBIT_ACTION_OPTIONS,
@@ -73,15 +75,22 @@ from .const import (
     UNAVAILABLE_STATES,
     ZONE_CLIMATE,
     ZONE_ENTITY_SUFFIXES,
+    ZONE_EVIDENCE_BASIS,
+    ZONE_MAX_AGE,
     ZONE_NAME,
+    ZONE_REPORT_INTERVAL,
+    ZONE_SAMPLE_SEQUENCE_ATTR,
+    ZONE_SAMPLE_TIMESTAMP_ATTR,
     ZONE_SENSOR,
     ZONE_STAGE_SENSOR,
+    ZONE_STARTUP_GRACE,
     ZONE_VANE_HORIZONTAL,
     ZONE_VANE_VERTICAL,
     unit_profile,
     zone_slug,
 )
 from .coordinator import read_room_temp
+from .logic import evidence_contract, freshness_window
 
 _CLIMATE_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="climate")
@@ -551,6 +560,145 @@ def _zone_override_keys() -> set[str]:
     return keys
 
 
+_FRESHNESS_ZONE_FIELDS = (
+    ("report_interval", ZONE_REPORT_INTERVAL),
+    ("max_age", ZONE_MAX_AGE),
+    ("startup_grace", ZONE_STARTUP_GRACE),
+    ("evidence_basis", ZONE_EVIDENCE_BASIS),
+    ("sample_timestamp_attribute", ZONE_SAMPLE_TIMESTAMP_ATTR),
+    ("sample_sequence_attribute", ZONE_SAMPLE_SEQUENCE_ATTR),
+)
+
+
+def _freshness_profile_keys() -> set[str]:
+    """Return the flow-only freshness keys that fold into a zone record."""
+    return {
+        f"{zone_slug(index)}_{suffix}"
+        for index in range(MAX_ZONES)
+        for suffix, _ in _FRESHNESS_ZONE_FIELDS
+    }
+
+
+def _freshness_error(profile: dict[str, Any]) -> str | None:
+    """Validate one complete M23 freshness profile with one diagnostic.
+
+    An empty profile deliberately remains an unknown cadence.  A duration is
+    never inferred, and sample attributes are accepted only for the basis that
+    uses an advancing marker.
+    """
+    values: dict[str, float] = {}
+    for suffix in ("report_interval", "max_age", "startup_grace"):
+        raw = profile.get(suffix)
+        if raw in (None, ""):
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return "freshness_profile_invalid"
+        if not math.isfinite(value) or value <= 0:
+            return "freshness_profile_invalid"
+        values[suffix] = value
+    if (
+        "report_interval" in values
+        and "max_age" in values
+        and values["max_age"] < values["report_interval"]
+    ):
+        return "freshness_profile_invalid"
+    basis = profile.get("evidence_basis") or "unknown"
+    if basis not in EVIDENCE_BASES:
+        return "freshness_profile_invalid"
+    timestamp = profile.get("sample_timestamp_attribute") or ""
+    sequence = profile.get("sample_sequence_attribute") or ""
+    if basis == EVIDENCE_SAMPLE_TIMESTAMP:
+        if bool(timestamp) == bool(sequence):
+            return "freshness_profile_invalid"
+    elif timestamp or sequence:
+        return "freshness_profile_invalid"
+    return None
+
+
+def _zone_freshness_profile(zone: dict[str, Any]) -> dict[str, Any]:
+    """Read one stored profile using flow names, without changing its values."""
+    return {
+        suffix: zone.get(zone_key)
+        for suffix, zone_key in _FRESHNESS_ZONE_FIELDS
+        if zone.get(zone_key) is not None
+    }
+
+
+def _effective_zones(entry: ConfigEntry) -> list[dict[str, Any]]:
+    """Copy the zone list the coordinator reads after options precedence."""
+    conf = {**entry.data, **entry.options}
+    return [dict(zone) for zone in conf.get(CONF_ZONES, [])]
+
+
+def _minutes(value: float) -> str:
+    """Format one stored minute duration for review copy."""
+    return f"{value:g} min"
+
+
+def _freshness_summary(zone: dict[str, Any]) -> str:
+    """Describe the profile without claiming an unenforced cutoff."""
+    profile = _zone_freshness_profile(zone)
+    if not profile:
+        return "Cadence: unknown — MXZ does not time out this sensor."
+    interval = profile.get("report_interval")
+    explicit_max = profile.get("max_age")
+    explicit_grace = profile.get("startup_grace")
+    window = freshness_window(
+        report_interval=interval,
+        max_age=explicit_max,
+        startup_grace=explicit_grace,
+    )
+    contract = evidence_contract(
+        basis=profile.get("evidence_basis"),
+        sample_timestamp_attribute=profile.get("sample_timestamp_attribute"),
+        sample_sequence_attribute=profile.get("sample_sequence_attribute"),
+    )
+    # Stored HA-write profiles may have unused markers that submission rejects.
+    # Only the consumer's window and contract decide whether a cutoff applies.
+    if (window is None or contract is None) and _freshness_error(profile):
+        return "Cadence: invalid stored profile — MXZ does not time out this sensor."
+
+    parts: list[str] = []
+    if interval is not None:
+        parts.append(f"expected every {_minutes(float(interval))}")
+    if window is not None:
+        if explicit_max is None:
+            parts.append(f"maximum age {_minutes(window[0])} (three expected reports)")
+        elif interval is not None:
+            parts.append(
+                f"maximum age {_minutes(window[0])} "
+                "(explicit; overrides three-report default)"
+            )
+        else:
+            parts.append(f"maximum age {_minutes(window[0])} (explicit)")
+        if explicit_grace is None:
+            parts.append(
+                f"startup grace {_minutes(window[1])} (defaults to maximum age)"
+            )
+        else:
+            parts.append(f"startup grace {_minutes(window[1])} (explicit)")
+    elif explicit_grace is not None:
+        parts.append(
+            f"startup grace {_minutes(float(explicit_grace))} "
+            "(inactive without a maximum age)"
+        )
+
+    if contract is None:
+        parts.append("evidence basis unknown")
+        return "Cadence: " + "; ".join(parts) + " — MXZ does not time out this sensor."
+    basis, marker, marker_is_time = contract
+    if basis == EVIDENCE_SAMPLE_TIMESTAMP:
+        marker_kind = "timestamp" if marker_is_time else "sequence"
+        parts.append(f'evidence: sample {marker_kind} attribute "{marker}"')
+    else:
+        parts.append("evidence: each HA state write (source contract required)")
+    if window is None:
+        parts.append("no maximum age, so MXZ does not time out this sensor")
+    return "Cadence: " + "; ".join(parts) + "."
+
+
 def _num() -> selector.NumberSelector:
     return selector.NumberSelector(
         selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
@@ -594,6 +742,25 @@ def _options_schema(
                 description={"suggested_value": zone.get(ZONE_STAGE_SENSOR)},
             )
         ] = _STAGE_SELECTOR
+        profile = _zone_freshness_profile(zone)
+        for suffix, _ in _FRESHNESS_ZONE_FIELDS:
+            key = f"{slug}_{suffix}"
+            if suffix == "evidence_basis":
+                # Custom values keep invalid raw API submissions inside this
+                # form, where M23 requires one diagnostic and no mutation.
+                zone_fields[vol.Optional(key, default=profile.get(suffix, "unknown"))] = (
+                    selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=list(EVIDENCE_BASES),
+                            custom_value=True,
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                        )
+                    )
+                )
+            elif suffix in {"sample_timestamp_attribute", "sample_sequence_attribute"}:
+                zone_fields[vol.Optional(key, description={"suggested_value": profile.get(suffix)})] = _ROOM_NAME_SELECTOR
+            else:
+                zone_fields[vol.Optional(key, description={"suggested_value": profile.get(suffix)})] = _num()
 
     return _tunables_schema(
         eff, engage_min, engage_max, idle_options
@@ -975,11 +1142,8 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
     def _room_map(self, sensors: list[str] | None = None) -> str:
         """The room-to-head-to-sensor mapping, one line per priority slot.
 
-        Rendered through the STEP DESCRIPTION, which is the placeholder surface
-        shipped code already relies on. Field labels are not used to carry a
-        room name: whether the frontend substitutes placeholders into a field
-        label is unverified, and a literal ``{room_1}`` on
-        screen would be worse than the static label it replaced.
+        Rendered through the step description. The matching per-slot names are
+        also supplied to the sensor-field descriptions on this flow surface.
         """
         chosen = sensors if sensors is not None else self._sensors
         unit = self._system_unit()
@@ -995,6 +1159,17 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 line += f"\n   Sensor: {_sensor_status(self.hass, chosen[index], unit)}"
             lines.append(line)
         return "\n".join(lines)
+
+    def _sensor_field_placeholders(self) -> dict[str, str]:
+        """Map every shown sensor-field slot to its current room name."""
+        return {
+            f"room_{index + 1}": (
+                self._room_names[index]
+                if index < len(self._room_names)
+                else self._head_name(head)
+            )
+            for index, head in enumerate(self._heads)
+        }
 
     async def async_step_sensors(
         self, user_input: dict[str, Any] | None = None
@@ -1017,6 +1192,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 return await self.async_step_review()
 
         placeholders["rooms"] = self._room_map(suggestions)
+        placeholders.update(self._sensor_field_placeholders())
         return self.async_show_form(
             step_id="sensors",
             data_schema=_sensors_schema(len(self._heads), suggestions),
@@ -1154,7 +1330,11 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             return self._back_to_user(error, _conflict_placeholders(conflicts))
         if problem := _sensor_problem(self.hass, self._sensors):
             error, placeholders = problem
-            placeholders = {**placeholders, "rooms": self._room_map()}
+            placeholders = {
+                **placeholders,
+                "rooms": self._room_map(),
+                **self._sensor_field_placeholders(),
+            }
             return self.async_show_form(
                 step_id="sensors",
                 data_schema=_sensors_schema(len(self._heads), self._sensors),
@@ -1433,6 +1613,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         placeholders["rooms"] = self._room_map(
             [entity_id or "" for entity_id in suggestions]
         )
+        placeholders.update(self._sensor_field_placeholders())
         return self.async_show_form(
             step_id="reconfigure_sensors",
             data_schema=_sensors_schema(
@@ -1474,13 +1655,22 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             "",
         ]
         old_order = _entry_head_order(entry)
+        effective_zones = _effective_zones(entry)
         for index, head in enumerate(self._heads):
             lines.append(f"Priority {index + 1}  {self._room_names[index]}")
             lines.append(f"  Head:   {head}")
             lines.append(
                 f"  Sensor: {_sensor_status(self.hass, self._sensors[index], unit)}"
             )
-            lines.append("  Cadence: unknown — MXZ does not time out this sensor.")
+            zone = next(
+                (
+                    candidate
+                    for candidate in effective_zones
+                    if candidate.get(ZONE_CLIMATE) == head
+                ),
+                {},
+            )
+            lines.append(f"  {_freshness_summary(zone)}")
             if head in old_order and old_order.index(head) != index:
                 lines.append(
                     f"  Moved from priority {old_order.index(head) + 1}. Its name,"
@@ -1527,6 +1717,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 description_placeholders={
                     **sensor_placeholders,
                     "rooms": self._room_map(),
+                    **self._sensor_field_placeholders(),
                 },
             )
 
@@ -1605,7 +1796,7 @@ class MXZOptionsFlow(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        zones = [dict(z) for z in self.config_entry.data.get(CONF_ZONES, [])]
+        zones = _effective_zones(self.config_entry)
         heads = [zone[ZONE_CLIMATE] for zone in zones]
         if not heads:
             heads = sorted(_entry_heads(self.config_entry))
@@ -1627,6 +1818,7 @@ class MXZOptionsFlow(OptionsFlow):
             )
         idle_options = supported_idle_actions(self.hass, heads)
         override_keys = _zone_override_keys()
+        freshness_keys = _freshness_profile_keys()
         if user_input is not None:
             idle_action = user_input.get(
                 CONF_IDLE_ACTION,
@@ -1652,6 +1844,20 @@ class MXZOptionsFlow(OptionsFlow):
                     ),
                     errors=tuning_errors,
                 )
+            for i, zone in enumerate(zones):
+                slug = zone_slug(i)
+                profile = {
+                    suffix: user_input.get(f"{slug}_{suffix}")
+                    for suffix, _ in _FRESHNESS_ZONE_FIELDS
+                }
+                if _freshness_error(profile):
+                    return self.async_show_form(
+                        step_id="init",
+                        data_schema=_options_schema(
+                            current, celsius, zones, idle_options
+                        ),
+                        errors={"base": "freshness_profile_invalid"},
+                    )
             # Per-zone vane + airflow-sensor overrides are flow-input-only: fold
             # them into the zones list in entry.data, never store them as flat
             # keys (a stale flat key would shadow the zones list in the
@@ -1675,8 +1881,36 @@ class MXZOptionsFlow(OptionsFlow):
                         zone[zkey] = value
                     else:
                         zone.pop(zkey, None)
+                # A complete all-empty profile is an explicit return to
+                # unknown cadence.  Otherwise preserve the submitted values
+                # byte-for-byte under M36's existing zone keys.
+                profile = {
+                    suffix: user_input.get(f"{slug}_{suffix}")
+                    for suffix, _ in _FRESHNESS_ZONE_FIELDS
+                }
+                empty_profile = (
+                    profile["evidence_basis"] in (None, "", "unknown")
+                    and all(
+                        profile[suffix] in (None, "")
+                        for suffix in (
+                            "report_interval",
+                            "max_age",
+                            "startup_grace",
+                            "sample_timestamp_attribute",
+                            "sample_sequence_attribute",
+                        )
+                    )
+                )
+                for suffix, zkey in _FRESHNESS_ZONE_FIELDS:
+                    value = profile[suffix]
+                    if empty_profile or value in (None, ""):
+                        zone.pop(zkey, None)
+                    else:
+                        zone[zkey] = value
             tunables = {
-                k: v for k, v in user_input.items() if k not in override_keys
+                k: v
+                for k, v in user_input.items()
+                if k not in override_keys and k not in freshness_keys
             }
             # The standby-hold entity is clearable the same way the zone
             # overrides are: the field is always rendered, a pre-filled value
@@ -1700,6 +1934,10 @@ class MXZOptionsFlow(OptionsFlow):
                 for k, v in {**self.config_entry.options, **tunables}.items()
                 if k not in override_keys
             }
+            # If options already owns the effective zones list, update that
+            # mirror too so its old profile cannot shadow this save or clear.
+            if zones and CONF_ZONES in self.config_entry.options:
+                merged[CONF_ZONES] = [dict(zone) for zone in zones]
             if not merged and not zones:
                 return self.async_abort(reason="empty_options")
             data = {

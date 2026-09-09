@@ -850,6 +850,8 @@ async def test_s24_going_back_keeps_my_answers(hass: HomeAssistant) -> None:
     assert result["step_id"] == "sensors"
     assert _suggested(result, "sensor_1") == LIVING_SENSOR
     assert _suggested(result, "sensor_2") == BEDROOM_SENSOR
+    assert result["description_placeholders"]["room_1"] == "Lounge"
+    assert result["description_placeholders"]["room_2"] == "Guest Room"
 
 
 # ---------- S25-S28: migration and stored shape -----------------------------

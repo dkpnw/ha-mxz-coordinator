@@ -199,9 +199,8 @@ elapsed    draw       what's happening
   is a current reading, or `sample_timestamp` when it publishes the time or sequence
   number of the sample itself. A cloud integration that re-writes a cached value keeps its
   room healthy under the first choice and goes stale on the device's own clock under the
-  second. There is no default cutoff to inherit, and no setup screen collects these yet —
-  they are written into the room's entry data or options
-  ([details](docs/MIGRATION.md#stale-room-sensors-unreleased)).
+  second. There is no default cutoff to inherit. Setup does not ask for these; set them
+  in **Configure** after setup ([details](docs/MIGRATION.md#stale-room-sensors-unreleased)).
 - **A stale room keeps its last real reading** — no substitute value, no switch to another
   sensor — and a fan speed you are holding is left alone. After a restart or a reload,
   health starts over from what the integration can see. A room whose sensor already

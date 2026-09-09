@@ -564,6 +564,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Let those callbacks evaluate the plan that owns the in-flight writes;
         # DataUpdateCoordinator publishes it only after _async_update_data returns.
         self._applying_plan: dict[str, Any] | None = None
+        # HA 2024.12's request-refresh debouncer discards a call while its
+        # execution lock is held, and its direct refresh path does not
+        # serialize concurrent updates. Later HA debouncers identify their
+        # lock owner and already retain that request, so leave those lanes on
+        # HA's unchanged path. On the old path, remember only that current
+        # inputs need one more look; the follow-up captures no plan or input.
+        self._needs_legacy_refresh_guard = not hasattr(
+            self._debounced_refresh, "_execute_lock_owner"
+        )
+        self._refresh_lock = asyncio.Lock()
+        self._refresh_pending = False
+        self._refresh_followup_timer: Any | None = None
         # Seed data so entities have something to read before the first refresh.
         self.data = self._compute()
         if self._freshness:
@@ -733,6 +745,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cancel_dwell_timer()
         self._coast_retired = True
         self._cancel_coast_timer()
+        self._refresh_pending = False
+        self._cancel_refresh_followup()
         self._fresh_retired = True
         self._cancel_fresh_timer()
         for cancel in self._heal_timers.values():
@@ -1134,8 +1148,36 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._fresh_timer()
             self._fresh_timer = None
 
+    async def async_request_refresh(self) -> None:
+        """Request one current-input follow-up when a refresh is active."""
+        if self._needs_legacy_refresh_guard and (
+            self._refresh_lock.locked()
+            or self._debounced_refresh._execute_lock.locked()
+        ):
+            self._refresh_pending = True
+            # _refresh_lock ends when update-data returns, but HA 2024.12 keeps
+            # its debouncer lock through publication and synchronous listeners.
+            # A zero-delay callback armed in that completion window runs after
+            # the current task has returned through the debouncer and released
+            # the lock.  Observe that legacy lock only; never acquire it.
+            if not self._refresh_lock.locked():
+                self._sync_refresh_followup()
+            return
+        await super().async_request_refresh()
+
     async def _async_update_data(self) -> dict[str, Any]:
-        """Refresh entry point: recompute, then act on the new plan."""
+        """Refresh with the HA 2024 race guard only where it is needed."""
+        if not self._needs_legacy_refresh_guard:
+            return await self._async_update_data_once()
+        async with self._refresh_lock:
+            # A direct refresh can reach this lock before the scheduled
+            # follow-up. It already supplies the current-input pass, so the
+            # still-queued callback would be redundant.
+            self._cancel_refresh_followup()
+            return await self._async_update_data_once()
+
+    async def _async_update_data_once(self) -> dict[str, Any]:
+        """Recompute and apply one plan."""
         plan = self._compute()
         # Read the request ordinal this plan was computed against before any
         # head service is awaited: a selection landing while those services are
@@ -1148,13 +1190,43 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # observed fan_mode), so re-stamp fan_hold from the post-apply state —
             # otherwise the plan's diagnostic would lag the latch by a cycle.
             for zone_view, zone in zip(plan.get("zones", ()), self.zones):
-                zone_view["fan_hold"] = self._fan_latched.get(zone.climate_id, False)
+                zone_view["fan_hold"] = self._fan_latched.get(
+                    zone.climate_id, False
+                )
             return plan
         finally:
             self._applying_plan = None
             self._sync_dwell_timer(plan)
             self._sync_coast_timer()
             self._sync_freshness_timer()
+            if self._needs_legacy_refresh_guard:
+                self._sync_refresh_followup()
+
+    def _sync_refresh_followup(self) -> None:
+        """Arm exactly one current-input refresh requested during this one."""
+        if self._retired:
+            self._refresh_pending = False
+            self._cancel_refresh_followup()
+            return
+        if not self._refresh_pending:
+            return
+        self._refresh_pending = False
+        self._cancel_refresh_followup()
+
+        @callback
+        def _fire(_now: Any) -> None:
+            self._refresh_followup_timer = None
+            if self._retired:
+                return
+            self.hass.async_create_task(self.async_request_refresh())
+
+        self._refresh_followup_timer = async_call_later(self.hass, 0, _fire)
+
+    def _cancel_refresh_followup(self) -> None:
+        """Cancel the one queued current-input follow-up, if any."""
+        if self._refresh_followup_timer is not None:
+            self._refresh_followup_timer()
+            self._refresh_followup_timer = None
 
     # -- mode-dwell wakeup ---------------------------------------------------
     def _sync_dwell_timer(self, plan: dict[str, Any]) -> None:
