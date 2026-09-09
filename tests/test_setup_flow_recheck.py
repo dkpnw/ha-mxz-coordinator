@@ -1,12 +1,9 @@
-"""Final-save recheck and cleared-answer retention (M28 confirmation r1).
+"""Final-save recheck and cleared-answer retention.
 
-Every case here comes from the independent M28 confirmation probes, folded into
-the retained suite unchanged in substance: the same fixtures, the same
-navigation and the same assertions, including the ones that already passed.
-Two of them are the regressions the confirmation found — the final save
-committing an idle action the selected heads no longer support (M28-C1), and
-back-navigation restoring a notification target the user had cleared (M28-C2) —
-and the rest are the controls that pin the behaviour around them.
+The tests retain the same fixtures, navigation, and assertions around final
+save. They cover unsupported idle actions after head selection changes and a
+notification target the user cleared before navigating back, with controls for
+the surrounding behavior.
 
 Fake heads and fake sensors only: this is an in-process Home Assistant, and
 nothing here says anything about hardware.

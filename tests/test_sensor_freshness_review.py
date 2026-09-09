@@ -1,30 +1,13 @@
-"""The M36 r2 and r3 reviews' probes, retained as ordinary tests.
+"""Freshness regressions for cached reports, safety controls, and reloads.
 
-These were written by the independent reviewer against the r2 candidate, on
-which the first four failed (R1–R3 of `planning/eval/M36-review-r2.md`, in the
-private planning repository) and the rest passed, and against the r3 candidate,
-on which three cases failed (F1 and F2 of `planning/eval/M36-review-r3.md`).
-They are kept here with their assertions intact — the only edits are
-formatting, and the removal of the `print` calls the reviewer used to capture
-observations — so the oracle that caught the defect is the one that guards it.
-
-* `test_review_m36_r2.py`: a cached valid return with the same marker cannot
-  close an invalid episode; a sequence advance is dated from its own event,
-  not from a later cache rewrite; a rejected future timestamp stays rejected
-  when an unrelated refresh re-reads the same write.
-* `test_review_m36_guards.py`: the kill switch writes nothing across expiry and
-  recovery; losing a stale priority vote does not bypass the opposite-mode
-  dwell (M23 scenario 275); two cadences expire on their own clocks and both
-  rooms park under a retained cool token (scenarios 11 and 284).
-* `test_review_m36_r1_unchanged.py`: the eight r1 probes, re-run unchanged.
-* `test_review_m36_r3.py`: a NEW unchanged write whose once-future sample time
-  has become valid recovers the room (F1); the manual fan latch, eco, inhibit
-  and kill switch stay authoritative across every unhealthy subtype; a sample
-  time found at a reload dates itself while a sequence or a contracted write
-  awaits a report (F3's behaviour); an integer sequence advance of one above
-  2**53 and 2**63 is an advance (F2).
-* `test_review_m36_restore_controls.py`: a `restored` attribute selects no
-  basis, and a contracted write's own receipt extends the window.
+A cached valid return with an unchanged marker cannot end invalidity; a
+sequence advance is dated from its event; and a future timestamp rejected at
+write time remains rejected during an unrelated refresh. Safety controls keep
+their authority across unhealthy states, each room's cadence expires on its
+own clock, and neutral room demands park both rooms while the shared cool mode
+remains retained. A new write whose previously future marker has become valid
+can restore health, while restored metadata never selects an evidence basis
+and a write receipt extends only its own window.
 """
 
 from __future__ import annotations
@@ -82,7 +65,7 @@ from .test_sensor_freshness_edges import (
     _sequence_room,
 )
 
-# --- test_review_m36_r2.py ----------------------------------------------------
+# --- cached reports and event markers ----------------------------------------
 
 
 @pytest.mark.parametrize("basis", ["timestamp", "sequence"])
@@ -211,7 +194,7 @@ async def test_future_rejected_write_does_not_recover_without_new_report(
         assert not observed["recovery"], observed
 
 
-# --- test_review_m36_guards.py ------------------------------------------------
+# --- safety controls and cadence guards --------------------------------------
 
 
 async def test_kill_switch_stays_zero_write_across_stale_and_recovery(
@@ -309,13 +292,13 @@ async def test_different_cadences_then_all_unhealthy_park(
     assert hass.states.get(a).state == hass.states.get(b).state == "fan_only"
 
 
-# --- test_review_m36_r1_unchanged.py ------------------------------------------
+# --- retained freshness regressions ------------------------------------------
 
 
 async def test_unknown_source_contract_never_enforces(
     hass: HomeAssistant, freezer: Any
 ) -> None:
-    # M23 configuration table: basis defaults unknown even when a cadence is given.
+    # A cadence alone does not select an evidence basis.
     entry, _head, _ = await _setup_fresh(
         hass,
         freezer,
@@ -467,7 +450,7 @@ async def test_first_unchanged_report_replaces_a_long_grace_with_its_deadline(
     assert hass.states.get(head).state == "fan_only"
 
 
-# --- test_review_m36_r3.py ----------------------------------------------------
+# --- recovery and write-window regressions -----------------------------------
 
 
 async def test_new_unchanged_report_reconsiders_previously_future_marker(
@@ -699,7 +682,7 @@ async def test_finite_integer_sequence_advance_is_preserved(
     assert observed["accepted"] == baseline + 1, observed
 
 
-# --- test_review_m36_restore_controls.py --------------------------------------
+# --- restore metadata and receipt windows ------------------------------------
 
 
 @pytest.mark.parametrize("basis", ["unknown", "ha_state_write"])

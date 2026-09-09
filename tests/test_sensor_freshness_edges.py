@@ -641,7 +641,7 @@ async def test_the_reload_notice_counts_the_rooms_that_start_on_their_own_sample
 async def test_reload_notice_counts_only_eligible_rooms(
     hass: HomeAssistant, freezer: Any, caplog: pytest.LogCaptureFixture, invalid: str
 ) -> None:
-    """The r4 review's probe, retained: a room invalid at load is not provisional.
+    """A room invalid at load is not provisional.
 
     Room A carries a sample time inside its maximum age when the entry
     reloads; room B's reading is missing, ``unavailable`` or NaN. B is invalid

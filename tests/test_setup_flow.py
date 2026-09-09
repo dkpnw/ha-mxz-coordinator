@@ -1,9 +1,7 @@
-"""The revamped setup flow, scenario by scenario (M27 design -> M28).
+"""Setup-flow regression coverage using fake heads and sensors only.
 
-Every test here names the M27 scenario id and the walkthrough-checklist row it
-binds, so a reader can go from `planning/eval/M27/scenarios.feature` to an
-executed assertion without guessing. Fake heads and fake sensors only: this is
-an in-process Home Assistant, and nothing here says anything about hardware.
+The tests exercise the in-process Home Assistant flow from input through saved
+configuration. They do not make a claim about physical hardware.
 """
 
 from __future__ import annotations
@@ -824,7 +822,7 @@ async def test_s23_summary_is_complete_and_nothing_is_written_until_confirmed(
     assert hass.config_entries.async_entries(DOMAIN) == []
 
     # W6c: abandoning the flow. Whether closing the DIALOG deletes the flow is
-    # a frontend behaviour nothing here exercises (M11 review R5, UNKNOWN);
+    # a frontend behaviour nothing here exercises;
     # this asserts only what the backend guarantees.
     hass.config_entries.flow.async_abort(result["flow_id"])
     assert hass.config_entries.async_entries(DOMAIN) == []
@@ -1078,7 +1076,7 @@ async def test_r1_r4_reconfigure_walks_rooms_sensors_and_a_review_with_no_advanc
 
 
 async def test_reconfigure_can_rename_the_outdoor_unit(hass: HomeAssistant) -> None:
-    """M27 review r2 O4: the title is editable where it was first set."""
+    """The title is editable at the step where it was first set."""
     entry = _v2_entry(hass)
     result = await hass.config_entries.flow.async_init(
         DOMAIN,

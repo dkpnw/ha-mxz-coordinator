@@ -273,7 +273,7 @@ async def test_manual_choice_survives_a_storage_backed_restart(
 
 
 # ---------------------------------------------------------------------------
-# Manual selection precedence (M24 section 4, shared-selector row; I04).
+# Manual selection precedence within the existing mode-flip dwell.
 # ---------------------------------------------------------------------------
 async def test_manual_choice_beats_automatic_arbitration_for_the_dwell(
     hass: HomeAssistant,
@@ -282,9 +282,8 @@ async def test_manual_choice_beats_automatic_arbitration_for_the_dwell(
 
     Bounded honestly: the request is handled by the pre-existing arbitration,
     which holds the chosen direction for the mode-flip dwell. Durable manual
-    authority — storage, provenance and an explicit resume — is the accepted
-    human-authority contract's own node, not this one, and this test asserts
-    nothing about what happens once the dwell elapses.
+    authority is not implemented or asserted here, and this test says nothing
+    about what happens once the dwell elapses.
     """
     entry, head_a, _head_b, sel = await _base(hass)
     await _enable_all(hass, entry)
@@ -316,9 +315,9 @@ async def test_no_time_based_release_of_a_selection_is_introduced(
     so a release (or retention) rule of the selector's own would fail it.
 
     That post-dwell flip is the pre-existing behaviour for a changing
-    selection. It is recorded here as pre-existing, not endorsed: durable
-    manual authority — storage, provenance and an explicit resume — belongs to
-    the accepted human-authority contract's own node.
+    selection. It is recorded here as pre-existing, not endorsed as durable
+    manual authority; persistence until an explicit resume is not implemented
+    or asserted here.
     """
     entry, _head_a, _head_b, sel = await _base(hass)
     await _enable_all(hass, entry)
@@ -361,8 +360,7 @@ async def test_a_newer_selection_survives_an_older_in_flight_apply(
 ) -> None:
     """A person selects while an automatic apply is awaiting a head service.
 
-    The reviewer's service-await barrier, kept as a regression. No coordinator
-    decision and no service outcome is replaced: the fake head's own
+    No coordinator decision and no service outcome is replaced: the fake head's own
     ``async_set_temperature`` is held open until the selection has landed, then
     released, so the older automatic plan finishes and reaches its writeback
     after the newer request. That writeback must not undo the request.

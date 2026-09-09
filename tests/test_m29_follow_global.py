@@ -514,7 +514,7 @@ async def test_the_button_record_moves_with_its_room_on_a_reorder(
     )
 
 
-# -- r1 review corrections -------------------------------------------------
+# -- disabled-owner regressions --------------------------------------------
 
 
 @pytest.mark.parametrize("return_action", ["press", "untouched_control"])
@@ -635,7 +635,7 @@ async def test_unchanged_refreshes_do_not_redraw_drift_numbers(
         assert write_state.call_count == 2
 
 
-# -- r2 review corrections -------------------------------------------------
+# -- re-enable and refresh regressions -------------------------------------
 
 
 @pytest.mark.parametrize("wait_for_owner", [False, True])

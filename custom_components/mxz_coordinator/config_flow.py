@@ -978,7 +978,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         Rendered through the STEP DESCRIPTION, which is the placeholder surface
         shipped code already relies on. Field labels are not used to carry a
         room name: whether the frontend substitutes placeholders into a field
-        label is unverified (M11 review R5), and a literal ``{room_1}`` on
+        label is unverified, and a literal ``{room_1}`` on
         screen would be worse than the static label it replaced.
         """
         chosen = sensors if sensors is not None else self._sensors
