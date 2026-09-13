@@ -4,8 +4,9 @@ from __future__ import annotations
 
 DOMAIN = "mxz_coordinator"
 
-# climate is last so the number/switch siblings it drives are registered first.
-PLATFORMS: list[str] = ["number", "switch", "select", "sensor", "climate"]
+# climate is last of the platforms it drives, so the number/switch siblings are
+# registered first. button carries no state of its own and follows them all.
+PLATFORMS: list[str] = ["number", "switch", "select", "sensor", "climate", "button"]
 
 # --- Config-entry keys (collected in the config flow; household-specific) ---
 CONF_PRIMARY_CLIMATE = "primary_climate"
@@ -38,8 +39,73 @@ ZONE_SENSOR = "sensor"
 ZONE_VANE_VERTICAL = "vane_vertical"
 ZONE_VANE_HORIZONTAL = "vane_horizontal"
 ZONE_STAGE_SENSOR = "stage_sensor"
+# Optional per-sensor reporting cadence (room-sensor freshness). The three
+# durations are in MINUTES (like coil_dry_minutes), positive and finite; each is
+# per SENSOR, never inferred from another room or from recent history.
+#   report_interval  the cadence the sensor's own documentation promises (P)
+#   max_age          an explicit maximum age, overriding the derived 3P
+#   startup_grace    an explicit startup grace, overriding the derived max_age
+# A room with NEITHER report_interval NOR max_age has an unknown cadence: its
+# age is shown and never enforced. There is no universal cutoff.
+ZONE_REPORT_INTERVAL = "report_interval"
+ZONE_MAX_AGE = "max_age"
+ZONE_STARTUP_GRACE = "startup_grace"
+# The sensor's EVIDENCE BASIS: what this source can prove about a reading being
+# current. It is INDEPENDENT of the cadence above and defaults to `unknown` — a
+# duration alone never buys enforcement, because it says how often the source
+# claims to report, not whether its writes are reports.
+#   unknown           (default) age is shown, never enforced
+#   ha_state_write    the source contract guarantees that EVERY accepted write,
+#                     including the first one after setup or reload, is a
+#                     current acquisition and can never replay a restored or
+#                     cached value. Then the HA write itself is the evidence.
+#   sample_timestamp  the source publishes a trustworthy marker as an entity
+#                     attribute: either a sample TIME
+#                     (`sample_timestamp_attribute`) or a monotonically
+#                     advancing sample SEQUENCE (`sample_sequence_attribute`).
+#                     Exactly one is named, and only an ADVANCING marker is
+#                     evidence — repeated cache writes carrying the same marker
+#                     move no deadline and recover nothing.
+# A user or integration can still misstate that external contract, and a
+# generic monitor cannot detect the mistake (docs/MIGRATION.md says so).
+ZONE_EVIDENCE_BASIS = "evidence_basis"
+ZONE_SAMPLE_TIMESTAMP_ATTR = "sample_timestamp_attribute"
+ZONE_SAMPLE_SEQUENCE_ATTR = "sample_sequence_attribute"
+EVIDENCE_UNKNOWN = "unknown"
+EVIDENCE_HA_WRITE = "ha_state_write"
+EVIDENCE_SAMPLE_TIMESTAMP = "sample_timestamp"
+# The bases a setup form may offer; anything else reads as `unknown`.
+EVIDENCE_BASES = (EVIDENCE_UNKNOWN, EVIDENCE_HA_WRITE, EVIDENCE_SAMPLE_TIMESTAMP)
 MIN_ZONES = 2
 MAX_ZONES = 8
+
+# The maximum age derived from a reporting interval: a room goes stale at the
+# THIRD due instant, so two missed due reports are tolerated and no more.
+STALE_MISSED_REPORTS = 3
+
+# Room-sensor health (per-zone plan key and `zones` view field).
+#   healthy          fresh qualifying evidence, deadline still in the future
+#   awaiting_report  provisionally eligible during the startup grace; the
+#                    current value is NOT evidence this incarnation witnessed
+#   stale            the configured maximum age was reached: no automatic demand
+#   invalid          missing/unavailable/non-numeric/non-finite (M13's reader)
+#   cadence_unknown  no cadence configured: age is shown, never enforced
+HEALTH_HEALTHY = "healthy"
+HEALTH_AWAITING = "awaiting_report"
+HEALTH_STALE = "stale"
+HEALTH_INVALID = "invalid"
+HEALTH_CADENCE_UNKNOWN = "cadence_unknown"
+# The states that make a room ineligible for automatic demand. One continuous
+# run of them is ONE unhealthy episode, however the subtype changes inside it.
+HEALTH_UNHEALTHY = (HEALTH_STALE, HEALTH_INVALID)
+# The states in which an unchanged report can still change something: an
+# unhealthy room recovers on one, and a provisional room replaces its startup
+# grace with that report's own evidence deadline. A healthy or unknown-cadence
+# room learns nothing from one, so its writes never wake the coordinator.
+HEALTH_REPORT_SENSITIVE = (HEALTH_STALE, HEALTH_INVALID, HEALTH_AWAITING)
+# The eligible states a recovery can land in: an enforcement-capable room comes
+# back to `healthy`, an unknown-basis one only to `cadence_unknown`.
+HEALTH_ELIGIBLE = (HEALTH_HEALTHY, HEALTH_CADENCE_UNKNOWN)
 
 
 def zone_slug(index: int) -> str:
@@ -262,6 +328,10 @@ def unit_profile(celsius: bool) -> dict:
 # head back to the plan (off again in eco/away).
 VANE_KICK_SPINUP = 8  # s after fan_only before commanding the vane
 VANE_KICK_APPLY = 20  # s for the louvre to travel before switching back off
+# Cap on how long unload/reload waits for a cancelled kick to unwind. A kick
+# awaits another integration's climate/select service, and a handler that
+# defers cancellation must not hang Home Assistant's config-entry unload.
+VANE_KICK_RETIRE_TIMEOUT = 5  # s
 
 # Heartbeat / drift re-assert interval (time_pattern "/15" in the YAML)
 HEARTBEAT_MINUTES = 15
@@ -285,6 +355,17 @@ MODE_FAN_ONLY = "fan_only"
 MODE_OFF = "off"
 DEMAND_NEUTRAL = "neutral"
 ENGAGE_SATISFIED = "satisfied"
+
+# Every per-zone entity suffix the platforms register, so one room's unique_ids
+# are f"{entry_id}_{zone_slug(index)}_{suffix}". Two callers need this list to be
+# complete: the setup prune (a missing suffix removes and recreates that record
+# on EVERY setup, spending the room's custom name, area and disabled flag on HA
+# 2024.12) and the reorder move (a missing suffix leaves that one setting behind
+# on the old priority slot). tests/test_registry_lifecycle.py and
+# tests/test_room_rename_reorder.py pin it against what the platforms register.
+ZONE_ENTITY_SUFFIXES = (
+    "target", "drift", "drift_follow_global", "enable", "thermostat", "fan_auto",
+)
 
 # Global helper entity keys (used for unique_id suffixes and translation keys).
 # Per-zone entities build theirs from zone_slug() instead, and translate through

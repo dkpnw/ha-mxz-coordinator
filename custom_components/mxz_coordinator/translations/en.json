@@ -3,43 +3,78 @@
     "step": {
       "user": {
         "title": "MXZ Coordinator",
-        "description": "Pick every indoor head on this MXZ outdoor unit (2–8). ORDER IS PRIORITY: the first head wins a heat-vs-cool standoff. Vane controls are detected automatically, and every comfort setting follows right here in this flow — pre-filled with sensible defaults. For a second outdoor unit, add the integration again.",
+        "description": "Pick every indoor head connected to ONE MXZ outdoor unit (2–8). ORDER IS PRIORITY: the first head wins a heat-vs-cool standoff. Vane controls are detected automatically. For a second outdoor unit, add the integration again.\n\nA head can only be claimed by one MXZ Coordinator at a time. While another setup or reconfigure dialog has a head selected, that head is reserved. The reservation is released when that dialog finishes, is cancelled, or is rejected at its last step. It has no timeout. Reconfiguring an entry can keep the heads that entry already owns, but not while another open dialog has one of them selected — finish that dialog first. If you cannot find it, restart Home Assistant.",
         "data": {
           "heads": "Indoor heads (climate entities, in priority order)",
+          "entry_title": "Name for this outdoor unit",
           "notify_service": "Drift-alert notifications (optional)"
         },
         "data_description": {
-          "notify_service": "Who to notify when a head is knocked off its coordinated mode and the coordinator puts it back — e.g. notify.mobile_app_phone. Leave empty for no notifications.",
-          "heads": "Every indoor unit connected to THIS outdoor unit. The order matters: if two rooms ever disagree (one wants heat, one wants cool), the FIRST head in this list wins. Have a second outdoor unit? Add this integration again for it afterward."
+          "heads": "Every indoor unit connected to THIS outdoor unit. The order matters: if two rooms ever disagree (one wants heat, one wants cool), the FIRST head in this list wins. Have a second outdoor unit? Add this integration again for it afterward.",
+          "entry_title": "Shown on the integration card. Give each outdoor unit its own name if you have more than one. No entity ID uses this name.",
+          "notify_service": "Who to notify when a head is knocked off its coordinated mode and the coordinator puts it back — e.g. notify.mobile_app_phone. Leave empty for no notifications."
+        }
+      },
+      "rooms": {
+        "title": "Rooms",
+        "description": "Name each room. Priority is the order you chose on the previous screen; position 1 wins a heat-vs-cool standoff. To change the order, use \"Go back to heads and rooms\" on the summary screen.\n\n{rooms}",
+        "data": {
+          "room_name_1": "Room 1 name",
+          "room_name_2": "Room 2 name",
+          "room_name_3": "Room 3 name",
+          "room_name_4": "Room 4 name",
+          "room_name_5": "Room 5 name",
+          "room_name_6": "Room 6 name",
+          "room_name_7": "Room 7 name",
+          "room_name_8": "Room 8 name"
+        },
+        "data_description": {
+          "room_name_1": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. You can change it later without losing the room's settings, and renaming it never changes an entity ID.",
+          "room_name_2": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. You can change it later without losing the room's settings, and renaming it never changes an entity ID.",
+          "room_name_3": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. You can change it later without losing the room's settings, and renaming it never changes an entity ID.",
+          "room_name_4": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. You can change it later without losing the room's settings, and renaming it never changes an entity ID.",
+          "room_name_5": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. You can change it later without losing the room's settings, and renaming it never changes an entity ID.",
+          "room_name_6": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. You can change it later without losing the room's settings, and renaming it never changes an entity ID.",
+          "room_name_7": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. You can change it later without losing the room's settings, and renaming it never changes an entity ID.",
+          "room_name_8": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. You can change it later without losing the room's settings, and renaming it never changes an entity ID."
         }
       },
       "sensors": {
         "title": "Room temperature sensors",
-        "description": "Pick the room temperature sensor for each head, in order:\n\n{heads}",
+        "description": "Pick the thermometer MXZ Coordinator should trust for each room. A standalone sensor near where people sit beats the head's own reading, which runs warm when the head is idle. Rooms are listed in priority order, each with its head and — once picked — what its sensor is reporting now:\n\n{rooms}",
         "data": {
-          "sensor_1": "Sensor for head 1",
-          "sensor_2": "Sensor for head 2",
-          "sensor_3": "Sensor for head 3",
-          "sensor_4": "Sensor for head 4",
-          "sensor_5": "Sensor for head 5",
-          "sensor_6": "Sensor for head 6",
-          "sensor_7": "Sensor for head 7",
-          "sensor_8": "Sensor for head 8"
+          "sensor_1": "Room 1 temperature sensor",
+          "sensor_2": "Room 2 temperature sensor",
+          "sensor_3": "Room 3 temperature sensor",
+          "sensor_4": "Room 4 temperature sensor",
+          "sensor_5": "Room 5 temperature sensor",
+          "sensor_6": "Room 6 temperature sensor",
+          "sensor_7": "Room 7 temperature sensor",
+          "sensor_8": "Room 8 temperature sensor"
         },
         "data_description": {
-          "sensor_1": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
-          "sensor_2": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
-          "sensor_3": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
-          "sensor_4": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
-          "sensor_5": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
-          "sensor_6": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
-          "sensor_7": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
-          "sensor_8": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle)."
+          "sensor_1": "For **{room_1}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
+          "sensor_2": "For **{room_2}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
+          "sensor_3": "For **{room_3}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
+          "sensor_4": "For **{room_4}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
+          "sensor_5": "For **{room_5}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
+          "sensor_6": "For **{room_6}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
+          "sensor_7": "For **{room_7}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
+          "sensor_8": "For **{room_8}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle)."
+        }
+      },
+      "review": {
+        "title": "Check this before you save",
+        "description": "{summary}\n\nAfter you save, MXZ Coordinator is installed but not controlling anything yet. Turn on \"Coordinator enable\" and each room's enable switch when you are ready.\n\nMXZ owns each head's mode while a room is enabled. If a head is knocked off the coordinated mode, MXZ puts it back and can notify you. Your fan speed is the exception: turn a room's \"Fan auto\" switch off to hold the speed you chose. To stop MXZ in one room, turn that room's enable switch off; to stop it everywhere, turn \"Coordinator enable\" off.",
+        "menu_options": {
+          "finish": "Save and finish",
+          "tuning": "Change advanced settings",
+          "user": "Go back to heads and rooms"
         }
       },
       "tuning": {
         "title": "Comfort tuning (all optional)",
-        "description": "Every knob, pre-filled with sensible defaults for your temperature unit — just hit Submit to accept them. You can change any of these later via the integration's Configure button.",
+        "description": "Every knob is pre-filled for your temperature unit, except when your heads cannot use the default parking mode. In that case, choose one of the compatible Idle action options shown. You can change these later via Configure.",
         "data": {
           "demand_threshold": "Demand threshold S (° off-target before the shared mode may flip)",
           "engage_deadband": "Re-engage drift (how far a coasting room may wander before conditioning resumes)",
@@ -87,44 +122,95 @@
       },
       "reconfigure": {
         "title": "Reconfigure heads",
-        "description": "Adjust which indoor heads this coordinator drives (2–8; ORDER IS PRIORITY — first wins a standoff). Heads kept in the SAME position keep their name, vane wiring, and target. If you REORDER heads, targets and enables stay with the priority slot, not the head — re-check each room's target afterwards.",
+        "description": "Adjust which indoor heads this coordinator drives (2–8; ORDER IS PRIORITY — first wins a standoff). Every head you keep takes its name, sensor, vane wiring, target, enable, drift and fan hold with it, wherever you move it in the list. Dropping a head deletes that room's entities. Name the rooms on the next step.\n\nA head can only be claimed by one MXZ Coordinator at a time. While another setup or reconfigure dialog has a head selected, that head is reserved. The reservation is released when that dialog finishes, is cancelled, or is rejected at its last step. It has no timeout. Reconfiguring an entry can keep the heads that entry already owns, but not while another open dialog has one of them selected — finish that dialog first. If you cannot find it, restart Home Assistant.",
         "data": {
           "heads": "Indoor heads (climate entities, in priority order)",
+          "entry_title": "Name for this outdoor unit",
           "notify_service": "Drift-alert notifications (optional)"
         },
         "data_description": {
           "heads": "Every indoor unit connected to THIS outdoor unit. The order matters: if two rooms ever disagree (one wants heat, one wants cool), the FIRST head in this list wins. Have a second outdoor unit? Add this integration again for it afterward.",
+          "entry_title": "Shown on the integration card. Give each outdoor unit its own name if you have more than one. No entity ID uses this name.",
           "notify_service": "Who to notify when a head is knocked off its coordinated mode and the coordinator puts it back — e.g. notify.mobile_app_phone. Leave empty for no notifications."
+        }
+      },
+      "reconfigure_rooms": {
+        "title": "Room names",
+        "description": "Rename any room. Leave a box empty to go back to the head's own name. Rooms are listed in priority order:\n\n{rooms}",
+        "data": {
+          "room_name_1": "Room 1 name",
+          "room_name_2": "Room 2 name",
+          "room_name_3": "Room 3 name",
+          "room_name_4": "Room 4 name",
+          "room_name_5": "Room 5 name",
+          "room_name_6": "Room 6 name",
+          "room_name_7": "Room 7 name",
+          "room_name_8": "Room 8 name"
+        },
+        "data_description": {
+          "room_name_1": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. Leave it empty to use the head's own name. Renaming a room here never changes an entity ID, and an entity you renamed yourself keeps your name.",
+          "room_name_2": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. Leave it empty to use the head's own name. Renaming a room here never changes an entity ID, and an entity you renamed yourself keeps your name.",
+          "room_name_3": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. Leave it empty to use the head's own name. Renaming a room here never changes an entity ID, and an entity you renamed yourself keeps your name.",
+          "room_name_4": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. Leave it empty to use the head's own name. Renaming a room here never changes an entity ID, and an entity you renamed yourself keeps your name.",
+          "room_name_5": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. Leave it empty to use the head's own name. Renaming a room here never changes an entity ID, and an entity you renamed yourself keeps your name.",
+          "room_name_6": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. Leave it empty to use the head's own name. Renaming a room here never changes an entity ID, and an entity you renamed yourself keeps your name.",
+          "room_name_7": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. Leave it empty to use the head's own name. Renaming a room here never changes an entity ID, and an entity you renamed yourself keeps your name.",
+          "room_name_8": "The room name shown on this room's entities — the thermostat, the target, the drift, the enable switch and Fan auto. Leave it empty to use the head's own name. Renaming a room here never changes an entity ID, and an entity you renamed yourself keeps your name."
         }
       },
       "reconfigure_sensors": {
         "title": "Room temperature sensors",
-        "description": "Confirm or fix the room temperature sensor for each head, in order:\n\n{heads}",
+        "description": "Confirm the thermometer for each room. Rooms are listed in priority order, each with its head and what its sensor is reporting now:\n\n{rooms}",
         "data": {
-          "sensor_1": "Sensor for head 1",
-          "sensor_2": "Sensor for head 2",
-          "sensor_3": "Sensor for head 3",
-          "sensor_4": "Sensor for head 4",
-          "sensor_5": "Sensor for head 5",
-          "sensor_6": "Sensor for head 6",
-          "sensor_7": "Sensor for head 7",
-          "sensor_8": "Sensor for head 8"
+          "sensor_1": "Room 1 temperature sensor",
+          "sensor_2": "Room 2 temperature sensor",
+          "sensor_3": "Room 3 temperature sensor",
+          "sensor_4": "Room 4 temperature sensor",
+          "sensor_5": "Room 5 temperature sensor",
+          "sensor_6": "Room 6 temperature sensor",
+          "sensor_7": "Room 7 temperature sensor",
+          "sensor_8": "Room 8 temperature sensor"
         },
         "data_description": {
-          "sensor_1": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
-          "sensor_2": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
-          "sensor_3": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
-          "sensor_4": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
-          "sensor_5": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
-          "sensor_6": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
-          "sensor_7": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
-          "sensor_8": "The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle)."
+          "sensor_1": "For **{room_1}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
+          "sensor_2": "For **{room_2}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
+          "sensor_3": "For **{room_3}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
+          "sensor_4": "For **{room_4}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
+          "sensor_5": "For **{room_5}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
+          "sensor_6": "For **{room_6}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
+          "sensor_7": "For **{room_7}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle).",
+          "sensor_8": "For **{room_8}**: The thermometer the coordinator should trust for this room — a standalone sensor near where people actually sit beats the head's own reading (which runs warm when idle)."
+        }
+      },
+      "reconfigure_review": {
+        "title": "Check this before you save",
+        "description": "{summary}\n\nComfort settings are edited with Configure on the integration card, not here.\n\nSaving reloads the integration once. An unchanged save reloads nothing.",
+        "menu_options": {
+          "reconfigure_finish": "Save and finish",
+          "reconfigure": "Go back to heads and rooms"
         }
       }
     },
     "error": {
+      "changeover_inverted": "The cool-lockout forecast threshold must stay below the heat-lockout one, so the forecast keeps a shoulder band between the two lockouts. Equal values leave no hysteresis: a single forecast reading flips from one lockout to the other.",
+      "clamp_inverted": "The lowest accepted setpoint cannot be above the highest accepted setpoint.",
       "duplicate_heads": "The same head was selected more than once.",
+      "duplicate_room_names": "Two rooms have the same name: {problem_names}. Give each room a different name.",
+      "duplicate_sensors": "The same temperature sensor is used for more than one room: {problem_sensors}. Give each room its own sensor.",
+      "eco_band_inverted": "The eco heat extreme cannot be above the eco cool extreme.",
+      "head_capabilities_unavailable": "Home Assistant is not reporting climate capabilities for: {unsupported_heads}. Make sure each head is loaded and available, then retry.",
+      "head_missing_heat_cool": "These heads do not advertise both heat and cool in Home Assistant: {unsupported_heads}. Choose climate entities that support both modes.",
+      "head_missing_idle_modes": "These heads have no common supported parking mode: {unsupported_heads}. Each selected head must support off or fan_only.",
+      "heads_already_configured": "Already assigned to another MXZ Coordinator entry: {conflicting_heads}.",
+      "heads_reserved_by_flow": "Selected in another unfinished MXZ Coordinator flow: {conflicting_heads}. Finish or cancel that flow before retrying.",
+      "idle_action_unsupported": "{idle_action} is not supported by every selected head. Incompatible heads: {unsupported_heads}. Supported alternatives: {supported_idle_actions}.",
+      "lockout_inverted": "The heat-lockout safety floor cannot be above the cool-lockout safety ceiling.",
+      "must_not_be_negative": "This value cannot be negative.",
       "need_two_heads": "Select at least two heads (a single head doesn't need a coordinator).",
+      "not_a_number": "Enter a finite number.",
+      "room_name_empty": "Every room needs a name.",
+      "sensor_missing": "Home Assistant has no state for: {problem_sensors}. Make sure each sensor exists and is loaded, then pick it again.",
+      "sensor_unit_unsupported": "MXZ Coordinator cannot read the temperature unit these sensors report: {problem_sensors}. Choose a sensor that reports a temperature unit Home Assistant can convert, such as degrees Celsius, degrees Fahrenheit or kelvin.",
       "too_many_heads": "A single MXZ outdoor unit supports at most 8 heads."
     },
     "abort": {
@@ -132,13 +218,26 @@
     }
   },
   "options": {
+    "error": {
+      "changeover_inverted": "The cool-lockout forecast threshold must stay below the heat-lockout one, so the forecast keeps a shoulder band between the two lockouts. Equal values leave no hysteresis: a single forecast reading flips from one lockout to the other.",
+      "clamp_inverted": "The lowest accepted setpoint cannot be above the highest accepted setpoint.",
+      "eco_band_inverted": "The eco heat extreme cannot be above the eco cool extreme.",
+      "head_capabilities_unavailable": "Home Assistant is not reporting climate capabilities for: {unsupported_heads}. Make sure each head is loaded and available, then retry.",
+      "head_missing_heat_cool": "These heads do not advertise both heat and cool in Home Assistant: {unsupported_heads}. Reconfigure with compatible climate entities.",
+      "head_missing_idle_modes": "The configured heads have no common supported parking mode: {unsupported_heads}. Restore off or fan_only support on every head, or reconfigure with compatible climate entities.",
+      "idle_action_unsupported": "{idle_action} is not supported by every selected head. Incompatible heads: {unsupported_heads}. Choose one of these alternatives: {supported_idle_actions}.",
+      "lockout_inverted": "The heat-lockout safety floor cannot be above the cool-lockout safety ceiling.",
+      "must_not_be_negative": "This value cannot be negative.",
+      "not_a_number": "Enter a finite number.",
+      "freshness_profile_invalid": "Check every sensor freshness profile. Durations must be finite positive minutes, and an explicit maximum age cannot be shorter than the expected interval. The sample timestamp basis needs exactly one timestamp or sequence attribute. Clear both marker fields before choosing another basis. Nothing was saved."
+    },
     "abort": {
       "empty_options": "No settings were submitted; the existing configuration was kept."
     },
     "step": {
       "init": {
         "title": "MXZ Coordinator tuning",
-        "description": "All temperatures are in your Home Assistant unit (°C or °F); the defaults adapt to it.",
+        "description": "All temperatures use your Home Assistant unit (°C or °F). Idle action lists only modes every configured head supports; an incompatible stored choice must be changed explicitly and is never rewritten for you. Sensor freshness is optional, and its durations are minutes. An expected interval uses three missed reports as the maximum age; an explicit maximum age overrides that and must be at least one interval. Startup grace defaults to maximum age. Choose HA state write only when every write is a current acquisition. Sample timestamp needs exactly one trusted timestamp or sequence attribute. To remove a profile, clear its duration and marker fields before choosing Unknown.",
         "data": {
           "demand_threshold": "Demand threshold S (° off-target before the shared mode may flip)",
           "engage_deadband": "Re-engage drift (how far a coasting room may wander before conditioning resumes)",
@@ -183,7 +282,55 @@
           "zone_7_stage": "Zone 7 airflow sensor (auto-detected; override if needed)",
           "zone_8_vane_vertical": "Zone 8 vertical vane (auto-detected; override if needed)",
           "zone_8_vane_horizontal": "Zone 8 horizontal vane (auto-detected; override if needed)",
-          "zone_8_stage": "Zone 8 airflow sensor (auto-detected; override if needed)"
+          "zone_8_stage": "Zone 8 airflow sensor (auto-detected; override if needed)",
+          "primary_report_interval": "Primary expected report interval (minutes)",
+          "primary_max_age": "Primary explicit maximum sensor age (minutes; blank = three intervals)",
+          "primary_startup_grace": "Primary startup grace (minutes; blank = maximum age)",
+          "primary_evidence_basis": "Primary freshness evidence basis",
+          "primary_sample_timestamp_attribute": "Primary sample timestamp attribute",
+          "primary_sample_sequence_attribute": "Primary sample sequence attribute",
+          "secondary_report_interval": "Secondary expected report interval (minutes)",
+          "secondary_max_age": "Secondary explicit maximum sensor age (minutes; blank = three intervals)",
+          "secondary_startup_grace": "Secondary startup grace (minutes; blank = maximum age)",
+          "secondary_evidence_basis": "Secondary freshness evidence basis",
+          "secondary_sample_timestamp_attribute": "Secondary sample timestamp attribute",
+          "secondary_sample_sequence_attribute": "Secondary sample sequence attribute",
+          "zone_3_report_interval": "Zone 3 expected report interval (minutes)",
+          "zone_3_max_age": "Zone 3 explicit maximum sensor age (minutes; blank = three intervals)",
+          "zone_3_startup_grace": "Zone 3 startup grace (minutes; blank = maximum age)",
+          "zone_3_evidence_basis": "Zone 3 freshness evidence basis",
+          "zone_3_sample_timestamp_attribute": "Zone 3 sample timestamp attribute",
+          "zone_3_sample_sequence_attribute": "Zone 3 sample sequence attribute",
+          "zone_4_report_interval": "Zone 4 expected report interval (minutes)",
+          "zone_4_max_age": "Zone 4 explicit maximum sensor age (minutes; blank = three intervals)",
+          "zone_4_startup_grace": "Zone 4 startup grace (minutes; blank = maximum age)",
+          "zone_4_evidence_basis": "Zone 4 freshness evidence basis",
+          "zone_4_sample_timestamp_attribute": "Zone 4 sample timestamp attribute",
+          "zone_4_sample_sequence_attribute": "Zone 4 sample sequence attribute",
+          "zone_5_report_interval": "Zone 5 expected report interval (minutes)",
+          "zone_5_max_age": "Zone 5 explicit maximum sensor age (minutes; blank = three intervals)",
+          "zone_5_startup_grace": "Zone 5 startup grace (minutes; blank = maximum age)",
+          "zone_5_evidence_basis": "Zone 5 freshness evidence basis",
+          "zone_5_sample_timestamp_attribute": "Zone 5 sample timestamp attribute",
+          "zone_5_sample_sequence_attribute": "Zone 5 sample sequence attribute",
+          "zone_6_report_interval": "Zone 6 expected report interval (minutes)",
+          "zone_6_max_age": "Zone 6 explicit maximum sensor age (minutes; blank = three intervals)",
+          "zone_6_startup_grace": "Zone 6 startup grace (minutes; blank = maximum age)",
+          "zone_6_evidence_basis": "Zone 6 freshness evidence basis",
+          "zone_6_sample_timestamp_attribute": "Zone 6 sample timestamp attribute",
+          "zone_6_sample_sequence_attribute": "Zone 6 sample sequence attribute",
+          "zone_7_report_interval": "Zone 7 expected report interval (minutes)",
+          "zone_7_max_age": "Zone 7 explicit maximum sensor age (minutes; blank = three intervals)",
+          "zone_7_startup_grace": "Zone 7 startup grace (minutes; blank = maximum age)",
+          "zone_7_evidence_basis": "Zone 7 freshness evidence basis",
+          "zone_7_sample_timestamp_attribute": "Zone 7 sample timestamp attribute",
+          "zone_7_sample_sequence_attribute": "Zone 7 sample sequence attribute",
+          "zone_8_report_interval": "Zone 8 expected report interval (minutes)",
+          "zone_8_max_age": "Zone 8 explicit maximum sensor age (minutes; blank = three intervals)",
+          "zone_8_startup_grace": "Zone 8 startup grace (minutes; blank = maximum age)",
+          "zone_8_evidence_basis": "Zone 8 freshness evidence basis",
+          "zone_8_sample_timestamp_attribute": "Zone 8 sample timestamp attribute",
+          "zone_8_sample_sequence_attribute": "Zone 8 sample sequence attribute"
         },
         "data_description": {
           "demand_threshold": "How far off target a room must be before the whole system may SWITCH between heating and cooling. Bigger = fewer mode changes. Most homes are fine with the default.",
@@ -263,7 +410,18 @@
       "description": "Force the coordinator to recompute the plan and re-apply it to the heads now."
     }
   },
+  "issues": {
+    "shared_mode_legacy_option": {
+      "title": "Shared mode no longer offers \"{stored}\"",
+      "description": "Shared mode now offers only the two directions one outdoor unit can share: cool and heat. Arbitration resolved the stored \"{stored}\" to cool, so it was an unreliable stop control rather than a stop: with the coordinator running it could park a head that had been heating, and while the coordinator was disabled or held in a fixed-mode standby park it was simply retained on the selector. Shared mode now reads \"{current}\". The stored value does not say which direction the system had been running, nothing else changed, and no hold was created.\n\nTo stop the coordinator and leave the heads exactly where they are, turn off **Coordinator enable**. To hold the heads, use the standby hold entity (Configure → \"Standby hold entity\"): its default eco action still conditions a room that reaches the protection extremes, while its off or fan only action parks every head for as long as the hold lasts. To idle one room, turn off that room's enable switch. To stop a satisfied head's fan, set the idle action to \"Off\".\n\nDismiss this message once you have read it."
+    }
+  },
   "entity": {
+    "button": {
+      "zone_drift_follow_global": {
+        "name": "{zone} follow global drift"
+      }
+    },
     "number": {
       "zone_target": {
         "name": "{zone} target"

@@ -7,6 +7,7 @@ import pytest
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
+from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -28,8 +29,11 @@ _DATA = {
 
 
 async def _setup(hass: HomeAssistant) -> MockConfigEntry:
-    hass.states.async_set("sensor.primary_temp", "72")
-    hass.states.async_set("sensor.secondary_temp", "70")
+    temp_attrs = {
+        ATTR_UNIT_OF_MEASUREMENT: hass.config.units.temperature_unit,
+    }
+    hass.states.async_set("sensor.primary_temp", "72", temp_attrs)
+    hass.states.async_set("sensor.secondary_temp", "70", temp_attrs)
     attrs = {"target_temp_low": 0, "target_temp_high": 0}
     hass.states.async_set("climate.primary", "off", attrs)
     hass.states.async_set("climate.secondary", "off", attrs)

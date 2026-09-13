@@ -83,6 +83,20 @@ def test_demand_sensor_dropout_fails_safe_to_neutral():
     assert demand(90, 70, sensor_ok=False) == NEUTRAL
 
 
+def test_demand_sensor_dropout_precedes_custom_eco_extremes():
+    assert logic.room_call(
+        temp=70,
+        target=70,
+        enabled=True,
+        eco=True,
+        sensor_ok=False,
+        band=S,
+        eco_cool_max=65,
+        eco_heat_min=50,
+        neutral=NEUTRAL,
+    ) == NEUTRAL
+
+
 def test_demand_eco_extremes():
     assert demand(79, 70, eco=True) == COOL  # > 78
     assert demand(49, 70, eco=True) == HEAT  # < 50

@@ -9,15 +9,18 @@ the seed tells boost residue from a deliberate hold after a restart.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .capabilities import head_has_fan_auto
 from .const import (
     KEY_COOL_LOCKOUT,
     KEY_COORDINATOR_ENABLE,
@@ -36,6 +39,31 @@ _GLOBAL_ICONS = {
 _ZONE_ICONS = ("mdi:bed", "mdi:sofa")  # legacy zone-0/1 icons; generic beyond
 
 
+@dataclass(frozen=True)
+class FanHoldRestoreData(ExtraStoredData):
+    """The one bool a Fan auto switch carries across a restart.
+
+    The switch's own state cannot always carry it. The switch is unavailable
+    while the head is missing from the state machine, so a head whose
+    integration is unloaded or failed at shutdown leaves ``unavailable``
+    persisted — not an answer to "was this room held?". HA stores extra
+    restore data beside the state whatever the state says, so the hold
+    survives the outage that hid it.
+    """
+
+    held: bool
+
+    def as_dict(self) -> dict[str, Any]:
+        """Serialize for the restore store."""
+        return {"held": self.held}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> FanHoldRestoreData | None:
+        """Rebuild from the store; anything but a clean bool is no answer."""
+        held = data.get("held")
+        return cls(held) if isinstance(held, bool) else None
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -46,7 +74,9 @@ async def async_setup_entry(
     entities: list[SwitchEntity] = [
         MXZZoneEnableSwitch(coordinator, zone) for zone in coordinator.zones
     ]
-    entities.extend(MXZZoneFanAutoSwitch(coordinator, zone) for zone in coordinator.zones)
+    entities.extend(
+        MXZZoneFanAutoSwitch(coordinator, zone) for zone in coordinator.zones
+    )
     entities.extend(MXZSwitch(coordinator, key) for key in _GLOBAL_ICONS)
     async_add_entities(entities)
 
@@ -157,20 +187,52 @@ class MXZZoneFanAutoSwitch(
         Runs during platform setup, before the coordinator's first compute
         (async_setup_entry awaits the platforms; STARTUP_RECOVER_DELAY adds
         margin on HA start). A stale restore — older than the config entry —
-        belongs to a previous incarnation (#7) and is ignored, as is anything
-        but a clean on/off (a first restart after upgrading has no stored
-        state at all: one clean fallback to observed-state seeding).
+        belongs to a previous incarnation (#7) and is ignored (a first restart
+        after upgrading has no stored state at all: one clean fallback to
+        observed-state seeding).
+
+        A clean on/off state is the answer whenever there is one. When there is
+        not — the head was missing at shutdown, so HA persisted the switch as
+        ``unavailable`` — the same truth rode along in extra restore data,
+        which HA stores whatever the state says. Either way what comes back is
+        the pre-restart hold, so a hold the user released restores as released
+        and is never resurrected.
         """
         await super().async_added_to_hass()
         last = await self.async_get_last_state()
-        if (
-            last is not None
-            and not self._restored_state_is_stale(last)
-            and last.state in ("on", "off")
-        ):
-            self.coordinator.restore_fan_hold(
-                self._zone.climate_id, held=(last.state == "off")
+        if last is not None and not self._restored_state_is_stale(last):
+            held: bool | None = None
+            if last.state in ("on", "off"):
+                held = last.state == "off"
+            elif (extra := await self.async_get_last_extra_data()) is not None:
+                stored = FanHoldRestoreData.from_dict(extra.as_dict())
+                held = stored.held if stored is not None else None
+            if held is not None:
+                self.coordinator.restore_fan_hold(self._zone.climate_id, held=held)
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self._zone.climate_id], self._handle_head_change
             )
+        )
+
+    @callback
+    def _handle_head_change(self, _event: Event) -> None:
+        """Refresh availability when the head publishes new capabilities."""
+        self.async_write_ha_state()
+
+    @property
+    def extra_restore_state_data(self) -> FanHoldRestoreData:
+        """Persist the hold truth beside the state, available or not."""
+        return FanHoldRestoreData(
+            held=not self.coordinator.fan_auto_is_on(self._zone.climate_id)
+        )
+
+    @property
+    def available(self) -> bool:
+        """Expose handback only while the head advertises the exact auto token."""
+        return self.coordinator.last_update_success and head_has_fan_auto(
+            self.hass, self._zone.climate_id
+        )
 
     @property
     def is_on(self) -> bool:

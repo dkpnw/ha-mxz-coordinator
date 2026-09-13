@@ -21,8 +21,12 @@ from homeassistant.components.climate import (
     ClimateEntityFeature,
     HVACMode,
 )
-from homeassistant.const import UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
+    EVENT_CALL_SERVICE,
+    UnitOfTemperature,
+)
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
@@ -33,9 +37,11 @@ from pytest_homeassistant_custom_component.common import (
     async_mock_service,
     mock_integration,
     mock_platform,
+    mock_restore_cache,
 )
 
 from custom_components.mxz_coordinator.const import (
+    CONF_FAN_BOOST_ENABLE,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
     CONF_PRIMARY_STAGE,
@@ -66,13 +72,21 @@ class MockHead(ClimateEntity):
     _attr_fan_modes: ClassVar[list[str]] = ["auto", "low", "high"]
     _enable_turn_on_off_backwards_compatibility = False
 
-    def __init__(self, suffix: str, fan_modes: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        suffix: str,
+        fan_modes: list[str] | None = None,
+        fan_feature: bool = True,
+    ) -> None:
         self._attr_unique_id = f"mock_head_{suffix}"
         self._attr_name = f"Mock Head {suffix}"
         if fan_modes is not None:
             self._attr_fan_modes = fan_modes
+        if not fan_feature:
+            self._attr_supported_features &= ~ClimateEntityFeature.FAN_MODE
+            self._attr_fan_modes = None
         self._attr_hvac_mode = HVACMode.OFF
-        self._attr_fan_mode = "auto"
+        self._attr_fan_mode = self._attr_fan_modes[0] if self._attr_fan_modes else None
         self._attr_target_temperature_low = None
         self._attr_target_temperature_high = None
 
@@ -95,10 +109,12 @@ class MockHead(ClimateEntity):
 
 
 async def _setup_mock_heads(
-    hass: HomeAssistant, fan_modes: list[str] | None = None
+    hass: HomeAssistant,
+    fan_modes: list[str] | None = None,
+    fan_feature: bool = True,
 ) -> tuple[str, str]:
     """Register two mock climate heads and return their entity_ids."""
-    heads = [MockHead("a", fan_modes), MockHead("b", fan_modes)]
+    heads = [MockHead("a", fan_modes, fan_feature), MockHead("b", fan_modes, fan_feature)]
 
     async def _async_setup_platform(
         hass, config, async_add_entities, discovery_info=None
@@ -125,8 +141,20 @@ def _eid(hass: HomeAssistant, entry: MockConfigEntry, suffix: str) -> str:
     raise AssertionError(f"no mxz entity ending in {suffix}")
 
 
+def _has_eid(hass: HomeAssistant, entry: MockConfigEntry, suffix: str) -> bool:
+    """Whether this entry registered an entity with the unique-id suffix."""
+    return any(
+        ent.config_entry_id == entry.entry_id and ent.unique_id.endswith(suffix)
+        for ent in er.async_get(hass).entities.values()
+    )
+
+
 async def _set_temp(hass: HomeAssistant, entity_id: str, value: float) -> None:
-    hass.states.async_set(entity_id, str(value))
+    hass.states.async_set(
+        entity_id,
+        str(value),
+        {ATTR_UNIT_OF_MEASUREMENT: hass.config.units.temperature_unit},
+    )
     await hass.async_block_till_done()
 
 
@@ -137,11 +165,15 @@ async def _recompute(hass: HomeAssistant, entry: MockConfigEntry) -> None:
 
 
 async def _setup(
-    hass: HomeAssistant, *, fan_modes: list[str] | None = None, **extra_data: Any
+    hass: HomeAssistant,
+    *,
+    fan_modes: list[str] | None = None,
+    fan_feature: bool = True,
+    **extra_data: Any,
 ) -> tuple[MockConfigEntry, str, str]:
     """Stand up the heads, sensors, and an mxz config entry."""
     hass.config.units = US_CUSTOMARY_SYSTEM  # keep setpoints in °F
-    head_a, head_b = await _setup_mock_heads(hass, fan_modes)
+    head_a, head_b = await _setup_mock_heads(hass, fan_modes, fan_feature)
     await _set_temp(hass, SENSOR_A, 70)
     await _set_temp(hass, SENSOR_B, 70)
 
@@ -209,6 +241,7 @@ async def test_band_clamp_and_fan(hass: HomeAssistant) -> None:
     assert st.attributes["supported_features"] & ClimateEntityFeature.FAN_MODE
     assert st.attributes["fan_modes"] == ["auto", "low", "high"]
     assert st.attributes["fan_mode"] == "auto"
+    assert _has_eid(hass, entry, "_primary_fan_auto")
 
     # Setting the fan drives the head directly (coordinator owns mode, not fan).
     await hass.services.async_call(
@@ -218,6 +251,239 @@ async def test_band_clamp_and_fan(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
     assert hass.states.get(head_a).attributes["fan_mode"] == "high"
     assert hass.states.get(prim).attributes["fan_mode"] == "high"
+
+
+async def test_facade_omits_fan_controls_when_head_has_no_fan_feature(
+    hass: HomeAssistant,
+) -> None:
+    """No underlying FAN_MODE means no facade feature, options, state, or handback."""
+    entry, _, _ = await _setup(hass, fan_feature=False)
+    prim = hass.states.get(_eid(hass, entry, "_primary_thermostat"))
+
+    assert not (prim.attributes["supported_features"] & ClimateEntityFeature.FAN_MODE)
+    assert "fan_modes" not in prim.attributes
+    assert "fan_mode" not in prim.attributes
+    assert _has_eid(hass, entry, "_primary_fan_auto")
+    assert hass.states.get(_eid(hass, entry, "_primary_fan_auto")).state == (
+        "unavailable"
+    )
+
+
+async def test_facade_preserves_vendor_fan_options_without_assuming_spelling(
+    hass: HomeAssistant,
+) -> None:
+    """Manual fan control remains exact even without MXZ's auto/ladder tokens."""
+    vendor_modes = ["Automatic", "Level 1"]
+    entry, head_a, _ = await _setup(hass, fan_modes=vendor_modes)
+    prim_id = _eid(hass, entry, "_primary_thermostat")
+    prim = hass.states.get(prim_id)
+
+    assert prim.attributes["supported_features"] & ClimateEntityFeature.FAN_MODE
+    assert prim.attributes["fan_modes"] == vendor_modes
+    assert prim.attributes["fan_mode"] == "Automatic"
+    assert _has_eid(hass, entry, "_primary_fan_auto")
+    assert hass.states.get(_eid(hass, entry, "_primary_fan_auto")).state == (
+        "unavailable"
+    )
+
+    await hass.services.async_call(
+        "climate",
+        "set_fan_mode",
+        {"entity_id": prim_id, "fan_mode": "Level 1"},
+        blocking=True,
+    )
+    assert hass.states.get(head_a).attributes["fan_mode"] == "Level 1"
+
+
+async def test_absent_ladder_token_is_never_commanded(
+    hass: HomeAssistant,
+) -> None:
+    """Exact auto supports handback, but boost skips fan rungs the head lacks."""
+    calls: list[dict[str, Any]] = []
+    hass.bus.async_listen(
+        EVENT_CALL_SERVICE, callback(lambda event: calls.append(dict(event.data)))
+    )
+    entry, head_a, _ = await _setup(hass, fan_modes=["auto", "Level 1"])
+    assert _has_eid(hass, entry, "_primary_fan_auto")
+    await _enable(
+        hass,
+        entry,
+        "_primary_enable",
+        "_secondary_enable",
+        "_coordinator_enable",
+    )
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+
+    assert hass.states.get(head_a).state == "cool"
+    assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
+    assert not any(
+        call["domain"] == "climate"
+        and call["service"] == "set_fan_mode"
+        and call["service_data"].get("entity_id") == head_a
+        for call in calls
+    )
+
+
+async def test_fan_auto_capability_loss_and_regain_keeps_registry_identity(
+    hass: HomeAssistant,
+) -> None:
+    """The handback entity stays registered while live availability follows its head."""
+    entry, head_a, _ = await _setup(hass)
+    fan_auto = _eid(hass, entry, "_primary_fan_auto")
+    registry = er.async_get(hass)
+    registry_id = registry.async_get(fan_auto).id
+    original = hass.states.get(head_a)
+
+    without_fan = dict(original.attributes)
+    without_fan["supported_features"] &= ~int(ClimateEntityFeature.FAN_MODE)
+    without_fan.pop("fan_modes", None)
+    without_fan.pop("fan_mode", None)
+    hass.states.async_set(head_a, original.state, without_fan)
+    await hass.async_block_till_done()
+
+    assert registry.async_get(fan_auto).id == registry_id
+    assert hass.states.get(fan_auto).state == "unavailable"
+
+    hass.states.async_set(head_a, original.state, dict(original.attributes))
+    await hass.async_block_till_done()
+
+    assert registry.async_get(fan_auto).id == registry_id
+    assert hass.states.get(fan_auto).state == "on"
+
+
+@pytest.mark.parametrize(
+    ("restored_fan_auto", "expected_on", "expected_hold"),
+    [("off", False, True), ("on", True, False)],
+)
+async def test_late_head_restart_restores_fan_hold_without_extra_boost(
+    hass: HomeAssistant,
+    restored_fan_auto: str,
+    expected_on: bool,
+    expected_hold: bool,
+) -> None:
+    """A late head keeps entity identity and consumes held/unheld restore truth."""
+    entry, head_a, _ = await _setup(
+        hass, **{CONF_FAN_BOOST_ENABLE: True}
+    )
+    await _set_temp(hass, SENSOR_A, 75)
+    fan_auto = _eid(hass, entry, "_primary_fan_auto")
+    enable_ids = [
+        _eid(hass, entry, suffix)
+        for suffix in (
+            "_primary_enable",
+            "_secondary_enable",
+            "_coordinator_enable",
+        )
+    ]
+    registry = er.async_get(hass)
+    registry_id = registry.async_get(fan_auto).id
+    head = hass.data["entity_components"]["climate"].get_entity(head_a)
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    hass.states.async_remove(head_a)
+    mock_restore_cache(
+        hass,
+        [
+            State(fan_auto, restored_fan_auto),
+            *(State(entity_id, "on") for entity_id in enable_ids),
+        ],
+    )
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert registry.async_get(fan_auto).id == registry_id
+    assert hass.states.get(fan_auto).state == "unavailable"
+
+    calls: list[dict[str, Any]] = []
+    hass.bus.async_listen(
+        EVENT_CALL_SERVICE, callback(lambda event: calls.append(dict(event.data)))
+    )
+    head._attr_hvac_mode = HVACMode.COOL
+    head._attr_fan_mode = "high"
+    head._attr_target_temperature_low = 68
+    head._attr_target_temperature_high = 70
+    head.async_write_ha_state()
+    await hass.async_block_till_done()
+
+    assert registry.async_get(fan_auto).id == registry_id
+    assert (hass.states.get(fan_auto).state == "on") is expected_on
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is expected_hold
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+    assert not any(
+        call["domain"] == "climate"
+        and call["service"] == "set_fan_mode"
+        and call["service_data"].get("entity_id") == head_a
+        for call in calls
+    )
+
+
+async def _restart_without_fan_boost(
+    hass: HomeAssistant, restored_fan_auto: str,
+) -> tuple[MockConfigEntry, str, str]:
+    """Restore a live, non-auto head while disabled boost leaves truth pending."""
+    entry, head_a, _ = await _setup(hass, **{CONF_FAN_BOOST_ENABLE: False})
+    fan_auto = _eid(hass, entry, "_primary_fan_auto")
+    await hass.services.async_call(
+        "climate", "set_fan_mode", {"entity_id": head_a, "fan_mode": "high"},
+        blocking=True,
+    )
+    enable_ids = [
+        _eid(hass, entry, suffix)
+        for suffix in ("_primary_enable", "_secondary_enable", "_coordinator_enable")
+    ]
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    mock_restore_cache(
+        hass,
+        [State(fan_auto, restored_fan_auto), *(State(eid, "on") for eid in enable_ids)],
+    )
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.fan_boost_enable is False
+    assert entry.runtime_data._fan_restore[head_a] is (restored_fan_auto == "off")
+    return entry, head_a, fan_auto
+
+
+@pytest.mark.parametrize("restored_fan_auto", ["off", "on"])
+async def test_restored_fan_auto_display_with_boost_disabled(
+    hass: HomeAssistant, restored_fan_auto: str,
+) -> None:
+    """The rendered switch retains held/unheld truth through disabled-boost refreshes."""
+    entry, head_a, fan_auto = await _restart_without_fan_boost(hass, restored_fan_auto)
+    assert hass.states.get(fan_auto).state == restored_fan_auto
+    calls = async_mock_service(hass, "climate", "set_fan_mode")
+
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+
+    assert hass.states.get(head_a).state == "cool"  # control: the coordinator runs
+    assert hass.states.get(fan_auto).state == restored_fan_auto, (
+        "pending restore must determine the rendered Fan auto state"
+    )
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+    assert calls == []
+
+
+async def test_live_fan_auto_handback_with_boost_disabled(hass: HomeAssistant) -> None:
+    """A reachable switch.turn_on overrides a pending held restore and stays ON."""
+    entry, head_a, fan_auto = await _restart_without_fan_boost(hass, "off")
+    assert hass.states.get(fan_auto).state == "off"  # available, so HA dispatches ON
+    calls = async_mock_service(hass, "climate", "set_fan_mode")
+
+    await hass.services.async_call(
+        "switch", "turn_on", {"entity_id": fan_auto}, blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(fan_auto).state == "on", (
+        "live Fan auto handback must supersede the pending held restore"
+    )
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+    assert hass.states.get(fan_auto).state == "on"
+    assert hass.states.get(head_a).state == "cool"
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+    assert calls == []
 
 
 async def test_set_temperature_propagates(hass: HomeAssistant) -> None:

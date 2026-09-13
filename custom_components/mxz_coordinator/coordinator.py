@@ -18,11 +18,11 @@ import asyncio
 import logging
 import math
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfTemperature
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -30,10 +30,14 @@ from homeassistant.helpers.entity_component import DATA_INSTANCES
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
+    async_track_state_report_event,
     async_track_time_interval,
 )
 from homeassistant.helpers.start import async_at_start
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import (
+    REQUEST_REFRESH_DEFAULT_COOLDOWN,
+    DataUpdateCoordinator,
+)
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
@@ -85,8 +89,16 @@ from .const import (
     DOMAIN,
     ENGAGE_SATISFIED,
     EVENT_RECOMPUTE,
+    EVIDENCE_HA_WRITE,
     FAN_AUTO,
     FAN_LADDER,
+    HEALTH_AWAITING,
+    HEALTH_ELIGIBLE,
+    HEALTH_HEALTHY,
+    HEALTH_INVALID,
+    HEALTH_REPORT_SENSITIVE,
+    HEALTH_STALE,
+    HEALTH_UNHEALTHY,
     IDLE_ACTION_FAN_ONLY,
     IDLE_ACTION_OFF,
     IDLE_ACTION_OFF_AFTER_DRY,
@@ -103,11 +115,18 @@ from .const import (
     STARTUP_RECOVER_DELAY,
     UNAVAILABLE_STATES,
     VANE_KICK_APPLY,
+    VANE_KICK_RETIRE_TIMEOUT,
     VANE_KICK_SPINUP,
     ZONE_CLIMATE,
+    ZONE_EVIDENCE_BASIS,
+    ZONE_MAX_AGE,
     ZONE_NAME,
+    ZONE_REPORT_INTERVAL,
+    ZONE_SAMPLE_SEQUENCE_ATTR,
+    ZONE_SAMPLE_TIMESTAMP_ATTR,
     ZONE_SENSOR,
     ZONE_STAGE_SENSOR,
+    ZONE_STARTUP_GRACE,
     ZONE_VANE_HORIZONTAL,
     ZONE_VANE_VERTICAL,
     unit_profile,
@@ -115,10 +134,14 @@ from .const import (
 )
 from .logic import (
     engage_with_latch,
+    evidence_contract,
     fan_for_delta,
+    freshness_window,
     head_action,
     room_call,
+    sample_evidence,
     season_lockouts,
+    sensor_health,
     setpoints,
     shared_mode,
 )
@@ -129,14 +152,89 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def _read_temp(state: Any, fallback: float) -> tuple[bool, float]:
-    """Return (ok, value) for a temperature sensor state; ``fallback`` on dropout."""
+def read_room_temp(state: Any, system_unit: str) -> float | None:
+    """Return a room sensor's finite temperature in ``system_unit``, else None.
+
+    The ONE reader every room-sensor consumer shares — automatic demand and the
+    thermostat facade both call it, so a tile can never show a number the
+    coordinator has rejected, nor show it in the wrong unit.
+
+    HA normally converts temperature SensorEntity states to their configured
+    display unit before storing them. Read that State unit as authoritative:
+    an already-normalized state needs no second conversion, while a supported
+    per-entity unit override is converted once into the system unit. A sensor
+    declaring NO unit keeps its long-standing system-unit reading (unitless
+    template sensors have always worked); only an explicitly unsupported unit
+    is rejected. So is a malformed one: HA stores whatever attribute a source
+    publishes, and a ``[]`` or ``{}`` unit is not hashable, so it must be
+    rejected by type BEFORE the membership test or that test itself raises and
+    takes the whole refresh down. Non-finite values (``nan``, ``±inf``) are
+    invalid: nothing can be compared against them and HA's own display
+    rounding raises on them. Any finite temperature is accepted; climate
+    plausibility limits are policy, not sensor validity.
+    """
     if state is None or state.state in UNAVAILABLE_STATES:
-        return (False, fallback)
+        return None
+    unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+    if unit is None:
+        unit = system_unit
+    elif not isinstance(unit, str):
+        return None
+    if (
+        unit not in TemperatureConverter.VALID_UNITS
+        or system_unit not in TemperatureConverter.VALID_UNITS
+    ):
+        return None
     try:
-        return (True, float(state.state))
+        value = float(state.state)
     except (ValueError, TypeError):
+        return None
+    if not math.isfinite(value):
+        return None
+    if unit != system_unit:
+        value = TemperatureConverter.convert(value, unit, system_unit)
+    return value if math.isfinite(value) else None
+
+
+def _read_temp(
+    state: Any, fallback: float, system_unit: str
+) -> tuple[bool, float]:
+    """Demand-path adapter: ``(ok, value)``, with ``fallback`` when invalid.
+
+    Plan and actuator arithmetic still needs a number for a room that gets no
+    vote, so an invalid reading yields ``ok=False`` plus the fallback. ``ok`` is
+    what keeps that fallback from voting (:func:`room_call`), and the fallback
+    is never published as the room's temperature.
+    """
+    value = read_room_temp(state, system_unit)
+    if value is None:
         return (False, fallback)
+    return (True, value)
+
+
+def _read_marker(value: Any, *, marker_is_a_time: bool) -> float | None:
+    """One trusted sample marker as a comparable number, else None.
+
+    A sample TIME is an aware datetime or an ISO string carrying an offset —
+    HA stores whatever an integration publishes, and a time with no zone is
+    not a time this can compare against a UTC clock. A sample SEQUENCE is any
+    finite number (``True`` is a checkbox, not a sequence), kept as the number
+    it is: an integer stays an integer, so a count already past 2**53 still
+    advances by one instead of rounding back onto the last one accepted.
+    Anything else is an unusable marker: the write it rides on then proves
+    nothing.
+    """
+    if not marker_is_a_time:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        if isinstance(value, float) and not math.isfinite(value):
+            return None
+        return value
+    if isinstance(value, str):
+        value = dt_util.parse_datetime(value)
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        return None
+    return value.timestamp()
 
 
 @dataclass
@@ -163,6 +261,16 @@ class Zone:
     # engage_deadband. Owned by the zone's drift number entity, exactly like
     # target/enable; automations write it (presence tiers etc.).
     drift: float | None = None
+    # This SENSOR's reporting contract, as configured (durations in minutes,
+    # or None when the room's cadence is unknown; the basis defaults to
+    # unknown). Read once into the resolved freshness window and evidence
+    # contract; kept raw here because config is not validated on the way in.
+    report_interval: Any = None
+    max_age: Any = None
+    startup_grace: Any = None
+    evidence_basis: Any = None
+    sample_timestamp_attribute: Any = None
+    sample_sequence_attribute: Any = None
 
 
 def _parse_zones(conf: dict[str, Any], target_default: float) -> list[Zone]:
@@ -204,6 +312,12 @@ def _parse_zones(conf: dict[str, Any], target_default: float) -> list[Zone]:
             vane_horizontal_id=z.get(ZONE_VANE_HORIZONTAL) or None,
             stage_sensor_id=z.get(ZONE_STAGE_SENSOR) or None,
             target=target_default,
+            report_interval=z.get(ZONE_REPORT_INTERVAL),
+            max_age=z.get(ZONE_MAX_AGE),
+            startup_grace=z.get(ZONE_STARTUP_GRACE),
+            evidence_basis=z.get(ZONE_EVIDENCE_BASIS),
+            sample_timestamp_attribute=z.get(ZONE_SAMPLE_TIMESTAMP_ATTR),
+            sample_sequence_attribute=z.get(ZONE_SAMPLE_SEQUENCE_ATTR),
         )
         for i, z in enumerate(raw)
     ]
@@ -219,6 +333,16 @@ def _parse_zones(conf: dict[str, Any], target_default: float) -> list[Zone]:
             if conf.get(hkey):
                 zones[idx].vane_horizontal_id = conf[hkey]
     return zones
+
+
+# How long after a coast (an engage latch disengaging) the room is looked at
+# again. It is the request-refresh cooldown plus a second, because that is the
+# interval a head WITH a fan mode already gets: its echo asks for a refresh,
+# which the debouncer runs one cooldown later. Landing after that cooldown
+# leaves the echo path in charge on the heads that have one — that refresh
+# coasts nothing, so it drops this wakeup — and gives the heads that have no
+# fan mode the same re-evaluation instead of none.
+COAST_FOLLOWUP_DELAY = REQUEST_REFRESH_DEFAULT_COOLDOWN + 1  # s
 
 
 # ---------------------------------------------------------------------------
@@ -359,10 +483,19 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Vane-kick bookkeeping: heads mid-kick are skipped by _apply so the
         # plan doesn't turn them back off while the louvre is still traveling.
-        self._vane_kicks: set[str] = set()
+        # One entry per head with a kick in flight, holding that kick's task —
+        # the single owner record. A kick owns its head while (and only while)
+        # this maps the head to its own task.
+        self._vane_kicks: dict[str, asyncio.Task[None]] = {}
+        # Heads this coordinator ran up to fan_only for a kick and has not
+        # parked again yet. Retirement finishes that job (see _restore_woken).
+        self._vane_kick_woken: set[str] = set()
         self._vane_pending: dict[str, tuple[str, str]] = {}
         self._vane_kick_spinup: float = VANE_KICK_SPINUP
         self._vane_kick_apply: float = VANE_KICK_APPLY
+        self._vane_kick_retire: float = VANE_KICK_RETIRE_TIMEOUT
+        # Set once this incarnation is unloaded: it must never write again.
+        self._retired: bool = False
 
         # Helper values (owned by the switch/select entities; seeded on
         # restore, mutated on user action). Kill-switch defaults OFF for safety.
@@ -372,15 +505,159 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.heat_lockout: bool = False
         self.cool_lockout: bool = False
         self.current_shared_mode: str = MODE_COOL  # restored by the select entity
+        # Ordinal of explicit shared-mode requests. It carries no direction, no
+        # clock and no persistence: it exists so an apply that started before a
+        # person's request cannot write its older plan back over that request
+        # (see the writeback at the end of _apply).
+        self._selection_seq: int = 0
 
         # Hysteresis is armed from startup: a mode flip must wait out the dwell
         # even right after setup/restart (#6 — 0.0 made the first flip always
         # allowed and the plan sensor report a ~56,000-year dwell).
         self._last_mode_change_ts: float = dt_util.utcnow().timestamp()
+        # One-shot wakeup at dwell expiry, armed only while the dwell is
+        # holding a flip back (see _sync_dwell_timer). Retirement is one-way
+        # for this incarnation: a reload builds a new coordinator.
+        self._dwell_timer: Any | None = None
+        self._dwell_retired = False
+        # One-shot wakeup after a compute disengaged an engage latch, so a room
+        # that coasts through a direction flip is re-evaluated on a head that
+        # echoes nothing back (see _sync_coast_timer). Retirement is one-way for
+        # this incarnation, exactly as for the dwell wakeup above.
+        self._coasted = False
+        self._coast_timer: Any | None = None
+        self._coast_retired = False
+        # Per-sensor freshness. NOTHING about sensor health survives a reload:
+        # a new coordinator re-derives each room's validity, last write time
+        # and sample marker from HA state, and a write it did not witness is
+        # not evidence of a current report (an existing value can be a restored
+        # or cached one). So a configured room opens in `awaiting_report` with
+        # exactly one bounded, visibly provisional grace period — the
+        # availability tradeoff the policy makes deliberately, not knowledge of
+        # pre-reload health — unless its sensor already carries a sample TIME
+        # inside its maximum age, which dates itself and starts the room
+        # healthy on that time. A room with no usable reading is invalid at
+        # once, with no grace, as at any other time (the notice after the
+        # first compute below reports what each room actually started as).
+        self._started_ts: float = dt_util.utcnow().timestamp()
+        self._freshness: dict[str, tuple[float, float]] = {}  # slug -> (max age, grace) s
+        # slug -> (basis, marker attribute, marker is a time); only the
+        # enforcement-capable sensors are in here, and only they have a cutoff.
+        self._evidence: dict[str, tuple[str, str | None, bool]] = {}
+        # The per-sensor evidence RECORD of a sample-marker source, written
+        # only at an observation boundary (_observe_report) and read by every
+        # compute: the last ACCEPTED marker, the time of the evidence it
+        # proved, and whether an unhealthy evaluation has since spent it.
+        self._sample_marker: dict[str, float] = {}
+        self._evidence_ts: dict[str, float] = {}
+        self._evidence_spent: set[str] = set()
+        self._health: dict[str, str] = {}
+        self._grace_until: dict[str, float] = {}
+        self._fresh_deadline: dict[str, float] = {}
+        self._unhealthy_logged: set[str] = set()
+        self._fresh_timer: Any | None = None
+        self._fresh_retired = False
+        self._arm_freshness(self._started_ts)
         self._unsubs: list[Any] = []
         self._heal_timers: dict[tuple[str, str], Any] = {}
+        # State-change callbacks can run synchronously inside a service call.
+        # Let those callbacks evaluate the plan that owns the in-flight writes;
+        # DataUpdateCoordinator publishes it only after _async_update_data returns.
+        self._applying_plan: dict[str, Any] | None = None
+        # HA 2024.12's request-refresh debouncer discards a call while its
+        # execution lock is held, and its direct refresh path does not
+        # serialize concurrent updates. Later HA debouncers identify their
+        # lock owner and already retain that request, so leave those lanes on
+        # HA's unchanged path. On the old path, remember only that current
+        # inputs need one more look; the follow-up captures no plan or input.
+        self._needs_legacy_refresh_guard = not hasattr(
+            self._debounced_refresh, "_execute_lock_owner"
+        )
+        self._refresh_lock = asyncio.Lock()
+        self._refresh_pending = False
+        self._refresh_followup_timer: Any | None = None
         # Seed data so entities have something to read before the first refresh.
         self.data = self._compute()
+        if self._freshness:
+            # That first compute classified every room from what HA holds
+            # now; the notice reports its result rather than estimating it. A
+            # room with a valid reading and a sample TIME inside its maximum
+            # age starts healthy (the sample dates itself); every other room
+            # with a valid reading is provisional, because a sequence found
+            # at startup is a baseline only and a contracted HA write needs a
+            # write made after this start; a room with no usable reading is
+            # invalid at once and gets no grace.
+            starts = [self._health[slug] for slug in self._freshness]
+            _LOGGER.info(
+                "MXZ: sensor health is not retained across a reload; %d room(s) "
+                "are provisionally eligible until their first witnessed report "
+                "or the end of their startup grace, %d room(s) start healthy "
+                "on a sample time already in Home Assistant that is inside their "
+                "maximum age, and %d room(s) have no usable reading and are "
+                "rejected at once, with no grace",
+                starts.count(HEALTH_AWAITING),
+                starts.count(HEALTH_HEALTHY),
+                starts.count(HEALTH_INVALID),
+            )
+
+    def _arm_freshness(self, started: float) -> None:
+        """Resolve each sensor's evidence contract and window; open its grace.
+
+        A room is enforcement-capable only when BOTH halves of the approved
+        configuration are present: a trusted evidence basis, and a maximum age
+        (its own or the one its cadence derives). Either half alone is an
+        unknown cadence — age shown, nothing enforced — because a duration
+        describes how often a source promises to write, and a basis is what
+        says a write is a report at all. An invalid profile — a duration that
+        is not a finite positive number, or a maximum age shorter than the
+        interval — is reported once and is no profile at all: nothing in it is
+        rounded, raised or read past into a cutoff nobody asked for.
+        """
+        for zone in self.zones:
+            window = freshness_window(
+                report_interval=zone.report_interval,
+                max_age=zone.max_age,
+                startup_grace=zone.startup_grace,
+            )
+            configured = (zone.report_interval, zone.max_age, zone.startup_grace)
+            if window is None:
+                if any(value is not None for value in configured):
+                    _LOGGER.warning(
+                        "MXZ: %s sensor %s has no usable reporting interval or "
+                        "maximum age (interval, maximum age, grace = %s): that "
+                        "is not a freshness profile, so nothing of it is "
+                        "enforced; the sensor's age is shown but never enforced",
+                        zone.name,
+                        zone.sensor_id,
+                        configured,
+                    )
+                continue
+            contract = evidence_contract(
+                basis=zone.evidence_basis,
+                sample_timestamp_attribute=zone.sample_timestamp_attribute,
+                sample_sequence_attribute=zone.sample_sequence_attribute,
+            )
+            if contract is None:
+                _LOGGER.warning(
+                    "MXZ: %s sensor %s has a maximum age but no trusted evidence "
+                    "basis (%s); its age is shown but never enforced. A source "
+                    "gets a cutoff only when its own contract says every write "
+                    "is a current reading, or it publishes an advancing sample "
+                    "marker",
+                    zone.name,
+                    zone.sensor_id,
+                    zone.evidence_basis,
+                )
+                continue
+            self._evidence[zone.slug] = contract
+            max_age, grace = (window[0] * 60.0, window[1] * 60.0)
+            self._freshness[zone.slug] = (max_age, grace)
+            self._grace_until[zone.slug] = started + grace
+            # The state found at startup is the first observation — with no
+            # receipt, because this incarnation did not witness its write.
+            self._observe_report(
+                zone, self.hass.states.get(zone.sensor_id), started, None
+            )
 
     # -- lifecycle ----------------------------------------------------------
     async def async_setup(self) -> None:
@@ -392,6 +669,19 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._on_input_change,
             )
         )
+        if self._freshness:
+            # Only where a cutoff can actually apply, and only for OUR sensors:
+            # an unchanged write fires no state_change, so a room that reports
+            # the same temperature forever would otherwise look silent. Ignored
+            # entirely while every configured room's cadence is unknown, so no
+            # install pays for this stream without a use for it.
+            self._unsubs.append(
+                async_track_state_report_event(
+                    self.hass,
+                    [z.sensor_id for z in self.zones],
+                    self._on_input_report,
+                )
+            )
         self._unsubs.append(
             async_track_state_change_event(
                 self.hass,
@@ -437,18 +727,56 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_refresh()
 
     async def async_shutdown_listeners(self) -> None:
-        """Cancel every listener and pending self-heal timer."""
+        """Retire this context, then cancel its listeners, timers, and kick tasks.
+
+        ``_retired`` first, so nothing this incarnation already scheduled can
+        write a head again. Every pending self-heal, dry, dwell and coast timer
+        is cancelled here. Retiring the kicks is last because it still owes
+        one thing: parking a head this coordinator woke (see _restore_woken).
+        """
+        self._retired = True
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
+        # Retire the dwell before cancelling it: a refresh still in flight runs
+        # its own _sync_dwell_timer on the way out, and a callback the loop has
+        # already picked up cannot be cancelled at all.
+        self._dwell_retired = True
+        self._cancel_dwell_timer()
+        self._coast_retired = True
+        self._cancel_coast_timer()
+        self._refresh_pending = False
+        self._cancel_refresh_followup()
+        self._fresh_retired = True
+        self._cancel_fresh_timer()
         for cancel in self._heal_timers.values():
             cancel()
         self._heal_timers.clear()
         for cancel in self._dry_timers.values():
             cancel()
         self._dry_timers.clear()
+        await self._async_retire_vane_kicks()
 
     # -- decision (mirrors sensor.mxz_plan) ---------------------------------
+    def _arbitration_mode(self) -> str:
+        """The shared mode arbitration starts from (cold start / junk -> cool)."""
+        return (
+            self.current_shared_mode
+            if self.current_shared_mode in (MODE_COOL, MODE_HEAT)
+            else MODE_COOL
+        )
+
+    def _resting_bias(self) -> str | None:
+        """The mode to settle at when no room is calling, or None for "last".
+
+        "last" (or anything not cool|heat) -> None keeps the last-mode behavior.
+        """
+        return (
+            self.resting_mode_bias
+            if self.resting_mode_bias in (MODE_COOL, MODE_HEAT)
+            else None
+        )
+
     def _compute(self) -> dict[str, Any]:
         """Recompute the plan dict from current inputs. Commands nothing.
 
@@ -470,14 +798,23 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "cool_lockout": self.cool_lockout,
             "cool_lockout_ceiling": self.cool_lockout_ceiling,
         }
+        now = dt_util.utcnow().timestamp()
         plan: dict[str, Any] = {}
         demands: list[str] = []
         engages: list[str] = []
+        healths: list[str] = []
+        ages: list[float | None] = []
         all_ok = True
+        coasted = False
         for zone in self.zones:
-            ok, temp = _read_temp(
-                self.hass.states.get(zone.sensor_id), self.target_default
-            )
+            state = self.hass.states.get(zone.sensor_id)
+            valid, temp = _read_temp(state, self.target_default, self.temp_unit)
+            health, age = self._sensor_health(zone, state, valid, now)
+            # A stale room votes exactly like a room with no reading at all:
+            # no demand, no engagement, its head parked by the ordinary idle
+            # path. The reading itself is still valid, so it is still SHOWN —
+            # what the room loses is authority, not its last measurement.
+            ok = valid and health != HEALTH_STALE
             all_ok = all_ok and ok
             zdrift = self.zone_drift(zone)
             demand = room_call(
@@ -499,8 +836,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if head is not None and head.state in (MODE_COOL, MODE_HEAT)
                     else ""
                 )
+            prior_engage = self._engage_latch[zone.slug]
             engage = engage_with_latch(
-                prior=self._engage_latch[zone.slug] or None,
+                prior=prior_engage or None,
                 temp=temp, target=zone.target, enabled=zone.enable,
                 sensor_ok=ok, band=zdrift, neutral=ENGAGE_SATISFIED,
                 **common,
@@ -508,30 +846,35 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._engage_latch[zone.slug] = (
                 engage if engage in (MODE_COOL, MODE_HEAT) else ""
             )
+            # This room let go of a run and is now coasting: it is parked at the
+            # idle action, and only a later compute may engage it again (see
+            # _sync_coast_timer). A disabled room (MODE_OFF) is not coasting.
+            if prior_engage and engage == ENGAGE_SATISFIED:
+                coasted = True
             demands.append(demand)
             engages.append(engage)
+            healths.append(health)
+            ages.append(age)
             plan[f"{zone.slug}_demand"] = demand
             plan[f"{zone.slug}_engage"] = engage
-            plan[f"{zone.slug}_temp"] = temp
+            # Display only: a rejected reading publishes NO temperature. The
+            # fallback stays inside the arithmetic above (and in _apply's
+            # delta) instead of being shown as the room's measured value. A
+            # STALE reading is a real measurement and keeps being shown — with
+            # its health and its age beside it. No value is ever substituted.
+            plan[f"{zone.slug}_temp"] = temp if valid else None
+            plan[f"{zone.slug}_sensor_health"] = health
+            plan[f"{zone.slug}_sensor_age"] = None if age is None else int(age)
 
-        current = (
-            self.current_shared_mode
-            if self.current_shared_mode in (MODE_COOL, MODE_HEAT)
-            else MODE_COOL
-        )
-        elapsed = dt_util.utcnow().timestamp() - self._last_mode_change_ts
+        self._coasted = coasted
+        current = self._arbitration_mode()
+        elapsed = now - self._last_mode_change_ts
         allowed = elapsed >= self.hysteresis
-        # "last" (or anything not cool|heat) -> resting=None keeps the last-mode behavior.
-        resting = (
-            self.resting_mode_bias
-            if self.resting_mode_bias in (MODE_COOL, MODE_HEAT)
-            else None
-        )
         state = shared_mode(
             demands=demands,
             current=current,
             allowed=allowed,
-            resting=resting,
+            resting=self._resting_bias(),
         )
         plan.update(
             {
@@ -546,6 +889,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "enabled": zone.enable,
                         "drift": self.zone_drift(zone),
                         "fan_hold": self._fan_latched.get(zone.climate_id, False),
+                        "sensor_health": healths[i],
+                        "sensor_age": None if ages[i] is None else int(ages[i]),
                     }
                     for i, zone in enumerate(self.zones)
                 ],
@@ -559,30 +904,476 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         return plan
 
+    # -- room-sensor freshness ----------------------------------------------
+    def _sensor_health(
+        self, zone: Zone, state: Any, valid: bool, now: float
+    ) -> tuple[str, float | None]:
+        """Classify one room sensor; log its episode edges; arm its deadline.
+
+        Returns ``(health, write_age)``. ``write_age`` is a DIAGNOSTIC: how
+        long ago Home Assistant last wrote this entity's state, changed or
+        unchanged, whoever wrote it. It is published for every room, including
+        the ones no cutoff applies to — visible age is what an unknown-cadence
+        room gets instead of an invented deadline.
+
+        Evidence is the narrower thing, and what counts as evidence is the
+        sensor's declared basis (:func:`evidence_contract`), never the mere
+        existence of a duration.
+        """
+        window = self._freshness.get(zone.slug)
+        max_age = None if window is None else window[0]
+        reported = None if state is None else state.last_reported.timestamp()
+        write_age = None if reported is None else now - reported
+        # A report qualifies only if the reading it carries is valid; an
+        # invalid write is an M13 failure, not fresher evidence.
+        evidence_age = (
+            self._evidence_age(zone, reported, now)
+            if valid and max_age is not None
+            else None
+        )
+        grace_until = self._grace_until.get(zone.slug)
+        health = sensor_health(
+            valid=valid,
+            max_age=max_age,
+            evidence_age=evidence_age,
+            in_grace=grace_until is not None and now < grace_until,
+        )
+        if health != HEALTH_AWAITING:
+            self._grace_until.pop(zone.slug, None)  # one grace per incarnation
+        self._log_health(zone, health, write_age, evidence_age)
+        self._health[zone.slug] = health
+        if health == HEALTH_HEALTHY:
+            self._fresh_deadline[zone.slug] = now - evidence_age + max_age
+        elif health == HEALTH_AWAITING:
+            self._fresh_deadline[zone.slug] = grace_until
+        else:
+            self._fresh_deadline.pop(zone.slug, None)
+        if health in HEALTH_UNHEALTHY:
+            # An unhealthy evaluation SPENDS the marker evidence on record:
+            # whatever it proved, it did not keep this room healthy, and the
+            # room comes back only on an advance observed after this. The
+            # marker itself stays as the baseline, so the same sample cannot
+            # come back as a new one (a cached value returning unchanged after
+            # an outage is the same reading it was).
+            self._evidence_spent.add(zone.slug)
+        return (health, write_age)
+
+    def _observe_report(
+        self, zone: Zone, state: Any, now: float, receipt: float | None
+    ) -> None:
+        """One observation of a sample-marker sensor, at its observation boundary.
+
+        Evidence is captured HERE, from the write that carried it and with the
+        receipt that write's own event stamped — never re-derived from the
+        state machine at compute time. ``State.last_reported`` is mutable: an
+        unchanged write moves it in place, so a compute re-reading it would
+        date a sequence advance from the cache flush that followed it; and a
+        marker rejected once for being in the future would be accepted by
+        whichever compute ran after the clock caught up with it, with no new
+        report at all. So a write is looked at once, as itself, and the record
+        it leaves is small: the last ACCEPTED marker and the time of the
+        evidence it proved. An observation that does not advance is diagnostic
+        only and leaves both alone; so does a rejected one.
+
+        A changed and an unchanged write are observed alike, each at its own
+        receipt. An unchanged write carries the marker of the write before it
+        — which is not necessarily the marker on RECORD: a write rejected for
+        a sample time still in the future left the record alone, so the next
+        report of that same sample, judged at its own receipt, can be the
+        first acceptable one. A rewrite of a marker already accepted moves
+        nothing, by the marker rule above.
+
+        ``receipt`` is None for the state found at startup — that write was
+        not witnessed, so a sequence found there is a baseline only, while a
+        sample TIME still dates itself (:func:`sample_evidence`). A source on
+        the ``ha_state_write`` basis keeps no record: every write it makes is
+        a report by contract, and HA's write time is the one it proves.
+        """
+        contract = self._evidence.get(zone.slug)
+        if contract is None or contract[0] == EVIDENCE_HA_WRITE:
+            return
+        _basis, attribute, marker_is_a_time = contract
+        # A report qualifies only if the reading it carries is valid; an
+        # invalid write is an M13 failure, not fresher evidence.
+        if read_room_temp(state, self.temp_unit) is None:
+            return
+        accepted, evidence_ts = sample_evidence(
+            marker=_read_marker(
+                state.attributes.get(attribute), marker_is_a_time=marker_is_a_time
+            ),
+            last=self._sample_marker.get(zone.slug),
+            now=now,
+            receipt=receipt,
+            marker_is_a_time=marker_is_a_time,
+        )
+        if accepted is not None:
+            self._sample_marker[zone.slug] = accepted
+        if evidence_ts is not None:
+            self._evidence_ts[zone.slug] = evidence_ts
+            self._evidence_spent.discard(zone.slug)
+
+    def _evidence_age(
+        self, zone: Zone, reported: float | None, now: float
+    ) -> float | None:
+        """How long ago this sensor's basis last proved a current reading.
+
+        ``None`` means it has proved none yet — the state may be perfectly
+        valid, but nothing here has established that it is a REPORT.
+
+        * ``ha_state_write``: the HA write itself, and only one this
+          incarnation witnessed. That is the whole of what a reload costs (see
+          ``__init__``): a value already sitting in the state machine could be
+          a restored or cached one, so it is not treated as a report.
+        * ``sample_timestamp``: the evidence on record (:meth:`_observe_report`),
+          unless an unhealthy evaluation has spent it — then nothing on record
+          is fresh, whatever the clock says, until the next observed advance.
+        """
+        basis = self._evidence[zone.slug][0]
+        if basis == EVIDENCE_HA_WRITE:
+            if reported is None or reported < self._started_ts:
+                return None
+            return now - reported
+        if zone.slug in self._evidence_spent:
+            return None
+        taken = self._evidence_ts.get(zone.slug)
+        return None if taken is None else now - taken
+
+    def _log_health(
+        self,
+        zone: Zone,
+        health: str,
+        write_age: float | None,
+        evidence_age: float | None,
+    ) -> None:
+        """One line per episode edge — never per tick, never twice per episode.
+
+        EVERY unhealthy entry opens the episode, with the reason it entered on:
+        a room whose sensor drops out or goes non-numeric has stopped steering
+        the house exactly as surely as one that went quiet, and the recovery
+        line has to have something to close. A continuous run of unhealthy
+        states is still ONE episode however its subtype changes inside it (a
+        stale room whose sensor then disappears does not deserve a second
+        failure line). Recovery to an ELIGIBLE state closes it once — `healthy`
+        for an enforcement-capable sensor, `cadence_unknown` for a room that
+        never had a cutoff to come back to.
+
+        A stale entry names what actually expired: the evidence (with its age
+        against the maximum age), or the startup grace with no report
+        witnessed inside it. HA's own write age is given beside it as a
+        diagnostic only — for a cached source the two differ, and the write
+        age is the one that lies.
+        """
+        opened = zone.slug in self._unhealthy_logged
+        if health in HEALTH_UNHEALTHY and not opened:
+            self._unhealthy_logged.add(zone.slug)
+            if health == HEALTH_STALE and evidence_age is not None:
+                _LOGGER.warning(
+                    "MXZ: %s sensor %s: its last qualifying report is %ds old, "
+                    "past its %ds maximum age (Home Assistant last wrote the "
+                    "entity %ds ago): the room is out of automatic demand and "
+                    "its head parks at the idle action. Other rooms are "
+                    "unaffected",
+                    zone.name,
+                    zone.sensor_id,
+                    int(evidence_age),
+                    int(self._freshness[zone.slug][0]),
+                    int(write_age or 0),
+                )
+            elif health == HEALTH_STALE:
+                _LOGGER.warning(
+                    "MXZ: %s sensor %s: no report was witnessed within its %ds "
+                    "startup grace (Home Assistant last wrote the entity %ds "
+                    "ago): the room is out of automatic demand and its head "
+                    "parks at the idle action. Other rooms are unaffected",
+                    zone.name,
+                    zone.sensor_id,
+                    int(self._freshness[zone.slug][1]),
+                    int(write_age or 0),
+                )
+            else:
+                _LOGGER.warning(
+                    "MXZ: %s sensor %s has no usable reading (missing, "
+                    "unavailable or not a finite number): the room is out of "
+                    "automatic demand and its head parks at the idle action. "
+                    "Other rooms are unaffected",
+                    zone.name,
+                    zone.sensor_id,
+                )
+        elif opened and health in HEALTH_ELIGIBLE:
+            self._unhealthy_logged.discard(zone.slug)
+            _LOGGER.info(
+                "MXZ: %s sensor %s is reporting again (%s): automatic demand resumes",
+                zone.name,
+                zone.sensor_id,
+                health,
+            )
+
+    def _sync_freshness_timer(self) -> None:
+        """Keep exactly one wakeup armed for the nearest freshness deadline.
+
+        A sensor that stops reporting emits nothing to wake us, so without this
+        its deadline would only be noticed at the next unrelated recompute or
+        the 15-min heartbeat — a 5-minute window could take 20. Every refresh
+        re-syncs against the deadlines that compute just derived, so the wakeup
+        follows the earliest one, moves when a report moves it, and disappears
+        when no room has one left.
+
+        Nothing about the room is captured. The callback only asks for a
+        refresh, which re-reads the evidence of the moment it fires — so a
+        report landing at the boundary wins by having moved its own deadline,
+        and a recovery or a config reload in between is simply what gets seen.
+        """
+        self._cancel_fresh_timer()
+        if self._fresh_retired or not self._fresh_deadline:
+            return
+
+        @callback
+        def _fire(_now: Any) -> None:
+            self._fresh_timer = None
+            if self._fresh_retired:
+                return  # cancelling cannot recall a callback already in flight
+            self.hass.async_create_task(self.async_request_refresh())
+
+        # The boundary itself, with no allowance added: the deadline IS the
+        # third due instant, and a room that is stale at it must not keep
+        # steering the house for another second by construction. The comparison
+        # is half-open, so the refresh this fires evaluates the boundary as
+        # stale — and a report that landed at the boundary has already moved
+        # its own deadline, so re-reading is what lets it win.
+        remaining = min(self._fresh_deadline.values()) - dt_util.utcnow().timestamp()
+        self._fresh_timer = async_call_later(self.hass, max(remaining, 0.0), _fire)
+
+    def _cancel_fresh_timer(self) -> None:
+        if self._fresh_timer is not None:
+            self._fresh_timer()
+            self._fresh_timer = None
+
+    async def async_request_refresh(self) -> None:
+        """Request one current-input follow-up when a refresh is active."""
+        if self._needs_legacy_refresh_guard and (
+            self._refresh_lock.locked()
+            or self._debounced_refresh._execute_lock.locked()
+        ):
+            self._refresh_pending = True
+            # _refresh_lock ends when update-data returns, but HA 2024.12 keeps
+            # its debouncer lock through publication and synchronous listeners.
+            # A zero-delay callback armed in that completion window runs after
+            # the current task has returned through the debouncer and released
+            # the lock.  Observe that legacy lock only; never acquire it.
+            if not self._refresh_lock.locked():
+                self._sync_refresh_followup()
+            return
+        await super().async_request_refresh()
+
     async def _async_update_data(self) -> dict[str, Any]:
-        """Refresh entry point: recompute, then act on the new plan."""
+        """Refresh with the HA 2024 race guard only where it is needed."""
+        if not self._needs_legacy_refresh_guard:
+            return await self._async_update_data_once()
+        async with self._refresh_lock:
+            # A direct refresh can reach this lock before the scheduled
+            # follow-up. It already supplies the current-input pass, so the
+            # still-queued callback would be redundant.
+            self._cancel_refresh_followup()
+            return await self._async_update_data_once()
+
+    async def _async_update_data_once(self) -> dict[str, Any]:
+        """Recompute and apply one plan."""
         plan = self._compute()
-        await self._apply(plan)
-        # _apply is what settles the manual-fan latch (it reads each head's
-        # observed fan_mode), so re-stamp fan_hold from the post-apply state —
-        # otherwise the plan's diagnostic would lag the latch by a cycle.
-        for zone_view, zone in zip(plan.get("zones", ()), self.zones):
-            zone_view["fan_hold"] = self._fan_latched.get(zone.climate_id, False)
-        return plan
+        # Read the request ordinal this plan was computed against before any
+        # head service is awaited: a selection landing while those services are
+        # in flight is newer than this plan.
+        selection_seq = self._selection_seq
+        self._applying_plan = plan
+        try:
+            await self._apply(plan, selection_seq)
+            # _apply is what settles the manual-fan latch (it reads each head's
+            # observed fan_mode), so re-stamp fan_hold from the post-apply state —
+            # otherwise the plan's diagnostic would lag the latch by a cycle.
+            for zone_view, zone in zip(plan.get("zones", ()), self.zones):
+                zone_view["fan_hold"] = self._fan_latched.get(
+                    zone.climate_id, False
+                )
+            return plan
+        finally:
+            self._applying_plan = None
+            self._sync_dwell_timer(plan)
+            self._sync_coast_timer()
+            self._sync_freshness_timer()
+            if self._needs_legacy_refresh_guard:
+                self._sync_refresh_followup()
+
+    def _sync_refresh_followup(self) -> None:
+        """Arm exactly one current-input refresh requested during this one."""
+        if self._retired:
+            self._refresh_pending = False
+            self._cancel_refresh_followup()
+            return
+        if not self._refresh_pending:
+            return
+        self._refresh_pending = False
+        self._cancel_refresh_followup()
+
+        @callback
+        def _fire(_now: Any) -> None:
+            self._refresh_followup_timer = None
+            if self._retired:
+                return
+            self.hass.async_create_task(self.async_request_refresh())
+
+        self._refresh_followup_timer = async_call_later(self.hass, 0, _fire)
+
+    def _cancel_refresh_followup(self) -> None:
+        """Cancel the one queued current-input follow-up, if any."""
+        if self._refresh_followup_timer is not None:
+            self._refresh_followup_timer()
+            self._refresh_followup_timer = None
+
+    # -- mode-dwell wakeup ---------------------------------------------------
+    def _sync_dwell_timer(self, plan: dict[str, Any]) -> None:
+        """Keep exactly one wakeup armed for a flip the dwell is holding back.
+
+        The hysteresis gate in ``_compute`` is a timestamp comparison, so a
+        deferred flip would otherwise wait for the next sensor event or the
+        15-min heartbeat — stretching a 10-min dwell to 25. Every refresh
+        re-syncs this timer against the CURRENT deferral, so it is replaced
+        when the deferral changes and dropped when nothing is deferred: dwell
+        elapsed, demand gone, kill-switch off, or a standby park (all of which
+        make a wakeup pointless — the recompute could command nothing).
+
+        Nothing about the pending flip is captured. The callback only asks for
+        a refresh, which re-reads the inputs of the moment it fires, so a
+        manual choice or a newer automatic decision made in between wins.
+
+        A head command is an await, so the dwell can run out between the
+        compute and this re-sync — ``plan`` deferred the flip while the clock
+        has since passed expiry. That is not "nothing to wait for": it wakes
+        up immediately instead. The refresh it asks for computes with the dwell
+        elapsed, so its own re-sync takes the ordinary path and this cannot
+        chain.
+        """
+        remaining = self.hysteresis - (
+            dt_util.utcnow().timestamp() - self._last_mode_change_ts
+        )
+        if (
+            self._dwell_retired
+            or not self.coordinator_enable
+            or self._parked_by_standby()
+        ):
+            self._cancel_dwell_timer()
+            return
+        if remaining <= 0 and plan["mode_change_allowed"]:
+            self._cancel_dwell_timer()  # this plan already had its free hand
+            return
+        current = self._arbitration_mode()
+        would_flip_to = shared_mode(
+            demands=[plan[f"{zone.slug}_demand"] for zone in self.zones],
+            current=current,
+            allowed=True,
+            resting=self._resting_bias(),
+        )
+        if would_flip_to == current:
+            self._cancel_dwell_timer()  # nothing is waiting on this dwell
+            return
+        self._arm_dwell_timer(remaining)
+
+    def _arm_dwell_timer(self, remaining: float) -> None:
+        """Replace the pending wakeup with one for this dwell's expiry.
+
+        ``remaining <= 0`` is a dwell that ran out while the last decision was
+        being applied: that one wakes up at the first opportunity.
+        """
+        self._cancel_dwell_timer()
+        if self._dwell_retired:
+            return
+
+        @callback
+        def _fire(_now: Any) -> None:
+            self._dwell_timer = None
+            if self._dwell_retired:
+                return  # cancelling cannot recall a callback already in flight
+            self.hass.async_create_task(self.async_request_refresh())
+
+        delay = remaining + 1 if remaining > 0 else 0
+        self._dwell_timer = async_call_later(self.hass, delay, _fire)
+
+    def _cancel_dwell_timer(self) -> None:
+        if self._dwell_timer is not None:
+            self._dwell_timer()
+            self._dwell_timer = None
+
+    # -- engage-latch coast follow-up ----------------------------------------
+    def _sync_coast_timer(self) -> None:
+        """Keep exactly one wakeup armed for a room that just started coasting.
+
+        The anti-whiplash rule disengages a room before it may run the other
+        way, so the compute that sees a direction flip parks the head at the
+        idle action and only the NEXT compute can engage the new direction.
+        Nothing here scheduled that next compute: it arrived as the echo of our
+        own fan write, and a valid dual-setpoint head with no fan mode never
+        sends one — so on that head the room stayed parked until an unrelated
+        sensor event, the 15-min heartbeat, an ``mxz_recompute`` event or a
+        manual call.
+
+        Every refresh re-syncs this against the CURRENT compute, so the wakeup
+        is replaced when another room coasts and dropped as soon as a compute
+        coasts nothing — which is the compute that resolved it, including the
+        one an echoing head's own refresh already ran. It is dropped for a
+        kill-switch or standby park too (a recompute could command nothing).
+
+        Nothing about the coast is captured — not the room, not the direction,
+        not the plan. The callback only asks for a refresh, which re-reads the
+        inputs of the moment it fires, so a room that has drifted back to its
+        target by then simply stays parked and a manual choice made in between
+        wins. It cannot chain: the compute it asks for finds the latch already
+        let go, so that compute coasts nothing.
+        """
+        if (
+            self._coast_retired
+            or not self.coordinator_enable
+            or self._parked_by_standby()
+            or not self._coasted
+        ):
+            self._cancel_coast_timer()
+            return
+        self._arm_coast_timer()
+
+    def _arm_coast_timer(self) -> None:
+        """Replace the pending follow-up with one for this coast."""
+        self._cancel_coast_timer()
+        if self._coast_retired:
+            return
+
+        @callback
+        def _fire(_now: Any) -> None:
+            self._coast_timer = None
+            if self._coast_retired:
+                return  # cancelling cannot recall a callback already in flight
+            self.hass.async_create_task(self.async_request_refresh())
+
+        self._coast_timer = async_call_later(self.hass, COAST_FOLLOWUP_DELAY, _fire)
+
+    def _cancel_coast_timer(self) -> None:
+        if self._coast_timer is not None:
+            self._coast_timer()
+            self._coast_timer = None
 
     # -- actuator (mirrors script.mxz_coordinate) ---------------------------
-    async def _apply(self, plan: dict[str, Any]) -> None:
-        """Drive the heads toward the plan. Sole head-writer; idempotent."""
+    async def _apply(self, plan: dict[str, Any], selection_seq: int) -> None:
+        """Drive the heads toward the plan. Sole head-writer; idempotent.
+
+        ``selection_seq`` is the explicit-request ordinal read when this plan
+        was computed; the writeback at the end skips itself if a person has
+        asked for a direction since.
+        """
+        if self._retired:
+            return
         if not self.coordinator_enable:
             return  # kill-switch: leave the heads untouched
 
         # External standby hold (grid-down / load-shed): a fixed-mode park is a
         # no-plan short-circuit; the `eco` hold falls through to the normal plan
         # with eco forced on (see _eco_active) so protection extremes still run.
-        if self.inhibited and self.inhibit_action in (
-            INHIBIT_ACTION_OFF,
-            INHIBIT_ACTION_FAN_ONLY,
-        ):
+        if self._parked_by_standby():
             await self._park_heads(
                 MODE_OFF
                 if self.inhibit_action == INHIBIT_ACTION_OFF
@@ -621,7 +1412,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Per-zone isolation: one head rejecting a command degrades THAT
             # zone (logged), never the whole coordinator (#6).
             try:
-                delta = abs(plan[f"{zone.slug}_temp"] - float(zone.target))
+                # None = rejected reading; the fan ladder is unreachable then
+                # (a room with no vote never gets act cool|heat), so 0.0 is
+                # the honest "no distance known" input rather than a guess.
+                shown = plan[f"{zone.slug}_temp"]
+                delta = 0.0 if shown is None else abs(shown - float(zone.target))
                 if act in (MODE_COOL, MODE_HEAT):
                     # Dwell memory: re-stamped every cycle while running, so
                     # the timestamp reads "when conditioning stopped".
@@ -648,7 +1443,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 if handback:
                     await self._apply_fan(zone.climate_id, MODE_FAN_ONLY, delta)
+                    if self._retired:
+                        return
                 await self._apply_head(zone.climate_id, act, low, high)
+                if self._retired:
+                    return
                 # No fan writes while held (the `eco` hold reaches here): the
                 # fan-boost/latch machinery stays frozen so standby residue
                 # can't be read as a manual hold on release — it is reseeded
@@ -657,6 +1456,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._fan_idx.pop(zone.climate_id, None)
                 elif not self.inhibited:
                     await self._apply_fan(zone.climate_id, act, delta)
+                    if self._retired:
+                        return
             except HomeAssistantError as err:
                 _LOGGER.error(
                     "MXZ: applying %s to %s failed (zone degraded, others continue): %s",
@@ -665,11 +1466,25 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     err,
                 )
 
-        # Stamp the flip only on a real mode change (cool<->heat).
-        if state != self.current_shared_mode:
+        # Stamp the flip only on a real mode change (cool<->heat) — and never
+        # over a person's request that arrived while the head services above
+        # were in flight. This plan was computed before that request, so its
+        # direction is the older one; the request keeps the selector and the
+        # clock it already set, and the refresh it queued computes next.
+        if state != self.current_shared_mode and selection_seq == self._selection_seq:
             self.current_shared_mode = state
             self._last_mode_change_ts = dt_util.utcnow().timestamp()
             self.async_update_listeners()  # let the shared-mode select re-render
+
+    def _parked_by_standby(self) -> bool:
+        """Whether an inhibit hold is parking every head at one fixed mode.
+
+        The `eco` hold is not a park: it falls through to the normal plan.
+        """
+        return self.inhibited and self.inhibit_action in (
+            INHIBIT_ACTION_OFF,
+            INHIBIT_ACTION_FAN_ONLY,
+        )
 
     def _eco_active(self) -> bool:
         """Whether the eco protection band is in effect: the user's eco-idle
@@ -757,7 +1572,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         off, eco) from a genuine wall-remote off during an active call — the
         former must not be "healed" back awake.
         """
-        data = self.data or {}
+        data = self._applying_plan if self._applying_plan is not None else self.data or {}
         state = data.get("state")
         if state not in (MODE_COOL, MODE_HEAT):
             return None
@@ -782,10 +1597,14 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Same per-zone isolation as _apply, and skips a head mid vane-kick.
         """
         for zone in self.zones:
+            if self._retired:
+                return
             if zone.climate_id in self._vane_kicks:
                 continue
             try:
                 await self._apply_head(zone.climate_id, mode, 0.0, 0.0)
+                if self._retired:
+                    return
             except HomeAssistantError as err:
                 _LOGGER.error(
                     "MXZ: standby-parking %s to %s failed "
@@ -1192,6 +2011,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         source of truth while running; across restarts the switch restores the
         held/not-held bool and hands it back via ``restore_fan_hold``.
         """
+        if climate_id in self._fan_restore:
+            return not self._fan_restore[climate_id]
         return not self._fan_latched.get(climate_id, False)
 
     async def async_set_fan_auto(self, climate_id: str, on: bool) -> None:
@@ -1213,6 +2034,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         latch (it simply has no effect until boost is re-enabled), and ON still
         clears it — the switch stays honest either way.
         """
+        # With boost disabled, restored truth stays pending even with a live head.
+        # A switch gesture supersedes that pending truth.
+        self._fan_restore.pop(climate_id, None)
         state = self.hass.states.get(climate_id)
         observed = state.attributes.get("fan_mode") if state is not None else None
         if on:
@@ -1317,6 +2141,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         (the firmware applies it live). With the kill-switch off we never touch
         the head — best-effort select write only.
         """
+        if self._retired:
+            return
         state = self.hass.states.get(climate_id)
         running = state is not None and state.state not in (
             MODE_OFF,
@@ -1331,32 +2157,127 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._vane_pending[climate_id] = (vane_id, option)
         if climate_id in self._vane_kicks:
             return  # the in-flight kick will pick up the newest pending option
-        self._vane_kicks.add(climate_id)
-        self.hass.async_create_task(self._vane_kick(climate_id))
+        # eager_start=False so the registry entry — which *is* the kick's
+        # ownership token — exists before the coroutine's first ownership check.
+        self._vane_kicks[climate_id] = self.hass.async_create_task(
+            self._vane_kick(climate_id),
+            eager_start=False,
+        )
 
     async def _vane_kick(self, climate_id: str) -> None:
-        """fan_only -> apply pending vane option(s) -> off -> re-assert plan."""
+        """fan_only -> apply pending vane option(s) -> off -> re-assert plan.
+
+        Every await here is a real Home Assistant service call or a real delay,
+        so the kill-switch, the standby hold or an unload can land between any
+        two steps. Ownership is rechecked after each one: a kick that has been
+        retired stops commanding, and the retiring path — not this task — parks
+        the head it woke.
+        """
         try:
+            if not self._owns_vane_kick(climate_id):
+                return
+            # Recorded before the call, not after: once the wake is issued we
+            # own parking that head again even if we never see it return.
+            self._vane_kick_woken.add(climate_id)
             await self.hass.services.async_call(
                 "climate",
                 "set_hvac_mode",
                 {"entity_id": climate_id, "hvac_mode": MODE_FAN_ONLY},
                 blocking=True,
             )
+            if not self._owns_vane_kick(climate_id):
+                return
             await asyncio.sleep(self._vane_kick_spinup)
+            if not self._owns_vane_kick(climate_id):
+                return
             while (pending := self._vane_pending.pop(climate_id, None)) is not None:
                 await self._select_option(*pending)
+                if not self._owns_vane_kick(climate_id):
+                    return
                 await asyncio.sleep(self._vane_kick_apply)
+                if not self._owns_vane_kick(climate_id):
+                    return
             await self.hass.services.async_call(
                 "climate",
                 "set_hvac_mode",
                 {"entity_id": climate_id, "hvac_mode": MODE_OFF},
                 blocking=True,
             )
+            self._vane_kick_woken.discard(climate_id)  # parked, nothing owed
+            if not self._owns_vane_kick(climate_id):
+                return
+            await self.async_request_refresh()
         finally:
-            self._vane_kicks.discard(climate_id)
+            # Only the current owner cleans up: a retired task must not erase a
+            # newer kick's entry, and must leave an unparked head to retirement.
+            if self._vane_kicks.get(climate_id) is asyncio.current_task():
+                self._vane_kicks.pop(climate_id, None)
+                self._vane_pending.pop(climate_id, None)
+
+    def _owns_vane_kick(self, climate_id: str) -> bool:
+        """True while the calling task still owns this head's live kick."""
+        return (
+            not self._retired
+            and self.coordinator_enable
+            and not self.inhibited
+            and self._vane_kicks.get(climate_id) is asyncio.current_task()
+        )
+
+    async def _async_retire_vane_kicks(self) -> None:
+        """Disown, cancel and bound-wait every kick, then park what it woke.
+
+        Dropping the registry entry first is what actually stops the commands:
+        a task that resumes after this can never pass _owns_vane_kick again,
+        whether or not it honors the cancellation.
+        """
+        tasks = tuple(self._vane_kicks.values())
+        for climate_id in tuple(self._vane_kicks):
+            self._vane_kicks.pop(climate_id, None)
             self._vane_pending.pop(climate_id, None)
-        await self.async_request_refresh()
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            # asyncio.wait, not wait_for/gather: cancellation is a request, and
+            # a third-party service handler that defers it must not hold up an
+            # unload. A deferred task is disowned already and cannot command.
+            _done, pending = await asyncio.wait(tasks, timeout=self._vane_kick_retire)
+            if pending:
+                _LOGGER.warning(
+                    "MXZ: %d vane kick(s) did not unwind within %ss; "
+                    "they are disowned and can no longer command a head",
+                    len(pending),
+                    self._vane_kick_retire,
+                )
+        await self._restore_woken_heads()
+
+    async def _restore_woken_heads(self) -> None:
+        """Park heads this coordinator ran up to fan_only for a kick.
+
+        The kick's own ``off`` restore is what hands a temporarily woken head
+        back to the plan; a retired kick never gets to send it, so the retiring
+        path sends it here instead, before retirement completes. Only a head
+        still sitting in the fan_only *we* commanded is parked — anything else
+        means someone took the head over, and that choice stands.
+        """
+        for climate_id in tuple(self._vane_kick_woken):
+            self._vane_kick_woken.discard(climate_id)
+            state = self.hass.states.get(climate_id)
+            if state is None or state.state != MODE_FAN_ONLY:
+                continue
+            try:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": climate_id, "hvac_mode": MODE_OFF},
+                    blocking=True,
+                )
+            except HomeAssistantError as err:
+                _LOGGER.error(
+                    "MXZ: parking %s after its vane kick failed "
+                    "(zone degraded, others continue): %s",
+                    climate_id,
+                    err,
+                )
 
     async def _select_option(self, vane_id: str, option: str) -> None:
         await self.hass.services.async_call(
@@ -1369,8 +2290,55 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- triggers -----------------------------------------------------------
     @callback
     def _on_input_change(self, event: Event) -> None:
-        """A temp sensor changed -> recompute."""
+        """A temp sensor changed -> observe the write, then recompute.
+
+        Every write that can carry a new sample marker lands here: a marker
+        that moved is an attribute that changed, whatever the temperature did.
+        """
+        self._observe_input(event)
         self.hass.async_create_task(self.async_request_refresh())
+
+    @callback
+    def _on_input_report(self, event: Event) -> None:
+        """A temp sensor re-reported the SAME value.
+
+        It is observed first, exactly as a changed write is, at its own
+        immutable receipt (:meth:`_observe_input`): an unchanged write carries
+        the marker of the write before it, and when that write was rejected —
+        a sample time still in the future when it arrived — the record still
+        holds the older accepted marker, so this new report of the same sample
+        is the one that can recover the room. A rewrite of an accepted marker
+        moves neither the receipt nor the deadline (:func:`sample_evidence`).
+
+        Then: an unchanged write is exactly the report an unhealthy or
+        provisional room is waiting for: it recovers a stale or invalid room,
+        and it replaces a provisional room's startup grace with that report's
+        own evidence deadline — which can be much sooner than the grace. A
+        healthy or unknown-cadence room learns nothing from it (the value did
+        not change, and its deadline is re-read when it next matters), so a
+        chatty sensor cannot turn this stream into a recompute treadmill.
+        """
+        self._observe_input(event)
+        entity_id: str = event.data["entity_id"]
+        if any(
+            zone.sensor_id == entity_id
+            and self._health.get(zone.slug) in HEALTH_REPORT_SENSITIVE
+            for zone in self.zones
+        ):
+            self.hass.async_create_task(self.async_request_refresh())
+
+    @callback
+    def _observe_input(self, event: Event) -> None:
+        """Record one sensor write as the observation it is (:meth:`_observe_report`).
+
+        The event's ``time_fired`` is the instant HA stamped into this write's
+        ``last_reported`` — and, unlike that field, it never moves.
+        """
+        entity_id: str = event.data["entity_id"]
+        receipt = event.time_fired_timestamp
+        for zone in self.zones:
+            if zone.sensor_id == entity_id:
+                self._observe_report(zone, event.data.get("new_state"), receipt, receipt)
 
     @callback
     def _on_heartbeat(self, _now: Any) -> None:
@@ -1511,10 +2479,26 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_user_changed(self) -> None:
         """A helper entity changed by the user -> recompute + act."""
+        if not self.coordinator_enable:
+            await self._async_retire_vane_kicks()
         await self.async_request_refresh()
 
     async def async_select_shared_mode(self, mode: str) -> None:
-        """Manual override of the shared mode (stamps the hysteresis clock)."""
+        """A person asked for a shared direction (stamps the hysteresis clock).
+
+        The request is then handled by the existing arbitration, unchanged: a
+        changed direction stamps the mode-flip clock exactly as an automatic
+        flip does, and what happens once that dwell elapses is arbitration's
+        answer, not a rule of this method's. Nothing here gives the request an
+        expiry, a renewal, a hold or any storage of its own.
+
+        The choice picks a direction and nothing else. It does not turn the
+        coordinator on, wake a disabled room, or lift a lockout, the eco band, a
+        standby hold or a setpoint clamp.
+        """
+        # Count the request before anything can await: an apply already in
+        # flight must not write its older direction back over it.
+        self._selection_seq += 1
         if mode != self.current_shared_mode:
             self.current_shared_mode = mode
             self._last_mode_change_ts = dt_util.utcnow().timestamp()
@@ -1622,7 +2606,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         released = self.inhibited and not new
         self.inhibited = new
-        if released:
+        if new:
+            await self._async_retire_vane_kicks()
+        elif released:
             self._reseed_fan_after_standby()
         await self.async_request_refresh()
 

@@ -10,6 +10,8 @@ suite; this file only exercises the non-default values.
 
 from __future__ import annotations
 
+import dataclasses
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -18,9 +20,12 @@ pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COOLDOWN
+from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
+    async_fire_time_changed,
 )
 
 from custom_components.mxz_coordinator.const import (
@@ -33,7 +38,9 @@ from custom_components.mxz_coordinator.const import (
     CONF_SECONDARY_SENSOR,
     DOMAIN,
     IDLE_ACTION_OFF,
+    OFF_WHILE_ENABLED_DELAY,
 )
+from custom_components.mxz_coordinator.coordinator import MXZCoordinator
 from tests.test_drive import (
     EVENT_CALL_SERVICE,
     SENSOR_A,
@@ -100,6 +107,64 @@ def _head_calls(calls: list[dict[str, Any]], head: str) -> list[tuple[str, str]]
         extra = data.get("fan_mode") or data.get("hvac_mode") or ""
         out.append((c["service"], extra))
     return out
+
+
+async def _settle_requested_refreshes(
+    hass: HomeAssistant, coordinator: MXZCoordinator
+) -> int:
+    """Run the refreshes setup already requested, and return how many ran.
+
+    `async_request_refresh` is debounced, so entry setup and the enable
+    switches leave a trailing refresh armed behind a cooldown timer. Expire
+    that cooldown for real until a whole cooldown passes with no refresh: a
+    test that then measures a timer window starts from an idle coordinator
+    instead of racing its own setup burst.
+    """
+    refreshes = 0
+
+    @callback
+    def count_refresh() -> None:
+        nonlocal refreshes
+        refreshes += 1
+
+    unsub = coordinator.async_add_listener(count_refresh)
+    try:
+        for _ in range(5):
+            ran = refreshes
+            async_fire_time_changed(
+                hass,
+                dt_util.utcnow()
+                + timedelta(seconds=REQUEST_REFRESH_DEFAULT_COOLDOWN + 1),
+            )
+            await hass.async_block_till_done()
+            if refreshes == ran:
+                return refreshes
+        raise AssertionError("coordinator kept requesting refreshes")
+    finally:
+        unsub()
+
+
+def _force_state_dispatch(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, *, deferred: bool
+) -> None:
+    """Select actual inline/next-loop HA state callback delivery for a control."""
+    from homeassistant.helpers import event as event_helper
+
+    inline = event_helper._async_dispatch_entity_id_event
+
+    @callback
+    def next_loop(hass, callbacks, event):
+        hass.loop.call_soon(inline, hass, callbacks, event)
+
+    tracker = event_helper._KEYED_TRACK_STATE_CHANGE
+    assert tracker.key not in hass.data  # patch before MXZ registers its listeners
+    monkeypatch.setattr(
+        event_helper,
+        "_KEYED_TRACK_STATE_CHANGE",
+        dataclasses.replace(
+            tracker, dispatcher_callable=next_loop if deferred else inline
+        ),
+    )
 
 
 async def test_idle_off_satisfied_parks_off_after_auto_handback(
@@ -210,8 +275,27 @@ async def test_wall_off_during_active_call_still_arms_heal(
     assert any(kind == "off" for (_, kind) in coord._heal_timers)
 
 
-async def test_plan_parked_off_head_never_arms_heal(hass: HomeAssistant) -> None:
+async def test_plan_parked_off_head_never_arms_heal(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A head the PLAN parked off (idle_action) is not drift."""
+    changes: list[tuple[str, str | None, str | None]] = []
+    original = MXZCoordinator._on_head_change
+
+    @callback
+    def record_change(self, event):
+        old = event.data.get("old_state")
+        new = event.data.get("new_state")
+        changes.append(
+            (
+                event.data["entity_id"],
+                old.state if old else None,
+                new.state if new else None,
+            )
+        )
+        original(self, event)
+
+    monkeypatch.setattr(MXZCoordinator, "_on_head_change", record_change)
     entry, head_a, _b = await _setup_idle(hass)
     await _set_temp(hass, SENSOR_A, 75)
     await _recompute(hass, entry)
@@ -219,7 +303,162 @@ async def test_plan_parked_off_head_never_arms_heal(hass: HomeAssistant) -> None
     await _recompute(hass, entry)  # cool -> off transition observed by the listener
     assert hass.states.get(head_a).state == "off"
     coord = entry.runtime_data
+    assert (head_a, "cool", "off") in changes  # actual registered callback ran
     assert not any(kind == "off" for (_, kind) in coord._heal_timers)
+
+
+@pytest.mark.parametrize("deferred", [False, True], ids=["synchronous", "deferred"])
+async def test_plan_parked_off_is_stable_across_callback_delivery(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, deferred: bool
+) -> None:
+    """Inline and delayed head echoes both use the plan that issued the off."""
+    _force_state_dispatch(hass, monkeypatch, deferred=deferred)
+    entry, head_a, _b = await _setup_idle(hass)
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _recompute(hass, entry)
+    coord = entry.runtime_data
+    assert hass.states.get(head_a).state == "off"
+    assert not any(kind == "off" for (_, kind) in coord._heal_timers)
+
+    calls = _record_calls(hass)
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=OFF_WHILE_ENABLED_DELAY + 5)
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(head_a).state == "off"
+    assert _head_calls(calls, head_a) == []
+
+
+async def test_wall_off_timer_callback_reengages_active_head(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A persistent human off during active demand still executes one real heal."""
+    entry, head_a, _b = await _setup_idle(hass)
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "cool"
+
+    coord = entry.runtime_data
+    # Setup's own trailing refresh would otherwise re-engage the head inside
+    # the 30 s window and cancel the timer this test measures.
+    await _settle_requested_refreshes(hass, coord)
+    assert hass.states.get(head_a).state == "cool"
+
+    heals = 0
+    original = coord._heal_and_notify
+
+    async def record_heal():
+        nonlocal heals
+        heals += 1
+        await original()
+
+    monkeypatch.setattr(coord, "_heal_and_notify", record_heal)
+    await hass.services.async_call(
+        "climate",
+        "set_hvac_mode",
+        {"entity_id": head_a, "hvac_mode": "off"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert any(kind == "off" for (_, kind) in coord._heal_timers)
+
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=OFF_WHILE_ENABLED_DELAY + 5)
+    )
+    await hass.async_block_till_done()
+    assert heals == 1
+    assert hass.states.get(head_a).state == "cool"
+    assert not any(kind == "off" for (_, kind) in coord._heal_timers)
+
+
+async def test_human_correction_cancels_pending_off_heal(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A human returning an active head to plan wins before timer expiry."""
+    entry, head_a, _b = await _setup_idle(hass)
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+    coord = entry.runtime_data
+
+    await hass.services.async_call(
+        "climate",
+        "set_hvac_mode",
+        {"entity_id": head_a, "hvac_mode": "off"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert any(kind == "off" for (_, kind) in coord._heal_timers)
+
+    heals = 0
+
+    async def record_heal():
+        nonlocal heals
+        heals += 1
+
+    monkeypatch.setattr(coord, "_heal_and_notify", record_heal)
+    await hass.services.async_call(
+        "climate",
+        "set_hvac_mode",
+        {"entity_id": head_a, "hvac_mode": "cool"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert not any(kind == "off" for (_, kind) in coord._heal_timers)
+
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=OFF_WHILE_ENABLED_DELAY + 5)
+    )
+    await hass.async_block_till_done()
+    assert heals == 0
+    assert hass.states.get(head_a).state == "cool"
+
+
+async def test_new_demand_callback_wakes_parked_head_without_heal_timer(
+    hass: HomeAssistant,
+) -> None:
+    """A sensor callback, not a stale heal timer, wakes a newly demanding room."""
+    entry, head_a, _b = await _setup_idle(hass)
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _recompute(hass, entry)
+    coord = entry.runtime_data
+    assert hass.states.get(head_a).state == "off"
+    assert not any(kind == "off" for (_, kind) in coord._heal_timers)
+
+    await _set_temp(hass, SENSOR_A, 75)  # no explicit recompute
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=15))
+    await hass.async_block_till_done()
+    assert hass.states.get(head_a).state == "cool"
+    assert not any(kind == "off" for (_, kind) in coord._heal_timers)
+
+
+async def test_unload_cancels_pending_off_heal_callback(hass: HomeAssistant) -> None:
+    """An unloaded coordinator cannot wake a head from a previously armed timer."""
+    entry, head_a, _b = await _setup_idle(hass)
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+    coord = entry.runtime_data
+    await hass.services.async_call(
+        "climate",
+        "set_hvac_mode",
+        {"entity_id": head_a, "hvac_mode": "off"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert any(kind == "off" for (_, kind) in coord._heal_timers)
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert coord._heal_timers == {}
+    calls = _record_calls(hass)
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=OFF_WHILE_ENABLED_DELAY + 5)
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(head_a).state == "off"
+    assert _head_calls(calls, head_a) == []
 
 
 async def test_default_config_wall_off_still_arms_heal(hass: HomeAssistant) -> None:
