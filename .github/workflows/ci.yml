@@ -86,23 +86,22 @@ jobs:
           test "$RUNNER_ARCH" = X64
       - name: Exact locked installation
         run: |
-          ulimit -f 6144
           tools/ci-install.sh '${{ matrix.constraints }}' '${{ matrix.sha256 }}' '${{ matrix.python-version }}' > "$RUNNER_TEMP/install.log" 2>&1
+          test "$(wc -c < "$RUNNER_TEMP/install.log")" -le 6291456
       - name: Ordinary admission sentinel
         run: |
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
-          ulimit -f 1024
           timeout --signal=TERM --kill-after=5s 60s python -m pytest -p tools.pytest_phases tests/test_changeover.py::test_changeover_from_temperature_sensor -q -s > "$RUNNER_TEMP/sentinel.log" 2>&1
+          test "$(wc -c < "$RUNNER_TEMP/sentinel.log")" -le 1048576
       - name: Full retained suite
         run: |
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
-          ulimit -f 3072
           timeout --signal=TERM --kill-after=5s 180s python -m pytest -p tools.pytest_phases tests/ -q > "$RUNNER_TEMP/suite.log" 2>&1
+          test "$(wc -c < "$RUNNER_TEMP/suite.log")" -le 3145728
       - name: Exact public comparison objects
         if: matrix.lane == 'py3.12-ha2024.12.0' && github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-discriminator'
         run: git fetch --no-tags --depth=1 origin 3a9863896f8affb6f71cbd1e495df21b17a69ff3 009b6b42326252ee633f2288573a8052f4e8c1e8
       - name: Two frozen issue25 packs
-        # Driver promotes this branch only after reviewing ordinary admission.
         # Reuse this job's just-checked floor environment; never install tag requirements.
         if: matrix.lane == 'py3.12-ha2024.12.0' && github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-discriminator'
         run: |
@@ -119,9 +118,21 @@ jobs:
           for log in "${logs[@]}"; do
             file="$RUNNER_TEMP/$log.log"
             if test -f "$file"; then
-              cat "$file"
               sha256sum "$file"
-              wc -c "$file"
+              bytes=$(wc -c < "$file")
+              echo "LOG_BYTES=$log:$bytes"
+              case "$log" in
+                install) limit=6291456 ;;
+                sentinel) limit=1048576 ;;
+                suite) limit=3145728 ;;
+                released|main) limit=2097152 ;;
+              esac
+              if test "$bytes" -le "$limit"; then
+                cat "$file"
+              else
+                echo "LOG_BUDGET_EXCEEDED=$log COMPLETE_EXPORT=false"
+                result=1
+              fi
             else
               echo "MISSING_LOG=$log"
               result=1

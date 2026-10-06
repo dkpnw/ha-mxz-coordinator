@@ -12,6 +12,7 @@ from datetime import datetime
 import json
 from time import monotonic
 from typing import ClassVar
+from unittest.mock import patch
 
 import pytest
 from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature, HVACMode
@@ -60,6 +61,37 @@ def completed_fan(calls, start, token):
         and c.get("returned_at", -1) >= c["at"]
         for index, c in enumerate(calls[start:], start=start)
     )
+
+
+def require_state(state, expected, label):
+    """An absent/unavailable prerequisite must stop, never become ownership-red."""
+    assert state is not None and state.state == expected, f"UNKNOWN: {label} unreached"
+
+
+def require_cooling(head, plan, room):
+    require_state(head, "cool", "changed-demand B cooling")
+    require_state(plan, "cool", "changed-demand shared cooling plan")
+    zones = plan.attributes.get("zones")
+    assert isinstance(zones, list) and len(zones) > room, "UNKNOWN: cooling plan room missing"
+    assert zones[room].get("engage") == "cool", "UNKNOWN: B cooling engagement unreached"
+
+
+def require_restore_record(entity, loaded, record, created_at):
+    """Check a real loaded record against the serialized shutdown evidence."""
+    assert loaded is not None, f"UNKNOWN: no loaded restore record for {entity}"
+    assert loaded.state.entity_id == entity == record["state"]["entity_id"], (
+        "UNKNOWN: restore entity mismatch")
+    stamp = datetime.fromisoformat(record["state"]["last_updated"])
+    assert stamp >= created_at, "UNKNOWN: prior-incarnation store"
+    assert loaded.state.state == record["state"]["state"], "UNKNOWN: serialized/reloaded mismatch"
+    assert loaded.state.last_updated == stamp, "UNKNOWN: restored timestamp changed"
+    assert (loaded.extra_data.as_dict() if loaded.extra_data else None) == record.get("extra_data"), (
+        "UNKNOWN: serialized/reloaded extra data mismatch")
+
+
+def require_restore_read(result, expected, entity, kind):
+    """Observe the original HA getter; never manufacture its returned truth."""
+    assert result is expected, f"UNKNOWN: {entity} {kind} bypassed loaded restore record"
 
 
 class Head(ClimateEntity):
@@ -236,7 +268,7 @@ class Trial:
             for h in self.heads:
                 self.hass.states.async_remove(h.entity_id)
             await self.hass.async_block_till_done()
-            self.snapshot("dependency-failure-and-heads-absent")
+            self.snapshot("after-dependency-failure-and-head-removal")
             for i in range(2):
                 if self.hass.states.get(self.switch(i)).state != "unavailable":
                     self.unknown.append(f"cycle{self.cycle}/room{i}: unavailable shutdown unreached")
@@ -247,24 +279,31 @@ class Trial:
         records = {r["state"]["entity_id"]: r for r in raw["data"]}
         for i in range(2):
             sid = self.switch(i)
-            record = records[sid]
-            assert record["state"]["state"] == before[i], "UNKNOWN: shutdown state not persisted"
-            stamp = datetime.fromisoformat(record["state"]["last_updated"])
-            assert stamp >= self.entry.created_at, "UNKNOWN: prior-incarnation store"
-            loaded = rs.async_get(self.hass).last_states[sid]
-            trace("reloaded-store", cycle=self.cycle, entity=sid, state=loaded.state.as_dict(),
-                  extra=(loaded.extra_data.as_dict() if loaded.extra_data else None))
-            assert loaded.state.state == before[i], "UNKNOWN: serialized/reloaded mismatch"
-            assert loaded.state.last_updated == stamp, "UNKNOWN: restored timestamp changed"
-            assert (loaded.extra_data.as_dict() if loaded.extra_data else None) == record.get("extra_data"), (
-                "UNKNOWN: serialized/reloaded extra data mismatch")
-            trace("restore-input", cycle=self.cycle, room=i,
-                  clean_state_answer=record["state"]["state"] if before[i] in ("on", "off") else None,
-                  extra_data=record.get("extra_data"),
-                  observed_fan=self.heads[i]._attr_fan_mode,
-                  expected_active_fixed_point=(i == 1 and variant != "demand"))
+            assert records[sid]["state"]["state"] == before[i], "UNKNOWN: shutdown state not persisted"
         assert await self.hass.config_entries.async_unload(self.entry.entry_id)
         await self.hass.async_block_till_done()
+        # Load after unload so any removal-time cache updates precede this
+        # read. Observe the real Store load result rather than supplying one.
+        restore = rs.async_get(self.hass)
+        unloaded = {sid: restore.last_states.get(sid) for sid in identity[2:]}
+        real_load = restore.store.async_load
+        loads = []
+
+        async def observed_load():
+            value = await real_load()
+            loads.append(deepcopy(value))
+            return value
+
+        with patch.object(restore.store, "async_load", new=observed_load):
+            await restore.async_load()
+        assert loads == [raw["data"]], "UNKNOWN: post-unload load did not read serialized shutdown store"
+        for sid in identity[2:]:
+            loaded = restore.last_states.get(sid)
+            assert loaded is not unloaded[sid], "UNKNOWN: unload-time memory record survived load"
+            require_restore_record(sid, loaded, records[sid], self.entry.created_at)
+            trace("reloaded-after-unload", cycle=self.cycle, entity=sid,
+                  state=loaded.state.as_dict(),
+                  extra=(loaded.extra_data.as_dict() if loaded.extra_data else None))
         for h in self.heads:
             h.fail_temperature = False
             h.async_write_ha_state()
@@ -279,8 +318,45 @@ class Trial:
             self.heads[0].report("auto")
         elif variant == "missing-speed":
             self.heads[0].report(None)
-        assert await self.hass.config_entries.async_setup(self.entry.entry_id)
-        await self.hass.async_block_till_done()
+        supplied = {sid: restore.last_states.get(sid) for sid in identity[2:]}
+        reads = set()
+        get_state = rs.RestoreEntity.async_get_last_state
+        get_extra = rs.RestoreEntity.async_get_last_extra_data
+
+        async def observed_state(entity):
+            result = await get_state(entity)
+            if entity.entity_id in supplied:
+                loaded = supplied[entity.entity_id]
+                require_restore_read(result, loaded.state if loaded else None, entity.entity_id, "state")
+                reads.add(entity.entity_id)
+                room = identity[2:].index(entity.entity_id)
+                head = self.hass.states.get(self.heads[room].entity_id)
+                trace("restore-input", cycle=self.cycle, entity=entity.entity_id, room=room,
+                      observed_head=head.as_dict() if head else None,
+                      expected_active_fixed_point=(room == 1 and variant != "demand"),
+                      state=result.as_dict() if result else None,
+                      clean_state_answer=result.state if result and result.state in ("on", "off") else None,
+                      loaded_extra=(loaded.extra_data.as_dict() if loaded and loaded.extra_data else None),
+                      missing_negative=variant == "missing")
+            return result
+
+        async def observed_extra(entity):
+            result = await get_extra(entity)
+            if entity.entity_id in supplied:
+                loaded = supplied[entity.entity_id]
+                require_restore_read(result, loaded.extra_data if loaded else None, entity.entity_id, "extra")
+                trace("restore-extra-input", cycle=self.cycle, entity=entity.entity_id,
+                      extra=result.as_dict() if result else None)
+            return result
+
+        # These observers always await and return the original methods. Their
+        # assertions identify the actual inputs supplied to the product.
+        with patch.object(rs.RestoreEntity, "async_get_last_state", new=observed_state), patch.object(
+            rs.RestoreEntity, "async_get_last_extra_data", new=observed_extra
+        ):
+            assert await self.hass.config_entries.async_setup(self.entry.entry_id)
+            await self.hass.async_block_till_done()
+        assert reads == set(supplied), "UNKNOWN: product restore read missing"
         assert self.entry.runtime_data is not original, "UNKNOWN: coordinator not recreated"
         assert identity == (self.entry.entry_id, self.entry.created_at, self.switch(0), self.switch(1))
         self.snapshot("after-setup")
@@ -358,9 +434,11 @@ async def test_restore_schedule(trial, schedule):
         manual = schedule == SCHEDULES[2]
         if manual:
             # A genuine public OFF gesture pins exactly the automatic twin's token.
-            await t.service("switch", "turn_off", t.switch(0))
-            t.ownership(True, "manual-gesture")
             held_from = len(t.heads[0].calls)
+            await t.service("switch", "turn_off", t.switch(0))
+            require_state(t.hass.states.get(t.switch(0)), "off", "immediate manual OFF")
+            await t.refresh()
+            t.ownership(True, "manual-gesture-refreshed-plan")
         for cycle in range(2):
             if cycle and not manual:
                 # Preserve first-cycle failures while independently recreating ON.
@@ -406,6 +484,9 @@ async def test_restore_schedule(trial, schedule):
         await t.delivery()
     elif schedule == SCHEDULES[5]:
         await t.restart(variant="demand")
+        require_state(t.hass.states.get(SENSORS[1]), "71", "changed B demand")
+        require_cooling(t.hass.states.get(t.heads[1].entity_id),
+                        t.hass.states.get(t.eid("_plan")), 1)
         t.ownership(label="changed-active-demand-idle-control")
         await t.delivery()
     elif schedule == SCHEDULES[6]:

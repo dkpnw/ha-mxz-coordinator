@@ -18,7 +18,7 @@ its entry data, sensors, head implementations, schedules and expected outcomes.
 | 03 | Public Fan-auto OFF at the identical idle/high token: clean then unavailable round trip, held through demand, no automatic A fan writes. No ON reset. |
 | 04 | Actual options reload, public manual pick/OFF, retained hold, explicit ON with delayed auto report. |
 | 05 | Labelled missing-restore negative: conservative idle hold and active fixed-point control, then explicit ON recovery. |
-| 06 | Active B demand changes before restore; idle A remains the valid-ON control. |
+| 06 | B must be visibly cooling at changed demand after restore; idle A remains the valid-ON control. |
 | 07 | Provisional auto before setup, then a controlled old high report after setup. |
 | 08 | Missing current fan speed, recovery, explicit ON; public state, pending restore and actual later delivery. |
 
@@ -33,24 +33,16 @@ using the same entry, creation time and entity identities and fresh coordinators
 Each automatic cycle starts with public ON handback and newly created residue.
 Snapshots retain actual Fan-auto availability/state, public plan, logical hold,
 head mode/fan/capabilities, store timestamps/extra data, pending restore and command
-history. The sole injected missing record is explicitly confined to cell 05.
+history. After entry unload, storage is loaded again before setup. Observers call
+the real HA restore getters and identify their returned records; they never supply
+replacement state or extra data. Cache or getter mismatches are UNKNOWN. The sole
+injected missing record is explicitly confined to cell 05.
 This is an in-process restore-store lifecycle, not a physical reboot or hardware test.
 
-`ci/issue25-discriminator` is the separate diagnostic launch branch. Before its
-single push, review the exact public source and ordinary locked-suite admission,
-confirm public standard hosted execution and the workflow permission boundary.
-The driver must obtain complete logs, including the platform's action/image/token
-permission records. A previous source review does not accept runtime behavior.
-Do not create a simultaneous PR or dispatch a duplicate run.
-
-The floor job reuses its environment after the ordinary sentinel and full suite
-complete. The workflow uses ordinary setup/call/teardown, and `run.sh` permits only two
-180-second packs in the same floor environment, with fresh fixture state. It
-stops after infrastructure, prerequisite or phase failure. No absent cell passes.
-A separately approved trace-only invocation may address one concrete ambiguity;
-the entire comparison is bounded to 90 minutes and three HA processes. It is not
-an automatic retry. Routine suites belong to ordinary CI outside that diagnostic
-allowance. All three locked suites and all five CI families remain required.
+The floor job uses the environment checked by its ordinary sentinel and full
+suite. Each product runs with fresh fixture state. Infrastructure, prerequisite,
+source-integrity or phase failure stops the comparison; no absent cell passes.
+All three locked suites and all five CI families remain required.
 
 `OwnershipFailure` means an ordinary completed cell violated an independent
 expected outcome. It stays red in pytest and CI. Setup/teardown errors, timeouts,
@@ -67,9 +59,7 @@ A failing manual twin blocks acceptance even if the automatic cells are green.
 The other schedules characterize competing shapes; they do not replace the
 idle/active discriminator. Keep the same oracle for any later correction.
 
-Evidence uses ordinary job logs only: no dependency cache saves or artifact
-uploads. Each test job is bounded to 16 MiB of evidence, including provenance;
-other jobs to 2 MiB each. Missing/truncated logs, final phase/pack/export markers,
-outer exit or cleanup evidence block acceptance. Retrieve and hash the complete
-public run logs before retention expiry. The ordinary platform logs are also
-required: the test log cannot certify effective token scopes or repository settings.
+Evidence includes complete test logs, source and inventory checks, final phase
+and pack markers, outer exit and cleanup. Missing or oversized logs invalidate
+the evidence. Test output does not establish effective token scopes or repository
+settings. No dependency cache or artifact upload is used.
