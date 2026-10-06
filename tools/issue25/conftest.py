@@ -40,7 +40,7 @@ _REPORTS = []
 
 
 def emit(event, **fields):
-    print("ADMISSION " + json.dumps({"event": event, **fields}, sort_keys=True))
+    print("ADMISSION " + json.dumps({"event": event, **fields}, sort_keys=True), flush=True)
 
 
 def unique_object(pairs):
@@ -66,6 +66,8 @@ def digest(path):
 def require_input(env):
     """Strict input channel, also used by the finite ordinary in-process controls."""
     assert not {k for k in env if k.startswith("ISSUE25_")} - _CONTROL_KEYS, "UNKNOWN_CONTROL_KEY"
+    assert not {"PYTHONPATH", "PYTHONHOME", "PYTEST_ADDOPTS", "PYTEST_PLUGINS",
+                "PYTEST_DISABLE_PLUGIN_AUTOLOAD"}.intersection(env), "UNKNOWN_CHILD_ENVIRONMENT: forbidden override"
     mode = env.get("ISSUE25_MODE")
     assert mode in ("admission", "pack"), "UNKNOWN_MODE"
     assert env.get("ISSUE25_BASE") in BASES, "UNKNOWN_BASE"
@@ -125,7 +127,9 @@ def require_input(env):
     }
     if data["injection"] is not None:
         wanted_env["ISSUE25_INJECTION"] = data["injection"]
-    assert dict(env) == wanted_env, "UNKNOWN_CHILD_ENVIRONMENT"
+    # pack.sh and V10 bind the complete forwarded map. Dependencies may add
+    # metadata (pytest adds PYTEST_VERSION) after that process boundary.
+    assert all(env.get(key) == value for key, value in wanted_env.items()), "UNKNOWN_CHILD_ENVIRONMENT"
     return data
 
 

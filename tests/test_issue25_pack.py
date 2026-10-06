@@ -567,7 +567,8 @@ def test_exact_pack_input_refusals(tmp_path, fault):
         (child / 'tmp').mkdir()
     elif fault.startswith('extra-'):
         args.extend(['-' + fault[6:], 'invented'])
-    else: env[fault] = 'invented'
+    else:
+        env[fault] = 'invented'
     result = subprocess.run(['bash', str(PACK), *args], env=env, check=False,
                             capture_output=True, text=True, timeout=5)
     assert result.returncode != 0 and 'ISSUE25_REFUSED=' + reason in result.stderr, result.stdout + result.stderr

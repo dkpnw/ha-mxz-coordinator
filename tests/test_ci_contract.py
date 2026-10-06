@@ -202,11 +202,11 @@ def test_actual_parent_guard_refuses_before_inventory_or_export(tmp_path, key, v
         path = bin_dir / name
         path.write_text(source)
         path.chmod(0o755)
-    env = dict(PATH=f"{bin_dir}:{os.defpath}", RUNNER_TEMP=str(tmp_path),
-               GITHUB_EVENT_NAME="push", GITHUB_REF="refs/heads/ci/issue25-harness-replacement", ISSUE25_MODE="pack",
-               GITHUB_RUN_ID="123", GITHUB_REPOSITORY="dkpnw/ha-mxz-coordinator",
-               GITHUB_HEAD_REF="", GITHUB_BASE_REF="", GITHUB_RUN_ATTEMPT="1", GITHUB_SHA="a" * 40, REPOSITORY_PRIVATE="false",
-               RUNNER_ENVIRONMENT="github-hosted", RUNNER_ARCH="X64", GUARD_MARKER=str(marker))
+    env = {"PATH": f"{bin_dir}:{os.defpath}", "RUNNER_TEMP": str(tmp_path),
+           "GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/ci/issue25-harness-replacement", "ISSUE25_MODE": "pack",
+           "GITHUB_RUN_ID": "123", "GITHUB_REPOSITORY": "dkpnw/ha-mxz-coordinator",
+           "GITHUB_HEAD_REF": "", "GITHUB_BASE_REF": "", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "a" * 40, "REPOSITORY_PRIVATE": "false",
+           "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_ARCH": "X64", "GUARD_MARKER": str(marker)}
     env[key] = value
     run = Path(__file__).parents[1] / "tools/issue25/run.sh"
     result = subprocess.run(["bash", str(run)], cwd=tmp_path, env=env,
@@ -510,15 +510,18 @@ def test_parent_entry_refusal_reasons(tmp_path, fault):
         # parent visits every supplied key without short-circuiting its scan.
         env.update(ISSUE25_UNEXPECTED='x', ISSUE25_INJECTION='', ISSUE25_BASE='released', ISSUE25_CASE_ID='P-release')
         reason = None
-    else: env[fault] = 'invented'
-    reason = 'override-' + fault
+    else:
+        env[fault] = 'invented'
+        reason = 'override-' + fault
     result = subprocess.run(['bash', str(PACK.with_name('run.sh')), *args], cwd=root, env=env,
                             check=False, capture_output=True, text=True, timeout=5)
     assert result.returncode == 1, result.stdout + result.stderr
+    assert not calls.exists() and not exports.exists()
+    assert not (tmp_path / 'issue25-A3-123-a1').exists()
+    assert result.stdout == ''
     if reason is None:
+        assert len(result.stderr.splitlines()) == 4
         assert set(result.stderr.splitlines()) == {'ISSUE25_REFUSED=control-key:' + key for key in (
             'ISSUE25_UNEXPECTED', 'ISSUE25_INJECTION', 'ISSUE25_BASE', 'ISSUE25_CASE_ID')}
     else:
         assert result.stderr.strip() == 'ISSUE25_REFUSED=' + reason
-    assert not calls.exists() and not exports.exists()
-    assert not (tmp_path / 'issue25-A3-123-a1').exists()

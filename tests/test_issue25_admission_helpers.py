@@ -1,0 +1,294 @@
+"""Actual admission helpers, with no HA or lifecycle-oracle imports."""
+
+from types import SimpleNamespace
+
+import pytest
+
+
+# D rows import only the diagnostic helper module (stdlib + pytest). Hooks are
+# never registered by this import, and no product/dependency probe is performed.
+@pytest.mark.parametrize('case', range(1, 56), ids=[f'D{i:02d}' for i in range(1, 56)])
+def test_exported_admission_helper_contracts(tmp_path, case, capsys):
+    import hashlib
+    import json
+    import sys
+    from functools import partial
+    from pathlib import Path
+    from types import ModuleType
+
+    from tests.test_issue25_pack import OVERLAY, expected_inputs, write_expected
+    from tools.issue25 import conftest as admission
+
+    root = tmp_path / 'source'
+    child = tmp_path / 'issue25-A3-123-a1/P-release'
+    export = child / 'export'
+    root.mkdir()
+    child.mkdir(parents=True)
+    for name in (*OVERLAY, '.github/workflows/ci.yml', 'custom_components/mxz_coordinator/__init__.py',
+                 'custom_components/mxz_coordinator/switch.py'):
+        for parent in (root, export):
+            path = parent / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('# invented, never imported\n')
+    inventory = child.parent / 'inventory.before.txt'
+    inventory.write_text('invented inventory\n')
+    data = expected_inputs(root, child, 'a' * 40, 'b' * 40, inventory, 'A3', 'P-release')
+    data['base_commit'] = '3a9863896f8affb6f71cbd1e495df21b17a69ff3'
+    data['base_tree'] = '238636de6d067c8e05b59993819cc5187c2bf9df'
+    write_expected(child, data)
+    Path(data['expected_config']).write_bytes(b'[pytest]\nasyncio_mode = auto\n')
+    env = {'ISSUE25_MODE': 'admission', 'ISSUE25_BASE': 'released', 'ISSUE25_CASE_ID': 'P-release',
+           'ISSUE25_EXPECTED': str(child / 'expected.json'),
+           'ISSUE25_EXPECTED_SHA256': (child / 'expected.sha256').read_text().strip(),
+           'GITHUB_REF': 'refs/heads/ci/issue25-harness-admission', 'GITHUB_EVENT_NAME': 'push',
+           'GITHUB_RUN_ATTEMPT': '1', 'GITHUB_RUN_ID': '123', 'GITHUB_SHA': 'a' * 40}
+    config = SimpleNamespace(rootpath=export, inipath=Path(data['expected_config']),
+                             pluginmanager=SimpleNamespace(hasplugin=lambda name: True, list_name_plugin=lambda: []),
+                             getoption=lambda name: {'importmode': 'prepend', 'asyncio_mode': 'auto'}[name])
+    modules = {}
+    for name, filename, locations in (
+        ('custom_components', None, [str(export / 'custom_components')]),
+        ('custom_components.mxz_coordinator', str(export / 'custom_components/mxz_coordinator/__init__.py'),
+         [str(export / 'custom_components/mxz_coordinator')]),
+        ('custom_components.mxz_coordinator.switch', str(export / 'custom_components/mxz_coordinator/switch.py'), None),
+    ):
+        module = ModuleType(name)
+        if filename is not None:
+            module.__file__ = filename
+        if locations is not None:
+            module.__path__ = locations
+        module.__spec__ = SimpleNamespace(origin=filename, submodule_search_locations=locations)
+        modules[name] = module
+    entity_class = type('InventedSwitch', (), {})
+    modules['custom_components.mxz_coordinator.switch'].MXZZoneFanAutoSwitch = entity_class
+    harness = ModuleType('invented_harness')
+    harness.MXZZoneFanAutoSwitch = entity_class
+
+    def genuine():
+        return None
+
+    defining = tmp_path / 'invented_plugin.py'
+    defining.write_text('# invented pinned plugin member\n')
+    record = {'name': 'enable_custom_integrations', 'symbol': 'enable_custom_integrations',
+              'path': str(defining), 'sha256': hashlib.sha256(defining.read_bytes()).hexdigest(),
+              'dependencies': [], 'baseid': ''}
+    fixture = {'files': [{'path': str(defining), 'sha256': record['sha256'],
+                          'distribution': 'pytest-homeassistant-custom-component'}],
+               'plugin_files': [str(defining)]}
+    fixture_path = Path(data['fixture_manifest']['path'])
+    fixture_path.write_text(json.dumps(fixture))
+    data['fixture_manifest']['sha256'] = hashlib.sha256(fixture_path.read_bytes()).hexdigest()
+    write_expected(child, data)
+    env['ISSUE25_EXPECTED_SHA256'] = (child / 'expected.sha256').read_text().strip()
+    env.update(PATH=str(Path(data['python']).parent) + ':/usr/bin:/bin', LANG='C.UTF-8', LC_ALL='C.UTF-8',
+               TZ='UTC', TMPDIR=data['temp'], PYTHONDONTWRITEBYTECODE='1', GITHUB_HEAD_REF='', GITHUB_BASE_REF='',
+               GITHUB_REPOSITORY='dkpnw/ha-mxz-coordinator', REPOSITORY_PRIVATE='false',
+               RUNNER_ENVIRONMENT='github-hosted', RUNNER_ARCH='X64')
+    if case in (53, 54, 55):
+        import os
+
+        # pytest.main sets this before configuration; use the running dependency's
+        # actual metadata without starting another pytest or importing HA.
+        assert os.environ['PYTEST_VERSION'] == pytest.__version__
+        env['PYTEST_VERSION'] = os.environ['PYTEST_VERSION']
+        env['INVENTED_DEPENDENCY_METADATA'] = 'benign'
+        assert admission.require_input(env) == data
+        if case == 54:
+            for key in ('PYTHONPATH', 'PYTHONHOME', 'PYTEST_ADDOPTS', 'PYTEST_PLUGINS',
+                        'PYTEST_DISABLE_PLUGIN_AUTOLOAD', 'ISSUE25_UNKNOWN', 'ISSUE25_INJECTION'):
+                for value in ('', 'invented'):
+                    with pytest.raises(AssertionError, match='UNKNOWN'):
+                        admission.require_input({**env, key: value})
+        elif case == 55:
+            for key in env.keys() - {'PYTEST_VERSION', 'INVENTED_DEPENDENCY_METADATA'}:
+                missing = dict(env)
+                del missing[key]
+                with pytest.raises(AssertionError, match='UNKNOWN'):
+                    admission.require_input(missing)
+                with pytest.raises(AssertionError, match='UNKNOWN'):
+                    admission.require_input({**env, key: 'changed-required-input'})
+        return
+    target = partial(admission.require_input, env)
+    positive = case in (41, 42, 43, 44, 45, 46, 49, 52)
+    if case in (1, 2, 3):
+        if case == 1:
+            del env['ISSUE25_MODE']
+        else:
+            env['ISSUE25_MODE'] = '' if case == 2 else 'unknown'
+    elif case in (4, 5, 6):
+        env['ISSUE25_MODE'] = 'pack' if case == 4 else 'admission'
+        env['GITHUB_REF'] = 'refs/heads/ci/issue25-harness-' + {4: 'admission', 5: 'replacement', 6: 'repeat'}[case]
+    elif case in (7, 8):
+        if case == 7:
+            del env['ISSUE25_BASE']
+        else:
+            env['ISSUE25_BASE'] = 'unknown'
+    elif case in (9, 10, 11, 12):
+        key = {9: 'base_commit', 10: 'base_tree', 11: 'export', 12: 'case_id'}[case]
+        data[key] = '0' * 40 if case in (9, 10) else str(tmp_path / 'wrong')
+        write_expected(child, data)
+        env['ISSUE25_EXPECTED_SHA256'] = (child / 'expected.sha256').read_text().strip()
+    elif case in (13, 14, 15, 16):
+        p = child / 'expected.json'
+        if case == 13:
+            del env['ISSUE25_EXPECTED']
+        elif case == 14:
+            p.write_text('{')
+        elif case == 15:
+            p.write_text('{"schema_version":1,"schema_version":1}')
+        else:
+            p.write_text(p.read_text() + ' ')
+        if case in (14, 15):
+            env['ISSUE25_EXPECTED_SHA256'] = hashlib.sha256(p.read_bytes()).hexdigest()
+    elif case in (17, 18, 19, 20, 21):
+        if case == 17:
+            config.rootpath = None
+        elif case == 18:
+            config.rootpath = tmp_path
+        elif case == 19:
+            config.inipath = None
+        elif case == 20:
+            config.inipath = tmp_path / 'alternate.ini'
+        else:
+            config.pluginmanager.hasplugin = lambda name: False
+        target = partial(admission.require_configuration, config, data)
+    elif case == 22:
+        target = partial(admission.fixture_record, None)
+    elif case in (23, 24):
+        if case == 23:
+            record['symbol'] = 'no_op'
+        else:
+            fixture_path.write_text('{"files":[],"plugin_files":[]}')
+        target = partial(admission.require_fixture, record, genuine, data, harness)
+    elif 25 <= case <= 31 or case in (35, 44, 49):
+        if case == 25:
+            del modules['custom_components']
+        elif case == 26:
+            modules['custom_components'].__spec__ = None
+        elif case == 27:
+            modules['custom_components'].__spec__.submodule_search_locations = None
+        elif case == 28:
+            del modules['custom_components.mxz_coordinator']
+        elif case in (29, 30):
+            path = tmp_path / 'foreign.py'
+            path.write_text('# different\n' if case == 29 else '# invented, never imported\n')
+            modules['custom_components.mxz_coordinator.switch'].__file__ = str(path)
+        elif case == 31:
+            alias = tmp_path / 'alias.py'
+            alias.symlink_to(export / 'custom_components/mxz_coordinator/switch.py')
+            modules['custom_components.mxz_coordinator.switch'].__file__ = str(alias)
+        elif case == 35:
+            (export / 'custom_components/mxz_coordinator/switch.py').write_text('# drift\n')
+        target = partial(admission.require_collection_origin, data, harness, modules)
+    elif case in (32, 33, 34):
+        calls = [{'complete': True, 'exception': None} for _ in range(2)]
+        if case == 34:
+            calls[0]['complete'] = False
+        target = partial(admission.require_ha_origin, data, None if case == 32 else export / 'custom_components/mxz_coordinator', object if case == 33 else entity_class, entity_class, calls)
+    elif case == 36:
+        defining.unlink()
+        target = partial(admission.digest, str(defining))
+    elif case in (37, 38, 39, 40, 41, 42):
+        items = admission.ADMISSION_ITEMS[:]
+        failures, errors, mode = 0, 0, 'admission'
+        if case in (37, 38):
+            items = []
+        if case in (38, 39):
+            failures = errors = 1
+        if case == 40:
+            items = ['wrong']
+        if case == 42:
+            items = ['tools/issue25/test_restore.py::test_restore_schedule[' + n + ']' for n in (
+            '01-clean-twice', '02-unavailable-twice', '03-manual-twin', '04-options-reload',
+            '05-missing-restore-negative', '06-changed-active-demand', '07-provisional-auto-old-echo', '08-missing-speed-recovery')]
+            mode = 'pack'
+        target = partial(admission.require_collection, items, failures, errors, mode)
+    elif case == 43:
+        target = partial(admission.require_fixture, record, genuine, data, harness)
+    elif case in (45, 46):
+        original = "ModuleNotFoundError: No module named 'custom_components.mxz_coordinator'" if case == 45 else 'AssertionError: UNKNOWN_COLLECTION_ORIGIN'
+        report = SimpleNamespace(failed=True, nodeid='invented', longrepr=original)
+        reports = []
+        admission.retain_report(report, reports)
+        assert reports == [{'node': 'invented', 'ordinal': 0, 'longrepr': original}]
+        assert report.longrepr == original
+        return
+    elif case == 47:
+        del env['ISSUE25_BASE']
+    elif case == 48:
+        env['ISSUE25_EXTRA'] = 'injected'
+    elif case == 50:
+        config.inipath = None
+        admission.observe(config, 'configure')
+        assert '"inipath": null' in capsys.readouterr().out
+        target = partial(admission.require_configuration, config, data)
+    elif case == 51:
+        record['symbol'] = 'no_op'
+        admission.observe(config, 'fixture', fixture=record)
+        assert 'no_op' in capsys.readouterr().out
+        target = partial(admission.require_fixture, record, genuine, data, harness)
+    elif case == 52:
+        before = dict(sys.modules)
+        admission.module_snapshot(modules['custom_components'])
+        assert dict(sys.modules) == before
+        return
+    if positive:
+        target()
+    else:
+        with pytest.raises((AssertionError, pytest.UsageError, ValueError, FileNotFoundError)):
+            target()
+
+
+@pytest.mark.parametrize('revert_flush', [False, True], ids=['D56', 'D57'])
+def test_admission_record_shared_stream(tmp_path, monkeypatch, revert_flush):
+    import ast
+    import inspect
+    import io
+    import json
+    import os
+    import sys
+    from types import CodeType, FunctionType
+
+    from tools.issue25 import conftest as admission
+
+    emitter = admission.emit
+    if revert_flush:
+        # Execute the actual emitter with just its flush keyword removed. This
+        # is the prior behavior, not a second hand-written idealized emitter.
+        source = ast.parse(inspect.getsource(emitter))
+        for node in ast.walk(source):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'print':
+                node.keywords = [kw for kw in node.keywords if kw.arg != 'flush']
+        code = compile(source, '<reverted-emitter-flush>', 'exec')
+        emitter = FunctionType(next(part for part in code.co_consts if isinstance(part, CodeType)), vars(admission))
+
+    error = b'ERROR: independent stderr-style write\n'
+
+    def require_integrity(captured, payload):
+        lines = captured.splitlines(keepends=True)
+        assert len(lines) == 2
+        assert lines[0].startswith(b'ADMISSION ') and lines[0].endswith(b'\n')
+        assert json.loads(lines[0][len(b'ADMISSION '):]) == {'event': 'observation', 'detail': payload}
+        assert lines[1] == error
+
+    for size in (16384, 128):
+        payload = 'x' * size
+        path = tmp_path / f'shared-{size}.log'
+        with (
+            path.open('w+b', buffering=0) as raw,
+            io.TextIOWrapper(io.BufferedWriter(raw, buffer_size=8192), encoding='utf-8',
+                             line_buffering=False, write_through=False) as output,
+        ):
+            with monkeypatch.context() as patch:
+                patch.setattr(sys, 'stdout', output)
+                emitter('observation', detail=payload)
+            # Like 2>&1, this bypasses stdout's buffer but shares its offset.
+            assert os.write(raw.fileno(), error) == len(error)
+            output.flush()
+        captured = path.read_bytes()
+
+        if revert_flush:
+            with pytest.raises((AssertionError, json.JSONDecodeError)):
+                require_integrity(captured, payload)
+        else:
+            require_integrity(captured, payload)
