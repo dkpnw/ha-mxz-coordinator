@@ -2,76 +2,145 @@ name: CI
 
 on:
   push:
-    # Branches only — a tag push points at a commit already validated on its
-    # branch (checks attach to the SHA, so the release still shows green). This
-    # avoids a redundant second run that only re-rolls transient HACS-action /
-    # GitHub-API flakiness. NOTE: keep hacs/action@main (HACS validates against
-    # its live ruleset; the only pinnable tag, 22.5.0, is 4+ years stale).
+    # Branches only: tags do not replace exact-commit branch validation.
     branches:
       - '**'
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   hassfest:
     name: hassfest
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: home-assistant/actions/hassfest@master
 
   hacs:
     name: HACS
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # Keep live validation; the old pinnable HACS tag is not its current ruleset.
       - uses: hacs/action@main
         with:
           category: integration
-          # Brand icons ship locally in custom_components/mxz_coordinator/brand/
-          # (HA 2026.3+ self-serves custom-integration brands; the brands repo no
-          # longer accepts custom PRs), so the brands check runs with no ignore.
+          # Brand icons ship locally; the brands check runs with no ignore.
 
   ruff:
     name: ruff
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.12.14"
       - run: pip install ruff==0.16.0
-      - run: ruff check custom_components/ tests/
+      - run: ruff check custom_components/ tests/ tools/
 
   pytest:
     name: pytest (${{ matrix.lane }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Declared minimum: hacs.json "homeassistant": "2024.12.0".
           - lane: py3.12-ha2024.12.0
-            python-version: "3.12"
+            python-version: "3.12.14"
             constraints: requirements/constraints-py312-ha2024.12.0.txt
-          # HA 2026.9.0 on Python 3.14 is outside this matrix: testing retains
-          # one parked-head timer failure, test_plan_parked_off_head_never_arms_heal.
+            sha256: 0d0031ddca8bb870560ca4d4bcafd34233e23e9dd6f0470dc31f7bd888eb7403
           - lane: py3.13-ha2026.2.3
             python-version: "3.13"
             constraints: requirements/constraints-py313-ha2026.2.3.txt
+            sha256: bac319038f592319b79da98347c6e2fcd6c3630be47cfa3272959c2954d568c6
+          - lane: py3.14-ha2026.9.0
+            python-version: "3.14"
+            constraints: requirements/constraints-py314-ha2026.9.0.txt
+            sha256: 1609b598b44434b633b0d29b000c7650f9abd0058337821764a5a36b53ff8600
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: pip install -c ${{ matrix.constraints }} -r requirements_test.txt
-      - run: pip check
-      - run: pytest tests/ -q
+      - name: Public standard runner boundary
+        env:
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          test "$REPOSITORY_PRIVATE" = false
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_ARCH" = X64
+      - name: Exact locked installation
+        run: |
+          ulimit -f 6144
+          tools/ci-install.sh '${{ matrix.constraints }}' '${{ matrix.sha256 }}' '${{ matrix.python-version }}' > "$RUNNER_TEMP/install.log" 2>&1
+      - name: Ordinary admission sentinel
+        run: |
+          source "$RUNNER_TEMP/mxz-venv/bin/activate"
+          ulimit -f 1024
+          timeout --signal=TERM --kill-after=5s 60s python -m pytest -p tools.pytest_phases tests/test_changeover.py::test_changeover_from_temperature_sensor -q -s > "$RUNNER_TEMP/sentinel.log" 2>&1
+      - name: Full retained suite
+        run: |
+          source "$RUNNER_TEMP/mxz-venv/bin/activate"
+          ulimit -f 3072
+          timeout --signal=TERM --kill-after=5s 180s python -m pytest -p tools.pytest_phases tests/ -q > "$RUNNER_TEMP/suite.log" 2>&1
+      - name: Exact public comparison objects
+        if: matrix.lane == 'py3.12-ha2024.12.0' && github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-discriminator'
+        run: git fetch --no-tags --depth=1 origin 3a9863896f8affb6f71cbd1e495df21b17a69ff3 009b6b42326252ee633f2288573a8052f4e8c1e8
+      - name: Two frozen issue25 packs
+        # Driver promotes this branch only after reviewing ordinary admission.
+        # Reuse this job's just-checked floor environment; never install tag requirements.
+        if: matrix.lane == 'py3.12-ha2024.12.0' && github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-discriminator'
+        run: |
+          source "$RUNNER_TEMP/mxz-venv/bin/activate"
+          bash tools/issue25/run.sh
+      - name: Complete logs and owned cleanup
+        if: always()
+        run: |
+          result=0
+          logs=(install sentinel suite)
+          if test '${{ matrix.lane }}' = py3.12-ha2024.12.0 && test "$GITHUB_EVENT_NAME" = push && test "$GITHUB_REF" = refs/heads/ci/issue25-discriminator; then
+            logs+=(released main)
+          fi
+          for log in "${logs[@]}"; do
+            file="$RUNNER_TEMP/$log.log"
+            if test -f "$file"; then
+              cat "$file"
+              sha256sum "$file"
+              wc -c "$file"
+            else
+              echo "MISSING_LOG=$log"
+              result=1
+            fi
+          done
+          git diff --exit-code HEAD -- . || result=1
+          test -z "$(git ls-files --others --exclude-standard)" || result=1
+          rm -rf -- "$RUNNER_TEMP/mxz-venv" "$RUNNER_TEMP/issue25-released" "$RUNNER_TEMP/issue25-main"
+          echo "OWNED_SCRATCH_REMOVED=true"
+          echo "LOG_EXPORT_COMPLETE result=$result"
+          exit "$result"
 
   yamllint:
     name: yamllint (legacy package)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - run: pip install yamllint==1.38.0
       - run: yamllint -c .yamllint packages/ examples/
