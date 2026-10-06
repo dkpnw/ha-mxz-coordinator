@@ -11,6 +11,7 @@ from contextlib import redirect_stdout
 import io
 import os
 import re
+import shlex
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -515,6 +516,7 @@ class ProducerControls(unittest.TestCase):
 
     def test_workflow_shell_preserves_both_exits(self):
         helper = Path(evidence.__file__).resolve()
+        python = shlex.quote(sys.executable)
         workflow = (helper.parents[2] / ".github/workflows/ci.yml").read_text()
         for name in ("sentinel", "suite"):
             phase_block = re.search(r"        run: \|\n((?:          .*\n)+)", workflow.split(
@@ -530,15 +532,18 @@ class ProducerControls(unittest.TestCase):
                     # snapshot. The workflow status commands and real recorder/
                     # phase producer/validator run, even with parseable metadata.
                     command = f"(printf 'invented output\\n'; exit {upstream})"
-                    recorder = f"(python '{helper}' capture {name}; exit {downstream})"
+                    recorder = f"({python} {shlex.quote(str(helper))} capture {name} && exit {downstream})"
                     block = re.sub(r"MXZ_PHASE=.*", command + " | " + recorder, phase_block)
-                    validator = ("python -c 'import sys; sys.path.insert(0, " + repr(str(helper.parent)).replace("'", '"') + "); "
+                    validator = (python + " -c 'import sys; sys.path.insert(0, " + repr(str(helper.parent)).replace("'", '"') + "); "
                                  "import runtime_evidence as e; e.check_phases(e.phase_record(\"" + name + "\"), "
                                  "e.read(e.scratch()/\"begin.json\")[\"plan\"], \"" + name + "\")'")
                     block = block.replace("python tools/ci/runtime_evidence.py phases " + name, validator)
                     env = {**os.environ, "MXZ_EVIDENCE": str(root), "MXZ_BARRIER": "123:1:py3.12-ha2024.12.0", "PYTHONDONTWRITEBYTECODE": "1"}
                     result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", block], env=env,
                                             capture_output=True, timeout=10)
+                    # Retain launch/producer failures before any missing-file assertion.
+                    print(f"SHELL {name} exits {upstream}/{downstream}: command={result.args!r} "
+                          f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}", flush=True)
                     self.assertEqual(int((root / (name + ".exit")).read_text()), upstream)
                     self.assertEqual(int((root / (name + ".recorder.exit")).read_text()), downstream)
                     self.assertEqual((root / (name + ".log")).read_bytes(), b"invented output\n")
