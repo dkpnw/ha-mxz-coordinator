@@ -65,6 +65,8 @@ jobs:
 
   ruff:
     name: ruff
+    env:
+      RUFF_CACHE_DIR: ${{ runner.temp }}/mxz-ruff-cache
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -131,13 +133,15 @@ jobs:
           py="$MXZ_EVIDENCE/venv/bin/python"
           "$py" tools/ci/runtime_evidence.py bootstrap > "$MXZ_EVIDENCE/bootstrap.json"
           set +e
-          "$py" -m pip --isolated install --index-url https://pypi.org/simple --no-cache-dir --retries 0 --no-clean --verbose --report "$MXZ_EVIDENCE/install.json" -c "$LOCK" -r "$LOCK" -r requirements_test.txt 2>&1 | python tools/ci/runtime_evidence.py capture install
+          "$py" -m pip --isolated install --index-url https://pypi.org/simple --no-cache-dir --retries 0 --no-clean --verbose --verbose --report "$MXZ_EVIDENCE/install.json" -c "$LOCK" -r "$LOCK" -r requirements_test.txt 2>&1 | python tools/ci/runtime_evidence.py capture install
           codes=("${PIPESTATUS[@]}")
           printf '%s\n' "${codes[0]}" > "$MXZ_EVIDENCE/install.exit"
+          printf '%s\n' "${codes[1]}" > "$MXZ_EVIDENCE/install.recorder.exit"
           if (( codes[0] != 0 || codes[1] != 0 )); then exit 1; fi
           "$py" -m pip --isolated check 2>&1 | python tools/ci/runtime_evidence.py capture pip-check
           codes=("${PIPESTATUS[@]}")
           printf '%s\n' "${codes[0]}" > "$MXZ_EVIDENCE/pip-check.exit"
+          printf '%s\n' "${codes[1]}" > "$MXZ_EVIDENCE/pip-check.recorder.exit"
           if (( codes[0] != 0 || codes[1] != 0 )); then exit 1; fi
           "$py" tools/ci/runtime_evidence.py environment
       - name: Ordinary sentinel (60 seconds)
@@ -147,10 +151,12 @@ jobs:
           start=$SECONDS
           MXZ_PHASE=sentinel timeout --signal=TERM --kill-after=5s 60s "$MXZ_EVIDENCE/venv/bin/python" -m pytest -p tools.ci.runtime_evidence -p no:cacheprovider --basetemp "$MXZ_EVIDENCE/sentinel-tmp" tests/test_changeover.py::test_changeover_from_temperature_sensor -q 2>&1 | python tools/ci/runtime_evidence.py capture sentinel
           codes=("${PIPESTATUS[@]}")
-          code=${codes[0]}
-          printf '%s\n' "$code" > "$MXZ_EVIDENCE/sentinel.exit"
+          printf '%s\n' "${codes[0]}" > "$MXZ_EVIDENCE/sentinel.exit"
+          printf '%s\n' "${codes[1]}" > "$MXZ_EVIDENCE/sentinel.recorder.exit"
           printf '%s\n' "$((SECONDS-start))" > "$MXZ_EVIDENCE/sentinel.seconds"
           python tools/ci/runtime_evidence.py phases sentinel
+          checked=$?
+          if (( codes[0] != 0 || codes[1] != 0 || checked != 0 )); then exit 1; fi
       - name: Complete unchanged suite (180 seconds)
         shell: bash
         run: |
@@ -158,10 +164,12 @@ jobs:
           start=$SECONDS
           MXZ_PHASE=suite timeout --signal=TERM --kill-after=5s 180s "$MXZ_EVIDENCE/venv/bin/python" -m pytest -p tools.ci.runtime_evidence -p no:cacheprovider --basetemp "$MXZ_EVIDENCE/suite-tmp" tests/ -q 2>&1 | python tools/ci/runtime_evidence.py capture suite
           codes=("${PIPESTATUS[@]}")
-          code=${codes[0]}
-          printf '%s\n' "$code" > "$MXZ_EVIDENCE/suite.exit"
+          printf '%s\n' "${codes[0]}" > "$MXZ_EVIDENCE/suite.exit"
+          printf '%s\n' "${codes[1]}" > "$MXZ_EVIDENCE/suite.recorder.exit"
           printf '%s\n' "$((SECONDS-start))" > "$MXZ_EVIDENCE/suite.seconds"
           python tools/ci/runtime_evidence.py phases suite
+          checked=$?
+          if (( codes[0] != 0 || codes[1] != 0 || checked != 0 )); then exit 1; fi
       - name: Retain evidence and remove owned scratch
         if: always()
         env:

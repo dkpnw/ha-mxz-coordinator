@@ -19,6 +19,8 @@ import base64
 import asyncio
 from collections import Counter
 import hashlib
+from email.parser import BytesParser
+import math
 import importlib.metadata as metadata
 import itertools
 import json
@@ -98,7 +100,7 @@ def distribution_map(rows):
     result = {}
     for name, version in rows:
         key = normalized(name)
-        require(bool(key) and isinstance(version, str) and bool(version), "invalid distribution")
+        require(known(key) and isinstance(version, str) and known(version), "invalid distribution")
         require(key not in result, "duplicate normalized distribution: " + key)
         result[key] = version
     return result
@@ -242,7 +244,8 @@ def check_environment(record, expected):
                 and re.fullmatch(r"[0-9a-f]{64}", info["metadata_sha256"]), "missing installer provenance")
     require(record["bootstrap_runtime"] == rt, "runtime changed during install")
     require(installed == expected["expected_distributions"], "locked inventory mismatch")
-    require(record["install_exit"] == 0 and record["pip_check_exit"] == 0, "install or pip check failed")
+    require(type(record["install_exit"]) is int and type(record["pip_check_exit"]) is int
+            and record["install_exit"] == 0 and record["pip_check_exit"] == 0, "install or pip check failed")
     require(record["install_report"]["version"] == "1", "missing install report")
     downloads = record["install_report"]["install"]
     requested = distribution_map([[x["metadata"]["name"], x["metadata"]["version"]] for x in downloads])
@@ -255,18 +258,31 @@ def check_environment(record, expected):
     require(build["complete"] is True, "incomplete build provenance")
     sources = {normalized(x["metadata"]["name"]) for x in downloads
                if not x["download_info"]["url"].split("?", 1)[0].endswith(".whl")}
-    if sources:
-        require(bool(build["isolated_tools"]) and all(build["isolated_tools"].values()), "missing isolated build tools")
-        for rows in build["isolated_tools"].values():
-            distribution_map(rows)
-        require(sources <= {normalized(row[0]) for row in build["wheels"]}, "missing built wheel")
-        require(all(len(row) == 4 and row[1].endswith(".whl") and int(row[2]) > 0
-                    and re.fullmatch(r"[0-9a-f]{64}", row[3]) for row in build["wheels"]), "missing wheel provenance")
-    require(record["build_provenance"]["log_sha256"] == record["install_log_sha256"], "build log mismatch")
+    tools = build["isolated_tools"]
+    associations = build["source_environments"]
+    built = {normalized(row[0]) for row in build["wheels"]}
+    require(sources <= built, "missing built wheel")
+    require(set(associations) == built and len(set(associations.values())) == len(associations),
+            "missing per-source build attribution")
+    require(set(tools) == set(associations.values()), "missing isolated build tools")
+    for rows in tools.values():
+        distribution_map(rows)
+    require(all(len(row) == 4 and row[1].endswith(".whl") and int(row[2]) > 0
+                and re.fullmatch(r"[0-9a-f]{64}", row[3]) for row in build["wheels"]), "missing wheel provenance")
+    for item in downloads:
+        name = normalized(item["metadata"]["name"])
+        if name in sources:
+            require(build["source_urls"][name].split("#", 1)[0] ==
+                    item["download_info"]["url"].split("#", 1)[0], "source build URL mismatch")
+    require(build["log_sha256"] == record["install_log_sha256"], "build log mismatch")
+    for name in ("install_recorder_exit", "pip_check_recorder_exit"):
+        require(type(record[name]) is int and record[name] == 0, "failed install recorder")
 
 
 def check_phases(record, expected, phase):
-    require(record["phase"] == phase and record["exit"] == 0, "missing/failed outer exit")
+    require(record["phase"] == phase and type(record["exit"]) is int and record["exit"] == 0, "missing/failed outer exit")
+    require(type(record["recorder_exit"]) is int and record["recorder_exit"] == 0, "failed phase recorder")
+    require(type(record["elapsed"]) in (int, float) and math.isfinite(record["elapsed"]), "invalid elapsed duration")
     require(record["deadline"] == expected["deadlines"][phase] and
             0 <= record["elapsed"] < record["deadline"], "timeout")
     events = record["events"]
@@ -292,10 +308,13 @@ def check_phases(record, expected, phase):
             require(event["nodeid"] not in cleanup, "duplicate cleanup")
             cleanup[event["nodeid"]] = event
             require(event["pending_tasks"] == 0 and event["pending_timers"] == 0
-                    and event["child_pids"] == [] and event["observed"] is True, "fixture cleanup incomplete")
+                    and event["child_pids"] == [] and event["observed"] is True
+                    and event["unknown"] == [], "fixture cleanup incomplete")
         else:
             require(event["kind"] == "report" and event["nodeid"] in phases, "collection error/deselection/unknown outcome")
             require(event["outcome"] == "passed" and event["xfail"] is False, "skip/error/xfail/xpass")
+            require(type(event["duration"]) in (int, float) and math.isfinite(event["duration"])
+                    and event["duration"] >= 0, "missing/invalid report duration")
             phases[event["nodeid"]].append(event["when"])
     require(all(value == ["setup", "call", "teardown"] for value in phases.values()), "missing/duplicate test phase")
     require(set(cleanup) == set(ids), "missing cleanup")
@@ -306,14 +325,16 @@ def check_phases(record, expected, phase):
 def verify(record, expected, receipt):
     """Pure validator. Receipt is external evidence, not a provider lookup."""
     require(record["schema"] == SCHEMA and record["complete"] is True, "incomplete record")
+    require(record["status"] == "success" and "unknown" not in record, "failed/unknown record status")
     require(record["plan"] == expected, "source/lock/helper/fixture/workflow identity mismatch")
     require(record["before"] == expected["files"] == record["after"], "source immutability mismatch")
     context = record["context"]
     require(context["sha"] == expected["commit"] and context["workflow_sha"] == expected["commit"], "wrong workflow/checkout SHA")
     require(context["attempt"] == "1" and context["event"] == "push"
             and context["ref"] == "refs/heads/ci/locked-runtime-evidence", "wrong run/ref/attempt")
-    require(context["run_id"].isdigit() and receipt["job_url"].startswith(
-        "https://github.com/dkpnw/ha-mxz-coordinator/actions/runs/" + context["run_id"] + "/job/"), "missing job identity")
+    require(bool(re.fullmatch(r"[1-9][0-9]*", context["run_id"])) and bool(re.fullmatch(
+        "https://github.com/dkpnw/ha-mxz-coordinator/actions/runs/" + context["run_id"] + r"/job/[1-9][0-9]*",
+        receipt["job_url"])), "missing job identity")
     require(record["checkout_credentials_persisted"] is False, "persistent checkout credentials")
     require(known(record["runner"]), "unknown runner identity")
     require(record["runner"]["os"] == "Linux" and record["runner"]["arch"] == "X64"
@@ -351,6 +372,7 @@ def verify(record, expected, receipt):
     for phase in ("sentinel", "suite"):
         require(record[phase]["barrier"] == context["run_id"] + ":1:" + lane + ":" + phase, "stale run barrier")
         check_phases(record[phase], expected, phase)
+    check_retained(record)
 
 
 def scratch():
@@ -378,24 +400,19 @@ def environment_record():
     root = scratch()
     log = (root / "install.log").read_bytes()
     report = read(root / "install.json")
-    build_envs = {}
-    for site in sorted((root / "tmp").glob("pip-build-env-*/**/site-packages")):
-        build_envs[str(site.relative_to(root))] = inventory([str(site)])
-    sources = [x for x in report["install"] if not x["download_info"]["url"].split("?", 1)[0].endswith(".whl")]
-    wheels = re.findall(r"Created wheel for ([^:]+): filename=(\S+) size=(\d+) sha256=([0-9a-f]{64})", log.decode(errors="replace"))
-    built = {normalized(x[0]) for x in wheels}
-    complete = all(normalized(x["metadata"]["name"]) in built for x in sources)
-    if sources:
-        complete = complete and bool(build_envs) and all(build_envs.values())
+    tool_metadata = {}
+    for path in sorted((root / "tmp").glob("pip-build-env-*/**/*.dist-info/METADATA")):
+        tool_metadata[str(path)] = retained_bytes(path.read_bytes())
+    build = build_record(log, tool_metadata)
     bootstrap = read(root / "bootstrap.json")
     return {"runtime": runtime(), "inventory": inventory(), "bootstrap": bootstrap["inventory"],
             "bootstrap_runtime": bootstrap["runtime"], "bootstrap_installer": bootstrap["installer"], "final_pip": installer(),
             "install_exit": int((root / "install.exit").read_text()),
             "pip_check_exit": int((root / "pip-check.exit").read_text()),
             "install_report": report, "install_log_sha256": digest(log),
-            "build_provenance": {"complete": complete, "log_sha256": digest(log),
-                                 "isolated_tools": build_envs, "wheels": wheels,
-                                 "limit": "Observed pip log and retained isolation metadata; not build purity or reproducibility."}}
+            "install_recorder_exit": int((root / "install.recorder.exit").read_text()),
+            "pip_check_recorder_exit": int((root / "pip-check.recorder.exit").read_text()),
+            "build_provenance": build}
 
 
 def phase_record(name):
@@ -404,6 +421,7 @@ def phase_record(name):
     reports = [e for e in events if e["kind"] == "report"]
     return {"phase": name, "barrier": os.environ["MXZ_BARRIER"] + ":" + name,
             "exit": int((root / (name + ".exit")).read_text()),
+            "recorder_exit": int((root / (name + ".recorder.exit")).read_text()),
             "elapsed": float((root / (name + ".seconds")).read_text()),
             "deadline": 60 if name == "sentinel" else 180, "events": events,
             "counts": {"passed": sum(e["when"] == "call" and e["outcome"] == "passed" and not e["xfail"] for e in reports),
@@ -412,6 +430,201 @@ def phase_record(name):
                        "xfail": sum(e["outcome"] == "skipped" and e["xfail"] for e in reports),
                        "xpass": sum(e["outcome"] == "passed" and e["xfail"] for e in reports),
                        "deselected": sum(e.get("count", 0) for e in events if e["kind"] == "deselected")}}
+
+
+def retained_bytes(data):
+    # Base64 preserves arbitrary stdout bytes; replacement decoding loses evidence.
+    return {"sha256": digest(data), "bytes": len(data), "base64": base64.b64encode(data).decode()}
+
+
+def retained_data(row):
+    data = base64.b64decode(row["base64"], validate=True)
+    require(type(row["bytes"]) is int and row["bytes"] == len(data)
+            and row["sha256"] == digest(data), "retained bytes/digest mismatch")
+    return data
+
+
+def build_record(log, tool_metadata):
+    """Attribute pip's debug tracker intervals to each isolated source build.
+
+    These are observations of ordinary online pip, not an offline toolchain.
+    An unfamiliar/missing/ambiguous log or metadata shape stays incomplete.
+    """
+    tools, associations, urls, stack, errors = {}, {}, {}, [], []
+    for line in log.decode(errors="replace").splitlines():
+        line = line.strip()
+        added = re.fullmatch(r"Added (.+) to build tracker (.+)", line)
+        removed = re.fullmatch(r"Removed (.+) from build tracker (.+)", line)
+        created = re.fullmatch(r"Created temporary directory: (.+/pip-build-env-[^/]+)", line)
+        if added:
+            stack.append(added.groups())
+        elif removed:
+            if not stack or stack.pop() != removed.groups():
+                errors.append("unmatched build tracker interval")
+        elif created:
+            source = re.match(r"([A-Za-z0-9_.-]+)(?:[^ ]*) from (https://files\.pythonhosted\.org/\S+)",
+                              stack[-1][0]) if stack else None
+            if source is None:
+                errors.append("unattributed build environment")
+                continue
+            name, url = normalized(source[1]), source[2]
+            if name in associations or created[1] in associations.values():
+                errors.append("ambiguous build environment")
+            associations[name], urls[name] = created[1], url
+    if stack:
+        errors.append("unclosed build tracker interval")
+    for path, row in tool_metadata.items():
+        match = re.fullmatch(r"(.+/pip-build-env-[^/]+)/(?:normal|overlay)/.+/site-packages/[^/]+\.dist-info/METADATA", path)
+        if not match:
+            errors.append("unrecognized build metadata path")
+            continue
+        message = BytesParser().parsebytes(retained_data(row))
+        tools.setdefault(match[1], []).append([message.get("Name"), message.get("Version")])
+    for rows in tools.values():
+        try:
+            distribution_map(rows)
+            rows.sort()
+        except (TypeError, ValueError):
+            errors.append("unknown/duplicate build tool identity")
+    wheels = [list(row) for row in re.findall(
+        r"Created wheel for ([^:]+): filename=(\S+) size=(\d+) sha256=([0-9a-f]{64})", log.decode(errors="replace"))]
+    built = [normalized(row[0]) for row in wheels]
+    if (len(built) != len(set(built)) or set(built) != set(associations)
+            or set(tools) != set(associations.values())):
+        errors.append("incomplete per-source tool/wheel provenance")
+    return {"complete": not errors, "unknown": errors, "log_sha256": digest(log),
+            "source_environments": associations, "source_urls": urls,
+            "isolated_tools": tools, "tool_metadata": tool_metadata, "wheels": wheels,
+            "limit": "Observed pip log and isolation metadata; not build purity or reproducibility."}
+
+
+def check_retained(record):
+    """Require producer inputs and compare their bytes to every derived claim."""
+    retained = record["retained"]
+    required = {"begin.json", "bootstrap.json", "environment.json", "install.json"}
+    for name in ("install", "pip-check", "sentinel", "suite"):
+        required.update(name + suffix for suffix in (".log", ".capture.json", ".exit", ".recorder.exit"))
+    for name in ("sentinel", "suite"):
+        required.update((name + ".jsonl", name + ".seconds"))
+    require(set(retained) == required, "missing/unexpected retained evidence")
+    data = {name: retained_data(row) for name, row in retained.items()}
+    begin = decode(data["begin.json"])
+    begin_keys = {"plan", "before", "context", "runtime_before", "checkout_credentials_persisted", "runner"}
+    require(set(begin) == begin_keys and all(begin[key] == record[key] for key in begin_keys), "retained begin mismatch")
+    before, runtime_after = record["runtime_before"], record["environment"]["runtime"]
+    runtime_keys = {"micro", "build", "implementation", "executable", "sha256", "prefix", "base_prefix"}
+    require(set(before) == set(runtime_after) == runtime_keys and known(before), "missing pre-install runtime identity")
+    require(all(before[key] == runtime_after[key] for key in runtime_keys - {"prefix"})
+            and before["prefix"] == before["base_prefix"], "pre-install runtime contradiction")
+    env = record["environment"]
+    require(decode(data["environment.json"]) == env, "retained environment mismatch")
+    require(decode(data["install.json"]) == env["install_report"], "retained install report mismatch")
+    require(decode(data["bootstrap.json"]) == {"inventory": env["bootstrap"], "runtime": env["bootstrap_runtime"],
+            "installer": env["bootstrap_installer"]}, "retained bootstrap mismatch")
+    require(digest(data["install.log"]) == env["install_log_sha256"], "retained install log mismatch")
+    require(build_record(data["install.log"], env["build_provenance"]["tool_metadata"]) == env["build_provenance"],
+            "retained build provenance mismatch")
+    for name in ("install", "pip-check", "sentinel", "suite"):
+        capture = decode(data[name + ".capture.json"])
+        require(capture == {"bytes": len(data[name + ".log"]), "sha256": digest(data[name + ".log"]), "truncated": False}
+                and type(capture["bytes"]) is int and capture["truncated"] is False,
+                "incomplete/contradictory retained capture")
+        require(len(data[name + ".log"]) <= 6 * MIB, "retained log over budget")
+        upstream, recorder = int(data[name + ".exit"]), int(data[name + ".recorder.exit"])
+        require(upstream == recorder == 0, "retained process failure")
+        if name in ("install", "pip-check"):
+            prefix = name.replace("-", "_")
+            require(upstream == env[prefix + "_exit"] and recorder == env[prefix + "_recorder_exit"], "retained install exit mismatch")
+        else:
+            phase = record[name]
+            require(upstream == phase["exit"] and recorder == phase["recorder_exit"], "retained phase exit mismatch")
+            require(float(data[name + ".seconds"]) == phase["elapsed"], "retained phase duration mismatch")
+            require([decode(line) for line in data[name + ".jsonl"].splitlines()] == phase["events"], "retained phase ledger mismatch")
+    require(isinstance(record["external"], str) and bool(record["external"]), "missing external evidence boundary")
+
+
+def child_snapshot():
+    paths = list(Path("/proc/self/task").glob("*/children"))
+    return sorted({pid for path in paths for pid in path.read_text().split()}), bool(paths)
+
+
+def observe_teardown(item, nextitem):
+    """Observe existing loops through teardown, including work created in close.
+
+    Wrappers delegate unchanged and are restored. They never cancel/repair work.
+    Unavailable queues, loops, or wrapper continuity leave counts UNKNOWN.
+    """
+    loops = {value for value in item.funcargs.values() if isinstance(value, asyncio.AbstractEventLoop)}
+    for value in item.funcargs.values():
+        if isinstance(value, asyncio.Runner):
+            loops.add(value.get_loop())
+    hass = item.funcargs.get("hass")
+    if hass is not None:
+        loops.add(hass.loop)
+    errors, states, patches = [], {}, []
+    if not loops:
+        errors.append("no observable fixture loop")
+
+    def sample(loop):
+        try:
+            queue = loop._scheduled
+            require(isinstance(queue, list), "scheduled queue unavailable")
+            states[loop]["timers"].update(queue)
+            states[loop]["tasks"].update(asyncio.all_tasks(loop))
+        except (AttributeError, TypeError, ValueError) as exc:
+            errors.append(str(exc))
+
+    def wrap(loop, name):
+        original = getattr(loop, name)
+        previous = loop.__dict__.get(name)
+        present = name in loop.__dict__
+
+        def observed(*args, **kwargs):
+            if name == "close":
+                sample(loop)
+            result = original(*args, **kwargs)
+            if name == "call_at":
+                states[loop]["timers"].add(result)
+            elif name == "create_task":
+                states[loop]["tasks"].add(result)
+            return result
+
+        setattr(loop, name, observed)
+        patches.append((loop, name, previous, present, observed))
+
+    try:
+        for loop in loops:
+            states[loop] = {"timers": set(), "tasks": set()}
+            sample(loop)
+            try:
+                require(not loop.is_closed(), "fixture loop already closed")
+                for name in ("call_at", "create_task", "close"):
+                    wrap(loop, name)
+            except (AttributeError, TypeError, ValueError) as exc:
+                errors.append(str(exc))
+        yield
+    finally:
+        for loop in loops:
+            sample(loop)
+        for loop, name, previous, present, wrapper in reversed(patches):
+            if getattr(loop, name) is not wrapper:
+                errors.append("loop observer replaced during teardown")
+            if present:
+                setattr(loop, name, previous)
+            else:
+                delattr(loop, name)
+        try:
+            children, observed = child_snapshot()
+        except OSError as exc:
+            children, observed = None, False
+            errors.append(str(exc))
+        if not observed:
+            errors.append("child-process observation unavailable")
+        event("cleanup", nodeid=item.nodeid,
+              pending_tasks=None if errors else sum(not task.done() for state in states.values() for task in state["tasks"]),
+              pending_timers=None if errors else sum(not handle.cancelled() and handle.when() > loop.time()
+                  for loop, state in states.items() for handle in state["timers"]),
+              child_pids=children, observed=not errors, unknown=errors)
 
 
 # Optional pytest hooks: importing this file for stdlib controls imports no pytest.
@@ -444,30 +657,7 @@ if os.environ.get("MXZ_PHASE"):
         event("report", nodeid=report.nodeid, when=report.when, outcome=report.outcome,
               xfail=hasattr(report, "wasxfail"), duration=report.duration)
 
-    @pytest.hookimpl(hookwrapper=True, tryfirst=True)
-    def pytest_runtest_teardown(item, nextitem):
-        # Hold strong references across fixture teardown/loop closure, so a task
-        # disappearing from asyncio's weak registry cannot become clean evidence.
-        loops = {value for value in item.funcargs.values() if isinstance(value, asyncio.AbstractEventLoop)}
-        for value in item.funcargs.values():
-            if isinstance(value, asyncio.Runner):
-                loops.add(value.get_loop())
-        hass = item.funcargs.get("hass")
-        if hass is not None:
-            loops.add(hass.loop)
-        tasks = {task for loop in loops for task in asyncio.all_tasks(loop)}
-        timers = [handle for loop in loops for handle in getattr(loop, "_scheduled", [])]
-        yield
-        tasks.update(task for loop in loops for task in asyncio.all_tasks(loop))
-        timers.extend(handle for loop in loops for handle in getattr(loop, "_scheduled", []))
-        children = []
-        child_files = list(Path("/proc/self/task").glob("*/children"))
-        for path in child_files:
-            children.extend(path.read_text().split())
-        event("cleanup", nodeid=item.nodeid, pending_tasks=sum(not task.done() for task in tasks),
-              pending_timers=sum(not handle.cancelled() and handle.when() > loop.time()
-                                 for loop in loops for handle in set(timers)),
-              child_pids=sorted(set(children)), observed=bool(child_files) and (hass is None or bool(loops)))
+    pytest_runtest_teardown = pytest.hookimpl(hookwrapper=True, tryfirst=True)(observe_teardown)
 
     def pytest_sessionfinish(session, exitstatus):
         event("complete", exit=int(exitstatus))
@@ -520,14 +710,18 @@ def finish(status):
     for path in sorted(root.iterdir()):
         if path.is_file() and path.suffix in {".log", ".jsonl", ".json", ".exit", ".seconds"}:
             data = path.read_bytes()
-            retained[path.name] = {"sha256": digest(data), "bytes": len(data), "text": data.decode(errors="replace")}
+            retained[path.name] = retained_bytes(data)
     record["retained"] = retained
     for name in ("venv", "tmp", "sentinel-tmp", "suite-tmp"):
         path = root / name
         if path.exists():
             shutil.rmtree(path)
     record["cleanup"] = {"owned_scratch_removed": all(not (root / name).exists() for name in ("venv", "tmp", "sentinel-tmp", "suite-tmp")), "vm_disposal": "platform-owned"}
-    require(not any(read(p)["truncated"] for p in root.glob("*.capture.json")), "truncated producer log; no completion marker")
+    if record["complete"]:
+        try:
+            check_retained(record)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            record.update(complete=False, unknown=str(exc))
     emit(record, 14 * MIB)
     return 0 if record["complete"] else 1
 
