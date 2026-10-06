@@ -2,76 +2,186 @@ name: CI
 
 on:
   push:
-    # Branches only — a tag push points at a commit already validated on its
-    # branch (checks attach to the SHA, so the release still shows green). This
-    # avoids a redundant second run that only re-rolls transient HACS-action /
-    # GitHub-API flakiness. NOTE: keep hacs/action@main (HACS validates against
-    # its live ruleset; the only pinnable tag, 22.5.0, is 4+ years stale).
+    # Branches only: tags reuse their branch commit's checks. Keep live HACS
+    # rules at hacs/action@main; its old release tag is not the live contract.
     branches:
       - '**'
   pull_request:
   workflow_dispatch:
 
+# Unspecified token scopes are none. No job expands this maximum.
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  PYTHONNOUSERSITE: '1'
+  PIP_CONFIG_FILE: /dev/null
+  PIP_DISABLE_PIP_VERSION_CHECK: '1'
+  PIP_NO_CACHE_DIR: '1'
+
+# First evidence attempt: driver publishes one reviewed branch push, no PR or
+# dispatch, and observes for at most 90 minutes including queue time. No retry.
+# Full platform logs (including action/post-job output) must be retained and
+# checked by the driver: 16 MiB/test job, 2 MiB/other job, 56 MiB total. Missing
+# final markers or truncation are UNKNOWN. In-job digests are not attestations.
 jobs:
   hassfest:
     name: hassfest
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - run: python3 tools/ci/runtime_evidence.py auxiliary-begin hassfest
       - uses: home-assistant/actions/hassfest@master
+      - name: Evidence boundary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: python3 tools/ci/runtime_evidence.py auxiliary hassfest "$JOB_STATUS"
 
   hacs:
     name: HACS
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - run: python3 tools/ci/runtime_evidence.py auxiliary-begin hacs
       - uses: hacs/action@main
         with:
           category: integration
-          # Brand icons ship locally in custom_components/mxz_coordinator/brand/
-          # (HA 2026.3+ self-serves custom-integration brands; the brands repo no
-          # longer accepts custom PRs), so the brands check runs with no ignore.
+          # Local brand icons are validated; no ignored brand check.
+      - name: Evidence boundary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: python3 tools/ci/runtime_evidence.py auxiliary hacs "$JOB_STATUS"
 
   ruff:
     name: ruff
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - run: python3 tools/ci/runtime_evidence.py auxiliary-begin ruff
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - run: pip install ruff==0.16.0
+          python-version: '3.12.14'
+          architecture: x64
+      - run: python -m pip --isolated install --index-url https://pypi.org/simple --no-cache-dir --retries 0 ruff==0.16.0
       - run: ruff check custom_components/ tests/
+      - name: Evidence boundary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: python3 tools/ci/runtime_evidence.py auxiliary ruff "$JOB_STATUS"
 
   pytest:
     name: pytest (${{ matrix.lane }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Declared minimum: hacs.json "homeassistant": "2024.12.0".
+          # Declared minimum remains HA 2024.12.0.
           - lane: py3.12-ha2024.12.0
-            python-version: "3.12"
+            python-version: '3.12.14'
             constraints: requirements/constraints-py312-ha2024.12.0.txt
-          # HA 2026.9.0 on Python 3.14 is outside this matrix: testing retains
-          # one parked-head timer failure, test_plan_parked_off_head_never_arms_heal.
           - lane: py3.13-ha2026.2.3
-            python-version: "3.13"
+            python-version: '3.13'
             constraints: requirements/constraints-py313-ha2026.2.3.txt
+          - lane: py3.14-ha2026.9.0
+            python-version: '3.14'
+            constraints: requirements/constraints-py314-ha2026.9.0.txt
+    env:
+      MXZ_EVIDENCE: ${{ runner.temp }}/mxz-${{ matrix.lane }}
+      MXZ_BARRIER: ${{ github.run_id }}:${{ github.run_attempt }}:${{ matrix.lane }}
+      LOCK: ${{ matrix.constraints }}
+      SELECTOR: ${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: pip install -c ${{ matrix.constraints }} -r requirements_test.txt
-      - run: pip check
-      - run: pytest tests/ -q
+          architecture: x64
+      - name: Freeze source and runtime intent
+        run: python tools/ci/runtime_evidence.py begin "$LOCK" "$SELECTOR"
+      - name: Invented accounting controls
+        run: python -m unittest discover -s tools/ci -v
+      - name: One clean constrained install
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$MXZ_EVIDENCE/venv"
+          mkdir "$MXZ_EVIDENCE/tmp"
+          export TMPDIR="$MXZ_EVIDENCE/tmp"
+          py="$MXZ_EVIDENCE/venv/bin/python"
+          "$py" tools/ci/runtime_evidence.py bootstrap > "$MXZ_EVIDENCE/bootstrap.json"
+          set +e
+          "$py" -m pip --isolated install --index-url https://pypi.org/simple --no-cache-dir --retries 0 --no-clean --verbose --report "$MXZ_EVIDENCE/install.json" -c "$LOCK" -r "$LOCK" -r requirements_test.txt 2>&1 | python tools/ci/runtime_evidence.py capture install
+          codes=("${PIPESTATUS[@]}")
+          printf '%s\n' "${codes[0]}" > "$MXZ_EVIDENCE/install.exit"
+          if (( codes[0] != 0 || codes[1] != 0 )); then exit 1; fi
+          "$py" -m pip --isolated check 2>&1 | python tools/ci/runtime_evidence.py capture pip-check
+          codes=("${PIPESTATUS[@]}")
+          printf '%s\n' "${codes[0]}" > "$MXZ_EVIDENCE/pip-check.exit"
+          if (( codes[0] != 0 || codes[1] != 0 )); then exit 1; fi
+          "$py" tools/ci/runtime_evidence.py environment
+      - name: Ordinary sentinel (60 seconds)
+        shell: bash
+        run: |
+          set +e
+          start=$SECONDS
+          MXZ_PHASE=sentinel timeout --signal=TERM --kill-after=5s 60s "$MXZ_EVIDENCE/venv/bin/python" -m pytest -p tools.ci.runtime_evidence -p no:cacheprovider --basetemp "$MXZ_EVIDENCE/sentinel-tmp" tests/test_changeover.py::test_changeover_from_temperature_sensor -q 2>&1 | python tools/ci/runtime_evidence.py capture sentinel
+          codes=("${PIPESTATUS[@]}")
+          code=${codes[0]}
+          printf '%s\n' "$code" > "$MXZ_EVIDENCE/sentinel.exit"
+          printf '%s\n' "$((SECONDS-start))" > "$MXZ_EVIDENCE/sentinel.seconds"
+          python tools/ci/runtime_evidence.py phases sentinel
+      - name: Complete unchanged suite (180 seconds)
+        shell: bash
+        run: |
+          set +e
+          start=$SECONDS
+          MXZ_PHASE=suite timeout --signal=TERM --kill-after=5s 180s "$MXZ_EVIDENCE/venv/bin/python" -m pytest -p tools.ci.runtime_evidence -p no:cacheprovider --basetemp "$MXZ_EVIDENCE/suite-tmp" tests/ -q 2>&1 | python tools/ci/runtime_evidence.py capture suite
+          codes=("${PIPESTATUS[@]}")
+          code=${codes[0]}
+          printf '%s\n' "$code" > "$MXZ_EVIDENCE/suite.exit"
+          printf '%s\n' "$((SECONDS-start))" > "$MXZ_EVIDENCE/suite.seconds"
+          python tools/ci/runtime_evidence.py phases suite
+      - name: Retain evidence and remove owned scratch
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: python tools/ci/runtime_evidence.py finish "$JOB_STATUS"
 
   yamllint:
     name: yamllint (legacy package)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - run: pip install yamllint==1.38.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - run: python3 tools/ci/runtime_evidence.py auxiliary-begin yamllint
+      - run: python3 -m pip --isolated install --index-url https://pypi.org/simple --no-cache-dir --retries 0 yamllint==1.38.0
       - run: yamllint -c .yamllint packages/ examples/
+      - name: Evidence boundary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: python3 tools/ci/runtime_evidence.py auxiliary yamllint "$JOB_STATUS"
