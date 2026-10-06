@@ -1,9 +1,9 @@
 """Exercise actual pack gates with invented files and a non-HA Python stand-in."""
 
 import os
-from pathlib import Path
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -76,7 +76,7 @@ echo 'invented inventory'
 def invoke(pack):
     root, target, commit, tree, inventory, env = pack
     return subprocess.run(["bash", str(PACK), str(root), str(target), "invented", commit, tree,
-                           str(inventory)], env=env, capture_output=True, text=True, timeout=15)
+                           str(inventory)], env=env, check=False, capture_output=True, text=True, timeout=15)
 
 
 @pytest.mark.parametrize("pytest_exit", [0, 1])
@@ -97,7 +97,7 @@ def test_valid_pack_reaches_pytest_and_preserves_ordinary_red(pack, pytest_exit)
 ])
 def test_failed_gate_stops_before_pytest(pack, fault):
     values = list(pack)
-    root, target, commit, tree, inventory, env = values
+    root, target, commit, _tree, inventory, env = values
     product = target / "custom_components/invented/__init__.py"
     if fault == "commit":
         values[2] = commit[:8]  # Resolvable but not the exact promised identity.
@@ -209,7 +209,7 @@ esac
                RUNNER_ENVIRONMENT="github-hosted", RUNNER_ARCH="X64", PARENT_FAULT=fault,
                PARENT_CALLS=str(tmp_path / "calls"), PARENT_EXPORTS=str(tmp_path / "exports"))
     result = subprocess.run(["bash", str(PACK.with_name("run.sh"))], cwd=root, env=env,
-                            capture_output=True, text=True, timeout=15)
+                            check=False, capture_output=True, text=True, timeout=15)
     calls = (tmp_path / "calls").read_text().splitlines() if (tmp_path / "calls").exists() else []
     exports = (tmp_path / "exports").read_text().splitlines()
     if fault in ("none", "red"):

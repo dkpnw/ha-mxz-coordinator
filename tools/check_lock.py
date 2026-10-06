@@ -1,12 +1,12 @@
 """Check the complete installed test inventory against one unchanged version lock."""
 
+import json
+import re
+import sys
 from collections import Counter
 from hashlib import sha256
 from importlib.metadata import distributions
-import json
 from pathlib import Path
-import re
-import sys
 
 
 def name(value):

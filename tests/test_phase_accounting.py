@@ -4,7 +4,6 @@ import pytest
 
 from tools.pytest_phases import phase_errors
 
-
 GOOD = [("setup", "passed", False), ("call", "passed", False), ("teardown", "passed", False)]
 
 

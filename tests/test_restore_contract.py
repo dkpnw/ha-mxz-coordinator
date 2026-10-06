@@ -1,10 +1,10 @@
 """Actual pinned restore/platform contracts, inside the ordinary locked suites."""
 
 import asyncio
+import json
 from contextlib import ExitStack
 from copy import deepcopy
 from datetime import datetime, timezone
-import json
 
 import pytest
 from homeassistant.components.sensor import SensorEntity

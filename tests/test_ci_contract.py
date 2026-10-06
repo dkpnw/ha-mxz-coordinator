@@ -1,9 +1,9 @@
 """Static CI boundaries; live repository/token receipts are required separately."""
 
-from copy import deepcopy
-from pathlib import Path
 import re
 import subprocess
+from copy import deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -121,7 +121,7 @@ GATE_CASES = [
 @pytest.mark.parametrize("case,event,ref,head,base,attempt,ordinary", GATE_CASES,
                          ids=[row[0] for row in GATE_CASES])
 def test_actual_job_gates(workflow, case, event, ref, head, base, attempt, ordinary):
-    context = dict(event_name=event, ref=ref, head_ref=head, base_ref=base, run_attempt=attempt)
+    context = {"event_name": event, "ref": ref, "head_ref": head, "base_ref": base, "run_attempt": attempt}
     selected = {name for name, job in workflow["jobs"].items() if admitted(job["if"], context)}
     assert selected == ({"hassfest", "hacs", "ruff", "pytest", "yamllint"} if ordinary else {"issue25"})
     assert workflow["on"]["push"] == {"branches": ["**"]}
@@ -130,7 +130,7 @@ def test_actual_job_gates(workflow, case, event, ref, head, base, attempt, ordin
            "GITHUB_SHA": "a" * 40, "REPOSITORY_PRIVATE": "false",
            "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_ARCH": "X64"}
     result = subprocess.run(["bash", "-euo", "pipefail", "-c", guard], env=env,
-                            capture_output=True, text=True, timeout=5)
+                            check=False, capture_output=True, text=True, timeout=5)
     valid = case in ("r", "repeat")
     assert (result.returncode == 0) is valid
     if not valid:
@@ -153,7 +153,7 @@ def test_actual_preacquisition_settings_guard(workflow, key, value):
         steps = workflow["jobs"][name]["steps"]
         assert "uses" not in steps[0]
         result = subprocess.run(["bash", "-euo", "pipefail", "-c", steps[0]["run"]], env=env,
-                                capture_output=True, text=True, timeout=5)
+                                check=False, capture_output=True, text=True, timeout=5)
         assert result.returncode != 0
 
 
@@ -167,7 +167,7 @@ def test_checkout_binding_and_process_layout(workflow, tmp_path):
         for sha in ("a" * 40, "b" * 40, ""):
             result = subprocess.run(["/bin/bash", "-euo", "pipefail", "-c", binding],
                                     env={"PATH": str(tmp_path), "GITHUB_SHA": sha},
-                                    capture_output=True, text=True, timeout=5)
+                                    check=False, capture_output=True, text=True, timeout=5)
             assert (result.returncode == 0) is (sha == "a" * 40)
         commands = "\n".join(s.get("run", "") for s in steps)
         assert ("tests/ -q" in commands) is (name == "pytest")
@@ -205,8 +205,211 @@ def test_actual_parent_guard_refuses_before_inventory_or_export(tmp_path, key, v
     env[key] = value
     run = Path(__file__).parents[1] / "tools/issue25/run.sh"
     result = subprocess.run(["bash", str(run)], cwd=tmp_path, env=env,
-                            capture_output=True, text=True, timeout=5)
+                            check=False, capture_output=True, text=True, timeout=5)
     assert result.returncode != 0 and "ISSUE25_REFUSED=" in result.stderr
     assert not marker.exists()
     assert not (tmp_path / "issue25-inventory-before.txt").exists()
     assert not (tmp_path / "issue25-released").exists()
+
+
+def suite_payload(exit_code=0):
+    """Invented ordinary phase output; no HA or candidate imports."""
+    call_outcome = "failed" if exit_code else "passed"
+    return (
+        'invented complete suite output\n'
+        'COLLECTED ["invented::test_case"]\n'
+        'PHASE {"node": "invented::test_case", "phase": "setup", "outcome": "passed"}\n'
+        f'PHASE {{"node": "invented::test_case", "phase": "call", "outcome": "{call_outcome}"}}\n'
+        'PHASE {"node": "invented::test_case", "phase": "teardown", "outcome": "passed"}\n'
+        f'PHASES_COMPLETE {{"classes": {{}}, "errors": [], "exit": {exit_code}}}\n'
+        'PHASES_VALID=true\n'
+    )
+
+
+@pytest.fixture
+def suite_export(tmp_path, workflow):
+    import os
+
+    root = tmp_path / "scratch"
+    root.mkdir()
+    activate = root / "mxz-venv/bin/activate"
+    activate.parent.mkdir(parents=True)
+    activate.write_text("# invented activation; no environment or dependency loading\n")
+    for name in ("issue25-released", "issue25-main"):
+        (root / name).mkdir()
+    (root / "install.log").write_text("invented installation\n")
+    (root / "sentinel.log").write_text("invented sentinel\n")
+    (root / "suite.log").write_text(suite_payload())
+    (root / "suite.exit").write_text("0\n")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    # Only the two Git cleanliness commands in the real export block are stubbed.
+    git = bin_dir / "git"
+    git.write_text('''#!/bin/bash
+case "$*" in
+  'diff --exit-code HEAD -- .'|'ls-files --others --exclude-standard') exit 0 ;;
+  *) exit 9 ;;
+esac
+''')
+    git.chmod(0o755)
+    steps = workflow["jobs"]["pytest"]["steps"]
+    export = next(s for s in steps if s.get("name") == "Complete logs and owned cleanup")
+    assert export["if"] == "always()"
+    suite = next(s["run"] for s in steps if s.get("name") == "Full retained suite")
+    env = {"PATH": f"{bin_dir}:{os.defpath}", "RUNNER_TEMP": str(root)}
+    return root, bin_dir, env, suite, export["run"]
+
+
+def run_suite_source(source, root, env):
+    return subprocess.run(["bash", "-euo", "pipefail", "-c", source], cwd=root, env=env,
+                          check=False, capture_output=True, text=True, timeout=5)
+
+
+@pytest.mark.parametrize("outcome,expected", [
+    ("success", 0), ("failure", 1), ("error", 2), ("timeout", 124),
+    ("success-oversize", 0), ("failure-oversize", 1),
+])
+def test_actual_suite_exit_survives_export(suite_export, outcome, expected):
+    root, bin_dir, env, suite, export = suite_export
+    # Execute the unmodified workflow block with an invented executable, never pytest.
+    python = bin_dir / "python"
+    python.write_text('''#!/bin/bash
+set -eu
+test "$*" = '-m pytest -p tools.pytest_phases tests/ -q -s'
+if test "$INVENTED_OUTCOME" = timeout; then
+  echo 'invented partial suite before timeout'
+  exec sleep 10
+fi
+cat "$RUNNER_TEMP/payload"
+exit "$INVENTED_EXIT"
+''')
+    python.chmod(0o755)
+    # Keep the authored watchdog arguments under assertion; shorten only the
+    # invented child's deadline so the real timeout branch is cheap to exercise.
+    watchdog = bin_dir / "timeout"
+    watchdog.write_text('''#!/bin/bash
+set -eu
+test "$1" = --signal=TERM
+test "$2" = --kill-after=5s
+test "$3" = 180s
+shift 3
+if test "$INVENTED_OUTCOME" = timeout; then
+  exec /usr/bin/timeout --signal=TERM --kill-after=1s 0.2s "$@"
+fi
+exec /usr/bin/timeout --signal=TERM --kill-after=5s 180s "$@"
+''')
+    watchdog.chmod(0o755)
+    env.update(INVENTED_OUTCOME=outcome, INVENTED_EXIT=str(expected))
+    payload = suite_payload(expected)
+    if outcome.endswith("-oversize"):
+        payload = "x" * 4194304 + "\n" + payload
+    elif outcome == "error":
+        payload = 'invented interrupted collection\n'
+    (root / "payload").write_text(payload)
+    # A prior status must be overwritten, never appended or reused.
+    (root / "suite.exit").write_text("99\n")
+    result = run_suite_source(suite, root, env)
+    assert result.returncode == expected, result.stderr
+    assert result.stdout.splitlines() == [f"SUITE_EXIT={expected}"]
+    assert (root / "suite.exit").read_text() == f"{expected}\n"
+    raw = (root / "suite.log").read_text()
+    assert raw == ("invented partial suite before timeout\n" if outcome == "timeout" else payload)
+    exported = run_suite_source(export, root, env)
+    incomplete = outcome in ("timeout", "error") or outcome.endswith("-oversize")
+    assert exported.returncode == int(incomplete), exported.stderr
+    assert f"RETAINED_SUITE_EXIT={expected}\n" in exported.stdout
+    if outcome.endswith("-oversize"):
+        assert "LOG_BUDGET_EXCEEDED=suite COMPLETE_EXPORT=false" in exported.stdout
+        assert raw not in exported.stdout
+    else:
+        assert raw in exported.stdout
+    assert (root / "suite.exit").read_text() == f"{expected}\n"
+    assert (root / "suite.log").read_text() == raw
+    assert "OWNED_SCRATCH_REMOVED=true" in exported.stdout
+    assert not (root / "mxz-venv").exists()
+    if outcome in ("timeout", "error"):
+        assert "INCOMPLETE_SUITE_PHASES" in exported.stdout
+    assert f"LOG_EXPORT_COMPLETE result={int(incomplete)}" in exported.stdout
+
+
+@pytest.mark.parametrize("fault", [
+    "missing-exit", "empty-exit", "text-exit", "negative-exit", "range-exit", "leading-zero-exit",
+    "duplicate-exit", "no-newline-exit", "nul-exit", "oversize-exit",
+    "missing-suite", "missing-install", "missing-sentinel", "missing-collection",
+    "missing-completion", "missing-validity", "invalid-phases", "duplicate-completion",
+    "duplicate-validity", "duplicate-collection", "malformed-completion", "mismatched-exit",
+    "truncated-suite", "suite-oversize", "install-oversize", "sentinel-oversize",
+])
+def test_actual_export_rejects_invalid_or_incomplete_evidence(suite_export, fault):
+    root, _bin_dir, env, _suite, export = suite_export
+    invalid_exits = {
+        "missing-exit": None, "empty-exit": b"", "text-exit": b"bad\n", "negative-exit": b"-1\n",
+        "range-exit": b"256\n", "leading-zero-exit": b"00\n", "duplicate-exit": b"0\n0\n",
+        "no-newline-exit": b"0", "nul-exit": b"0\0\n", "oversize-exit": b"12345\n",
+    }
+    if fault in invalid_exits:
+        value = invalid_exits[fault]
+        if value is None:
+            (root / "suite.exit").unlink()
+        else:
+            (root / "suite.exit").write_bytes(value)
+    elif fault in ("missing-suite", "missing-install", "missing-sentinel"):
+        (root / (fault.removeprefix("missing-") + ".log")).unlink()
+    elif fault.endswith("-oversize"):
+        name = fault.removesuffix("-oversize")
+        limits = {"suite": 4194304, "install": 6291456, "sentinel": 1048576}
+        (root / f"{name}.log").write_text("x" * (limits[name] + 1))
+    else:
+        prefixes = {"collection": "COLLECTED ", "completion": "PHASES_COMPLETE ", "validity": "PHASES_VALID="}
+        payload = suite_payload()
+        if fault == "malformed-completion":
+            payload = payload.replace('PHASES_COMPLETE {"classes": {}, "errors": [], "exit": 0}',
+                                      'PHASES_COMPLETE malformed')
+        elif fault == "mismatched-exit":
+            payload = payload.replace('"exit": 0', '"exit": 1')
+        elif fault == "truncated-suite":
+            payload = payload[:len(payload) // 2]
+        elif fault == "invalid-phases":
+            payload = payload.replace('PHASES_VALID=true', 'PHASES_VALID=false')
+            payload = payload.replace('"errors": []', '"errors": ["invented missing call phase"]')
+            payload = "\n".join(line for line in payload.splitlines() if '"phase": "call"' not in line) + "\n"
+        else:
+            prefix = prefixes[fault.split("-", 1)[1]]
+            record = next(line for line in payload.splitlines(keepends=True) if line.startswith(prefix))
+            payload = payload.replace(record, "") if fault.startswith("missing-") else payload + record
+        (root / "suite.log").write_text(payload)
+    before = {p.name: p.read_bytes() for p in root.glob("*.log")}
+    result = run_suite_source(export, root, env)
+    assert result.returncode != 0, result.stderr
+    assert "LOG_EXPORT_COMPLETE result=1" in result.stdout
+    assert {p.name: p.read_bytes() for p in root.glob("*.log")} == before
+    assert not (root / "mxz-venv").exists()
+    if fault in invalid_exits:
+        assert "RETAINED_SUITE_EXIT=" not in result.stdout
+        assert "SUITE_EXIT" in result.stdout
+    else:
+        assert "RETAINED_SUITE_EXIT=0\n" in result.stdout
+    if fault.endswith("-oversize"):
+        assert f"LOG_BUDGET_EXCEEDED={fault.removesuffix('-oversize')} COMPLETE_EXPORT=false" in result.stdout
+    elif fault.startswith("missing-") and fault.split("-", 1)[1] in ("suite", "install", "sentinel"):
+        assert f"MISSING_LOG={fault.removeprefix('missing-')}" in result.stdout
+    elif fault not in invalid_exits:
+        assert "INCOMPLETE_SUITE_PHASES" in result.stdout
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_actual_export_retains_entire_four_mib_suite(suite_export, exit_code):
+    root, _bin_dir, env, _suite, export = suite_export
+    payload = suite_payload(exit_code)
+    # Exact ceiling: both ordinary exits must retain the whole file, including its tail.
+    payload = "x" * (4194304 - len(payload) - 1) + "\n" + payload
+    (root / "suite.log").write_text(payload)
+    (root / "suite.exit").write_text(f"{exit_code}\n")
+    result = run_suite_source(export, root, env)
+    assert result.returncode == 0, result.stderr
+    assert f"RETAINED_SUITE_EXIT={exit_code}\n" in result.stdout
+    assert "LOG_BYTES=suite:4194304\n" in result.stdout
+    assert payload in result.stdout
+    assert (root / "suite.log").read_text() == payload
+    assert (root / "suite.exit").read_text() == f"{exit_code}\n"
+    assert "LOG_EXPORT_COMPLETE result=0" in result.stdout

@@ -137,12 +137,35 @@ jobs:
       - name: Full retained suite
         run: |
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
-          timeout --signal=TERM --kill-after=5s 180s python -m pytest -p tools.pytest_phases tests/ -q -s > "$RUNNER_TEMP/suite.log" 2>&1
-          test "$(wc -c < "$RUNNER_TEMP/suite.log")" -le 3145728
+          suite_exit=0
+          timeout --signal=TERM --kill-after=5s 180s python -m pytest -p tools.pytest_phases tests/ -q -s > "$RUNNER_TEMP/suite.log" 2>&1 || suite_exit=$?
+          printf '%s\n' "$suite_exit" > "$RUNNER_TEMP/suite.exit"
+          echo "SUITE_EXIT=$suite_exit"
+          exit "$suite_exit"
       - name: Complete logs and owned cleanup
         if: always()
         run: |
           result=0
+          # Keep the suite outcome independent of all export/cleanup checks.
+          suite_exit=unknown
+          exit_file="$RUNNER_TEMP/suite.exit"
+          if test -f "$exit_file" && test "$(wc -c < "$exit_file")" -le 4; then
+            mapfile -t suite_status < "$exit_file"
+            if test "${#suite_status[@]}" -eq 1 &&
+               [[ "${suite_status[0]}" =~ ^(0|[1-9][0-9]{0,2})$ ]] &&
+               test "${suite_status[0]}" -le 255 &&
+               test "$(wc -c < "$exit_file")" -eq "$((${#suite_status[0]} + 1))"; then
+              suite_exit=${suite_status[0]}
+              echo "RETAINED_SUITE_EXIT=$suite_exit"
+              sha256sum "$exit_file"
+            else
+              echo "INVALID_SUITE_EXIT"
+              result=1
+            fi
+          else
+            echo "MISSING_OR_OVERSIZE_SUITE_EXIT"
+            result=1
+          fi
           logs=(install sentinel suite)
           for log in "${logs[@]}"; do
             file="$RUNNER_TEMP/$log.log"
@@ -153,11 +176,23 @@ jobs:
               case "$log" in
                 install) limit=6291456 ;;
                 sentinel) limit=1048576 ;;
-                suite) limit=3145728 ;;
+                suite) limit=4194304 ;;
                 released|main) limit=2097152 ;;
               esac
               if test "$bytes" -le "$limit"; then
-                cat "$file"
+                cat "$file" || result=1
+                if test "$log" = suite; then
+                  # The phase plugin validates every collected setup/call/teardown.
+                  # Missing, repeated or invalid completion cannot certify a log.
+                  if test "$(grep -c '^COLLECTED ' "$file")" -ne 1 ||
+                     test "$(grep -c '^PHASES_COMPLETE ' "$file")" -ne 1 ||
+                     test "$(grep -c '^PHASES_VALID=' "$file")" -ne 1 ||
+                     ! grep -qx 'PHASES_VALID=true' "$file" ||
+                     ! grep -Ex "PHASES_COMPLETE \\{\"classes\": \\{.*\\}, \"errors\": \\[\\], \"exit\": $suite_exit\\}" "$file" > /dev/null; then
+                    echo "INCOMPLETE_SUITE_PHASES"
+                    result=1
+                  fi
+                fi
               else
                 echo "LOG_BUDGET_EXCEEDED=$log COMPLETE_EXPORT=false"
                 result=1

@@ -7,13 +7,13 @@ No helpers or expected values are imported from either product's tests.
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 from contextlib import ExitStack
 from copy import deepcopy
 from datetime import datetime
 from hashlib import sha256
 from importlib.metadata import distribution
-import json
-import os
 from pathlib import Path
 from time import monotonic
 from typing import ClassVar
@@ -22,7 +22,8 @@ from unittest.mock import patch
 import pytest
 from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature, HVACMode
 from homeassistant.const import UnitOfTemperature
-from homeassistant.helpers import entity_registry as er, restore_state as rs
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import restore_state as rs
 from homeassistant.setup import async_setup_component
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import (
