@@ -553,23 +553,44 @@ def observe_teardown(item, nextitem):
 
     Wrappers delegate unchanged and are restored. They never cancel/repair work.
     Unavailable queues, loops, or wrapper continuity leave counts UNKNOWN.
+    Timer completion means observed callback entry, never an elapsed deadline.
     """
     loops = {value for value in item.funcargs.values() if isinstance(value, asyncio.AbstractEventLoop)}
     for value in item.funcargs.values():
         if isinstance(value, asyncio.Runner):
             loops.add(value.get_loop())
     hass = item.funcargs.get("hass")
+    hass_loop = hass.loop if hass is not None else None
     if hass is not None:
-        loops.add(hass.loop)
+        loops.add(hass_loop)
+    fixtures = {name: value for name, value in item.funcargs.items()
+                if isinstance(value, (asyncio.AbstractEventLoop, asyncio.Runner))}
+    runner_loops = {value: value.get_loop() for value in fixtures.values()
+                    if isinstance(value, asyncio.Runner)}
     errors, states, patches = [], {}, []
     if not loops:
         errors.append("no observable fixture loop")
+
+    def track_timer(loop, handle):
+        state = states[loop]
+        if handle in state["timers"] or handle.cancelled():
+            return
+        callback = handle._callback
+        require(callable(callback), "timer callback unavailable")
+
+        def executed(*args):
+            state["executed"].add(handle)
+            return callback(*args)
+
+        handle._callback = executed
+        state["timers"][handle] = (callback, executed)
 
     def sample(loop):
         try:
             queue = loop._scheduled
             require(isinstance(queue, list), "scheduled queue unavailable")
-            states[loop]["timers"].update(queue)
+            for handle in queue:
+                track_timer(loop, handle)
             states[loop]["tasks"].update(asyncio.all_tasks(loop))
         except (AttributeError, TypeError, ValueError) as exc:
             errors.append(str(exc))
@@ -584,7 +605,10 @@ def observe_teardown(item, nextitem):
                 sample(loop)
             result = original(*args, **kwargs)
             if name == "call_at":
-                states[loop]["timers"].add(result)
+                try:
+                    track_timer(loop, result)
+                except (AttributeError, TypeError, ValueError) as exc:
+                    errors.append(str(exc))
             elif name == "create_task":
                 states[loop]["tasks"].add(result)
             return result
@@ -594,7 +618,7 @@ def observe_teardown(item, nextitem):
 
     try:
         for loop in loops:
-            states[loop] = {"timers": set(), "tasks": set()}
+            states[loop] = {"timers": {}, "executed": set(), "tasks": set()}
             sample(loop)
             try:
                 require(not loop.is_closed(), "fixture loop already closed")
@@ -604,8 +628,23 @@ def observe_teardown(item, nextitem):
                 errors.append(str(exc))
         yield
     finally:
+        if (item.funcargs.get("hass") is not hass or
+                (hass is not None and getattr(hass, "loop", None) is not hass_loop)):
+            errors.append("fixture loop binding changed during teardown")
+        if any(item.funcargs.get(name) is not value for name, value in fixtures.items()):
+            errors.append("fixture loop binding changed during teardown")
+        for runner, loop in runner_loops.items():
+            # Runner.close clears _loop; do not call get_loop and create a new loop.
+            current = getattr(runner, "_loop", runner)
+            if current is not loop and not (current is None and loop.is_closed()):
+                errors.append("fixture runner loop changed during teardown")
         for loop in loops:
             sample(loop)
+            for handle, (callback, wrapper) in states[loop]["timers"].items():
+                if handle._callback is wrapper:
+                    handle._callback = callback
+                elif not handle.cancelled():
+                    errors.append("timer observer replaced during teardown")
         for loop, name, previous, present, wrapper in reversed(patches):
             if getattr(loop, name) is not wrapper:
                 errors.append("loop observer replaced during teardown")
@@ -622,8 +661,8 @@ def observe_teardown(item, nextitem):
             errors.append("child-process observation unavailable")
         event("cleanup", nodeid=item.nodeid,
               pending_tasks=None if errors else sum(not task.done() for state in states.values() for task in state["tasks"]),
-              pending_timers=None if errors else sum(not handle.cancelled() and handle.when() > loop.time()
-                  for loop, state in states.items() for handle in state["timers"]),
+              pending_timers=None if errors else sum(not handle.cancelled() and handle not in state["executed"]
+                  for state in states.values() for handle in state["timers"]),
               child_pids=children, observed=not errors, unknown=errors)
 
 

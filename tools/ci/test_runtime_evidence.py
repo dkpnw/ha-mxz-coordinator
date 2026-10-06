@@ -455,18 +455,117 @@ class ProducerControls(unittest.TestCase):
                 else:
                     self.assertTrue(row["observed"])
                     self.assertEqual(row["pending_timers"], 0 if positive else 1)
-                record, expected, _ = specimen()
+                record, expected, receipt = specimen()
                 events = record["sentinel"]["events"]
                 events[4].update(row)
+                record["retained"]["sentinel.jsonl"] = blob(b"".join(raw_json(event) for event in events))
+                receipt["record_sha256"] = sha(record)
                 if positive:
                     evidence.check_phases(record["sentinel"], expected, "sentinel")
+                    evidence.verify(record, expected, receipt)
                 else:
                     with self.assertRaisesRegex(ValueError, "fixture cleanup incomplete"):
                         evidence.check_phases(record["sentinel"], expected, "sentinel")
+                    with self.assertRaisesRegex(ValueError, "fixture cleanup incomplete"):
+                        evidence.verify(record, expected, receipt)
                 print("CONTROL actual teardown producer " + case + ": " + ("ACCEPT" if positive else "REJECT"))
             finally:
                 if not loop.is_closed():
                     loop.close()
+
+    def test_due_timer_and_fixture_continuity_producer(self):
+        for case in ("due-before-open", "due-before-closed", "due-during-open", "due-during-closed",
+                     "executed-before", "executed-during", "replaced-loop", "replaced-hass",
+                     "replaced-loop-fixture", "replaced-runner-loop", "closed-runner",
+                     "replaced-observer", "replaced-timer-observer", "missing-final-queue"):
+            with self.subTest(case=case):
+                runner = asyncio.Runner() if case in ("replaced-runner-loop", "closed-runner") else None
+                loop = runner.get_loop() if runner else asyncio.new_event_loop()
+                other, timer, rows, calls = None, None, [], []
+                hass = SimpleNamespace(loop=loop)
+                fixtures = {"runner": runner} if runner else {"hass": hass}
+                if case == "replaced-loop-fixture":
+                    fixtures = {"event_loop": loop}
+                item = SimpleNamespace(nodeid=SENTINEL, funcargs=fixtures)
+                original_call_at = loop.call_at
+
+                def callback(value):
+                    calls.append(value)
+
+                try:
+                    if case.startswith("due-before") or case == "executed-before":
+                        timer = loop.call_later(-1, callback, "invented")
+                    with patch.object(evidence, "event", create=True,
+                                      side_effect=lambda kind, **fields: rows.append({"kind": kind, **fields})), \
+                         patch.object(evidence, "child_snapshot", return_value=([], True)):
+                        hook = evidence.observe_teardown(item, None)
+                        next(hook)
+                        if case in ("replaced-loop", "replaced-hass", "replaced-loop-fixture", "replaced-runner-loop"):
+                            other = asyncio.new_event_loop()
+                            timer = other.call_later(3600, callback, "invented")
+                            if case == "replaced-loop":
+                                hass.loop = other
+                            elif case == "replaced-hass":
+                                fixtures["hass"] = SimpleNamespace(loop=other)
+                            elif case == "replaced-loop-fixture":
+                                fixtures["event_loop"] = other
+                            else:
+                                runner._loop = other
+                            other.close()
+                        elif case == "replaced-observer":
+                            loop.call_at = original_call_at
+                        elif case == "replaced-timer-observer":
+                            timer = loop.call_later(-1, callback, "invented")
+                            timer._callback = callback
+                        elif case.startswith("due-during") or case == "executed-during":
+                            timer = loop.call_later(-1, callback, "invented")
+                        positive = case in ("executed-before", "executed-during", "closed-runner")
+                        if case.startswith("executed"):
+                            loop.run_until_complete(asyncio.sleep(0))
+                        if case == "closed-runner":
+                            runner.close()
+                        elif not case.endswith("open"):
+                            loop.close()
+                        queue = loop._scheduled
+                        if case == "missing-final-queue":
+                            loop._scheduled = None
+                        try:
+                            with self.assertRaises(StopIteration):
+                                next(hook)
+                        finally:
+                            loop._scheduled = queue
+                    self.assertEqual(loop.call_at, original_call_at)
+                    self.assertEqual(calls, ["invented"] if case.startswith("executed") else [])
+                    if timer is not None:
+                        self.assertFalse(timer.cancelled())
+                        self.assertIs(timer._callback, callback)
+                    row = rows[0]
+                    if case.startswith("replaced") or case == "missing-final-queue":
+                        self.assertFalse(row["observed"])
+                        self.assertIsNone(row["pending_timers"])
+                        self.assertIsNone(row["pending_tasks"])
+                        self.assertTrue(row["unknown"])
+                    else:
+                        self.assertTrue(row["observed"])
+                        self.assertEqual(row["pending_timers"], 0 if positive else 1)
+                    record, expected, receipt = specimen()
+                    events = record["sentinel"]["events"]
+                    events[4].update(row)
+                    record["retained"]["sentinel.jsonl"] = blob(b"".join(raw_json(event) for event in events))
+                    receipt["record_sha256"] = sha(record)
+                    if positive:
+                        evidence.verify(record, expected, receipt)
+                    else:
+                        with self.assertRaisesRegex(ValueError, "fixture cleanup incomplete"):
+                            evidence.verify(record, expected, receipt)
+                    print("CONTROL actual teardown producer " + case + ": " + ("ACCEPT" if positive else "REJECT"))
+                finally:
+                    if runner and runner._loop is not None and not runner._loop.is_closed():
+                        runner.close()
+                    if not loop.is_closed():
+                        loop.close()
+                    if other is not None and not other.is_closed():
+                        other.close()
 
     def test_each_source_build_producer(self):
         for case in ("complete", "one-inventory-missing", "unknown-tool", "missing-attribution", "wrong-source-url"):
