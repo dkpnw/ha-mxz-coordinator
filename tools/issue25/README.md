@@ -65,3 +65,82 @@ Evidence includes complete test logs, source and inventory checks, final phase
 and pack markers, outer exit and cleanup. Missing or oversized logs invalidate
 the evidence. Test output does not establish effective token scopes or repository
 settings. No dependency cache or artifact upload is used.
+
+## Exported setup admission
+
+The recovery harness has three distinct, push-only, attempt-1 routes:
+`ci/issue25-harness-admission`, `ci/issue25-harness-replacement`, and
+`ci/issue25-harness-repeat`. The admission route retains the seven ordinary CI
+jobs; only its floor lane runs setup controls before its full suite. Replacement
+and repeat use the dedicated floor job. The older diagnostic refs refuse.
+Dispatch, PR, tag-shaped, missing-context and rerun routes do not authorize
+comparison work. Source declarations do not establish hosted settings or public
+publication permission.
+
+Admission uses the same exported `test_restore` module, `trial` fixture, real
+entity-add observation and finalizer as a full pack. It imports the switch class
+in the ordinary module import block. Its single test checks initial real public
+switch/plan and handler prerequisites without running a residue or restart
+schedule. This setup choice does not explain the historical import failure.
+
+The fixed sequence is P-release, P-main, N-missing, N-origin, N-config and
+N-fixture. Each uses a separate export and a 60-second watchdog plus a five-second
+TERM grace. Negatives respectively block the component import, redirect it to an
+equal-byte sibling copy, select an equal-byte config at a wrong path, or register
+a distinct no-op fixture. Product and installed dependency files are unchanged.
+The expected native exits are 4, 4, 4 and 2. An earlier failure, different exit,
+unreached intervention, positive call in a negative, missing cleanup or truncated
+evidence invalidates the control. These outcomes and pinned plugin semantics are
+first-execution predictions; authoring the controls is not runtime evidence.
+
+The export uses explicit prepend import mode, root directory and generated config
+(`[pytest]` and `asyncio_mode = auto`, each LF-terminated), with installed pytest
+entry points enabled. Passive snapshots precede configuration, collection and
+fixture gates. The post-import origin gate precedes item creation. Collection
+failure reports retain their native text and ordinal independently of mixed
+stdout/stderr ordering; the final collection gate follows the phase observer and
+refuses failed, empty or wrong collections. Full packs still require the eight
+complete ordered IDs, independently checked by their supervisor.
+
+`run.sh` takes no arguments and requires explicit `ISSUE25_MODE`. It rejects
+externally supplied child case/base/injection keys, unknown control keys and
+Python/pytest overrides. `pack.sh` takes exactly seven positional inputs: source,
+export, base label, full base commit, full base tree, baseline inventory and the
+parent's `expected.json`. The separately frozen `expected.sha256` binds that
+strict input object. A full pack refuses every injection selector, including an
+empty one. There is no validation-only or test-success mode.
+
+Each child has a closed environment with no HOME, token, proxy, Python path or
+pytest override. Its root is
+`RUNNER_TEMP/issue25-<A3|R2|I1>-<run_id>-a1/<case>`; reuse and symlink aliases
+refuse. The parent owns the export, expected inputs, manifests, separate pre/post
+integrity/inventory records, native output and exit. Only the origin negative has
+a decoy tree, and only the config negative has an alternate config. New helpers
+use `/usr/bin/python3` without importing dependencies; distribution metadata is
+read explicitly from the floor venv. The venv interpreter runs only inventory
+checks and the counted pytest child.
+
+Package snapshots select nine named dependency source files and the two pinned
+pytest-entry-point module files: eleven records, at most 8192 bytes per snapshot
+or fixture-file manifest. A different membership/count or changed selected file
+is UNKNOWN. Bytecode, cache and other mutable package files are excluded; this
+is a selected-source drift check, not a whole-venv immutability claim. Actual
+versions, selected fixture functions and four dependency lifecycle hashes remain
+required evidence.
+
+The ordinary controls preserve 318 existing direct subprocess calls and add 122
+(G20, P16, B32, J24, V10, L20), for 440 per suite, plus 52 in-process helper rows.
+Invented new Git fixtures use stdlib loose-object construction. Their endpoint
+stand-ins never establish HA or import-origin correctness. The full suites keep
+their 180-second and 4-MiB ceilings; the narrowest historical margin is py314's
+360896 bytes. First execution fit remains unknown. No failed admission or
+comparison authorizes a retry, extra process, changed oracle or enlarged cap.
+
+Replacement and any independently preregistered repeat retain both complete
+packs, with a 180-second watchdog each, the ordinary sentinel and no full-suite
+replay. All sixteen public-state/store/handler conclusions, the manual twin and
+unavailable prerequisites require independent interpretation. Both-green means
+unreproduced and allows only the already bounded conditional repeat. Source
+review, setup admission, comparison, repeat and product/release acceptance remain
+separate decisions. Identity, settings, capability, rendered form, migration,
+rollback, final CI and household obligations are not closed by these controls.

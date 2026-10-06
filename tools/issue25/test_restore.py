@@ -28,6 +28,7 @@ from homeassistant.components.climate import (
 from homeassistant.const import UnitOfTemperature
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import restore_state as rs
+from homeassistant.loader import async_get_integration
 from homeassistant.setup import async_setup_component
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import (
@@ -38,6 +39,8 @@ from pytest_homeassistant_custom_component.common import (
     mock_integration,
     mock_platform,
 )
+
+from custom_components.mxz_coordinator.switch import MXZZoneFanAutoSwitch
 
 SCHEDULES = (
     "01-clean-twice",
@@ -304,6 +307,7 @@ class Trial:
         await self.hass.async_block_till_done()
 
     async def refresh(self):
+        await self.origin_guard("refresh-or-reload")
         await self.entry.runtime_data.async_refresh()
         await self.hass.async_block_till_done()
 
@@ -368,6 +372,7 @@ class Trial:
         assert not self.errors and not self.unknown, "UNKNOWN: cycle did not begin genuinely not held"
 
     async def restart(self, unavailable=False, variant=None):
+        await self.origin_guard("restart-entry")
         self.cycle += 1
         original = self.entry.runtime_data
         identity = (self.entry.entry_id, self.entry.created_at, self.switch(0), self.switch(1))
@@ -420,8 +425,6 @@ class Trial:
         elif variant == "missing-speed":
             self.heads[0].report(None)
         supplied = {sid: restore.last_states.get(sid) for sid in identity[2:]}
-        from custom_components.mxz_coordinator.switch import MXZZoneFanAutoSwitch
-
         # The immutable base selects the inspected read path, never the oracle.
         base = os.environ.get("ISSUE25_BASE")
         assert base in ("released", "main"), "UNKNOWN: restore base identity missing"
@@ -436,6 +439,7 @@ class Trial:
             await self.hass.async_block_till_done()
         observer.validate(supplied, extra_required)
         assert setup, "UNKNOWN: entry setup failed"
+        await self.origin_guard("restore-add-complete", observer)
         for sid, loaded in supplied.items():
             if loaded:
                 require_restore_record(sid, loaded, records[sid], self.entry.created_at)
@@ -477,7 +481,9 @@ class Trial:
 
 
 @pytest.fixture
-async def trial(hass, hass_storage, enable_custom_integrations):
+async def trial(hass, hass_storage, enable_custom_integrations, request):
+    origin = request.config._issue25_runtime_origin
+    origin(request, "trial-entry")
     dependency_provenance()
     hass.config.units = US_CUSTOMARY_SYSTEM
     heads = [Head("A"), Head("B")]
@@ -498,9 +504,22 @@ async def trial(hass, hass_storage, enable_custom_integrations):
                                 "fan_boost_enable": True, "fan_boost_max": "high", "idle_action": "fan_only"})
     entry.add_to_hass(hass)
     t = Trial(hass, hass_storage, heads, entry)
-    try:
-        from custom_components.mxz_coordinator.switch import MXZZoneFanAutoSwitch
 
+    async def origin_guard(stage, observer=None):
+        origin(request, stage, observer)
+        loaded = await async_get_integration(hass, "mxz_coordinator")
+        expected = Path(request.config._issue25_expected["export"]) / "custom_components/mxz_coordinator"
+        actual = Path(loaded.file_path)
+        trace("ha-loader", stage=stage, actual=str(actual), expected=str(expected))
+        assert actual == expected and actual.resolve() == expected, "UNKNOWN_HA_LOADER_IDENTITY"
+        if observer is not None:
+            adds = [call for call in observer.calls if call["kind"] == "add"]
+            request.config._issue25_ha_origin(request.config._issue25_expected, actual,
+                                             type(adds[0]["entity"]) if adds else None,
+                                             MXZZoneFanAutoSwitch, adds)
+
+    t.origin_guard = origin_guard
+    try:
         observer = LifecycleReads()
         with ExitStack() as stack:
             observe_lifecycle(stack, observer, MXZZoneFanAutoSwitch,
@@ -509,6 +528,7 @@ async def trial(hass, hass_storage, enable_custom_integrations):
             await hass.async_block_till_done()
         observer.validate({t.switch(i): None for i in range(2)}, set())
         assert setup, "UNKNOWN: initial entry setup failed"
+        await origin_guard("initial-add-complete", observer)
         for room in ("primary", "secondary"):
             await t.service("number", "set_value", t.eid(f"_{room}_target"), value=70)
             await t.service("switch", "turn_on", t.eid(f"_{room}_enable"))

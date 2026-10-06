@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   hassfest:
-    if: ${{ github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-discriminator' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-independent-repeat' }}
+    if: ${{ (github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.head_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-independent-repeat' && github.ref != 'refs/heads/ci/issue25-harness-admission' && github.head_ref != 'ci/issue25-harness-admission' && github.base_ref != 'ci/issue25-harness-admission' && github.ref != 'refs/heads/ci/issue25-harness-replacement' && github.head_ref != 'ci/issue25-harness-replacement' && github.base_ref != 'ci/issue25-harness-replacement' && github.ref != 'refs/heads/ci/issue25-harness-repeat' && github.head_ref != 'ci/issue25-harness-repeat' && github.base_ref != 'ci/issue25-harness-repeat') || (github.run_attempt == 1 && github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-harness-admission' && github.head_ref == '' && github.base_ref == '') }}
     name: hassfest
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -22,11 +22,12 @@ jobs:
         env:
           REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
         run: |
-          test "${REPOSITORY_PRIVATE:-}" = false
-          test "${RUNNER_ENVIRONMENT:-}" = github-hosted
-          test "${RUNNER_ARCH:-}" = X64
-          test "${GITHUB_RUN_ATTEMPT:-}" = 1
-          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
+          refuse() { echo "ISSUE25_REFUSED=$1" >&2; exit 1; }
+          test "${REPOSITORY_PRIVATE:-}" = false || refuse repository
+          test "${RUNNER_ENVIRONMENT:-}" = github-hosted || refuse runner
+          test "${RUNNER_ARCH:-}" = X64 || refuse architecture
+          test "${GITHUB_RUN_ATTEMPT:-}" = 1 || refuse attempt
+          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || refuse source
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -35,7 +36,7 @@ jobs:
       - uses: home-assistant/actions/hassfest@master
 
   hacs:
-    if: ${{ github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-discriminator' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-independent-repeat' }}
+    if: ${{ (github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.head_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-independent-repeat' && github.ref != 'refs/heads/ci/issue25-harness-admission' && github.head_ref != 'ci/issue25-harness-admission' && github.base_ref != 'ci/issue25-harness-admission' && github.ref != 'refs/heads/ci/issue25-harness-replacement' && github.head_ref != 'ci/issue25-harness-replacement' && github.base_ref != 'ci/issue25-harness-replacement' && github.ref != 'refs/heads/ci/issue25-harness-repeat' && github.head_ref != 'ci/issue25-harness-repeat' && github.base_ref != 'ci/issue25-harness-repeat') || (github.run_attempt == 1 && github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-harness-admission' && github.head_ref == '' && github.base_ref == '') }}
     name: HACS
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -44,11 +45,12 @@ jobs:
         env:
           REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
         run: |
-          test "${REPOSITORY_PRIVATE:-}" = false
-          test "${RUNNER_ENVIRONMENT:-}" = github-hosted
-          test "${RUNNER_ARCH:-}" = X64
-          test "${GITHUB_RUN_ATTEMPT:-}" = 1
-          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
+          refuse() { echo "ISSUE25_REFUSED=$1" >&2; exit 1; }
+          test "${REPOSITORY_PRIVATE:-}" = false || refuse repository
+          test "${RUNNER_ENVIRONMENT:-}" = github-hosted || refuse runner
+          test "${RUNNER_ARCH:-}" = X64 || refuse architecture
+          test "${GITHUB_RUN_ATTEMPT:-}" = 1 || refuse attempt
+          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || refuse source
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -61,7 +63,7 @@ jobs:
           # Brand icons ship locally; the brands check runs with no ignore.
 
   ruff:
-    if: ${{ github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-discriminator' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-independent-repeat' }}
+    if: ${{ (github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.head_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-independent-repeat' && github.ref != 'refs/heads/ci/issue25-harness-admission' && github.head_ref != 'ci/issue25-harness-admission' && github.base_ref != 'ci/issue25-harness-admission' && github.ref != 'refs/heads/ci/issue25-harness-replacement' && github.head_ref != 'ci/issue25-harness-replacement' && github.base_ref != 'ci/issue25-harness-replacement' && github.ref != 'refs/heads/ci/issue25-harness-repeat' && github.head_ref != 'ci/issue25-harness-repeat' && github.base_ref != 'ci/issue25-harness-repeat') || (github.run_attempt == 1 && github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-harness-admission' && github.head_ref == '' && github.base_ref == '') }}
     name: ruff
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -70,11 +72,12 @@ jobs:
         env:
           REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
         run: |
-          test "${REPOSITORY_PRIVATE:-}" = false
-          test "${RUNNER_ENVIRONMENT:-}" = github-hosted
-          test "${RUNNER_ARCH:-}" = X64
-          test "${GITHUB_RUN_ATTEMPT:-}" = 1
-          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
+          refuse() { echo "ISSUE25_REFUSED=$1" >&2; exit 1; }
+          test "${REPOSITORY_PRIVATE:-}" = false || refuse repository
+          test "${RUNNER_ENVIRONMENT:-}" = github-hosted || refuse runner
+          test "${RUNNER_ARCH:-}" = X64 || refuse architecture
+          test "${GITHUB_RUN_ATTEMPT:-}" = 1 || refuse attempt
+          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || refuse source
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -87,7 +90,7 @@ jobs:
       - run: ruff check custom_components/ tests/ tools/
 
   pytest:
-    if: ${{ github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-discriminator' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-independent-repeat' }}
+    if: ${{ (github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.head_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-independent-repeat' && github.ref != 'refs/heads/ci/issue25-harness-admission' && github.head_ref != 'ci/issue25-harness-admission' && github.base_ref != 'ci/issue25-harness-admission' && github.ref != 'refs/heads/ci/issue25-harness-replacement' && github.head_ref != 'ci/issue25-harness-replacement' && github.base_ref != 'ci/issue25-harness-replacement' && github.ref != 'refs/heads/ci/issue25-harness-repeat' && github.head_ref != 'ci/issue25-harness-repeat' && github.base_ref != 'ci/issue25-harness-repeat') || (github.run_attempt == 1 && github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-harness-admission' && github.head_ref == '' && github.base_ref == '') }}
     name: pytest (${{ matrix.lane }})
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -112,11 +115,12 @@ jobs:
         env:
           REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
         run: |
-          test "${REPOSITORY_PRIVATE:-}" = false
-          test "${RUNNER_ENVIRONMENT:-}" = github-hosted
-          test "${RUNNER_ARCH:-}" = X64
-          test "${GITHUB_RUN_ATTEMPT:-}" = 1
-          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
+          refuse() { echo "ISSUE25_REFUSED=$1" >&2; exit 1; }
+          test "${REPOSITORY_PRIVATE:-}" = false || refuse repository
+          test "${RUNNER_ENVIRONMENT:-}" = github-hosted || refuse runner
+          test "${RUNNER_ARCH:-}" = X64 || refuse architecture
+          test "${GITHUB_RUN_ATTEMPT:-}" = 1 || refuse attempt
+          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || refuse source
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -134,6 +138,17 @@ jobs:
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
           timeout --signal=TERM --kill-after=5s 60s python -m pytest -p tools.pytest_phases tests/test_changeover.py::test_changeover_from_temperature_sensor -q -s > "$RUNNER_TEMP/sentinel.log" 2>&1
           test "$(wc -c < "$RUNNER_TEMP/sentinel.log")" -le 1048576
+      - name: Exact admission comparison objects
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-harness-admission' && github.run_attempt == 1 && matrix.lane == 'py3.12-ha2024.12.0' }}
+        run: git fetch --no-tags --depth=1 origin 3a9863896f8affb6f71cbd1e495df21b17a69ff3 009b6b42326252ee633f2288573a8052f4e8c1e8
+      - name: Six exported setup controls
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-harness-admission' && github.run_attempt == 1 && matrix.lane == 'py3.12-ha2024.12.0' }}
+        env:
+          ISSUE25_MODE: admission
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          source "$RUNNER_TEMP/mxz-venv/bin/activate"
+          bash tools/issue25/run.sh
       - name: Full retained suite
         run: |
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
@@ -146,6 +161,7 @@ jobs:
         if: always()
         run: |
           result=0
+          cleanup_result=0
           # Keep the suite outcome independent of all export/cleanup checks.
           suite_exit=unknown
           exit_file="$RUNNER_TEMP/suite.exit"
@@ -202,15 +218,61 @@ jobs:
               result=1
             fi
           done
+          case "${GITHUB_REF:-}" in
+            refs/heads/ci/issue25-harness-admission) stage=A3; cases=(P-release P-main N-missing N-origin N-config N-fixture) ;;
+            refs/heads/ci/issue25-harness-replacement) stage=R2; cases=(released main) ;;
+            refs/heads/ci/issue25-harness-repeat) stage=I1; cases=(released main) ;;
+            *) stage= ;;
+          esac
+          if test -n "$stage" && test -d "$RUNNER_TEMP/issue25-$stage-${GITHUB_RUN_ID:-}-a1"; then
+            job="$RUNNER_TEMP/issue25-$stage-$GITHUB_RUN_ID-a1"
+            test ! -L "$job" || exit 1
+            for file in inventory.before.txt package-files.before.json package-files.after.json supervisor.jsonl; do
+              path="$job/$file"
+              if test -f "$path" && test ! -L "$path"; then
+                sha256sum "$path"
+                wc -c < "$path"
+                cat "$path"
+              else result=1; fi
+            done
+            for case_id in "${cases[@]}"; do
+              child="$job/$case_id"
+              test ! -L "$child" || exit 1
+              for file in expected.json expected.sha256 base.tree product.paths product.tree harness.sha256 config.sha256 fixture-files.json inventory.pre.txt inventory.post.txt product.pre.txt product.post.txt output.log exit.txt; do
+                path="$child/$file"
+                if test -f "$path" && test ! -L "$path"; then
+                  sha256sum "$path"
+                  bytes=$(wc -c < "$path")
+                  echo "CHILD_FILE_BYTES=$case_id/$file:$bytes"
+                  limit=262144
+                  if test "$stage" != A3 && test "$file" = output.log; then limit=2097152; fi
+                  if test "$bytes" -le "$limit"; then cat "$path"; else result=1; fi
+                else echo "MISSING_CHILD_FILE=$case_id/$file"; result=1; fi
+              done
+              if test "$case_id" = N-origin; then
+                sha256sum "$child/decoy.tree" || result=1
+                cat "$child/decoy.tree" || result=1
+              fi
+              for directory in export tmp decoy alternate; do
+                path="$child/$directory"
+                test ! -L "$path" || exit 1
+                rm -rf -- "$path"
+                test ! -e "$path" || cleanup_result=1
+              done
+            done
+          fi
           git diff --exit-code HEAD -- . || result=1
           test -z "$(git ls-files --others --exclude-standard)" || result=1
           rm -rf -- "$RUNNER_TEMP/mxz-venv" "$RUNNER_TEMP/issue25-released" "$RUNNER_TEMP/issue25-main"
-          echo "OWNED_SCRATCH_REMOVED=true"
+          test "$cleanup_result" -eq 0 || result=1
+          if test "$cleanup_result" -eq 0 && test ! -e "$RUNNER_TEMP/mxz-venv" && test ! -e "$RUNNER_TEMP/issue25-released" && test ! -e "$RUNNER_TEMP/issue25-main"; then
+            echo "OWNED_SCRATCH_REMOVED=true"
+          else result=1; fi
           echo "LOG_EXPORT_COMPLETE result=$result"
           exit "$result"
 
   yamllint:
-    if: ${{ github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-discriminator' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-independent-repeat' }}
+    if: ${{ (github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.head_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-independent-repeat' && github.ref != 'refs/heads/ci/issue25-harness-admission' && github.head_ref != 'ci/issue25-harness-admission' && github.base_ref != 'ci/issue25-harness-admission' && github.ref != 'refs/heads/ci/issue25-harness-replacement' && github.head_ref != 'ci/issue25-harness-replacement' && github.base_ref != 'ci/issue25-harness-replacement' && github.ref != 'refs/heads/ci/issue25-harness-repeat' && github.head_ref != 'ci/issue25-harness-repeat' && github.base_ref != 'ci/issue25-harness-repeat') || (github.run_attempt == 1 && github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-harness-admission' && github.head_ref == '' && github.base_ref == '') }}
     name: yamllint (legacy package)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -219,11 +281,12 @@ jobs:
         env:
           REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
         run: |
-          test "${REPOSITORY_PRIVATE:-}" = false
-          test "${RUNNER_ENVIRONMENT:-}" = github-hosted
-          test "${RUNNER_ARCH:-}" = X64
-          test "${GITHUB_RUN_ATTEMPT:-}" = 1
-          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
+          refuse() { echo "ISSUE25_REFUSED=$1" >&2; exit 1; }
+          test "${REPOSITORY_PRIVATE:-}" = false || refuse repository
+          test "${RUNNER_ENVIRONMENT:-}" = github-hosted || refuse runner
+          test "${RUNNER_ARCH:-}" = X64 || refuse architecture
+          test "${GITHUB_RUN_ATTEMPT:-}" = 1 || refuse attempt
+          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || refuse source
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -235,7 +298,7 @@ jobs:
   issue25:
     name: issue25 floor comparison or visible refusal
     # Invalid events/attempts get a failing guard, never an empty skipped run.
-    if: ${{ !(github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-discriminator' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-independent-repeat') }}
+    if: ${{ !((github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.head_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-independent-repeat' && github.ref != 'refs/heads/ci/issue25-harness-admission' && github.head_ref != 'ci/issue25-harness-admission' && github.base_ref != 'ci/issue25-harness-admission' && github.ref != 'refs/heads/ci/issue25-harness-replacement' && github.head_ref != 'ci/issue25-harness-replacement' && github.base_ref != 'ci/issue25-harness-replacement' && github.ref != 'refs/heads/ci/issue25-harness-repeat' && github.head_ref != 'ci/issue25-harness-repeat' && github.base_ref != 'ci/issue25-harness-repeat') || (github.run_attempt == 1 && github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-harness-admission' && github.head_ref == '' && github.base_ref == '')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -246,7 +309,7 @@ jobs:
           refuse() { echo "ISSUE25_REFUSED=$1" >&2; exit 1; }
           test "${GITHUB_EVENT_NAME:-}" = push || refuse event
           case "${GITHUB_REF:-}" in
-            refs/heads/ci/issue25-discriminator|refs/heads/ci/issue25-independent-repeat) ;;
+            refs/heads/ci/issue25-harness-replacement|refs/heads/ci/issue25-harness-repeat) ;;
             *) refuse ref ;;
           esac
           test "${GITHUB_RUN_ATTEMPT:-}" = 1 || refuse attempt
@@ -274,6 +337,8 @@ jobs:
       - name: Exact public comparison objects
         run: git fetch --no-tags --depth=1 origin 3a9863896f8affb6f71cbd1e495df21b17a69ff3 009b6b42326252ee633f2288573a8052f4e8c1e8
       - name: Two frozen issue25 packs
+        env:
+          ISSUE25_MODE: pack
         run: |
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
           bash tools/issue25/run.sh
@@ -281,7 +346,8 @@ jobs:
         if: always()
         run: |
           result=0
-          logs=(install sentinel released main)
+          cleanup_result=0
+          logs=(install sentinel)
           for log in "${logs[@]}"; do
             file="$RUNNER_TEMP/$log.log"
             if test -f "$file"; then
@@ -305,9 +371,55 @@ jobs:
               result=1
             fi
           done
+          case "${GITHUB_REF:-}" in
+            refs/heads/ci/issue25-harness-admission) stage=A3; cases=(P-release P-main N-missing N-origin N-config N-fixture) ;;
+            refs/heads/ci/issue25-harness-replacement) stage=R2; cases=(released main) ;;
+            refs/heads/ci/issue25-harness-repeat) stage=I1; cases=(released main) ;;
+            *) stage= ;;
+          esac
+          if test -n "$stage" && test -d "$RUNNER_TEMP/issue25-$stage-${GITHUB_RUN_ID:-}-a1"; then
+            job="$RUNNER_TEMP/issue25-$stage-$GITHUB_RUN_ID-a1"
+            test ! -L "$job" || exit 1
+            for file in inventory.before.txt package-files.before.json package-files.after.json supervisor.jsonl; do
+              path="$job/$file"
+              if test -f "$path" && test ! -L "$path"; then
+                sha256sum "$path"
+                wc -c < "$path"
+                cat "$path"
+              else result=1; fi
+            done
+            for case_id in "${cases[@]}"; do
+              child="$job/$case_id"
+              test ! -L "$child" || exit 1
+              for file in expected.json expected.sha256 base.tree product.paths product.tree harness.sha256 config.sha256 fixture-files.json inventory.pre.txt inventory.post.txt product.pre.txt product.post.txt output.log exit.txt; do
+                path="$child/$file"
+                if test -f "$path" && test ! -L "$path"; then
+                  sha256sum "$path"
+                  bytes=$(wc -c < "$path")
+                  echo "CHILD_FILE_BYTES=$case_id/$file:$bytes"
+                  limit=262144
+                  if test "$stage" != A3 && test "$file" = output.log; then limit=2097152; fi
+                  if test "$bytes" -le "$limit"; then cat "$path"; else result=1; fi
+                else echo "MISSING_CHILD_FILE=$case_id/$file"; result=1; fi
+              done
+              if test "$case_id" = N-origin; then
+                sha256sum "$child/decoy.tree" || result=1
+                cat "$child/decoy.tree" || result=1
+              fi
+              for directory in export tmp decoy alternate; do
+                path="$child/$directory"
+                test ! -L "$path" || exit 1
+                rm -rf -- "$path"
+                test ! -e "$path" || cleanup_result=1
+              done
+            done
+          fi
           git diff --exit-code HEAD -- . || result=1
           test -z "$(git ls-files --others --exclude-standard)" || result=1
           rm -rf -- "$RUNNER_TEMP/mxz-venv" "$RUNNER_TEMP/issue25-released" "$RUNNER_TEMP/issue25-main"
-          echo "OWNED_SCRATCH_REMOVED=true"
+          test "$cleanup_result" -eq 0 || result=1
+          if test "$cleanup_result" -eq 0 && test ! -e "$RUNNER_TEMP/mxz-venv" && test ! -e "$RUNNER_TEMP/issue25-released" && test ! -e "$RUNNER_TEMP/issue25-main"; then
+            echo "OWNED_SCRATCH_REMOVED=true"
+          else result=1; fi
           echo "LOG_EXPORT_COMPLETE result=$result"
           exit "$result"

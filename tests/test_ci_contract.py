@@ -131,10 +131,11 @@ def test_actual_job_gates(workflow, case, event, ref, head, base, attempt, ordin
            "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_ARCH": "X64"}
     result = subprocess.run(["bash", "-euo", "pipefail", "-c", guard], env=env,
                             check=False, capture_output=True, text=True, timeout=5)
-    valid = case in ("r", "repeat")
+    valid = False
     assert (result.returncode == 0) is valid
     if not valid:
-        assert "ISSUE25_REFUSED=" in result.stderr
+        reason = "event" if event != "push" else "ref"
+        assert result.stderr.strip() == "ISSUE25_REFUSED=" + reason
 
 
 @pytest.mark.parametrize("key,value", [
@@ -145,7 +146,7 @@ def test_actual_job_gates(workflow, case, event, ref, head, base, attempt, ordin
 ], ids=["missing-sha", "bad-sha", "missing-visibility", "private", "missing-runner", "self-hosted",
         "missing-arch", "wrong-arch"])
 def test_actual_preacquisition_settings_guard(workflow, key, value):
-    env = {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/ci/issue25-discriminator",
+    env = {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/ci/issue25-harness-replacement",
            "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "a" * 40, "REPOSITORY_PRIVATE": "false",
            "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_ARCH": "X64"}
     env[key] = value
@@ -155,6 +156,9 @@ def test_actual_preacquisition_settings_guard(workflow, key, value):
         result = subprocess.run(["bash", "-euo", "pipefail", "-c", steps[0]["run"]], env=env,
                                 check=False, capture_output=True, text=True, timeout=5)
         assert result.returncode != 0
+        reason = {"GITHUB_SHA": "source", "REPOSITORY_PRIVATE": "repository",
+                  "RUNNER_ENVIRONMENT": "runner", "RUNNER_ARCH": "architecture"}[key]
+        assert result.stderr.strip() == "ISSUE25_REFUSED=" + reason
 
 
 def test_checkout_binding_and_process_layout(workflow, tmp_path):
@@ -171,7 +175,7 @@ def test_checkout_binding_and_process_layout(workflow, tmp_path):
             assert (result.returncode == 0) is (sha == "a" * 40)
         commands = "\n".join(s.get("run", "") for s in steps)
         assert ("tests/ -q" in commands) is (name == "pytest")
-        assert ("bash tools/issue25/run.sh" in commands) is (name == "issue25")
+        assert "bash tools/issue25/run.sh" in commands
         assert "timeout --signal=TERM --kill-after=5s 60s" in commands
     assert len(workflow["jobs"]["pytest"]["strategy"]["matrix"]["include"]) == 3
 
@@ -198,15 +202,19 @@ def test_actual_parent_guard_refuses_before_inventory_or_export(tmp_path, key, v
         path = bin_dir / name
         path.write_text(source)
         path.chmod(0o755)
-    env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", RUNNER_TEMP=str(tmp_path),
-               GITHUB_EVENT_NAME="push", GITHUB_REF="refs/heads/ci/issue25-discriminator",
-               GITHUB_RUN_ATTEMPT="1", GITHUB_SHA="a" * 40, REPOSITORY_PRIVATE="false",
+    env = dict(PATH=f"{bin_dir}:{os.defpath}", RUNNER_TEMP=str(tmp_path),
+               GITHUB_EVENT_NAME="push", GITHUB_REF="refs/heads/ci/issue25-harness-replacement", ISSUE25_MODE="pack",
+               GITHUB_RUN_ID="123", GITHUB_REPOSITORY="dkpnw/ha-mxz-coordinator",
+               GITHUB_HEAD_REF="", GITHUB_BASE_REF="", GITHUB_RUN_ATTEMPT="1", GITHUB_SHA="a" * 40, REPOSITORY_PRIVATE="false",
                RUNNER_ENVIRONMENT="github-hosted", RUNNER_ARCH="X64", GUARD_MARKER=str(marker))
     env[key] = value
     run = Path(__file__).parents[1] / "tools/issue25/run.sh"
     result = subprocess.run(["bash", str(run)], cwd=tmp_path, env=env,
                             check=False, capture_output=True, text=True, timeout=5)
-    assert result.returncode != 0 and "ISSUE25_REFUSED=" in result.stderr
+    reason = {"GITHUB_EVENT_NAME": "event", "GITHUB_REF": "ref", "GITHUB_RUN_ATTEMPT": "attempt",
+              "GITHUB_SHA": "source", "REPOSITORY_PRIVATE": "repository",
+              "RUNNER_ENVIRONMENT": "runner", "RUNNER_ARCH": "architecture"}[key]
+    assert result.returncode != 0 and result.stderr.strip() == "ISSUE25_REFUSED=" + reason
     assert not marker.exists()
     assert not (tmp_path / "issue25-inventory-before.txt").exists()
     assert not (tmp_path / "issue25-released").exists()
@@ -413,3 +421,104 @@ def test_actual_export_retains_entire_four_mib_suite(suite_export, exit_code):
     assert (root / "suite.log").read_text() == payload
     assert (root / "suite.exit").read_text() == f"{exit_code}\n"
     assert "LOG_EXPORT_COMPLETE result=0" in result.stdout
+
+
+RECOVERY_ROUTES = [
+    ('A3-push', 'push', 'refs/heads/ci/issue25-harness-admission', '', '', 1, True, None),
+    ('A3-PR-head', 'pull_request', 'refs/pull/2/merge', 'ci/issue25-harness-admission', 'main', 1, False, 'event'),
+    ('A3-PR-base', 'pull_request', 'refs/pull/2/merge', 'feature', 'ci/issue25-harness-admission', 1, False, 'event'),
+    ('A3-dispatch', 'workflow_dispatch', 'refs/heads/ci/issue25-harness-admission', '', '', 1, False, 'event'),
+    ('A3-attempt2', 'push', 'refs/heads/ci/issue25-harness-admission', '', '', 2, False, 'ref'),
+    ('A3-tag-shaped-ref', 'push', 'refs/tags/ci/issue25-harness-admission', '', '', 1, False, 'ref'),
+    ('R2-push', 'push', 'refs/heads/ci/issue25-harness-replacement', '', '', 1, False, None),
+    ('I1-push', 'push', 'refs/heads/ci/issue25-harness-repeat', '', '', 1, False, None),
+    ('R2-dispatch', 'workflow_dispatch', 'refs/heads/ci/issue25-harness-replacement', '', '', 1, False, 'event'),
+    ('I1-dispatch', 'workflow_dispatch', 'refs/heads/ci/issue25-harness-repeat', '', '', 1, False, 'event'),
+    ('R2-PR-head', 'pull_request', 'refs/pull/2/merge', 'ci/issue25-harness-replacement', 'main', 1, False, 'event'),
+    ('R2-PR-base', 'pull_request', 'refs/pull/2/merge', 'feature', 'ci/issue25-harness-replacement', 1, False, 'event'),
+    ('I1-PR-head', 'pull_request', 'refs/pull/2/merge', 'ci/issue25-harness-repeat', 'main', 1, False, 'event'),
+    ('I1-PR-base', 'pull_request', 'refs/pull/2/merge', 'feature', 'ci/issue25-harness-repeat', 1, False, 'event'),
+    ('R2-attempt2', 'push', 'refs/heads/ci/issue25-harness-replacement', '', '', 2, False, 'attempt'),
+    ('I1-attempt2', 'push', 'refs/heads/ci/issue25-harness-repeat', '', '', 2, False, 'attempt'),
+    ('missing-PR-base', 'pull_request', 'refs/pull/2/merge', 'feature', '', 1, False, 'event'),
+    ('A3-empty-attempt', 'push', 'refs/heads/ci/issue25-harness-admission', '', '', '', False, 'ref'),
+    ('A3-bad-attempt', 'push', 'refs/heads/ci/issue25-harness-admission', '', '', 'bad', False, 'ref'),
+    ('malformed-ref', 'push', 'bad', '', '', 1, False, 'ref'),
+]
+
+
+@pytest.mark.parametrize('case,event,ref,head,base,attempt,ordinary,reason', RECOVERY_ROUTES,
+                         ids=[f'G{i:02d}' for i in range(1, 21)])
+def test_recovery_route_actual_guards(workflow, case, event, ref, head, base, attempt, ordinary, reason):
+    context = {'event_name': event, 'ref': ref, 'head_ref': head, 'base_ref': base, 'run_attempt': attempt}
+    jobs = workflow['jobs']
+    selected = {name for name, job in jobs.items() if admitted(job['if'], context)}
+    assert selected == ({'hassfest', 'hacs', 'ruff', 'pytest', 'yamllint'} if ordinary else {'issue25'})
+    floor_steps = jobs['pytest']['steps']
+    for step in floor_steps:
+        if step.get('name') in ('Six exported setup controls', 'Exact admission comparison objects'):
+            for lane in ('py3.12-ha2024.12.0', 'py3.13-ha2026.2.3', 'py3.14-ha2026.9.0'):
+                expression = step['if'].replace('matrix.lane', repr(lane))
+                assert admitted(expression, context) is (case == 'A3-push' and lane == 'py3.12-ha2024.12.0')
+    guard = jobs['pytest' if ordinary else 'issue25']['steps'][0]['run']
+    env = {'GITHUB_EVENT_NAME': event, 'GITHUB_REF': ref, 'GITHUB_HEAD_REF': head, 'GITHUB_BASE_REF': base,
+           'GITHUB_RUN_ATTEMPT': str(attempt), 'GITHUB_SHA': 'a' * 40, 'REPOSITORY_PRIVATE': 'false',
+           'RUNNER_ENVIRONMENT': 'github-hosted', 'RUNNER_ARCH': 'X64'}
+    result = subprocess.run(['bash', '-euo', 'pipefail', '-c', guard], env=env,
+                            check=False, capture_output=True, text=True, timeout=5)
+    assert result.returncode == (0 if reason is None else 1), result.stderr
+    assert result.stderr.strip() == ('' if reason is None else 'ISSUE25_REFUSED=' + reason)
+
+
+P_CASES = ('missing-mode', 'empty-mode', 'unknown-mode', 'pack-on-A3', 'admission-on-R2',
+           'admission-on-I1', 'unexpected-positional', 'CLI-mode-plus-env', 'legacy-R-ref',
+           'legacy-repeat-ref', 'missing-runner', 'missing-architecture', 'unknown-ISSUE25-key',
+           'PYTHONPATH', 'PYTEST_ADDOPTS', 'PYTEST_PLUGINS')
+
+
+@pytest.mark.parametrize('fault', P_CASES, ids=[f'P{i:02d}' for i in range(1, 17)])
+def test_parent_entry_refusal_reasons(tmp_path, fault):
+    from tests.test_issue25_pack import PACK, parent_inputs
+
+    root, env, calls, exports = parent_inputs(tmp_path, stage='A3')
+    args = []
+    reason = 'mode'
+    if fault == 'missing-mode':
+        del env['ISSUE25_MODE']
+    elif fault in ('empty-mode', 'unknown-mode'):
+        env['ISSUE25_MODE'] = '' if fault == 'empty-mode' else 'unknown'
+    elif fault == 'pack-on-A3':
+        env['ISSUE25_MODE'] = 'pack'
+        reason = 'mode-ref'
+    elif fault in ('admission-on-R2', 'admission-on-I1'):
+        env['GITHUB_REF'] = 'refs/heads/ci/issue25-harness-' + ('replacement' if fault.endswith('R2') else 'repeat')
+        reason = 'mode-ref'
+    elif fault in ('unexpected-positional', 'CLI-mode-plus-env'):
+        args = ['invented'] if fault == 'unexpected-positional' else ['--mode', 'admission']
+        reason = 'arguments'
+    elif fault.startswith('legacy-'):
+        env['GITHUB_REF'] = 'refs/heads/ci/issue25-' + ('discriminator' if fault == 'legacy-R-ref' else 'independent-repeat')
+        reason = 'ref'
+    elif fault == 'missing-runner':
+        del env['RUNNER_ENVIRONMENT']
+        reason = 'runner'
+    elif fault == 'missing-architecture':
+        del env['RUNNER_ARCH']
+        reason = 'architecture'
+    elif fault == 'unknown-ISSUE25-key':
+        # One actual call, four separately enumerated refusal records. The actual
+        # parent visits every supplied key without short-circuiting its scan.
+        env.update(ISSUE25_UNEXPECTED='x', ISSUE25_INJECTION='', ISSUE25_BASE='released', ISSUE25_CASE_ID='P-release')
+        reason = None
+    else: env[fault] = 'invented'
+    reason = 'override-' + fault
+    result = subprocess.run(['bash', str(PACK.with_name('run.sh')), *args], cwd=root, env=env,
+                            check=False, capture_output=True, text=True, timeout=5)
+    assert result.returncode == 1, result.stdout + result.stderr
+    if reason is None:
+        assert set(result.stderr.splitlines()) == {'ISSUE25_REFUSED=control-key:' + key for key in (
+            'ISSUE25_UNEXPECTED', 'ISSUE25_INJECTION', 'ISSUE25_BASE', 'ISSUE25_CASE_ID')}
+    else:
+        assert result.stderr.strip() == 'ISSUE25_REFUSED=' + reason
+    assert not calls.exists() and not exports.exists()
+    assert not (tmp_path / 'issue25-A3-123-a1').exists()
