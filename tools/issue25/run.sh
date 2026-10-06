@@ -3,7 +3,18 @@
 set -euo pipefail
 root=$PWD
 result=0
-test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+refuse() { echo "ISSUE25_REFUSED=$1" >&2; exit 1; }
+test "${GITHUB_EVENT_NAME:-}" = push || refuse event
+case "${GITHUB_REF:-}" in
+  refs/heads/ci/issue25-discriminator|refs/heads/ci/issue25-independent-repeat) ;;
+  *) refuse ref ;;
+esac
+test "${GITHUB_RUN_ATTEMPT:-}" = 1 || refuse attempt
+test "${REPOSITORY_PRIVATE:-}" = false || refuse repository
+test "${RUNNER_ENVIRONMENT:-}" = github-hosted || refuse runner
+test "${RUNNER_ARCH:-}" = X64 || refuse architecture
+[[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || refuse source
+test "$(git rev-parse HEAD)" = "$GITHUB_SHA" || refuse source
 git diff --exit-code HEAD -- .
 python tools/check_lock.py requirements/constraints-py312-ha2024.12.0.txt \
   0d0031ddca8bb870560ca4d4bcafd34233e23e9dd6f0470dc31f7bd888eb7403 3.12.14 \
@@ -38,9 +49,12 @@ for base in released main; do
     break
   fi
   # Only ordinary ownership-red permits the other base. All gates must finish.
-  if ! grep -qx "PACK_COMPLETE=$base" "$RUNNER_TEMP/$base.log" \
+  if test "$(grep -c '^PACK_COMPLETE=' "$RUNNER_TEMP/$base.log")" != 1 \
+    || ! grep -qx "PACK_COMPLETE=$base" "$RUNNER_TEMP/$base.log" \
+    || test "$(grep -c '^PHASES_VALID=' "$RUNNER_TEMP/$base.log")" != 1 \
     || ! grep -qx 'PHASES_VALID=true' "$RUNNER_TEMP/$base.log" \
     || grep -q '"category": "unknown"' "$RUNNER_TEMP/$base.log" \
+    || test "$(grep -c '^PACK_EXIT=' "$RUNNER_TEMP/$base.log")" != 1 \
     || ! grep -qx "PACK_EXIT=$code" "$RUNNER_TEMP/$base.log" \
     || test "$code" -gt 1; then
     result=1

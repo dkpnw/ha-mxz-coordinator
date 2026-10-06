@@ -31,7 +31,12 @@ check_product() {
   cmp "$RUNNER_TEMP/$base-paths" "$RUNNER_TEMP/$base-actual-paths" || return 1
   while read -r mode kind blob path; do
     test "$kind" = blob && test -f "$path" && test ! -L "$path" || return 1
-    test "100$(stat -c '%a' "$path")" = "$mode" || return 1
+    permissions=$(stat -c '%a' "$path") || return 1
+    case "$mode" in
+      100644) test "$((8#$permissions & 0100))" -eq 0 || return 1 ;;
+      100755) test "$((8#$permissions & 0100))" -ne 0 || return 1 ;;
+      *) return 1 ;;
+    esac
     test "$(git hash-object --no-filters "$path")" = "$blob" || return 1
   done < "$RUNNER_TEMP/$base-tree"
   sha256sum --check --strict "$RUNNER_TEMP/$base-harness.sha256" || return 1
@@ -49,7 +54,7 @@ check_product || exit 1
 check_inventory || exit 1
 # Capture only pytest's status. Integrity gates never share its allowed red exit.
 set +e
-PYTHONDONTWRITEBYTECODE=1 timeout --signal=TERM --kill-after=5s 180s \
+ISSUE25_BASE="$base" PYTHONDONTWRITEBYTECODE=1 timeout --signal=TERM --kill-after=5s 180s \
   python -m pytest -p tools.pytest_phases --confcutdir=tools/issue25 \
   tools/issue25/test_restore.py -q -s -p no:cacheprovider
 code=$?

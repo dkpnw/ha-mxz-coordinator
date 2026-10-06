@@ -37,3 +37,31 @@ def test_wrong_or_missing_lock_and_python_identity():
     assert identity_errors(digest, digest, "3.13.1", "3.12.14")
     assert identity_errors(digest, digest, None, "3.12.14")
     assert identity_errors(digest, digest, "3.12.14", "unknown")
+
+
+@pytest.mark.parametrize("field", ["name", "version"])
+def test_actual_checker_rejects_missing_distribution_metadata(tmp_path, monkeypatch, field):
+    from hashlib import sha256
+    from types import SimpleNamespace
+
+    from tools import check_lock
+
+    raw = b"invented-core==1.2.3\n"
+    lock = tmp_path / "lock.txt"
+    lock.write_bytes(raw)
+    monkeypatch.setattr(check_lock.sys, "argv", ["check", str(lock), sha256(raw).hexdigest(), "3.12.14"])
+    monkeypatch.setattr(check_lock.sys, "version", "3.12.14")
+    item = SimpleNamespace(metadata={"Name": None if field == "name" else "invented-core"},
+                           version=None if field == "version" else "1.2.3")
+    monkeypatch.setattr(check_lock, "distributions", lambda: [item])
+    with pytest.raises(AssertionError, match="incomplete distribution metadata"):
+        check_lock.main()
+
+
+@pytest.mark.parametrize("args", [[], ["one"], ["one", "two"], ["one", "two", "three", "four"]])
+def test_actual_checker_rejects_bad_arguments(monkeypatch, args):
+    from tools import check_lock
+
+    monkeypatch.setattr(check_lock.sys, "argv", ["check", *args])
+    with pytest.raises(ValueError):
+        check_lock.main()

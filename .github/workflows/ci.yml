@@ -13,23 +13,47 @@ permissions:
 
 jobs:
   hassfest:
+    if: ${{ github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-discriminator' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-independent-repeat' }}
     name: hassfest
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - name: Source and runner boundary
+        env:
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          test "${REPOSITORY_PRIVATE:-}" = false
+          test "${RUNNER_ENVIRONMENT:-}" = github-hosted
+          test "${RUNNER_ARCH:-}" = X64
+          test "${GITHUB_RUN_ATTEMPT:-}" = 1
+          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Checkout source binding
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       - uses: home-assistant/actions/hassfest@master
 
   hacs:
+    if: ${{ github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-discriminator' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-independent-repeat' }}
     name: HACS
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - name: Source and runner boundary
+        env:
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          test "${REPOSITORY_PRIVATE:-}" = false
+          test "${RUNNER_ENVIRONMENT:-}" = github-hosted
+          test "${RUNNER_ARCH:-}" = X64
+          test "${GITHUB_RUN_ATTEMPT:-}" = 1
+          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Checkout source binding
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       # Keep live validation; the old pinnable HACS tag is not its current ruleset.
       - uses: hacs/action@main
         with:
@@ -37,13 +61,25 @@ jobs:
           # Brand icons ship locally; the brands check runs with no ignore.
 
   ruff:
+    if: ${{ github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-discriminator' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-independent-repeat' }}
     name: ruff
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - name: Source and runner boundary
+        env:
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          test "${REPOSITORY_PRIVATE:-}" = false
+          test "${RUNNER_ENVIRONMENT:-}" = github-hosted
+          test "${RUNNER_ARCH:-}" = X64
+          test "${GITHUB_RUN_ATTEMPT:-}" = 1
+          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Checkout source binding
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12.14"
@@ -51,6 +87,7 @@ jobs:
       - run: ruff check custom_components/ tests/ tools/
 
   pytest:
+    if: ${{ github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-discriminator' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-independent-repeat' }}
     name: pytest (${{ matrix.lane }})
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -71,19 +108,23 @@ jobs:
             constraints: requirements/constraints-py314-ha2026.9.0.txt
             sha256: 1609b598b44434b633b0d29b000c7650f9abd0058337821764a5a36b53ff8600
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Public standard runner boundary
+      - name: Source and runner boundary
         env:
           REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
         run: |
-          test "$REPOSITORY_PRIVATE" = false
-          test "$RUNNER_ENVIRONMENT" = github-hosted
-          test "$RUNNER_ARCH" = X64
+          test "${REPOSITORY_PRIVATE:-}" = false
+          test "${RUNNER_ENVIRONMENT:-}" = github-hosted
+          test "${RUNNER_ARCH:-}" = X64
+          test "${GITHUB_RUN_ATTEMPT:-}" = 1
+          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout source binding
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
       - name: Exact locked installation
         run: |
           tools/ci-install.sh '${{ matrix.constraints }}' '${{ matrix.sha256 }}' '${{ matrix.python-version }}' > "$RUNNER_TEMP/install.log" 2>&1
@@ -96,25 +137,13 @@ jobs:
       - name: Full retained suite
         run: |
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
-          timeout --signal=TERM --kill-after=5s 180s python -m pytest -p tools.pytest_phases tests/ -q > "$RUNNER_TEMP/suite.log" 2>&1
+          timeout --signal=TERM --kill-after=5s 180s python -m pytest -p tools.pytest_phases tests/ -q -s > "$RUNNER_TEMP/suite.log" 2>&1
           test "$(wc -c < "$RUNNER_TEMP/suite.log")" -le 3145728
-      - name: Exact public comparison objects
-        if: matrix.lane == 'py3.12-ha2024.12.0' && github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-discriminator'
-        run: git fetch --no-tags --depth=1 origin 3a9863896f8affb6f71cbd1e495df21b17a69ff3 009b6b42326252ee633f2288573a8052f4e8c1e8
-      - name: Two frozen issue25 packs
-        # Reuse this job's just-checked floor environment; never install tag requirements.
-        if: matrix.lane == 'py3.12-ha2024.12.0' && github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-discriminator'
-        run: |
-          source "$RUNNER_TEMP/mxz-venv/bin/activate"
-          bash tools/issue25/run.sh
       - name: Complete logs and owned cleanup
         if: always()
         run: |
           result=0
           logs=(install sentinel suite)
-          if test '${{ matrix.lane }}' = py3.12-ha2024.12.0 && test "$GITHUB_EVENT_NAME" = push && test "$GITHUB_REF" = refs/heads/ci/issue25-discriminator; then
-            logs+=(released main)
-          fi
           for log in "${logs[@]}"; do
             file="$RUNNER_TEMP/$log.log"
             if test -f "$file"; then
@@ -146,12 +175,104 @@ jobs:
           exit "$result"
 
   yamllint:
+    if: ${{ github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-discriminator' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-independent-repeat' }}
     name: yamllint (legacy package)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - name: Source and runner boundary
+        env:
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          test "${REPOSITORY_PRIVATE:-}" = false
+          test "${RUNNER_ENVIRONMENT:-}" = github-hosted
+          test "${RUNNER_ARCH:-}" = X64
+          test "${GITHUB_RUN_ATTEMPT:-}" = 1
+          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Checkout source binding
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       - run: pip install yamllint==1.38.0
       - run: yamllint -c .yamllint packages/ examples/
+
+  issue25:
+    name: issue25 floor comparison or visible refusal
+    # Invalid events/attempts get a failing guard, never an empty skipped run.
+    if: ${{ !(github.run_attempt == 1 && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-discriminator' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-independent-repeat') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+    steps:
+      - name: Diagnostic admission guard
+        run: |
+          refuse() { echo "ISSUE25_REFUSED=$1" >&2; exit 1; }
+          test "${GITHUB_EVENT_NAME:-}" = push || refuse event
+          case "${GITHUB_REF:-}" in
+            refs/heads/ci/issue25-discriminator|refs/heads/ci/issue25-independent-repeat) ;;
+            *) refuse ref ;;
+          esac
+          test "${GITHUB_RUN_ATTEMPT:-}" = 1 || refuse attempt
+          test "${REPOSITORY_PRIVATE:-}" = false || refuse repository
+          test "${RUNNER_ENVIRONMENT:-}" = github-hosted || refuse runner
+          test "${RUNNER_ARCH:-}" = X64 || refuse architecture
+          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || refuse source
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout source binding
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.14"
+      - name: Exact locked installation
+        run: |
+          tools/ci-install.sh requirements/constraints-py312-ha2024.12.0.txt 0d0031ddca8bb870560ca4d4bcafd34233e23e9dd6f0470dc31f7bd888eb7403 3.12.14 > "$RUNNER_TEMP/install.log" 2>&1
+          test "$(wc -c < "$RUNNER_TEMP/install.log")" -le 6291456
+      - name: Ordinary admission sentinel
+        run: |
+          source "$RUNNER_TEMP/mxz-venv/bin/activate"
+          timeout --signal=TERM --kill-after=5s 60s python -m pytest -p tools.pytest_phases tests/test_changeover.py::test_changeover_from_temperature_sensor -q -s > "$RUNNER_TEMP/sentinel.log" 2>&1
+          test "$(wc -c < "$RUNNER_TEMP/sentinel.log")" -le 1048576
+      - name: Exact public comparison objects
+        run: git fetch --no-tags --depth=1 origin 3a9863896f8affb6f71cbd1e495df21b17a69ff3 009b6b42326252ee633f2288573a8052f4e8c1e8
+      - name: Two frozen issue25 packs
+        run: |
+          source "$RUNNER_TEMP/mxz-venv/bin/activate"
+          bash tools/issue25/run.sh
+      - name: Complete logs and owned cleanup
+        if: always()
+        run: |
+          result=0
+          logs=(install sentinel released main)
+          for log in "${logs[@]}"; do
+            file="$RUNNER_TEMP/$log.log"
+            if test -f "$file"; then
+              sha256sum "$file"
+              bytes=$(wc -c < "$file")
+              echo "LOG_BYTES=$log:$bytes"
+              case "$log" in
+                install) limit=6291456 ;;
+                sentinel) limit=1048576 ;;
+                suite) limit=3145728 ;;
+                released|main) limit=2097152 ;;
+              esac
+              if test "$bytes" -le "$limit"; then
+                cat "$file"
+              else
+                echo "LOG_BUDGET_EXCEEDED=$log COMPLETE_EXPORT=false"
+                result=1
+              fi
+            else
+              echo "MISSING_LOG=$log"
+              result=1
+            fi
+          done
+          git diff --exit-code HEAD -- . || result=1
+          test -z "$(git ls-files --others --exclude-standard)" || result=1
+          rm -rf -- "$RUNNER_TEMP/mxz-venv" "$RUNNER_TEMP/issue25-released" "$RUNNER_TEMP/issue25-main"
+          echo "OWNED_SCRATCH_REMOVED=true"
+          echo "LOG_EXPORT_COMPLETE result=$result"
+          exit "$result"

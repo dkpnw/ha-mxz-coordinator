@@ -7,9 +7,14 @@ No helpers or expected values are imported from either product's tests.
 from __future__ import annotations
 
 import asyncio
+from contextlib import ExitStack
 from copy import deepcopy
 from datetime import datetime
+from hashlib import sha256
+from importlib.metadata import distribution
 import json
+import os
+from pathlib import Path
 from time import monotonic
 from typing import ClassVar
 from unittest.mock import patch
@@ -48,6 +53,21 @@ class OwnershipFailure(AssertionError):
 
 def trace(event, **values):
     print("ISSUE25 " + json.dumps({"event": event, **values}, default=str, sort_keys=True))
+
+
+def dependency_provenance():
+    """Bind the later executed contract to installed files, never guessed sources."""
+    for package, paths in (
+        ("homeassistant", ("homeassistant/helpers/restore_state.py",
+                           "homeassistant/helpers/storage.py",
+                           "homeassistant/helpers/entity_platform.py")),
+        ("pytest-homeassistant-custom-component", ("pytest_homeassistant_custom_component/common.py",)),
+    ):
+        installed = distribution(package)
+        for path in paths:
+            raw = Path(installed.locate_file(path)).read_bytes()
+            trace("dependency-file", package=package, version=installed.version,
+                  path=path, sha256=sha256(raw).hexdigest())
 
 
 def completed_fan(calls, start, token):
@@ -92,6 +112,93 @@ def require_restore_record(entity, loaded, record, created_at):
 def require_restore_read(result, expected, entity, kind):
     """Observe the original HA getter; never manufacture its returned truth."""
     assert result is expected, f"UNKNOWN: {entity} {kind} bypassed loaded restore record"
+
+
+class LifecycleReads:
+    """Read-through observation; all validation happens outside entity setup."""
+
+    def __init__(self, heads=()):
+        self.calls = []
+        self.heads = heads
+
+    def wrap(self, original, kind, relevant=lambda entity: True):
+        async def observed(entity):
+            if not relevant(entity):
+                return await original(entity)
+            call = {"entity": entity, "kind": kind, "complete": False,
+                    "result": None, "exception": None,
+                    "heads": tuple(head.hass.states.get(head.entity_id) for head in self.heads)}
+            self.calls.append(call)
+            try:
+                result = await original(entity)
+            except BaseException as error:
+                call["exception"] = error
+                raise
+            call["result"] = result
+            call["complete"] = True
+            return result
+        return observed
+
+    def validate(self, supplied, extra_required):
+        expected = {(sid, kind) for sid in supplied for kind in ("state", "add")}
+        expected.update((sid, "extra") for sid in extra_required)
+        actual = [(c["entity"].entity_id, c["kind"]) for c in self.calls]
+        assert len(actual) == len(set(actual)), "UNKNOWN: duplicate lifecycle read"
+        assert set(actual) == expected, "UNKNOWN: missing/unexpected lifecycle read"
+        entities = {}
+        for call in self.calls:
+            sid, kind = call["entity"].entity_id, call["kind"]
+            assert call["complete"] and call["exception"] is None, "UNKNOWN: incomplete lifecycle"
+            entity = entities.setdefault(sid, call["entity"])
+            assert entity is call["entity"], "UNKNOWN: mixed entity incarnation"
+            if kind != "add":
+                loaded = supplied[sid]
+                answer = getattr(loaded, "state" if kind == "state" else "extra_data") if loaded else None
+                require_restore_read(call["result"], answer, sid, kind)
+
+
+def observe_lifecycle(stack, observer, entity_class, relevant=lambda entity: True):
+    for cls, method, kind in (
+        (rs.RestoreEntity, "async_get_last_state", "state"),
+        (rs.RestoreEntity, "async_get_last_extra_data", "extra"),
+        (entity_class, "async_added_to_hass", "add"),
+    ):
+        stack.enter_context(patch.object(cls, method, new=observer.wrap(getattr(cls, method), kind, relevant)))
+
+
+async def load_after_removal(restore, raw, entities, created_at):
+    """Check the actual Store call and reconstructed records after removal."""
+    removed = {sid: restore.last_states.get(sid) for sid in entities}
+    real_load = restore.store.async_load
+    loads = []
+
+    async def observed_load():
+        call = {"complete": False, "result": None}
+        loads.append(call)
+        value = await real_load()
+        call.update(complete=True, result=value)
+        return value
+
+    with patch.object(restore.store, "async_load", new=observed_load):
+        await restore.async_load()
+    assert len(loads) == 1 and loads[0]["complete"], "UNKNOWN: missing/duplicate/incomplete Store load"
+    assert loads[0]["result"] == raw["data"], "UNKNOWN: post-unload load did not read serialized shutdown store"
+    records = {r["state"]["entity_id"]: r for r in raw["data"]}
+    assert len(records) == len(raw["data"]), "UNKNOWN: duplicate serialized entity"
+    for sid in entities:
+        loaded = restore.last_states.get(sid)
+        assert loaded is not removed[sid], "UNKNOWN: unload-time memory record survived load"
+        require_restore_record(sid, loaded, records[sid], created_at)
+    return {sid: restore.last_states[sid] for sid in entities}
+
+
+def public_hold(plan, room):
+    assert plan is not None and plan.state not in ("unknown", "unavailable"), "UNKNOWN: no usable public plan"
+    zones = plan.attributes.get("zones")
+    assert isinstance(zones, list) and len(zones) > room, "UNKNOWN: plan zones missing"
+    zone = zones[room]
+    assert isinstance(zone, dict) and type(zone.get("fan_hold")) is bool, "UNKNOWN: plan hold missing"
+    return zone["fan_hold"]
 
 
 class Head(ClimateEntity):
@@ -221,13 +328,15 @@ class Trial:
         """Public switch and public plan are independent of private latch readings."""
         self.snapshot(label)
         plan = self.hass.states.get(self.eid("_plan"))
-        assert plan.state not in ("unknown", "unavailable"), "UNKNOWN: no usable public plan"
         for i, held in enumerate((held_a, False)):
-            state = self.hass.states.get(self.switch(i)).state
+            actual_hold = public_hold(plan, i)
+            public = self.hass.states.get(self.switch(i))
+            assert public is not None, "UNKNOWN: switch absent"
+            state = public.state
             expected = "off" if held else "on"
-            if state in ("unknown", "unavailable"):
+            if state not in ("on", "off"):
                 self.unknown.append(f"{label}/cycle{self.cycle}/room{i}: switch {state}")
-            elif state != expected or plan.attributes["zones"][i]["fan_hold"] is not held:
+            elif state != expected or actual_hold is not held:
                 self.errors.append(f"{label}/cycle{self.cycle}/room{i}: expected {expected}, "
                                    f"hold={held}; got {state}, {plan.attributes['zones'][i]}")
 
@@ -285,22 +394,9 @@ class Trial:
         # Load after unload so any removal-time cache updates precede this
         # read. Observe the real Store load result rather than supplying one.
         restore = rs.async_get(self.hass)
-        unloaded = {sid: restore.last_states.get(sid) for sid in identity[2:]}
-        real_load = restore.store.async_load
-        loads = []
-
-        async def observed_load():
-            value = await real_load()
-            loads.append(deepcopy(value))
-            return value
-
-        with patch.object(restore.store, "async_load", new=observed_load):
-            await restore.async_load()
-        assert loads == [raw["data"]], "UNKNOWN: post-unload load did not read serialized shutdown store"
+        await load_after_removal(restore, raw, identity[2:], self.entry.created_at)
         for sid in identity[2:]:
             loaded = restore.last_states.get(sid)
-            assert loaded is not unloaded[sid], "UNKNOWN: unload-time memory record survived load"
-            require_restore_record(sid, loaded, records[sid], self.entry.created_at)
             trace("reloaded-after-unload", cycle=self.cycle, entity=sid,
                   state=loaded.state.as_dict(),
                   extra=(loaded.extra_data.as_dict() if loaded.extra_data else None))
@@ -319,44 +415,37 @@ class Trial:
         elif variant == "missing-speed":
             self.heads[0].report(None)
         supplied = {sid: restore.last_states.get(sid) for sid in identity[2:]}
-        reads = set()
-        get_state = rs.RestoreEntity.async_get_last_state
-        get_extra = rs.RestoreEntity.async_get_last_extra_data
+        from custom_components.mxz_coordinator.switch import MXZZoneFanAutoSwitch
 
-        async def observed_state(entity):
-            result = await get_state(entity)
-            if entity.entity_id in supplied:
-                loaded = supplied[entity.entity_id]
-                require_restore_read(result, loaded.state if loaded else None, entity.entity_id, "state")
-                reads.add(entity.entity_id)
-                room = identity[2:].index(entity.entity_id)
-                head = self.hass.states.get(self.heads[room].entity_id)
-                trace("restore-input", cycle=self.cycle, entity=entity.entity_id, room=room,
-                      observed_head=head.as_dict() if head else None,
-                      expected_active_fixed_point=(room == 1 and variant != "demand"),
-                      state=result.as_dict() if result else None,
-                      clean_state_answer=result.state if result and result.state in ("on", "off") else None,
-                      loaded_extra=(loaded.extra_data.as_dict() if loaded and loaded.extra_data else None),
-                      missing_negative=variant == "missing")
-            return result
-
-        async def observed_extra(entity):
-            result = await get_extra(entity)
-            if entity.entity_id in supplied:
-                loaded = supplied[entity.entity_id]
-                require_restore_read(result, loaded.extra_data if loaded else None, entity.entity_id, "extra")
-                trace("restore-extra-input", cycle=self.cycle, entity=entity.entity_id,
-                      extra=result.as_dict() if result else None)
-            return result
-
-        # These observers always await and return the original methods. Their
-        # assertions identify the actual inputs supplied to the product.
-        with patch.object(rs.RestoreEntity, "async_get_last_state", new=observed_state), patch.object(
-            rs.RestoreEntity, "async_get_last_extra_data", new=observed_extra
-        ):
-            assert await self.hass.config_entries.async_setup(self.entry.entry_id)
+        # The immutable base selects the inspected read path, never the oracle.
+        base = os.environ.get("ISSUE25_BASE")
+        assert base in ("released", "main"), "UNKNOWN: restore base identity missing"
+        extra_required = {sid for sid, loaded in supplied.items() if base == "main" and loaded
+                          and loaded.state.state not in ("on", "off")
+                          and loaded.state.last_updated >= self.entry.created_at}
+        observer = LifecycleReads(self.heads)
+        with ExitStack() as stack:
+            observe_lifecycle(stack, observer, MXZZoneFanAutoSwitch,
+                              lambda entity: isinstance(entity, MXZZoneFanAutoSwitch))
+            setup = await self.hass.config_entries.async_setup(self.entry.entry_id)
             await self.hass.async_block_till_done()
-        assert reads == set(supplied), "UNKNOWN: product restore read missing"
+        observer.validate(supplied, extra_required)
+        assert setup, "UNKNOWN: entry setup failed"
+        for sid, loaded in supplied.items():
+            if loaded:
+                require_restore_record(sid, loaded, records[sid], self.entry.created_at)
+            room = identity[2:].index(sid)
+            read = next(c for c in observer.calls if c["kind"] == "state" and c["entity"].entity_id == sid)
+            head = read["heads"][room]
+            trace("restore-input", cycle=self.cycle, entity=sid, room=room,
+                  observed_head=head.as_dict() if head else None,
+                  expected_active_fixed_point=(room == 1 and variant != "demand"),
+                  state=loaded.state.as_dict() if loaded else None,
+                  clean_state_answer=loaded.state.state if loaded and loaded.state.state in ("on", "off") else None,
+                  loaded_extra=loaded.extra_data.as_dict() if loaded and loaded.extra_data else None,
+                  extra_requested=sid in extra_required,
+                  consumed_extra=loaded.extra_data.as_dict() if sid in extra_required and loaded.extra_data else None,
+                  missing_negative=variant == "missing")
         assert self.entry.runtime_data is not original, "UNKNOWN: coordinator not recreated"
         assert identity == (self.entry.entry_id, self.entry.created_at, self.switch(0), self.switch(1))
         self.snapshot("after-setup")
@@ -384,6 +473,7 @@ class Trial:
 
 @pytest.fixture
 async def trial(hass, hass_storage, enable_custom_integrations):
+    dependency_provenance()
     hass.config.units = US_CUSTOMARY_SYSTEM
     heads = [Head("A"), Head("B")]
 
@@ -404,8 +494,16 @@ async def trial(hass, hass_storage, enable_custom_integrations):
     entry.add_to_hass(hass)
     t = Trial(hass, hass_storage, heads, entry)
     try:
-        assert await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
+        from custom_components.mxz_coordinator.switch import MXZZoneFanAutoSwitch
+
+        observer = LifecycleReads()
+        with ExitStack() as stack:
+            observe_lifecycle(stack, observer, MXZZoneFanAutoSwitch,
+                              lambda entity: isinstance(entity, MXZZoneFanAutoSwitch))
+            setup = await hass.config_entries.async_setup(entry.entry_id)
+            await hass.async_block_till_done()
+        observer.validate({t.switch(i): None for i in range(2)}, set())
+        assert setup, "UNKNOWN: initial entry setup failed"
         for room in ("primary", "secondary"):
             await t.service("number", "set_value", t.eid(f"_{room}_target"), value=70)
             await t.service("switch", "turn_on", t.eid(f"_{room}_enable"))

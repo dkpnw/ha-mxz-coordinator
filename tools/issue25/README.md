@@ -39,8 +39,10 @@ replacement state or extra data. Cache or getter mismatches are UNKNOWN. The sol
 injected missing record is explicitly confined to cell 05.
 This is an in-process restore-store lifecycle, not a physical reboot or hardware test.
 
-The floor job uses the environment checked by its ordinary sentinel and full
-suite. Each product runs with fresh fixture state. Infrastructure, prerequisite,
+The comparison has a dedicated floor job with a locked installation and ordinary
+sentinel. The three full suites run in separate ordinary CI jobs, including
+invented restore lifecycle and entity-add failure controls. Each product runs
+with fresh fixture state. Infrastructure, prerequisite,
 source-integrity or phase failure stops the comparison; no absent cell passes.
 All three locked suites and all five CI families remain required.
 
