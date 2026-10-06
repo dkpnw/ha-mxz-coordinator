@@ -20,7 +20,11 @@ from typing import ClassVar
 from unittest.mock import patch
 
 import pytest
-from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature, HVACMode
+from homeassistant.components.climate import (
+    ClimateEntity,
+    ClimateEntityFeature,
+    HVACMode,
+)
 from homeassistant.const import UnitOfTemperature
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import restore_state as rs
