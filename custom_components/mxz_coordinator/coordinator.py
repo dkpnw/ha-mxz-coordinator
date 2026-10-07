@@ -1651,7 +1651,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return task
 
     async def _wait_deliveries(self, tasks: list[asyncio.Task]) -> None:
-        """Wait for ordinary work, but let new inputs make a new decision."""
+        """Wait for issued work; deferred work or new inputs release the plan."""
         if not tasks:
             return
         wake = asyncio.create_task(self._refresh_wake.wait())
@@ -1681,7 +1681,14 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Own the complete per-head sequence, including fan observation.
             # A queued manual command runs before the next sequence inspects its
             # fan token; no pre-lock guess can overwrite that manual choice.
-            async with self._head_locks.setdefault(climate_id, asyncio.Lock()):
+            lock = self._head_locks.setdefault(climate_id, asyncio.Lock())
+            if lock.locked() or climate_id in self._vane_cleanup_pending:
+                # This sequence has issued nothing. Keep it queued behind the
+                # real handler/cleanup, but do not hold its creating service or
+                # entry setup open until an unrelated input wakes the plan.
+                self._refresh_wake.set()
+                self._publish_delivery()
+            async with lock:
                 await self._wait_vane_cleanup(climate_id)
                 active["locked"] = True
                 await self._deliver_head_steps(climate_id, active, act, low, high, delta, engage)
@@ -1800,6 +1807,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Observe one software call, never claim physical receipt."""
         observed = observation if observation is not None else self._command_observations.setdefault(climate_id, {})
         if observation is None:
+            # Ordinary issuance has waited for both the old handler and its
+            # guarded cleanup. That cleanup is no longer a current obstacle.
+            observed.pop("vane_retirement_cleanup", None)
             observed.update(_owner=self, _task=asyncio.current_task(), command_ownership_retired=False)
         observed.update(command_status="pending", command_attempted_at=dt_util.utcnow().isoformat())
         self._publish_delivery()
@@ -1837,7 +1847,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "command_error": observed.get("command_error"),
             "command_ownership_retired": observed.get("command_ownership_retired", False),
             "vane_retirement_cleanup": dict(observed.get("vane_retirement_cleanup", {})),
-            "command_deferred": bool(active and active["next"] is self),
+            "command_deferred": bool(active and (active["next"] is self or not active["locked"])),
             "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
             "plan_target_basis": "computed intent; command return does not prove physical application",
         }

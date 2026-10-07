@@ -531,6 +531,7 @@ async def test_resistant_vane_retirement_preserves_guard_and_ordinary_order(
             harness.barrier.release.set()
             await until(harness.kick_task.done, 1.0)
             await harness.kick_task
+            assert not next_command.done() and next_calls == []
             observed = coord.command_attributes(cid)
             assert observed["command_status"] == "returned"
             assert observed["vane_retirement_cleanup"]["command_status"] == "pending"
@@ -597,3 +598,134 @@ async def test_queued_vane_has_no_own_wake_retirement_permission(hass, monkeypat
         if not coord._retired:
             await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
+
+
+@pytest.mark.parametrize("cleanup_returns_first", [True, False])
+@pytest.mark.parametrize("latest", ["idle", "cool"])
+async def test_deferred_delivery_releases_creating_service_and_transaction(
+    hass, monkeypatch, request, cleanup_returns_first, latest,
+):
+    """Enable returns while unissued work waits; both real returns are required."""
+    from tests.test_vane_kick import _setup_kickable, _start_blocked_kick
+
+    entry, heads, vane = await _setup_kickable(hass)
+    coord = entry.runtime_data
+    cid = heads[0].entity_id
+    room_id = _eid(hass, entry, "_primary_thermostat")
+    harness = await _start_blocked_kick(hass, entry, heads[0], vane, "wake", monkeypatch, request)
+    coord._vane_kick_retire = 0.05
+    cleanup_entered, cleanup_release = asyncio.Event(), asyncio.Event()
+    original_mode = heads[0].async_set_hvac_mode
+    calls = []
+    peer_calls = []
+    original_peer = heads[1].async_set_hvac_mode
+    temperatures = []
+    original_temperature = heads[0].async_set_temperature
+
+    async def mode(value):
+        calls.append(value)
+        await original_mode(value)
+        if value == "off":
+            cleanup_entered.set()
+            await cleanup_release.wait()
+
+    async def peer(value):
+        peer_calls.append(value)
+        await original_peer(value)
+
+    async def temperature(**kwargs):
+        temperatures.append(kwargs)
+        await original_temperature(**kwargs)
+
+    monkeypatch.setattr(heads[0], "async_set_hvac_mode", mode)
+    monkeypatch.setattr(heads[1], "async_set_hvac_mode", peer)
+    monkeypatch.setattr(heads[0], "async_set_temperature", temperature)
+
+    async def switch(service, suffix):
+        await hass.services.async_call("switch", service, {
+            "entity_id": _eid(hass, entry, suffix),
+        }, blocking=True)
+
+    disable = asyncio.create_task(switch("turn_off", "_coordinator_enable"))
+    enable = None
+    try:
+        await until(cleanup_entered.is_set, 1.0)
+        assert harness.barrier.cancel_requested.is_set()
+        if cleanup_returns_first:
+            cleanup_release.set()
+            await until(disable.done, 1.0)
+            await disable
+            assert not harness.kick_task.done()
+        else:
+            harness.barrier.release.set()
+            await until(harness.kick_task.done, 1.0)
+            await harness.kick_task
+            assert not disable.done()
+        await switch("turn_off", "_eco_idle")
+        # Expire only the pre-existing request cooldown while disabled. The
+        # enable below is the sole new input and must create a completed plan.
+        for _ in range(5):
+            generation = coord._refresh_generation
+            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=11))
+            await asyncio.sleep(0.03)
+            assert not coord.coordinator_enable and not coord._plan_lock.locked()
+            if coord._refresh_generation == generation:
+                break
+        else:
+            pytest.fail("disabled preparation never settled")
+        generation = coord._refresh_generation
+        enable = asyncio.create_task(switch("turn_on", "_coordinator_enable"))
+        await until(lambda: cid in coord._deliveries or calls != ["off"], 1.0)
+        assert calls == ["off"], "ordinary work must wait for the actual wake and cleanup returns"
+        await until(enable.done, 1.0)
+        await enable
+        await until(lambda: coord._refresh_generation > generation and not coord._plan_lock.locked(), 1.0)
+        await until(lambda: peer_calls == ["fan_only"], 1.0)
+        observed = hass.states.get(room_id).attributes
+        assert observed["command_deferred"] is True
+        assert observed["command_ownership_retired"] is True
+        assert observed["command_status"] == ("pending" if cleanup_returns_first else "returned")
+        assert observed["vane_retirement_cleanup"]["command_status"] == (
+            "returned" if cleanup_returns_first else "pending"
+        )
+        assert "Own-wake vane retirement" in json.dumps(observed["control_reasons"])
+        assert "deferred" in json.dumps(observed["control_reasons"])
+        assert calls == ["off"]
+        # Latest intent replaces the unissued fan_only: no obsolete wake after
+        # the real handlers return and no new refresh input at release.
+        if latest == "idle":
+            await switch("turn_on", "_eco_idle")
+            await until(lambda: heads[1].hvac_mode == "off", 1.0)
+        else:
+            for target in (67, 66):
+                await hass.services.async_call("number", "set_value", {
+                    "entity_id": _eid(hass, entry, "_primary_target"), "value": target,
+                }, blocking=True)
+            await until(lambda: hass.states.get(room_id).attributes["temperature"] == 66, 1.0)
+            assert temperatures == []
+        cleanup_release.set()
+        harness.barrier.release.set()
+        await until(harness.kick_task.done, 1.0)
+        await harness.kick_task
+        await until(lambda: not coord._deliveries, 1.0)
+        await hass.async_block_till_done()
+        assert calls == ["off"]
+        if latest == "idle":
+            assert peer_calls == ["fan_only", "off"]
+            assert temperatures == []
+        else:
+            assert peer_calls == ["fan_only"]
+            assert len(temperatures) == 1
+            assert temperatures[0]["target_temp_high"] == 66
+        assert hass.states.get(room_id).attributes["command_deferred"] is False
+    finally:
+        cleanup_release.set()
+        harness.barrier.release.set()
+        await until(harness.kick_task.done)
+        await harness.kick_task
+        await disable
+        if enable is not None:
+            await enable
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+        assert not coord._deliveries and not coord._vane_cleanup_pending
