@@ -1272,7 +1272,10 @@ async def test_plan_explains_unavailable_room_inputs(
             await hass.async_block_till_done()
             await _settle_requested_refreshes(hass, entry.runtime_data)
             assert f"Head {head_a} unavailable" in _reasons(hass, entry)
-            assert hass.states.get(switch).state == "unavailable"
+            # Retained fan capabilities keep ON intent available; absence cannot.
+            assert hass.states.get(switch).state == (
+                "unavailable" if missing is None else "on"
+            )
             assert hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][1] == healthy
             assert hass.states.get(healthy_switch).state == "on"
             assert writes == []
@@ -1282,7 +1285,9 @@ async def test_plan_explains_unavailable_room_inputs(
             reasons = _reasons(hass, entry)
             assert f"Head {head_a} unavailable" in reasons
             assert f"Room sensor {SENSOR_A} unavailable" in reasons
-            assert hass.states.get(switch).state == "unavailable"
+            assert hass.states.get(switch).state == (
+                "unavailable" if missing is None else "on"
+            )
             assert "Head" not in _reasons(hass, entry, 1)
             # Restore only the head while the sensor remains unavailable.
             hass.states.async_set(head_a, available.state, available.attributes)
