@@ -325,3 +325,40 @@ async def test_late_vane_return_updates_reloaded_room_disclosure(hass, monkeypat
         if hasattr(entry, "runtime_data") and not entry.runtime_data._retired:
             assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
+
+
+async def test_inhibit_retires_only_its_pending_vane_wake(hass, monkeypatch, request):
+    """Kick retirement is visible even when the coordinator remains live."""
+    from tests.test_vane_kick import _setup_kickable, _start_blocked_kick
+
+    entry, heads, vane = await _setup_kickable(hass, inhibitable=True)
+    coord = entry.runtime_data
+    harness = await _start_blocked_kick(hass, entry, heads[0], vane, "wake", monkeypatch, request)
+    coord._vane_kick_retire = 0.05
+    room_id = _eid(hass, entry, "_primary_thermostat")
+    before = hass.states.get(room_id).attributes
+    try:
+        assert before["command_status"] == "pending"
+        assert before["command_ownership_retired"] is False
+        hass.states.async_set("binary_sensor.grid_hold", "on")
+        await until(lambda: hass.states.get(room_id).attributes["command_ownership_retired"], 1.0)
+        observed = hass.states.get(room_id).attributes
+        assert observed["command_status"] == "pending"
+        assert observed["command_attempted_at"] == before["command_attempted_at"]
+        assert observed["command_returned_at"] == before["command_returned_at"]
+        assert observed["command_retired_at"] != "not yet recorded"
+        assert "Command ownership retired" in json.dumps(observed["control_reasons"])
+        assert coord.inhibited and not coord._retired
+        await until(lambda: ("head", "off") in harness.commands, 1.0)
+        await until(lambda: hass.states.get(room_id).attributes["vane_retirement_cleanup"].get(
+            "command_status") == "returned", 1.0)
+        assert not harness.kick_task.done()
+        assert hass.states.get(room_id).attributes["command_status"] == "pending"
+    finally:
+        harness.barrier.release.set()
+        await until(harness.kick_task.done)
+        await harness.kick_task
+        await hass.async_block_till_done()
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+    assert harness.commands == [("head", "fan_only"), ("head", "off")]

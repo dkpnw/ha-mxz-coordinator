@@ -1800,7 +1800,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Observe one software call, never claim physical receipt."""
         observed = observation if observation is not None else self._command_observations.setdefault(climate_id, {})
         if observation is None:
-            observed.update(_owner=self, command_ownership_retired=False)
+            observed.update(_owner=self, _task=asyncio.current_task(), command_ownership_retired=False)
         observed.update(command_status="pending", command_attempted_at=dt_util.utcnow().isoformat())
         self._publish_delivery()
         try:
@@ -2736,8 +2736,14 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         tasks = tuple(self._vane_kicks.values())
         for climate_id in tuple(self._vane_kicks):
-            self._vane_kicks.pop(climate_id, None)
+            task = self._vane_kicks.pop(climate_id, None)
             self._vane_pending.pop(climate_id, None)
+            observed = self._command_observations.get(climate_id, {})
+            if observed.get("_task") is task and observed.get("command_status") == "pending":
+                observed.update(
+                    command_retired_at=dt_util.utcnow().isoformat(), command_ownership_retired=True,
+                )
+        self._publish_delivery()
         for task in tasks:
             task.cancel()
         if tasks:
