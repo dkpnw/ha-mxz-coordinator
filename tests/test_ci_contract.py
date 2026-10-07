@@ -311,7 +311,7 @@ exec /usr/bin/timeout --signal=TERM --kill-after=5s 180s "$@"
     env.update(INVENTED_OUTCOME=outcome, INVENTED_EXIT=str(expected))
     payload = suite_payload(expected)
     if outcome.endswith("-oversize"):
-        payload = "x" * 4194304 + "\n" + payload
+        payload = "x" * 5242880 + "\n" + payload
     elif outcome == "error":
         payload = 'invented interrupted collection\n'
     (root / "payload").write_text(payload)
@@ -366,7 +366,7 @@ def test_actual_export_rejects_invalid_or_incomplete_evidence(suite_export, faul
         (root / (fault.removeprefix("missing-") + ".log")).unlink()
     elif fault.endswith("-oversize"):
         name = fault.removesuffix("-oversize")
-        limits = {"suite": 4194304, "install": 6291456, "sentinel": 1048576}
+        limits = {"suite": 5242880, "install": 6291456, "sentinel": 1048576}
         (root / f"{name}.log").write_text("x" * (limits[name] + 1))
     else:
         prefixes = {"collection": "COLLECTED ", "completion": "PHASES_COMPLETE ", "validity": "PHASES_VALID="}
@@ -410,7 +410,7 @@ def test_actual_export_rejects_invalid_or_incomplete_evidence(suite_export, faul
 def test_actual_export_retains_entire_four_mib_suite(suite_export, exit_code):
     root, _bin_dir, env, _suite, export = suite_export
     payload = suite_payload(exit_code)
-    # Exact ceiling: both ordinary exits must retain the whole file, including its tail.
+    # Historical four MiB boundary: retain the whole file for both ordinary exits.
     payload = "x" * (4194304 - len(payload) - 1) + "\n" + payload
     (root / "suite.log").write_text(payload)
     (root / "suite.exit").write_text(f"{exit_code}\n")
@@ -422,6 +422,67 @@ def test_actual_export_retains_entire_four_mib_suite(suite_export, exit_code):
     assert (root / "suite.log").read_text() == payload
     assert (root / "suite.exit").read_text() == f"{exit_code}\n"
     assert "LOG_EXPORT_COMPLETE result=0" in result.stdout
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+@pytest.mark.parametrize("size", [5242880, 5242881], ids=["exact-five-mib", "five-mib-plus-one"])
+def test_actual_export_five_mib_boundary(tmp_path, workflow, exit_code, size):
+    import sys
+
+    # Real pytest emits the phase records; real Git runs the cleanliness checks.
+    # All input data is invented. No endpoint, interpreter or Git stand-ins.
+    env = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
+           "TZ": "UTC", "PYTHONDONTWRITEBYTECODE": "1"}
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for argv in (["git", "-c", "init.templateDir=", "init", "-q"],
+                 ["git", "-c", "user.name=Invented fixture", "-c", "user.email=fixture@example.invalid",
+                  "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "Invented export fixture"]):
+        result = subprocess.run(argv, cwd=repo, env=env, stdin=subprocess.DEVNULL,
+                                check=False, capture_output=True, text=True, timeout=5)
+        assert result.returncode == 0, result.stderr
+    root = tmp_path / "scratch"
+    root.mkdir()
+    plugin = Path(__file__).parents[1] / "tools/pytest_phases.py"
+    (root / "conftest.py").write_bytes(plugin.read_bytes())
+    (root / "test_invented_boundary.py").write_text(
+        f"def test_invented_boundary():\n    assert {exit_code} == 0\n")
+    phases = subprocess.run([sys.executable, "-I", "-m", "pytest", "-p", "no:cacheprovider",
+                             "-q", "-s", "test_invented_boundary.py"], cwd=root, env=env,
+                            stdin=subprocess.DEVNULL, check=False, capture_output=True, timeout=15)
+    assert phases.returncode == exit_code and phases.stderr == b"", phases.stderr
+    assert b"PHASES_VALID=true\n" in phases.stdout
+    payload = b"x" * (size - len(phases.stdout) - 1) + b"\n" + phases.stdout
+    assert len(payload) == size
+    (root / "suite.log").write_bytes(payload)
+    (root / "suite.exit").write_text(f"{exit_code}\n")
+    for name in ("install", "sentinel"):
+        (root / f"{name}.log").write_text(f"invented {name} log\n")
+    for name in ("mxz-venv", "issue25-released", "issue25-main"):
+        (root / name).mkdir()
+    export = next(s for s in workflow["jobs"]["pytest"]["steps"]
+                  if s.get("name") == "Complete logs and owned cleanup")
+    assert export["if"] == "always()"
+    assert "suite) limit=5242880 ;;" in export["run"]
+    env["RUNNER_TEMP"] = str(root)
+    result = subprocess.run(["bash", "--noprofile", "--norc", "-euo", "pipefail", "-c", export["run"]],
+                            cwd=repo, env=env, stdin=subprocess.DEVNULL,
+                            check=False, capture_output=True, timeout=5)
+    oversize = size > 5242880
+    assert result.returncode == int(oversize) and result.stderr == b"", result.stderr
+    assert f"RETAINED_SUITE_EXIT={exit_code}\n".encode() in result.stdout
+    assert f"LOG_BYTES=suite:{size}\n".encode() in result.stdout
+    if oversize:
+        assert b"LOG_BUDGET_EXCEEDED=suite COMPLETE_EXPORT=false\n" in result.stdout
+        assert payload not in result.stdout and phases.stdout not in result.stdout
+    else:
+        assert result.stdout.count(payload) == 1
+        assert b"INCOMPLETE_SUITE_PHASES" not in result.stdout
+    assert (root / "suite.log").read_bytes() == payload
+    assert (root / "suite.exit").read_text() == f"{exit_code}\n"
+    assert b"OWNED_SCRATCH_REMOVED=true\n" in result.stdout
+    assert all(not (root / name).exists() for name in ("mxz-venv", "issue25-released", "issue25-main"))
+    assert f"LOG_EXPORT_COMPLETE result={int(oversize)}\n".encode() in result.stdout
 
 
 RECOVERY_ROUTES = [
