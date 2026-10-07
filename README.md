@@ -1,40 +1,47 @@
 # MXZ Coordinator
 
-**Set one temperature per room. The coordinator does the rest.**
+**Set one temperature per room. The coordinator chooses one shared heating or cooling mode.**
 
-The MXZ setups supported here put several indoor heads on one outdoor unit and use one
-shared heating-or-cooling mode. In stock AUTO, rooms can conflict and one can wait in
-standby. I saw it here: a room 6 °F too hot drew **26 W for over an hour** while a
-satisfied head held the other mode. The coordinator ends that fight: set one number per
-room, and it uses room sensors to choose one shared mode, fan, and priority. It cannot
-provide simultaneous heat and cool, but it can keep a calling room from waiting behind a
-satisfied one.
+Several indoor heads share one MXZ outdoor unit. When rooms disagree, stock AUTO can
+leave one waiting in standby. MXZ Coordinator uses your room sensors, targets and
+priority order to choose an explicit shared mode. A satisfied room steps aside. It
+cannot heat one room and cool another at the same time.
 
-![Two rooms as single-target "Auto" dials alongside the coordinator's live decision state.](images/dashboard.png)
+![Two rooms as single-target Auto dials beside the coordinator's decision state.](images/dashboard.png)
 
-[![Open your Home Assistant instance and open this repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration)
-[![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)
+[![Open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration)
+[![Start setting up MXZ Coordinator.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)
 
-**Install:** Add to HACS → Download → restart → Add Integration → pick your heads and one
-temperature sensor per room. No YAML. [Details below.](#install)
+**Start here:** [Install](#install), then [set up your outdoor unit](#set-up-your-outdoor-unit).
+Use [Reconfigure](#reconfigure-heads-rooms-and-sensors) to change the room list and
+[Configure](#configure-comfort-and-sensor-settings) to tune it. No YAML is required.
 
-> Shared as-is; support is best-effort ([Caveats](#caveats)). Built with AI assistance
-> (Claude); every line reviewed, tested, and run in production on my own system.
+This checkout prepares **3.4.0**. Its setup, sensor, room-lifecycle and command-delivery
+changes are described in [Migration](docs/MIGRATION.md#upgrading-to-340).
+Final release validation and new rendered setup/Reconfigure/Configure captures remain
+pending. Existing dashboard images show an earlier release. They are not new 3.4.0 captures.
 
-**Works with compatible heads.** Built and validated against
-[echavet/MitsubishiCN105ESPHome](https://github.com/echavet/MitsubishiCN105ESPHome), the
-open-source ESP32/CN105 firmware for Mitsubishi heads. Your Home Assistant `climate`
-entity must advertise both `heat` and `cool`. The idle choice must also match every selected
-head: `fan_only` needs `fan_only`, `off` needs `off`, and the coil-dry choice needs both.
-Setup lists only common idle choices and asks you to choose when the usual `fan_only`
-default is unavailable. Fan and vane controls need those matching features. Kumo Cloud
-and MELCloud are not validated here, and their features and behavior can differ. One
-requirement: **a temperature sensor entity per room**. Pick one that Home Assistant keeps
-available and current. A head's internal sensor can be selected. On my setup, it read
-several degrees warmer than the occupied room while idle; other models and placements can
-differ ([why that matters](#best-practice-give-the-firmware-your-room-sensor-too)).
+> Shared as-is; support is best-effort. Automated checks use invented heads and sensors.
+> They establish software behavior, not physical performance on your equipment.
 
----
+## Before you install
+
+Use Home Assistant **2024.12.0 or newer**. Select **2–8 heads on one outdoor unit**;
+add a separate coordinator entry for each outdoor unit. Each selected `climate` entity
+must advertise `heat`, `cool` and a common idle action. `fan_only` needs `fan_only`;
+`off` needs `off`; `off_after_dry` needs both. Fan control also needs the advertised
+fan-mode feature. **Fan auto** requires the exact `auto` token.
+
+Choose a separate temperature `sensor` entity for each room. The picker uses device
+class **temperature**. A head's temperature sensor can be selected. On my installation
+it read warmer than the occupied room while idle; placement and firmware can differ.
+
+Built against [echavet/MitsubishiCN105ESPHome](https://github.com/echavet/MitsubishiCN105ESPHome).
+Earlier releases have field experience on two- and three-zone hardware, with six-zone
+and multiple-outdoor-unit reports. Other climate integrations, including Kumo Cloud
+and MELCloud, remain unvalidated here. Compatible advertised features alone do not
+prove equivalent timing or hardware behavior. Simultaneous heat/cool and branch-box
+VRF are outside this integration's scope.
 
 ## The problem: stock AUTO starves rooms
 
@@ -68,255 +75,237 @@ elapsed    draw       what's happening
 
 **The coordinator applies three software rules:**
 
-1. **Never hardware AUTO.** Every head runs one explicit shared mode — `cool` or `heat` —
-   chosen from your real room temperatures against your targets.
+1. **Choose an explicit direction.** MXZ requests `cool` or `heat` for rooms that need
+   conditioning, using room temperatures and targets. It does not request hardware AUTO.
 2. **A satisfied room steps aside.** By default it commands `fan_only`; `off` and a
    cooling-only coil-dry option are available. These are software commands; their hardware
    boundary is explained in
    [How a satisfied head idles](#how-a-satisfied-head-idles).
-3. **When rooms disagree, your priority wins.** The room you ranked first gets its mode.
-   The other coasts until the system is free.
+3. **Resolve disagreement by priority.** Among rooms voting for opposing modes, the
+   higher-priority room wins, subject to mode dwell and lockouts. The other waits.
 
 ---
 
-## What you get over the stock logic
+## Install
 
-### Comfort
-- **One number per room.** Not a dual heat/cool band — one target, like a Tesla, and the
-  coordinator picks the mode. Change it from HA, HomeKit, Google, or Assist.
-- **Runs to your number, then coasts.** A room conditions until it *reaches* the target —
-  not "close enough". Then it rests, and resumes only after it drifts past an adjustable
-  drift band (0.5–5 °F / 0.25–2.5 °C). A satisfied room is never dragged along by its
-  neighbor.
-- **Per-room tolerance, automatable.** Every room has its own drift number — how far it
-  may wander before conditioning resumes. Write it from a presence automation: tight
-  while the room is in use, wide while it's empty. Tightening re-engages at once, so the
-  room snaps back the moment someone walks in. A wide room also gives up its vote on the
-  shared mode inside its own band. Touch nothing and every room follows the global
-  drift, exactly as before. (Asked for, and shaped, by @amosyuen — #18.)
-- **And a way back.** A room that has its own drift keeps it — even if you retype
-  today's global number, which stores a copy that stops tracking the global. Press that
-  room's **Follow global drift** button to drop the override. The room follows the global
-  band live again, and keeps following when you change it. Its drift number republishes at
-  once, then the button requests the ordinary debounced recompute. Applying the global band
-  can change that room's demand, the shared mode and the head, just as typing a new global
-  value would. The target, room enable, fan hold and every lockout stay put. If you disable
-  or remove the room's drift number, the button stays unavailable because that number owns
-  the saved override.
-- **A fan that responds to need.** The firmware's own auto ramp is conservative on my
-  heads. On heads with the coordinator's `auto` token and fan ladder, Fan boost (on by
-  default) runs the fan harder the farther the room is from target and eases
-  off as the room arrives — the way a Tesla's auto climate does — with hysteresis, so it
-  never chatters. Max speed configurable.
-- **Room sensors, not head sensors.** On my setup, a head's internal reading was several
-  degrees warmer than the occupied room while idle. The coordinator trusts the sensor you
-  place where people actually sit; other models and placements can differ.
-- **Resting-mode bias.** When no room is calling, the system settles into the last mode
-  used (default) — or pin it to cool or heat for one-sided climates.
-- **Choose how a satisfied head idles.** By default it circulates in `fan_only`. If you
-  notice a musty smell while it idles, try **Off after a coil-dry period**: the fan runs
-  for a set period after cooling, then the head powers off. Choose `off` to power it off
-  at once. The odor pattern does not establish its cause. Details:
-  [How a satisfied head idles](#how-a-satisfied-head-idles).
+1. [Add this repository to HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration)
+   and select **Download**. If the link does not open, add
+   `https://github.com/dkpnw/ha-mxz-coordinator` as a custom repository of type **Integration**.
+2. Restart Home Assistant to load the integration.
+3. Open **Settings → Devices & services → Add integration → MXZ Coordinator**.
+4. Complete the setup below. Installation alone does not enable control.
 
-<p align="center">
-  <img src="images/thermostat-bedroom-named.png" width="45%" alt="Bedroom thermostat: cooling to 60, 3° out — fan boosted to Medium" />
-  <img src="images/thermostat-recroom-named.png" width="45%" alt="Rec room thermostat: cooling to 63, 1° out — fan eased to Low" />
-</p>
-<sub>Fan dynamics live: the bedroom (3° out) at <b>Medium</b> while the rec room (1° out) has eased to <b>Low</b>.</sub>
+Without HACS, copy the release's `custom_components/mxz_coordinator` directory into
+Home Assistant's `custom_components` directory, restart, then add the integration.
+The shipped [YAML package](packages/mxz_coordinator.yaml) is a separate legacy option.
+To move from it, follow [Migration](docs/MIGRATION.md#moving-from-the-yaml-package).
+Stop its automations before letting the integration control the same heads.
 
-### Control that stays yours
-- **Pick a fan speed and it stays picked.** On a head that advertises fan control and an
-  `auto` handback, set any speed by hand and the coordinator
-  stops driving that fan — no snapping back to auto, no timeout. Each room has a
-  **Fan auto** switch that shows who is driving and hands control back with one tap,
-  including from Apple Home. Details: [Who drives the fan](#who-drives-the-fan).
-- **Per-room enable switches.** Turn one room off without touching the others.
-- **Pick the shared mode yourself.** **Shared mode** offers `cool` and `heat` — the two
-  directions one outdoor unit can share. Choosing the other direction is a request for
-  it, arbitrated the same way as an automatic flip: it stamps the ordinary mode-flip
-  dwell, and automatic arbitration is free again once that dwell elapses. Choosing the
-  direction already showing changes nothing — the dwell clock stays where it was, so a
-  repeat choice buys no fresh dwell and creates no hold. The selector adds no expiry,
-  renewal or time-based release of its own. It picks the direction and nothing else: it
-  never starts the coordinator, wakes a disabled room, or lifts a lockout, the eco band,
-  a standby hold, or a setpoint clamp. To stop the coordinator use the kill-switch below;
-  to park the heads use the standby hold.
-- **Away/eco mode.** One switch parks every head off unless a room crosses wide
-  protection extremes (default 78/50 °F).
-- **Grid-down / load-shed standby.** Watch any entity — a grid-status sensor, a
-  load-shed switch, a vacation toggle — and while it's active every head parks in a
-  low-power hold: `eco` uses the configured protection thresholds by default, or choose
-  `off` / `fan_only`.
-  It's a separate gate from the kill-switch — nothing to snapshot, nothing to restore —
-  and coordination resumes on its own when it clears. A watched entity that drops out
-  reads as *not* held, so a stuck sensor never parks your house. (Designed and built by
-  @calvindomenico, #12/#13.) This is software protection only: keep the equipment's own
-  freeze safeguards and do not treat it as certified unattended freeze protection.
-- **One-switch kill.** Flip the coordinator off and your heads are instantly yours again,
-  frozen where they were.
-- **Vane control on the tile**, plus a **vane kick**: change a louvre while the head is
-  off and the coordinator briefly wakes it, sends the change, then returns it to its
-  parked state.
+## Set up your outdoor unit
 
-### Seasons & weather
-- **Local-weather changeover.** Point it at any `weather.*` entity or outdoor temperature
-  sensor. It locks out heating in the warm season and cooling in the cold one, from *your*
-  forecast, with a band so shoulder seasons don't flap. No weather entity? HA's built-in
-  Met.no is one click.
-- **Passive-solar heat lockout.** A slightly-cool room can wait for the sun. A safety
-  floor still requests heat for a genuinely cold room. This changes demand policy; it is
-  not a measured energy-saving claim.
-- **Cool lockout** — the winter mirror, with a safety ceiling for genuinely hot days.
+Setup has four steps. Only **Save and finish** creates the entry.
 
-### It doesn't break, and it tells the truth
-- **Self-healing.** A head knocked off plan — wall remote, curious guest — is put back
-  after a 20–30 s debounce. Optional phone alert when that happens.
-- **Restart-proof.** Every target, drift, enable, mode, switch — and supported fan hold — survives
-  an HA restart. A **Fan auto** switch keeps its entity identity if its head loads late and
-  stays unavailable until that head reports the `auto` handback again. It still remembers
-  whether you were holding, so a hold comes back as your hold and the boost's own speed comes
-  back as the boost's. One honest edge:
-  a fan speed set from a wall remote *while HA itself was down*, on a room that wasn't
-  held before, can be read as the boost's own residue and cleared.
-- **Invalid room sensors step aside.** A missing, `unknown`, `unavailable`, non-numeric,
-  non-finite, or unsupported-unit reading fails to *neutral* before normal or eco demand.
-  A sensor with no unit is read in your HA unit, as before. The room parks by your idle
-  choice — `off` while eco is holding it — and its tile reads unknown, never a made-up
-  number. Healthy rooms keep running, and a valid reading recovers by itself. This
-  validates the current reading. Its age is the next bullet, and that check is optional.
-- **A stale room sensor steps aside too — once you say what stale means.** Tell a room how
-  often its sensor reports (`report_interval`, in minutes) and what makes one of that
-  sensor's writes a reading (`evidence_basis`). Three reporting intervals with no reading
-  and the room leaves automatic demand, its head parks by your idle choice, and the log
-  says so once. One fresh reading brings the room back, and the log says that once too.
-  Under `ha_state_write` an unchanged value still counts as a reading, so a room sitting at
-  temperature is not mistaken for a dead sensor; under `sample_timestamp` only a write
-  whose marker advanced counts, so a cached value written again is not one.
-- **A cadence alone never starts a cutoff.** `evidence_basis` is `unknown` until you set
-  it, so a room you say nothing about — and a room you gave only an interval — shows its
-  age and is never cut off. Choose `ha_state_write` when the source guarantees every write
-  is a current reading, or `sample_timestamp` when it publishes the time or sequence
-  number of the sample itself. A cloud integration that re-writes a cached value keeps its
-  room healthy under the first choice and goes stale on the device's own clock under the
-  second. There is no default cutoff to inherit. Setup does not ask for these; set them
-  in **Configure** after setup ([details](docs/MIGRATION.md#stale-room-sensors-unreleased)).
-- **A stale room keeps its last real reading** — no substitute value, no switch to another
-  sensor — and a fan speed you are holding is left alone. After a restart or a reload,
-  health starts over from what the integration can see. A room whose sensor already
-  carries a valid reading and a sample time inside its maximum age starts `healthy` on
-  that time, because the sample dates itself. Every other room with a valid reading starts
-  as `awaiting_report`: used, but flagged, for one grace period, because a sequence number
-  found there is only a baseline, and a plain value cannot be told from a restored one.
-  The first reading it does watch ends that grace on the spot. A room with no usable
-  reading gets no grace: it is rejected at once, as at any other time.
-- **If HA itself goes down**, the heads keep their last commanded state and their own
-  control loops keep running — a cooling room keeps cooling on the head's thermistor. A
-  room parked in `fan_only` (or `off`, if you chose that idle action) stays parked until
-  HA returns; the
-  [remote-sensor timeout](#best-practice-give-the-firmware-your-room-sensor-too) keeps
-  the head's own loop on honest data meanwhile.
-- **Mode-flip protection.** A 10-minute minimum limits rapid changes of the shared mode.
-  Every setpoint is clamped to the firmware's real range before sending. Writes happen
-  only when something must change.
-- **Durable config.** Options saves merge instead of replace, and settings are mirrored,
-  so a corrupted save self-recovers instead of resetting to defaults.
-- **A transparent brain.** The plan sensor exposes every decision input live — per-room
-  demand, who is coasting, who holds the fan, the standoff state, whether a standby hold
-  is active. "Why did it do that?" always has an answer.
-- **The tile shows real airflow** while the fan is in auto, if your firmware publishes
-  blower speed — see [Who drives the fan](#who-drives-the-fan).
+1. **Heads.** Select every head on this outdoor unit once, in priority order.
+   Position 1 wins a heat-versus-cool standoff. Give the outdoor unit an optional
+   name and choose an optional drift-alert notification service. The outdoor-unit
+   name labels the entry; it does not form entity IDs.
+2. **Rooms.** Check each pre-filled **Room N name**. Use distinct, non-empty names;
+   comparison ignores case. These names label the room entities.
+3. **Room temperature sensors.** Pick one sensor per room. Check the room/head
+   mapping and the displayed reading. Vane and airflow entities are detected from
+   the head's device when matching registry records exist. Missing records or no
+   matching device leave those optional controls unset; edit them later in Configure.
+4. **Check this before you save.** Read each priority, head and sensor line.
+   Select **Change advanced settings** to tune comfort, then return to the summary.
+   Select **Go back to heads and rooms** to correct the mapping.
+   Select **Save and finish** when it is right.
 
-### Fit & finish
-- **One-click install.** HACS + config flow; every option visible at setup, pre-filled
-  with sensible defaults.
-- **°C and °F, automatically** — adapts to your HA unit, with 0.5° resolution and clean
-  metric defaults on °C.
-- **Native HomeKit / Google / Assist tiles** — one clean dial per room, never a raw
-  dual-setpoint firmware control.
-- **2–8 rooms per outdoor unit**, plus multiple outdoor units, one entry each — see
-  [N zones](#n-zones-v3).
-- **Automation-friendly.** A `recompute` service, an event hook, and every threshold
-  tunable in the UI.
+Skipping advanced settings uses defaults for your HA temperature unit. If the selected heads
+cannot all use the usual `fan_only` idle action, setup sends you to advanced settings to
+choose a supported alternative. It does not silently replace that default.
 
----
+After saving, open the integration's device page. Set the room targets, enable the
+rooms you want to coordinate, then turn on **Coordinator enable**. New room enables
+and Coordinator enable start off. Expose the per-room thermostats to HomeKit/Google,
+or use them in HA; avoid exposing a second raw-head control for the same room.
 
-## How it works
+### If setup stops or warns
 
-The coordinator is the **sole writer** of the heads. Three parts (Python in
-`custom_components/mxz_coordinator/`; the legacy
-[`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml) implements the same three
-parts for two fixed zones, and doesn't track newer features):
+| What you see | What to do; what MXZ saves |
+| --- | --- |
+| A missing head or unknown capabilities | Let the head integration load and publish its modes. Unknown support blocks saving. |
+| A head lacks heat/cool, or there is no common idle action | Choose compatible heads. Setup does not invent a mode. |
+| A head belongs to another entry | Reconfigure that entry first. Setup names the conflict and saves nothing. |
+| A head is reserved by an open flow | Finish or cancel that setup/Reconfigure flow. Reservations have no timeout; HA restart clears an abandoned in-memory flow. |
+| Duplicate heads or room names, or an empty room name | Correct the selection/name. Setup keeps you on that step. |
+| Two rooms share a sensor, a sensor has no HA state, or its unit cannot convert | Pick a distinct, existing temperature sensor with a supported unit. Saving is blocked. |
+| A sensor is `unknown`, `unavailable`, non-numeric or non-finite | You may finish setup. The summary warns; that room makes no automatic demand until its reading is valid. |
+| A sensor has no unit | MXZ reads it in HA's system unit. Verify that interpretation. Celsius, Fahrenheit and kelvin convert to the system unit. |
 
-1. **Decide** — `sensor.*_plan`, side-effect-free. A room must be 3 °F off target
-   (default) before the shared mode may flip — or past its own drift band, if you set
-   that wider. The highest-priority room wins standoffs, and a 600-second hysteresis
-   gates every flip. A running room goes all the way to its target, then coasts in
-   `fan_only` — or parks `off`, if you chose that idle action — until it drifts past
-   its re-engage band (default 1 °F, settable per room). Away/eco swaps both
-   thresholds for the wide protection extremes.
-2. **Act** — the only component that commands heads. It derives each room's setpoints
-   from its single target (`cool → [target−2, target]`, `heat → [target, target+2]`;
-   the band is 1° on °C systems), clamps to the firmware range (default 59–88 °F /
-   15–31 °C), and sends them with the mode — or a single clamped target for
-   single-setpoint firmware. Never `heat_cool`.
-   Idempotent, and gated on the kill-switch. A head that rejects a command degrades only
-   its own room; the rest keep running.
-3. **Trigger** — recompute on any decision-relevant change, a 15-minute heartbeat, HA
-   start, the moment a flip the hysteresis deferred is due, and the `mxz_recompute`
-   event — plus the two self-heal paths.
+The summary's reporting age is information. Setup adds no sensor timeout. Heads,
+ownership, sensors and the chosen idle action are checked again at the final save;
+a change while the summary is open can send you back to correct it.
 
-Every threshold is an option default. Change them at setup or later under **Configure**.
-On a metric system the defaults adapt (1.5° demand, 0.5° re-engage, 21 °C target,
-20/10 °C changeover), and all sensors and setpoints read and write in your HA unit.
+## Reconfigure heads, rooms and sensors
+
+Open **Settings → Devices & services → MXZ Coordinator → ⋮ → Reconfigure**.
+Use this to add/remove heads, change priority, rename rooms, change sensors, or change
+the outdoor-unit title and drift-alert service. It follows heads → rooms → sensors →
+summary, pre-filled from the entry. Select **Save and finish** to apply it.
+Comfort and sensor-freshness settings stay in Configure.
+
+For a kept head, submitted room names and sensors replace the old ones. Vane wiring
+and other stored room fields are retained. Reordering moves existing registry records
+with their room, preserving entity IDs, restored target/enable/drift/fan-hold settings
+and registry customizations. Their slot-derived unique IDs change to the new priority.
+Plan attributes such as `primary_demand` and `zones[0]` follow priority, so check any
+slot-based automation after a reorder. Missing or manually removed records cannot be
+carried. A removed room's records are pruned on setup; a newly added room starts disabled.
+
+Clear a room name to use the head's current name. Duplicate names are still rejected.
+An entity name you set in HA takes precedence over the room label. Renaming a head
+alone does not update a saved room name. A room rename does not change its entity ID.
+
+Reconfigure checks the entry's saved idle action against the submitted heads. If it
+is incompatible, change **Idle action** in Configure while the current heads still
+support that choice, or select compatible heads and retry. Existing overlapping
+entries may keep or remove heads they already stored; they cannot expand that overlap.
+Another open flow can still reserve those heads. MXZ does not repair or disable the
+other entry for you.
+
+A save that changes entry data, title or identity triggers one reload. A save that
+leaves them unchanged triggers none. Reload
+rebuilds the coordinator and restarts sensor-health observation. Reconfigure finishes
+by closing the flow after a successful save. Home Assistant supplies completion
+wording; fresh rendered captures still need to confirm it.
+
+## Configure comfort and sensor settings
+
+Open **Settings → Devices & services → MXZ Coordinator → Configure**.
+The single form contains comfort settings, per-room vane/airflow overrides and freshness
+profiles. Change the values, then submit. Temperature fields use your HA unit; mode
+dwell is in seconds, coil drying and freshness durations are in minutes.
+
+| Setting | Use it for |
+| --- | --- |
+| Demand threshold / Re-engage drift | Shared-mode voting and how far a satisfied room drifts before calling again. Per-room drift numbers can override the global drift. |
+| Mode hysteresis | Minimum dwell between shared heat/cool changes; default 600 seconds. |
+| Firmware minimum/maximum setpoint | The head's allowed range. Commands are also bounded by usable head limits. |
+| Idle action / Coil-dry minutes | Fan-only, off, or fan-only after cooling for a dwell then off. Choices depend on common head support. |
+| Resting mode | Last called mode, cool or heat when no room is calling. |
+| Fan boost / Fan boost maximum speed | Automatic fan ladder and its ceiling. A manual hold takes precedence. |
+| Eco cool/heat extremes | Protection thresholds used by eco and the default standby hold. Keep the equipment's own safeguards. |
+| Seasonal changeover and lockout thresholds | Weather/outdoor-temperature input and seasonal heat/cool lockouts, with safety floor/ceiling. |
+| Standby hold entity / active state / action | An external signal that holds enabled coordination in `eco`, `off` or `fan_only`. Missing/unknown/unavailable input releases the hold. |
+| Room vane and airflow overrides | Correct detection, select another entity, or clear a field to remove that optional wiring. |
+
+A head with missing capabilities, missing heat/cool or no common parking mode blocks
+the form's save. Restore the head's capabilities or reconfigure compatible heads, then
+retry. An unsupported saved idle action requires an explicit compatible choice.
+Invalid thresholds or a freshness profile reject the whole submission; other settings
+in that submission are not saved either.
+
+A changed save merges tunables into existing options, mirrors them into entry data,
+and reloads once. It does not replace the options with only the edited field. A save that leaves entry
+data/options unchanged needs no reload. The data mirror can recover tuned values
+when options are empty, but does not prove how they became empty. Review and save
+Configure if that warning appears. Cleared vane/airflow fields remove their overrides;
+a cleared standby entity explicitly removes that hold. Do not infer that every
+optional field has the same clearing behavior.
+
+### Choose a sensor freshness contract
+
+Leave the profile empty if you cannot establish a reporting contract. MXZ shows
+`cadence_unknown`, displays age and applies no age cutoff. Giving only an interval,
+or keeping `evidence_basis: unknown`, does not make a sensor trustworthy.
+
+To enable age checking, supply a positive **report interval** or **maximum age**, then
+choose an evidence basis. With only an interval the maximum is three intervals. An
+explicit maximum must be at least the interval. Startup grace defaults to that maximum.
+
+| Evidence basis | Choose it when |
+| --- | --- |
+| `ha_state_write` | The source guarantees each HA write is a current reading, even when its numeric value is unchanged. Cached/restored replays can defeat this basis. |
+| `sample_timestamp` | The source supplies a trustworthy advancing sample marker. Enter exactly one timestamp or sequence attribute. Timestamps need a timezone and cannot be in the future; sequences must increase. |
+| `unknown` | No reliable reporting contract exists. Clear durations and marker fields to remove the profile. |
+
+An invalid reading steps aside immediately. A valid but stale room leaves automatic
+demand and parks by the configured idle action (`off` under eco), while its recognized
+manual fan hold stays intact. Its tile keeps the valid reading; age/health in the plan
+explain why it is no longer calling. A qualifying fresh report recovers the room.
+A cached marker does not extend a deadline or recover an unhealthy room.
+
+Reload/restart does not persist health. A valid recent sample timestamp can start
+healthy. Other valid profiled readings start `awaiting_report` for one grace period;
+a sequence found at load is only a baseline. An unusable reading gets no grace.
+See [Migration](docs/MIGRATION.md#stale-room-sensors-340) for deadline and recovery edges.
+
+## Everyday control
+
+Use each room's thermostat for one target and `heat_cool`/`off`. Here `heat_cool` means
+the coordinator chooses a shared direction; it does not send hardware AUTO or heat/cool
+simultaneously. Turning the tile off disables that room. Disabling a room relinquishes
+its coordination; it does not promise to power the raw head off.
+
+The coordinator commands mode and bounded setpoints for enabled rooms. Rooms run to
+target, then coast until their drift band is crossed. The defaults are 3 °F demand,
+1 °F drift, or 1.5 °C demand and 0.5 °C drift. A fresh target uses the head's
+setpoint when readable; 70 °F / 21 °C is the fallback. Each room's drift number
+accepts 0.5–5 °F / 0.25–2.5 °C. Writing it creates an override, even if you enter today's
+global value. Press **Follow global drift** to remove that override. The number updates
+immediately; the ordinary debounced recompute can then change demand and head output.
+The button is unavailable until its drift number is loaded and available.
+
+**Shared mode** offers `cool` and `heat`. A changed choice stamps the ordinary mode-flip
+dwell; automatic arbitration can change direction again after that dwell. Selecting
+the current direction adds no hold or new dwell. The selector does not enable the
+coordinator, enable rooms or lift lockouts/standby holds.
+
+Turn **Coordinator enable** off to stop new coordinated control and use the heads'
+own controls. Heads keep their last commanded state. A handler already accepted by
+another integration can return late; turning MXZ off cannot retract it. A standby hold
+instead parks coordinated heads for as long as its signal is active. Its default `eco`
+action allows conditioning at protection extremes; `off`/`fan_only` are fixed parks.
+These are software policies, not certified freeze protection or guarantees of zero draw.
 
 ### Who drives the fan
 
-Simple rules, no surprises:
+Fan boost starts enabled. On compatible heads it follows the supported ladder
+`quiet < low < medium < middle < high`, skipping absent rungs. A recognized manual
+speed becomes a hold. **Fan auto** OFF requests a hold at the current speed; at `auto`
+that action is a no-op. ON releases the hold, or set the head's fan to `auto`.
+The hold has no timeout. Targets and room drift do not release it.
 
-- **Boost drives by default.** While a room runs, its fan speed follows how far the room
-  is from target. When the room is satisfied, the fan returns to the firmware's `auto`.
-- **Your pick is a hold.** Choose any speed — HA, Apple Home, the wall remote — and the
-  coordinator stops writing that fan. The hold survives the head cycling off, and it
-  never times out. Each room reports its hold as `fan_hold` on the plan sensor.
-- **Hand it back with one gesture.** Flip the room's **Fan auto** switch ON, or set the
-  fan to `auto`. Nothing else releases a hold — not room drift, not a target change, not
-  a restart. (The switch exists because Apple's Home app cannot show a custom control
-  inside a climate tile, and its fan slider has no `auto` stop — so the handback rides
-  beside the tile as a plain switch. It also doubles as the who-is-driving indicator:
-  OFF means a hold is active.)
-- **Capability changes do not rename it.** The **Fan auto** entity stays registered through
-  a restart or a temporary loss of head capabilities. It is unavailable while the head does
-  not advertise fan control with the exact `auto` token, and returns under the same entity ID
-  when that support returns.
-- **Restarts are honest.** The **Fan auto** switch remembers across restarts whether you
-  were holding. Held stays held — at whatever speed the head actually shows, so a change
-  made from the wall remote during the outage is respected. Not held means any leftover
-  speed is the coordinator's own, and it resumes driving.
-- **The dial tells the truth.** If the firmware publishes its real blower speed
-  (CN105/ESPHome heads expose a `stage` sensor — auto-detected at setup), the tile
-  tracks real airflow while the fan is in auto, instead of freezing on the last
-  commanded speed. Display only; the reading maps the firmware's stages to the nearest
-  speed. No such sensor? The tile shows the commanded speed, as before.
-- **One limit.** The coordinator reads fan state once per cycle, not per event.
-  Re-selecting the speed a head already shows is invisible. Pick a different speed first
-  if you want a fresh gesture registered.
-- **Mitsubishi trap, handled.** The real fan ladder is
-  `quiet < low < medium < middle < high` — `middle` is *faster* than `medium`. The
-  coordinator knows, and skips any rung your unit does not advertise. The thermostat facade
-  does not rename other integrations' fan options: it exposes their exact settable names.
+The room thermostat exposes the head's exact settable fan names. Without advertised
+fan control it offers no fan control. The separate Fan auto switch stays registered
+but is unavailable without exact `auto` support, or after a coordinator update failure.
+If support exists but current speed is missing, intent is retained and fan writes wait
+for a usable report. An explicit ON can remain pending; OFF cancels that handback.
 
-### How a satisfied head idles
+A stored hold restores as held; stored automatic ownership recognizes supported
+coordinator residue, including the issue 25 idle/delayed-report case. Clean switch
+states and unavailable-state extra restore data are distinct restore channels.
+Neither is a command journal or an arbitrary-crash guarantee. Missing, invalid or
+stale restore records use conservative reported-speed fallback; check `control_reasons`
+and use ON when you want automatic control back. A wall-remote speed change while HA
+was down may be treated as residue if the room was previously automatic. Reselecting
+a speed already reported can be invisible; use Fan auto OFF to express a hold.
+
+An optional airflow `stage` sensor maps the firmware's reported blower stage to a
+displayed speed while automatic. It is display information, not physical verification
+of a sent command. Without that sensor the tile uses the reported fan token.
+
+## How a satisfied head idles
 
 `fan_only` idle keeps the indoor fan moving. On my heads, idle air smelled off and the
 smell stopped while the coil was actively cooling. That pattern does not diagnose its
-cause; it is why the **Idle action** option (Configure → options) offers three parks:
+cause; it is why the **Idle action** option (Configure) offers three parks:
 
-| Setting | A satisfied head... |
+| Setting | Requested idle action |
 | --- | --- |
 | `Fan only` (default) | circulates in `fan_only`. Unchanged from earlier versions. |
-| `Off` | powers off. The fan stops. |
-| `Off after a coil-dry period` | keeps its fan running for a set period after **cooling** (default 10 min, tunable), then powers off. After heating it powers off at once. |
+| `Off` | sends `off`, asking the head to stop. |
+| `Off after a coil-dry period` | requests `fan_only` for a dwell after **cooling** (default 10 min), then `off`. After heating it requests `off` immediately. |
 
 Facts to know before you switch:
 
@@ -331,119 +320,16 @@ Facts to know before you switch:
   not show whether SW5-8 is enabled, prove the actual valve position, or measure the
   temperature effect in your installation.
 - **The room's thermostat tile still reads *Idle*, not *Off*.** The room is enabled and
-  coordinated; only the head is parked. It wakes the moment the room drifts past its
-  re-engage band.
+  coordinated; only the head is parked. Crossing the re-engage band requests
+  conditioning through the ordinary debounced delivery path.
 - **Fan holds survive.** A head parked off keeps a manual fan hold and comes back
   holding it. On the way into an `off` park the coordinator first returns a
-  boost-driven fan to `auto` — so a restart never mistakes the boost's leftover speed
-  for your hold.
+  boost-driven fan to `auto`. A delayed or missing report still needs the restore
+  reconciliation and conservative fallback described above.
 - **Vane changes still work.** Changing a louvre on a parked-off head briefly wakes it
-  (the usual [vane kick](#control-that-stays-yours)), then parks it again.
+  (the usual [vane kick](#everyday-control)), then parks it again.
 - **Standoff losers park the same way.** A room waiting for the other mode idles in
   the same configured action as a satisfied room.
-
----
-
-## Install
-
-1. **[Add to HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration)**
-   → **Download**. (If the badge doesn't open: add this repo as a HACS custom repository,
-   category *Integration*.)
-2. **Restart Home Assistant.**
-3. **[Add Integration](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)**
-   → *MXZ Coordinator*.
-4. Pick **all the heads on this outdoor unit** (2–8). Selection order is priority: the
-   first room wins standoffs. Name the outdoor unit here if you run more than one, and
-   pick an optional notify target for drift alerts. Setup checks that every head
-   advertises heat and cool. It rejects and names any head stored by another coordinator
-   entry. An unfinished setup or reconfigure flow also reserves its submitted heads until
-   HA finishes or cancels that flow. HA keeps an interrupted flow in memory without a
-   timeout. Flow-manager cancellation releases it; otherwise restart HA before retrying.
-5. **Name each room.** Every box arrives pre-filled with the head's own name, so you can
-   submit this step unchanged. The name labels that room's target, drift, enable switch,
-   Fan auto and thermostat. Two rooms may not share a name, and a room may not be left
-   unnamed.
-6. Pick one **room temperature sensor** per room. The picker lists `sensor` entities with
-   device class *temperature*. Vane and airflow sensors are detected automatically. Setup
-   refuses a sensor two rooms share, a sensor Home Assistant has no state for, and a
-   sensor reporting a unit it cannot convert to yours. A sensor that is only unavailable
-   or not reporting a number does not block the install — the summary marks that room
-   instead, and the room makes no automatic demand until a valid number arrives.
-7. **Read the summary and press Save and finish.** Nothing is written until you do. The
-   summary lists each room's priority, name, head and current sensor reading, and says
-   what happens after the save. **Change advanced settings** opens the comfort tunables,
-   pre-filled for your temperature unit, and returns to the summary; skipping it saves
-   exactly those defaults. That step lists only idle actions every selected head can
-   perform, and if the normal `fan_only` default is unsupported, Save and finish sends
-   you there to choose explicitly instead of saving something a head cannot do.
-8. Turn on **Coordinator enable**, set each room's target, enable the rooms. Done.
-9. Exposing to HomeKit or Google? Expose the per-room **thermostat tiles**
-   (`climate.*_<zone>_thermostat`), **not the raw heads** — two controls per room would
-   fight over the same hardware. [Details.](#the-single-target-thermostat-surface)
-
-<p align="center">
-  <img src="images/setup-flow-dark.png" width="55%" alt="Setup: pick your heads in priority order — help text under every field" />
-</p>
-<p align="center">
-  <img src="images/tuning-dark.png" width="95%" alt="Comfort tuning: every option pre-filled, explained in plain language" />
-</p>
-
-Example day/night/away presets: [`examples/presets.yaml`](examples/presets.yaml).
-
-**No HACS?** The original YAML package still ships
-([`packages/mxz_coordinator.yaml`](packages/mxz_coordinator.yaml) +
-[`docs/ENTITY-MAP.md`](docs/ENTITY-MAP.md)). Migrating from it to the integration is a
-breaking change — see [`docs/MIGRATION.md`](docs/MIGRATION.md), and remove the package so
-the two don't fight over the heads.
-
-### Reconfiguring
-
-Picked the wrong sensor, or adding a head? Don't delete and re-add — use
-**Settings → Devices & Services → MXZ Coordinator → ⋮ → Reconfigure**. It walks the same
-screens as setup — heads, room names, sensors, then a summary — pre-filled with what the
-entry already stores, and writes nothing until you press **Save and finish**. Comfort
-settings are not editable here; use **Configure** for those. Every head you keep takes its name, vane
-wiring (including your overrides), target, enable, drift and fan hold with it, wherever
-you move it in the list — reordering changes priority and nothing else. Dropped rooms'
-entities are cleaned up automatically. Reconfigure rejects a head newly taken from another
-entry. Existing installs that already overlap are grandfathered only for heads already
-stored by the entry being edited: you can keep or remove those heads, but you cannot add
-another entry's head or expand the overlap. The integration does not remap or disable
-either entry automatically. (Delete-and-re-add has its own trap: HA's restore cache
-can resurrect the old install's values for up to ~7 days. The coordinator detects and
-ignores those stale restores.)
-
-Reconfigure also checks the entry's saved idle action against every submitted head. If a
-head cannot perform it, the form names that head and lists the common alternatives; it does
-not change the entry. Change **Idle action** explicitly under Configure, or choose a
-compatible head, then retry. An older entry with an incompatible stored choice is likewise
-left unchanged until you make that choice.
-
-Configure also stops before the idle selector when a stored head has not loaded or the heads
-have no common parking mode. It names the affected heads and tells you to restore their
-capabilities or reconfigure them. Your saved options and defaults stay unchanged while you fix
-the heads and retry. You cannot save other tunables in Configure until the configured
-heads resolve.
-
-**Renaming a room.** Edit **Room N name** on Reconfigure's room-names step. The new
-name appears on that room's target, drift, Follow global drift button, enable switch, Fan
-auto and room thermostat.
-Clear the field to fall back to the head's own name. Renaming the head itself still
-changes nothing. An entity you renamed by hand keeps your name (**Settings → Devices &
-Services → MXZ Coordinator →** the entity **→ ⚙**) — your name outranks the room's. Entity
-IDs never move once created, so history and dashboards keep working.
-
-### Removing
-
-Delete the **config entry**, not the device: **Settings → Devices & Services →
-MXZ Coordinator → ⋮ → Delete**. That removes the device, its entities, and the
-`recompute` service cleanly — no restart needed. (The device page has no Delete button by
-design: the device *is* the config entry, and its **Visit** link brings you here.) Then
-remove the download from HACS — **in that order**; removing from HACS first leaves a
-broken entry behind.
-
-Your heads keep their last commanded state after removal. If they were parked `off` or
-`fan_only`, set them how you want them via their own controls.
 
 ---
 
@@ -479,69 +365,106 @@ climate:
 The timeout is the safety: if the sensor drops out, the head falls back to its internal
 reading instead of holding a stale number.
 
-## Gotchas (read before you debug)
+## Diagnose a room that is waiting
 
-- **Per-zone power is shared, not per-head.** Only the lowest-address head reports the
-  real outdoor-unit draw; the others read near-zero even while actively served. Never
-  declare a head dead from its own power sensor.
-- **Anti-short-cycle timing.** ~3 minutes minimum compressor off-time in cooling; ~6
-  minutes to engage after a cool→heat reversal. `hvac_action` flips instantly; the power
-  draw lags. Normal.
-- **`fan_only` is a configured parking state**, not by itself a fault. It is the default
-  software action for a satisfied or waiting room; `off` is also available. See
-  [How a satisfied head idles](#how-a-satisfied-head-idles) for the hardware boundary.
-- **Respect the setpoint clamp.** Below-range setpoints made `climate.set_temperature`
-  throw HTTP 500 on our heads — hence the clamp. Adjust it to your firmware's range.
-- **Minimum-capacity floor.** On my setup, power did not fall below roughly 40% of
-  nameplate while running. Mild overshoot alone does not diagnose a deadlock.
-- **Fan stuck at one speed?** That is a manual hold, not a bug — someone picked that
-  speed, so the coordinator stopped driving the fan (the room's **Fan auto** switch reads
-  OFF; `fan_hold` on the plan sensor agrees). Flip the switch back ON — or set the fan to
-  `auto`. See [Who drives the fan](#who-drives-the-fan).
-- **Musty smell from an idle head?** Check the plan sensor and the head first. If both show
-  your configured idle action, the smell alone is not evidence that the coordinator chose
-  the wrong state. On my system it stopped during active cooling and returned at idle.
-  Try **Off after a coil-dry period** (Configure → options), then compare; that tests a
-  practical response, not the cause. See
-  [How a satisfied head idles](#how-a-satisfied-head-idles). Have a persistent sweet or
-  chemical smell checked rather than attributing it to idle airflow.
+Open `sensor.*_plan` on the device page. Start with the room's entry in `zones`, then
+compare it with the raw head and room sensor. Top-level primary/secondary attributes
+refer to priority slots, not permanent room identities.
 
----
+| Observation | Meaning and next step |
+| --- | --- |
+| `standoff`, demand/engage, mode dwell | Another room's priority or dwell may be holding the direction. Check targets and priority before changing a raw head. |
+| `inhibited`, room enable, lockouts, eco | A configured gate may be parking the room. Check the controlling switch/input. |
+| `sensor_health`, `sensor_age`, `sensors_ok` | Check validity and the freshness contract. Age of an HA write can differ from age of a sample. |
+| `fan_hold`, `control_reasons` | Check ownership, capability, restore and settings warnings with their suggested next step. |
+| `command_status: pending`, `command_deferred` | A service handler has not returned. New intent waits for that head; independent rooms can continue. |
+| `command_status: rejected` | Read `command_error` and repair the head integration. A later ordinary update may retry. |
+| `command_status: returned` | The HA handler returned. This does not prove the hardware applied the command. |
+| `cancelled; outcome unknown`, retired ownership | External work may still finish. Check the head's report before relying on its outcome. |
 
-## N zones (v3)
+Command timestamps and `head_state_updated_at` are HA software observations. They do
+not show physical receipt, compressor operation or energy use. A missing date reads
+`not yet recorded`. A global update failure can make the plan and coordinator-listening
+entities unavailable, even while heads remain registered. Room isolation covers
+independent head delivery failures; it is not a guarantee against every coordinator,
+core or transport failure. Reload/unload suppresses retired follow-on work, but cannot
+undo an accepted external call. A vane kick on a parked head briefly wakes it, sends
+the requested vane change and requests parking; software cleanup still needs hardware
+confirmation.
 
-v3 coordinates **2–8 heads on one outdoor unit** — selection order is standoff priority,
-every room gets its own target/enable/thermostat, and existing 2-zone installs migrate
-automatically with no entity changes. Multiple outdoor units: one entry each, with its own
-mode, hysteresis, changeover, and kill-switch. Validated on real 2-zone and 3-zone hardware
-through the beta program
-([issue #4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4)); 6-zone and 2×3-zone
-systems run it in the field. Simultaneous heat+cool and branch-box VRF are out of scope.
+Heads use their own loops if HA goes down. A head last commanded cooling can continue
+cooling; one last parked stays parked. Their thermistors and firmware safeguards still
+matter. On my system compressor pauses and reversal lag outlast the HA mode report.
+Absent fan settings use defaults; the plan names that absence without guessing
+why. Invalid stored fan values also receive a diagnostic. Review Configure to set
+supported values. A per-head power sensor alone may not report outdoor-unit draw. Check your equipment
+before interpreting an idle report as a fault or an energy measurement.
 
-## Caveats
+Example presets: [day/night/away](examples/presets.yaml). The
+`mxz_coordinator.recompute` service requests refreshes for loaded entries; the
+`mxz_recompute` event is also honored. Neither bypasses safety gates or proves delivery.
 
-- Built on one real two-zone setup (MSZ heads, dual-setpoint firmware) and validated on a
-  second: a three-zone system with single-setpoint heads, through the full v3 beta program
-  ([#4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4) — thanks @helicopterrun).
-  Other models/firmware may still differ — especially the cool→heat reversal lag and the
-  per-zone power blindness.
-- The coordinator is validated against the CN105/ESPHome setup above. Other HA `climate`
-  entities need compatible modes and features, and remain unverified; the native
-  single-target thermostats are optional on top.
+## Remove the integration
 
-## The single-target thermostat surface
+Delete the entry through **Settings → Devices & services → MXZ Coordinator → ⋮ →
+Delete**, then remove its download from HACS. Removing files first leaves a broken entry.
+The shared recompute service is removed after the last loaded entry is gone. Heads
+retain their last commanded state; use their controls if they remain parked. Prefer
+Reconfigure to delete/re-add when correcting a room: old HA restore-cache values can
+linger, and MXZ filters records from before the new entry's creation.
 
-Each room ships as a native thermostat (`climate.*_<zone>_thermostat`): one number +
-Heat/Cool auto, rendered as a clean single-setpoint tile in HA/HomeKit/Google. It is a
-thin facade over the room's `number.*_<zone>_target` and `switch.*_<zone>_enable` — the
-coordinator remains the sole writer of the real heads. Expose these tiles (not the raw
-heads) to avoid two fighting controls per room; fan and vanes pass through, bounded to
-the firmware band.
+## Developer setup and tested support
 
-Legacy note: the YAML package got this surface from the CN105 proxy's
-`coordinator_single_target` option. The integration no longer needs the proxy — its
-native thermostats own the surface, and the `mxz_recompute` event is still honored so
-existing proxy/automation nudges keep working.
+The declared HA floor is 2024.12.0. Retained local full-suite evidence exists for these
+exact targets on the accepted product implementation; final 3.4.0 source/version and
+release validation remain pending. Automated entities are invented. Current rendered
+forms and physical behavior are separate evidence requirements.
+
+| Python | Home Assistant | Dependency setup |
+| --- | --- | --- |
+| 3.12.14 | 2024.12.0 | `requirements/constraints-py312-ha2024.12.0.txt` |
+| 3.13.16 | 2026.2.3 | `requirements/constraints-py313-ha2026.2.3.txt` |
+| 3.14.8 | 2026.9.0 | `requirements/constraints-py314-ha2026.9.0.txt` |
+| 3.14.8 | 2026.10.0 | [Exact generated stable test environment](requirements/ha2026.10/README.md) |
+
+The first three locks belong to the existing CI lanes. The .10 recipe uses public
+immutable core/plugin inputs, a pinned Python archive and actual locally built artifact
+hashes. Public plugin `0.13.370` requires beta4; installing it by version alone does
+not reproduce the stable .10 environment. Use the linked recipe on Linux x86-64 with
+glibc 2.41 or newer. Its local evidence does not establish genuine hosted qualification.
+
+For a small local floor environment, use a new work directory outside the checkout
+and an installed Python 3.12.14. This command is for your development machine; it does
+not impersonate GitHub runner context or run the CI-only installer.
+
+```bash
+work="$HOME/mxz-floor-work"
+mkdir -p "$work/home" "$work/tmp" "$work/cache"
+export HOME="$work/home" TMPDIR="$work/tmp" XDG_CACHE_HOME="$work/cache"
+export PYTHONDONTWRITEBYTECODE=1 PIP_CONFIG_FILE=/dev/null
+export PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL PIP_TRUSTED_HOST PYTHONPATH
+python3.12 -m venv "$work/venv"
+"$work/venv/bin/python" -m pip install --index-url https://pypi.org/simple \
+  -c requirements/constraints-py312-ha2024.12.0.txt \
+  -r requirements/constraints-py312-ha2024.12.0.txt -r requirements_test.txt
+"$work/venv/bin/python" -m pip check
+"$work/venv/bin/python" tools/check_lock.py \
+  requirements/constraints-py312-ha2024.12.0.txt \
+  0d0031ddca8bb870560ca4d4bcafd34233e23e9dd6f0470dc31f7bd888eb7403 3.12.14
+"$work/venv/bin/python" -m pytest -p tools.pytest_phases tests/ -q -s -p no:cacheprovider
+"$work/venv/bin/ruff" check --no-cache custom_components/ tests/ tools/
+```
+
+Use the floor when your platform cannot run the exact .10 bundle, and label the result
+with its actual floor versions. It does not validate .10. Do not disable ordinary HA
+plugin loading, replace failed phases with collection, or infer hardware results from
+mock entities. Restore uses normal `RestoreEntity` state/extra data; flow schemas use
+Voluptuous. HA .10 provides central `reconfigure_successful` abort text; the floor
+retains local `already_configured` fallback text. Tested backend reasons and available
+translation dictionaries do not establish the frontend's fallback/rendering selection.
+This source does not implement the separate HA 2026.11 restore changes,
+and no .11 support claim follows from .10 results.
 
 ## Credits & prior art
 

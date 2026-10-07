@@ -1,9 +1,70 @@
-# Migrating from the YAML package to the integration
+# Upgrading and migrating MXZ Coordinator
 
-The HACS integration is a **rewrite** of `packages/mxz_coordinator.yaml`. The behavior
-is identical (same thresholds, same decide→act→self-heal logic), but the integration
-**owns its own entities** instead of relying on `input_*` helpers, so the entity IDs
-change. Automations or dashboards that reference the old IDs must be updated.
+## Upgrading to 3.4.0
+
+3.4.0 is the normal minor candidate after 3.3.0. It includes reviewed product changes
+for setup/reconfigure validation, room rename/reorder and registry continuity, optional
+sensor freshness, Follow global drift, shared-mode choices, and command delivery with
+manual-intent and restore corrections. The manifest version is 3.4.0; config-entry
+schema version remains 2. The declared HA floor remains 2024.12.0. Final source/version,
+rendered UI, release-artifact and older-release rollback qualification are still pending.
+This document is upgrade guidance, not a claim that 3.4.0 has been published.
+
+For an existing integration entry:
+
+1. Preserve a pre-upgrade HA backup that includes configuration, config entries,
+   entity registry and restore state. Record the current integration version, HA
+   version, exact installed release artifact and its hash. Keep that older artifact.
+2. Record room/head/sensor mappings, priority, targets, enables, drift overrides,
+   fan holds, shared mode, lockouts, idle action and standby settings. Include
+   automation references to priority slots as well as entity IDs.
+3. When 3.4.0 is released and validated, update its download in HACS (or replace only
+   `custom_components/mxz_coordinator` from that release), then restart HA. Confirm
+   the installed manifest reads 3.4.0. Do not delete and recreate the entry to upgrade.
+4. Check the entry, registry identities and restored room settings. Inspect the plan
+   sensor and underlying heads before relying on control. An existing enabled entry
+   may resume control after restart; a fresh entry starts with control disabled.
+5. Review Configure. Freshness remains opt-in. Use Reconfigure only when changing the
+   room list, names, sensor mapping or priority. Review slot-based automations after
+   a reorder. See the behavior changes below before turning control back on.
+
+A v1 flat primary/secondary entry migrates to an ordered v2 `zones` list, retaining
+its first two slot identities. A v2 entry needs no schema-version bump for 3.4.0.
+Future entry versions above 2 are refused, not silently downgraded. Existing IDs
+are retained for kept registry records; removed rooms are pruned and new records
+receive new identities. This does not promise behavior is unchanged on upgrade.
+
+### Roll back to an older integration release
+
+A configuration snapshot restored on this same candidate has been exercised with
+invented entries, migration, unload/re-setup and registry identity checks. That is
+**not** evidence that an older released integration or HA artifact can read the new
+state. No older-artifact rollback is qualified by that result.
+
+The rollback target needs an exact previously installed integration release/artifact,
+its manifest version/hash and a compatible HA version, together with the matching
+pre-upgrade configuration/registry/restore snapshot. Restoring only entry data is
+insufficient after room reorder, registry changes, removed entities or restore writes.
+Replacing only the code may leave newer fields and state that older code does not
+interpret safely. Keeping schema version 2 does not establish downgrade compatibility.
+
+For an authorized rollback, stop MXZ control and allow pending calls to settle; then
+restore the older integration artifact and its matching pre-upgrade HA backup through
+HA's supported backup/recovery process. Restart with the compatible HA version and
+check identities, mappings, priority, targets, enables, holds and raw-head state before
+resuming. Reapply later intentional changes only after checking their compatibility.
+A restored backup loses changes made since it was taken and may affect other HA
+configuration. Heads are external equipment: backup recovery does not roll back
+commands they already received. This procedure still needs a real older-artifact
+upgrade/rollback qualification before a release claim.
+
+## Moving from the YAML package
+
+The integration replaces the package's fixed two-zone helper/automation arrangement
+with integration-owned entities and 2–8 rooms. It retains the shared decide/act/self-heal
+approach, but newer fan, sensor, delivery and UI behavior differs. Automations and
+dashboards that reference the old `input_*` IDs need updates. Run only one controller
+for a set of heads.
 
 ## Per-room sensor freshness profiles
 
@@ -53,24 +114,29 @@ plus a `zones` list — one dict per zone with `name`, `demand`, `engage`, `temp
 Since **v2.1.0** the integration also creates a native single-target thermostat per
 zone (`climate.*_<zone>_thermostat`) — see "Single-target HomeKit/Google tile" below.
 
-## Upgrade steps
+### YAML transition steps
 
 1. **Note your current setup** — screenshot your target values, which rooms are
    enabled, and any automations that read/write the old helpers.
-2. **Install the integration** via HACS (see the README) and run the config flow:
-   pick your two heads and two temperature sensors.
-3. **Remove the YAML package** (or comment out its `!include`) so the old `input_*`
-   helpers and automations stop fighting the integration over the same heads.
+2. **Stop the package's head-writing automations** before setup. Install the
+   integration via HACS (see the README) and select 2–8 heads and a sensor per room.
+   Leave the new coordinator and rooms disabled while checking the mapping.
+3. **Remove the YAML package** (or comment out its `!include`) and reload/restart as
+   its helpers and automations require. Confirm its head-writing automations are gone
+   before enabling the integration.
 4. **Re-point automations/dashboards** at the new entity IDs (table above).
-5. **Turn on** `switch.*_coordinator_enable`, set the targets, and enable the rooms.
+5. **Set targets and room enables**, then turn on `switch.*_coordinator_enable`.
    Tunable constants (S, D, hysteresis, eco extremes, clamp, resting-mode bias) live in
    the integration's **Configure** → options dialog.
 
-## Rollback
+### Return to the legacy YAML package
 
-The legacy package is still in `packages/mxz_coordinator.yaml`. To revert: delete the
-integration from **Settings → Devices & Services**, re-add the package `!include`, and
-reload YAML.
+Keep a copy of the package and its previous helpers/automation settings before the
+transition. Disable and remove the integration entry, then restore the package include
+and its saved configuration. Reload/restart HA as the YAML components require. Check
+its helper values and raw heads before enabling its automations. This does not transfer
+integration targets, registry identities, freshness profiles or fan restore data into
+legacy helpers. It is distinct from an older integration-artifact rollback.
 
 ## Single-target HomeKit/Google tile (v2.1.0+)
 
@@ -132,14 +198,15 @@ it with the **Fan auto** switch or by setting the fan to `auto`. If you relied o
 the switch instead. (beta.17 removed the first only partially: a slider hold could still
 release itself on drift. beta.18 is the complete change.)
 
-**Fan holds now survive restarts by memory, not guesswork (v3.0.1).** The **Fan auto**
+**Fan-hold restore introduced in v3.0.1.** The **Fan auto**
 switch remembers whether you were holding and reconciles that against what the head
 actually reports at startup — so a hold at any speed comes back as your hold, and the
 boost's leftover speed (even on a satisfied room, which earlier versions could mis-read
 as a hold) is recognized and cleared. Two narrow edges, documented: a fan speed set from
 a wall remote while HA itself was down, on a room that was not held, reads as leftover
 and is cleared; and the first restart after upgrading (before the switch has stored
-anything) behaves like v3.0.0.
+anything) can fall back to interpreting the reported speed. See the 3.4.0 correction
+below for the bounded idle/delayed-report case and missing-record limits.
 
 **A restart no longer parks a boost-driven head as "held" (beta.18, completed in
 beta.19; ported to the stable line as v2.19.0/v2.20.0).**
@@ -203,8 +270,9 @@ back on its own. Under **Configure → options**, set:
 - **Hold when the standby entity reads this state** (`inhibit_active_state`) — default
   `on`. Many grid sensors are inverted (they read `off` when the grid is down); set this
   to `off` for those.
-- **What held heads do** (`inhibit_action`) — `eco` (default: protection-only band, low
-  draw *and* freeze-safe), `off` (zero draw, no protection), or `fan_only`.
+- **What held heads do** (`inhibit_action`) — `eco` (default: software protection band),
+  `off` (commands power-off; no temperature protection), or `fan_only`.
+  Neither protection nor zero electrical draw is certified by those commands.
 
 While the watched entity is in its active state, normal coordination is suspended and
 every coordinated head is parked at the chosen action; when it clears, normal coordination
@@ -230,33 +298,59 @@ down (a head the hold parked is not "drift"). The plan sensor gains a top-level
 
 **Purely additive, opt-in — nothing to do on upgrade.** A new **Idle action** option
 (Configure → options, `idle_action`) picks how a satisfied head (or a standoff loser)
-parks: `fan_only` (default — unchanged), `off` (the fan stops and the head closes its
-vanes), or `off_after_dry` (fan_only for a coil-dry period after active cooling —
+parks: `fan_only` (default), `off` (requests power-off), or `off_after_dry` (fan_only for a coil-dry period after active cooling —
 `coil_dry_minutes`, default 10 — then off; heating parks off at once). The `off` choices
-stop the airflow that carries a wet coil's smell into the room; they do **not** change
-the refrigerant valve — an MXZ outdoor unit bleeds refrigerant through idle heads either
-way. See the README's "How a satisfied head idles".
+request that the indoor fan stop. They do not establish the cause of a smell or the
+position of a refrigerant valve. Parked-head refrigerant behavior depends on model and
+hardware settings. See the README's "How a satisfied head idles".
 
 **Interactions.**
 
 - The off-drift self-heal is now **plan-aware**: a head the plan parked off never arms
   it, while a head someone turned off during an active call (or mid coil-dry dwell)
-  still heals. With the default `fan_only` this reduces to the previous condition
-  exactly.
+  still heals. With the default `fan_only`, a head intentionally parked in that mode is not
+  treated as off drift.
 - On the way into an `off` park the coordinator first returns a boost-driven fan to
-  `auto`, while the head is still awake — so a restart never reads the boost's leftover
-  speed as a manual hold. A genuine manual hold gets no such write and survives the
+  `auto`, while the head is still awake. Missing/delayed reports still need restore
+  reconciliation; the request alone proves no delivery. A genuine hold is not given
+  that automatic fan write and survives the
   park and the restart, restored by the **Fan auto** switch as before.
 - A vane change on a parked-off head wakes it briefly (the vane kick) and parks it
   again, the same way an eco-off head always has.
 - The coil-dry dwell is a timestamp comparison re-derived on every recompute, so a
-  restart mid-dwell restarts the dwell — it can never strand a head in `fan_only`. A
-  head observed `off` at startup owes no dwell.
+  restart mid-dwell can start a fresh dwell. Its expiry schedules another decision;
+  a pending or failed external handler can still delay physical parking. A head
+  observed `off` at startup owes no dwell.
 - Eco/away and the standby hold are unchanged and take precedence as before — an
   eco-satisfied head parks off at once, with no coil-dry dwell.
 - The plan sensor gains a top-level `idle_action` attribute.
 
-## Head capability validation (next release)
+## Fan ownership and command delivery (3.4.0)
+
+The issue 25 correction distinguishes automatic fan residue from a manual hold in the
+invented idle/delayed-auto-report restore shape. The frozen comparison retains the
+released failure and candidate success, with a manual OFF twin that must stay held.
+It does not identify a reporter's household cause or prove every crash/reboot shape.
+An injected handler failure also exercises unavailable-switch persistence while heads
+remain registered; it is not a head-disappearance test.
+
+Clean restored switch states use ordinary RestoreEntity state; unavailable states use
+extra restore data for held/not-held intent and echo baselines. Missing, invalid or
+stale records fall back conservatively to the reported speed. Explicit Fan auto ON
+can wait for a usable report, and a later OFF cancels that handback. A recognized hold
+survives; a remote speed change during an HA outage on a previously automatic room
+may be read as residue. Restore data is not a durable command-delivery journal.
+
+Head calls are serialized per head. A slow handler leaves newer intent deferred for
+that head while independent room delivery can proceed. After a return, current inputs
+are recomputed rather than blindly replaying an old plan. Manual intent and unload
+retire follow-on automatic work; an external call already accepted can still finish.
+The plan's per-room command status, timestamps and control reasons expose software
+observations, not physical receipt. A global update failure can still make coordinator
+entities unavailable. Normal RestoreEntity and Voluptuous remain in use; HA 2026.11
+restore API changes are outside this release's tested scope.
+
+## Head capability validation (3.4.0)
 
 New setup requires each selected climate entity to advertise both `heat` and `cool`. Its
 advanced tuning step lists only parking choices supported by every selected head:
@@ -285,7 +379,7 @@ under the same identity and reconciles its restored held/not-held value. Heads t
 model automatic fan differently retain their own manual fan options but are not presented as
 supporting the coordinator's `auto` handback.
 
-## Room records and holds across reload and restart (next release)
+## Room records and holds across reload and restart (3.4.0)
 
 Each room's `number.*_<zone>_drift` record is no longer removed and recreated on every
 setup. Home Assistant 2026.x carried a deleted record's name, area and disabled flag
@@ -301,11 +395,11 @@ switch now carries the held-or-not value beside its state, so your hold returns 
 head does. A hold you released before the restart stays released, and a head that is
 still missing after the restart still reads unavailable.
 
-## Invalid room sensors (unreleased)
+## Invalid room sensors (3.4.0)
 
 **No configuration change — one behavior change to know about.** A room sensor reading
 the coordinator cannot trust now steps aside *before* both the normal and the eco demand
-test, so a room can never be conditioned on a value that isn't a temperature. Invalid
+test. That room supplies no automatic temperature demand until its reading is valid. Invalid
 means: the sensor is missing, `unknown` or `unavailable`, its state does not parse as a
 number, it parses as `nan` or `±inf`, or it declares a unit that is not `°C`, `°F` or `K`.
 
@@ -317,8 +411,9 @@ number, it parses as `nan` or `±inf`, or it declares a unit that is not `°C`, 
 - A sensor whose state carries a different supported unit than the system is converted
   once. Home Assistant already normalizes most temperature sensors to the display unit
   before storing them, so this only bites a per-entity unit override.
-- No plausibility range was added: any finite temperature is valid. Nothing about a
-  reading's **age** is checked — a stale-but-valid number is still used.
+- No plausibility range was added: a finite supported-unit temperature passes the
+  reading check. Age is a separate, opt-in freshness check described below. Without
+  that contract, a stale-but-valid number is still eligible.
 - An invalid room parks by the configured idle action (`fan_only` by default), or `off`
   when eco/away is holding it. Other rooms are untouched: the shared mode is decided by
   the healthy rooms alone, and the plan's `sensors_ok` attribute goes false.
@@ -328,7 +423,7 @@ number, it parses as `nan` or `±inf`, or it declares a unit that is not `°C`, 
   room's own thermostat tile likewise reports no current temperature rather than a
   fabricated one.
 
-## Stale room sensors (unreleased)
+## Stale room sensors (3.4.0)
 
 **Opt in per room; nothing changes until you do.** An entry saved by an older version
 configures no reporting cadence, so every room keeps an unknown cadence and no reading is
@@ -446,7 +541,7 @@ from the entry's data or options.
   diagnostic only — for a cached source the two differ, and a write from this second can
   sit beside a report that is fifteen minutes old.
 
-## Renaming and reordering rooms (unreleased)
+## Renaming and reordering rooms (3.4.0)
 
 **No configuration change — two behavior changes to know about.**
 
@@ -464,7 +559,8 @@ The room entities are keyed by priority slot (position 1 is `primary`, position 
 target, enable, drift override and fan hold. Nothing warned, because every value on its
 own looked plausible. A reorder now moves each room's registry records with the room, so
 its settings — and the record's own name, area and disabled flag — arrive wherever you
-put it. Only priority changes.
+put it. Entity IDs remain attached to the room; slot-derived unique IDs and the entry's
+ordered-head unique ID change. Plan slot attributes follow the new priority.
 
 **Interactions.**
 
@@ -475,10 +571,11 @@ put it. Only priority changes.
   removed room's.
 - Adding a room is unchanged: it starts disabled, with a fresh target seeded from its
   head and no drift override or fan hold.
-- Nothing migrates. An entry saved by an older version loads exactly as it did, and the
-  records only move when you actually reorder.
+- Reordering is a reconfigure action, not a schema migration on ordinary load. It
+  re-keys existing room registry records; removed or never-registered records cannot
+  be carried. Other 3.4.0 runtime changes still apply on an ordinary upgrade.
 
-## Shared mode offers `cool` and `heat` only (next release)
+## Shared mode offers `cool` and `heat` only (3.4.0)
 
 `select.*_shared_mode` used to list four choices: `cool`, `heat`, `fan_only`, and `off`.
 Only two of them are directions the plan can run. Arbitration resolves any value that is
@@ -523,9 +620,9 @@ a standby hold, or a setpoint clamp.
 
 | To do this | Use this |
 | --- | --- |
-| Stop the coordinator and leave every head where it is | `switch.*_coordinator_enable` off (the kill-switch) |
+| Stop new coordinated control, retaining the last commanded state | `switch.*_coordinator_enable` off (the kill-switch); an accepted external call may still return |
 | Hold the heads at the protection band, still conditioning a room at the extremes | the [standby hold entity](#external-inhibit--low-power-standby-hold) (`inhibit_entity`) with its default `eco` action |
-| Park every head unconditionally for as long as the hold lasts | the same standby hold with **What held heads do** set to `off` or `fan_only` |
+| Request a fixed park during an active hold | the same standby hold with **What held heads do** set to `off` or `fan_only`, while coordination is enabled |
 | Take one room out of coordination | that room's `switch.*_<zone>_enable` off |
 | Stop a satisfied head's fan instead of circulating | **Idle action** → `Off` (or `Off after a coil-dry period`) |
 | Turn one head off right now | the head's own controls, with the kill-switch off |
@@ -533,32 +630,35 @@ a standby hold, or a setpoint clamp.
 **YAML package:** `input_select.hvac_shared_mode` still lists all four options and keeps its
 own behavior. It is the legacy package and is not changed by this release.
 
-## Setup and reconfigure screens (next release)
+## Setup and reconfigure screens (3.4.0)
 
-**Nothing stored changes.** The config-entry version stays 2, every option key keeps its
-name and value, the entry's unique id and every entity unique id keep their formula, and
-no safety default moves. An existing entry loads and reloads exactly as it did, and a
-reconfigure writes the same stored shape and runs the same way afterwards. The reconfigure
-screens themselves changed: they name each room and check its sensor before saving. This
-section is about the screens only.
+The config-entry schema stays at version 2 and safety defaults are retained. Setup
+stores an ordered `zones` list, room names and comfort values; sensor freshness is
+configured later. Reconfigure can change the head-order-derived entry unique ID and
+move existing room registry unique IDs to new priority slots while keeping entity IDs.
+New validation can reject submissions older screens accepted. A saved room name can
+change display labels. These are real behavior and identity-management changes, even
+though the stored keys and schema version are retained.
 
 Setup was three screens, and the third was every comfort tunable. It is now four:
 
 1. **Heads** — the same picker, in the same priority order, plus an optional name for the
    outdoor unit. That name is the entry's title. It is not an entity id and not an option
    key, so naming or renaming it moves nothing.
-2. **Room names** — new. Each box is pre-filled with the head's own name, so submitting
-   the step unchanged reproduces the old behaviour exactly. The name still lands in the
-   existing `name` key of the zone dict; the form fields themselves are never stored.
+2. **Rooms** — new. Each box is pre-filled with the head's name; distinct non-empty
+   names are required. The result goes in the zone's existing `name` key. The form field
+   names are not stored. Reconfigure uses the saved names and allows clearing back to
+   the head's current name.
 3. **Sensors** — the same pickers, now labelled and listed by room, showing what each
    chosen sensor is reporting and how long ago.
 4. **Summary** — new, and the only point at which anything is written. It lists every
    room and offers **Save and finish**, **Change advanced settings** and **Go back to
    heads and rooms**.
 
-The twenty comfort tunables moved behind **Change advanced settings**. Skipping that
-screen stores the same values submitting it untouched always did — the same eighteen
-keys, because `changeover_entity` and `inhibit_entity` have never had defaults to store.
+Comfort tunables moved behind **Change advanced settings**. Skipping it validates
+an empty submission against the same unit-specific default schema. The optional
+changeover and standby entities have no default to store. If the heads cannot support
+the default idle action, an explicit supported choice is required before saving.
 
 Setup now refuses one temperature sensor shared by two rooms, a sensor Home Assistant has
 no state for, and a sensor reporting a unit it cannot convert. It does **not** refuse a
@@ -577,7 +677,7 @@ unconfigured rooms at cadence unknown. Comfort and freshness settings stay in
 **Configure**: one form, the existing per-room override fields plus the six freshness
 fields per room, and the same merge-and-mirror save.
 
-## A room can return to the global drift (unreleased)
+## A room can return to the global drift (3.4.0)
 
 **No configuration change. One new entity per room, and no migration.**
 
@@ -602,8 +702,8 @@ the moment the number republishes.
 persists `override` beside its value, and that flag is still the only thing restore
 reads: a room you returned to following comes back following (and shows whatever the
 global is *then*), an override comes back as that override, clamped into the profile
-band. A state saved by any earlier version restores exactly as it did before — including
-one with no `override` attribute at all, which restores as a follower. The drift number
+band. A usable older state with no `override` attribute restores as a follower;
+missing or stale records still follow the number's ordinary restore rules. The drift number
 owns restoration of following versus override. The button carries no drift setting,
 though Home Assistant restores its last-pressed time like any button.
 

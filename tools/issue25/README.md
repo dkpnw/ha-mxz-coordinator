@@ -19,7 +19,7 @@ its entry data, sensors, head implementations, schedules and expected outcomes.
 | Cell on each base | Intervention and independent oracle |
 | --- | --- |
 | 01 | Two clean store round trips: idle A retains automatic ownership; active B controls for fixed-point adoption. |
-| 02 | Twice repeat with an actual dependency handler error and both heads absent at shutdown. Naturally unavailable switches are required; unreached is UNKNOWN. |
+| 02 | Twice repeat with an injected dependency handler failure. Both coordinator-listening Fan-auto switches become unavailable at shutdown while both heads remain registered with their capabilities. Unreached unavailability is UNKNOWN; this cell does not cover head disappearance. |
 | 03 | Public Fan-auto OFF at the identical idle/high token: clean then unavailable round trip, held through demand, no automatic A fan writes. No ON reset. |
 | 04 | Actual options reload, public manual pick/OFF, retained hold, explicit ON with delayed auto report. |
 | 05 | Labelled missing-restore negative: conservative idle hold and active fixed-point control, then explicit ON recovery. |
