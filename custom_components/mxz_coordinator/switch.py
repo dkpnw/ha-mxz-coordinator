@@ -43,14 +43,25 @@ _ZONE_ICONS = ("mdi:bed", "mdi:sofa")  # legacy zone-0/1 icons; generic beyond
 # historical attribute names do NOT prove command delivery or token ownership.
 # Dual-channel persistence is a workaround for the frozen lifecycle read oracle:
 # clean states must not read extra data. Unavailable states use extra data.
-# Attributes can lag coordinator memory; they are not an atomic command journal.
+# Publish memory changes synchronously to keep clean/extra snapshots coherent.
+# Neither channel is a delivery journal or an arbitrary-crash guarantee.
 ATTR_LAST_FAN_COMMAND = "last_fan_command"
 ATTR_PRIOR_FAN_COMMAND = "prior_fan_command"
+ATTR_FAN_ON_PENDING = "fan_on_pending"
 
 
 def _token(value: Any) -> str | None:
     """A restored fan token, or None for anything that is not one."""
     return value if isinstance(value, str) else None
+
+
+def _pending_handback(data: Any, held: bool) -> bool:
+    """Only a well-formed explicit instruction can override token inference."""
+    return (
+        held is False and data.get(ATTR_FAN_ON_PENDING) is True
+        and all(data.get(key) is None or isinstance(data.get(key), str)
+                for key in (ATTR_LAST_FAN_COMMAND, ATTR_PRIOR_FAN_COMMAND))
+    )
 
 
 @dataclass(frozen=True)
@@ -69,19 +80,30 @@ class FanHoldRestoreData(ExtraStoredData):
     permit bounded echo tolerance, not proof that a token came from us.
     Readers before this field ignore it; a record without it restores the
     bool alone.
+
+    ``on_pending`` is earned only by explicit ON with no usable speed. It
+    survives a saved restart and is consumed once by the first usable report,
+    or cancelled by later OFF. It is not own-command or delivery provenance.
+    Legacy/malformed instructions are absent; held truth always takes priority.
     """
 
     held: bool
     last: str | None = None
     prior: str | None = None
+    on_pending: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         """Serialize for the restore store."""
-        return {
+        data = {
             "held": self.held,
             ATTR_LAST_FAN_COMMAND: self.last,
             ATTR_PRIOR_FAN_COMMAND: self.prior,
         }
+        # Absent means false, preserving the legacy payload when no explicit
+        # handback awaits a report. Contradictory held truth always wins.
+        if self.on_pending is True and self.held is False:
+            data[ATTR_FAN_ON_PENDING] = True
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> FanHoldRestoreData | None:
@@ -96,6 +118,7 @@ class FanHoldRestoreData(ExtraStoredData):
             held,
             _token(data.get(ATTR_LAST_FAN_COMMAND)),
             _token(data.get(ATTR_PRIOR_FAN_COMMAND)),
+            _pending_handback(data, held),
         )
 
 
@@ -162,10 +185,13 @@ class MXZSwitch(MXZBaseSwitch):
         self._attr_icon = _GLOBAL_ICONS[key]
 
     def _seed(self, *, restored: bool = False) -> None:
+        was_enabled = getattr(self.coordinator, self._key)
         setattr(self.coordinator, self._key, self._attr_is_on)
         if self._key == KEY_COORDINATOR_ENABLE:
-            self.coordinator._restored_coordinator_on = restored and self._attr_is_on
-            if not restored:
+            if restored:
+                self.coordinator._restored_coordinator_on = self._attr_is_on
+            elif not was_enabled or not self._attr_is_on:
+                self.coordinator._restored_coordinator_on = False
                 self.coordinator._startup_resume.clear()
 
 
@@ -248,6 +274,9 @@ class MXZZoneFanAutoSwitch(
         """
         await super().async_added_to_hass()
         last = await self.async_get_last_state()
+        cid = self._zone.climate_id
+        if last is not None and self._restored_state_is_stale(last):
+            self.coordinator._fan_restore_problem[cid] = "Previous fan hold belongs to an older entry."
         if last is not None and not self._restored_state_is_stale(last):
             stored: FanHoldRestoreData | None = None
             if last.state in ("on", "off"):
@@ -255,6 +284,7 @@ class MXZZoneFanAutoSwitch(
                     last.state == "off",
                     _token(last.attributes.get(ATTR_LAST_FAN_COMMAND)),
                     _token(last.attributes.get(ATTR_PRIOR_FAN_COMMAND)),
+                    _pending_handback(last.attributes, last.state == "off"),
                 )
             elif (extra := await self.async_get_last_extra_data()) is not None:
                 stored = FanHoldRestoreData.from_dict(extra.as_dict())
@@ -264,7 +294,12 @@ class MXZZoneFanAutoSwitch(
                     held=stored.held,
                     last=stored.last,
                     prior=stored.prior,
+                    on_pending=stored.on_pending and self.coordinator.config_entry.created_at is not None,
                 )
+            else:
+                self.coordinator._fan_restore_problem[cid] = "Previous fan hold is missing or malformed."
+        self.coordinator._fan_state_writers[cid] = self.async_write_ha_state
+        self.async_on_remove(lambda: self.coordinator._fan_state_writers.pop(cid, None))
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self._zone.climate_id], self._handle_head_change
@@ -277,11 +312,11 @@ class MXZZoneFanAutoSwitch(
         self.async_write_ha_state()
 
     @property
-    def extra_state_attributes(self) -> dict[str, str | None]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Echo baselines and a reason when advertised control awaits a speed.
 
-        Published at entity updates, so a clean state carries an echo snapshot
-        (which can lag writes). Restore filters impossible tokens to auto;
+        Published on each ownership/memory change, before any service await.
+        Restore filters impossible tokens to auto;
         these attributes are not a command log. An unavailable state has no
         attributes; extra restore data covers its ownership snapshot.
         """
@@ -293,10 +328,13 @@ class MXZZoneFanAutoSwitch(
                 "Current fan speed unavailable; waiting for a head report. "
                 "Fan auto intent is retained; no fan command is sent until speed returns."
             )
-        return {
+        attributes = {
             ATTR_LAST_FAN_COMMAND: last, ATTR_PRIOR_FAN_COMMAND: prior,
             "fan_control_reason": reason,
         }
+        if self._zone.climate_id in self.coordinator._fan_on_pending:
+            attributes[ATTR_FAN_ON_PENDING] = True
+        return attributes
 
     @property
     def extra_restore_state_data(self) -> FanHoldRestoreData:
@@ -306,6 +344,7 @@ class MXZZoneFanAutoSwitch(
             held=not self.coordinator.fan_auto_is_on(self._zone.climate_id),
             last=last,
             prior=prior,
+            on_pending=self._zone.climate_id in self.coordinator._fan_on_pending,
         )
 
     @property

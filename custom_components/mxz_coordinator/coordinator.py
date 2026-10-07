@@ -17,11 +17,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfTemperature
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
@@ -41,6 +43,7 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
+from .capabilities import head_has_fan_auto
 from .const import (
     BAND_DRIFT_DELAY,
     BANNED_MODES,
@@ -469,13 +472,21 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fan_latched: dict[str, bool] = {}
         # Pre-restart latch truth restored by the Fan-auto switch
         # (RestoreEntity), consumed once at the first seed observation per
-        # head. Only the held/not-held bool matters — reconciliation always
-        # reads the token from the OBSERVED head state. Absent or stale
+        # head. Reconciliation always reads the token from the OBSERVED head
+        # state; explicit pending ON is a separate saved instruction. Absent or stale
         # restore data -> plain seeding (below).
         self._fan_restore: dict[str, bool] = {}
         # Explicit ON with no current speed is an instruction, not evidence
         # that the first speed subsequently reported was a manual departure.
         self._fan_on_pending: set[str] = set()
+        # The existing Fan-auto entities publish clean state and extra data
+        # from the same synchronous memory change, even mid-apply. This is
+        # observation/intent, not evidence that a service reached hardware.
+        self._fan_state_writers: dict[str, Callable[[], None]] = {}
+        self._fan_restore_problem = {
+            zone.climate_id: "Previous fan hold unavailable; using reported speed."
+            for zone in self.zones
+        }
 
         # Engage latch (decision state, like _fan_idx): "" = coasting, cool|heat
         # = mid-run toward target (the head may still be parked in fan_only by a
@@ -920,6 +931,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "fan_hold": not self.fan_auto_is_on(zone.climate_id),
                         "sensor_health": healths[i],
                         "sensor_age": None if ages[i] is None else int(ages[i]),
+                        "control_reasons": self._control_reasons(zone),
                     }
                     for i, zone in enumerate(self.zones)
                 ],
@@ -932,6 +944,69 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             }
         )
         return plan
+
+    def _control_reasons(self, zone: Zone) -> list[dict[str, str]]:
+        """Room detail on the existing plan, including unavailable Fan-auto.
+
+        These are lookup/intent explanations, not delivery or hardware claims.
+        The plan itself can be unavailable after a global update failure.
+        """
+        reasons = []
+
+        def add(reason: str, next_step: str) -> None:
+            reasons.append({"reason": reason, "next_step": next_step})
+
+        head = self.hass.states.get(zone.climate_id)
+        if head is None or head.state in UNAVAILABLE_STATES:
+            add(f"Head {zone.climate_id} unavailable.",
+                "Restore the configured head's connection and wait for its report.")
+        else:
+            features = head.attributes.get("supported_features")
+            modes = head.attributes.get("fan_modes")
+            if not isinstance(features, int) or isinstance(features, bool):
+                add("Fan capabilities unavailable or malformed.",
+                    "Wait for valid capability metadata from the head integration.")
+            elif not features & ClimateEntityFeature.FAN_MODE:
+                add("Fan control is not advertised by this head.",
+                    "Use the head's own controls; Fan auto requires advertised auto support.")
+            elif not isinstance(modes, (list, tuple)) or not modes or any(
+                not isinstance(mode, str) for mode in modes
+            ):
+                add("Fan capabilities unavailable or malformed.",
+                    "Wait for valid fan options from the head integration.")
+            elif not head_has_fan_auto(self.hass, zone.climate_id):
+                add("Fan auto is not supported by this head.",
+                    "Use the head's own fan controls; no auto option is invented.")
+            elif head.attributes.get("fan_mode") is None:
+                add("Current fan speed unavailable; fan intent is retained.",
+                    "Wait for a usable head report; no blind fan command is sent.")
+        sensor = self.hass.states.get(zone.sensor_id)
+        if read_room_temp(sensor, self.temp_unit) is None:
+            add(f"Room sensor {zone.sensor_id} unavailable or invalid.",
+                "Restore a numeric temperature report with a supported unit.")
+        if problem := self._fan_restore_problem.get(zone.climate_id):
+            add(problem, "Reported speed is the conservative fallback; turn Fan auto ON to hand back control.")
+        if zone.climate_id in self._fan_on_pending:
+            add("Explicit Fan auto ON is waiting for a usable speed report.",
+                "Wait for the report, or turn Fan auto OFF to cancel the handback.")
+        entry = self.config_entry
+        if not entry.options and CONF_DEMAND_THRESHOLD in entry.data:
+            add("Options are empty; settings are read from the data mirror.",
+                "Review and save Configure to repopulate options.")
+        conf = {**entry.data, **entry.options}
+        absent = [label for key, label in (
+            (CONF_FAN_BOOST_ENABLE, "fan boost"), (CONF_FAN_BOOST_MAX, "maximum fan speed"),
+        ) if key not in conf]
+        if absent:
+            add(f"Default fan settings used for: {', '.join(absent)}.",
+                "Review Configure if these defaults are not intended.")
+        if (
+            CONF_FAN_BOOST_ENABLE in conf and not isinstance(conf[CONF_FAN_BOOST_ENABLE], bool)
+            or CONF_FAN_BOOST_MAX in conf and conf[CONF_FAN_BOOST_MAX] not in FAN_LADDER
+        ):
+            add("Stored fan settings are invalid.",
+                "Review and save valid fan settings in Configure.")
+        return reasons
 
     # -- room-sensor freshness ----------------------------------------------
     def _sensor_health(
@@ -1221,6 +1296,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # is the same truth the Fan auto switch shows, pending restore first.
             for zone_view, zone in zip(plan.get("zones", ()), self.zones):
                 zone_view["fan_hold"] = not self.fan_auto_is_on(zone.climate_id)
+                zone_view["control_reasons"] = self._control_reasons(zone)
             return plan
         finally:
             self._applying_plan = None
@@ -1864,7 +1940,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         # Evaluate the manual-fan latch from what the head is actually reporting.
-        if self._observe_fan_latch(climate_id, observed, act, delta):
+        held = self._observe_fan_latch(climate_id, observed, act, delta)
+        self._publish_fan_state(climate_id)
+        if held:
             return  # latched: leave the user's fan pick untouched
 
         if act in (MODE_COOL, MODE_HEAT) and not self.eco_idle:
@@ -2087,6 +2165,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         *,
         last: str | None = None,
         prior: str | None = None,
+        on_pending: bool = False,
     ) -> None:
         """Record the Fan-auto switch's restored pre-restart latch truth.
 
@@ -2108,6 +2187,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         and a later non-auto report on it is a new hold either way).
         """
         self._fan_restore[climate_id] = held
+        self._fan_restore_problem.pop(climate_id, None)
+        self._fan_on_pending.discard(climate_id)
+        # Only a strictly parsed fresh not-held record can carry this explicit
+        # instruction. It adopts ONE first usable report, including a user
+        # token above the ceiling, just like live ON; it proves no own echo.
+        if on_pending is True and held is False:
+            self._fan_on_pending.add(climate_id)
         if not held and last is not None:
             # Memory includes adopted user tokens, not just our commands.
             # S11b wins even when an impossible token is reported AFTER a
@@ -2129,6 +2215,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         so the memory rides a restart (see ``restore_fan_hold``).
         """
         return (self._fan_cmd.get(climate_id), self._fan_prev.get(climate_id))
+
+    def _publish_fan_state(self, climate_id: str) -> None:
+        """Keep the existing clean-state channel current before yielding."""
+        if writer := self._fan_state_writers.get(climate_id):
+            writer()
 
     # -- fan-auto switch (the discoverable manual-hold handback) --------------
     def fan_auto_is_on(self, climate_id: str) -> bool:
@@ -2167,6 +2258,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         state = self.hass.states.get(climate_id)
         observed = state.attributes.get("fan_mode") if state is not None else None
         if on:
+            self._fan_restore_problem.pop(climate_id, None)
             self._fan_restore.pop(climate_id, None)
             self._fan_on_pending.discard(climate_id)
             if observed is not None:
@@ -2177,10 +2269,21 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else:
                 self._fan_latched[climate_id] = False
                 self._fan_on_pending.add(climate_id)
+            self._publish_fan_state(climate_id)
             await self.async_request_refresh()
             return
         # OFF: hold at the current speed. Auto is nothing to hold onto.
         if observed is None or observed == FAN_AUTO:
+            if observed is None and climate_id in self._fan_on_pending:
+                # Cancel the explicit waiting ON without guessing a token or
+                # issuing a write. First non-auto report becomes the held
+                # speed; observed auto still releases as usual. Known held
+                # truth without a pending ON is left intact.
+                self._fan_on_pending.discard(climate_id)
+                self._fan_restore[climate_id] = True
+                self._fan_latched[climate_id] = True
+                self._publish_fan_state(climate_id)
+                return
             if observed == FAN_AUTO:
                 self._fan_restore.pop(climate_id, None)
             _LOGGER.debug(
@@ -2194,6 +2297,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fan_cmd[climate_id] = observed
         self._fan_latched[climate_id] = True
         self._fan_on_pending.discard(climate_id)
+        self._publish_fan_state(climate_id)
 
     def _seed_matches_boost(
         self, climate_id: str, observed: str, act: str, delta: float
@@ -2257,6 +2361,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if token != self._fan_cmd.get(climate_id):
             self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, token)
             self._fan_cmd[climate_id] = token
+        self._publish_fan_state(climate_id)
         await self.hass.services.async_call(
             "climate",
             "set_fan_mode",
@@ -2785,6 +2890,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._fan_prev.pop(cid, None)
             self._fan_latched.pop(cid, None)
             self._fan_idx.pop(cid, None)
+            self._publish_fan_state(cid)
 
 
 def _as_float(value: Any) -> float | None:
