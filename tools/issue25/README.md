@@ -4,7 +4,12 @@ This diagnostic uses invented heads and sensors with actual HA climate service
 handlers. It compares these immutable products using **identical** test bytes:
 
 - Released: `3a9863896f8affb6f71cbd1e495df21b17a69ff3`
-- Main: `009b6b42326252ee633f2288573a8052f4e8c1e8`
+- Main comparison slot: tested candidate `4f47f164848f10135b1b1ea3151f60ad3f415b69`
+  (tree `a01029ab25c40e299a58ddd2067568e88d6808a1`).
+
+The slot named `main` exports this exact candidate until it is merged into public
+main. The workflow/harness source commit is recorded separately from the exported
+product commit and tree. Historical old-main comparisons do not validate this candidate.
 
 Both use Python 3.12.14 and the main HA 2024.12.0 constraints, SHA-256
 `0d0031ddca8bb870560ca4d4bcafd34233e23e9dd6f0470dc31f7bd888eb7403`.

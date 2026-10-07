@@ -412,7 +412,7 @@ elif args[:2] == ['rev-parse', '--verify']:
     value = args[2]
     if value.endswith('^{commit}'): print(value[:-9])
     else: print({'3a9863896f8affb6f71cbd1e495df21b17a69ff3': '238636de6d067c8e05b59993819cc5187c2bf9df',
-                 '009b6b42326252ee633f2288573a8052f4e8c1e8': '63b5af3d2f421ea5673862e90ac2cfdf8686abaf'}[value[:-7]])
+                 '4f47f164848f10135b1b1ea3151f60ad3f415b69': 'a01029ab25c40e299a58ddd2067568e88d6808a1'}[value[:-7]])
 elif args[0] == 'diff': pass
 elif args[0] == 'ls-tree':
     print(line.split('\t')[1] if '--name-only' in args else line, end='')
