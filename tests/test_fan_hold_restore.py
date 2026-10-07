@@ -99,6 +99,46 @@ async def test_s1_restart_mid_conditioning_hysteresis_rung(hass: HomeAssistant):
     _expect(hass, entry, head_a, hold=False, fan="quiet")  # ramp continued
 
 
+async def test_s1b_restart_mid_ramp_not_held_restore_adopts_off_fixed_point(
+    hass: HomeAssistant,
+):
+    """Hypothesis 1 (R4 cell 06), restored truth without command memory: the room
+    cooled during the outage, so 'high' is not the ladder's rung at the new
+    delta. Restored NOT held means boost wrote it: adopt, step down, keep driving.
+    A mere change of delta is never a manual gesture."""
+    head_a, _b, entry = await _std(hass)
+    coord = entry.runtime_data
+    await _set_temp(hass, SENSOR_A, 67)  # delta 5 -> high
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+    _restart(coord, {head_a: False})
+    await _set_temp(hass, SENSOR_A, 64)  # delta 2 at the seed: high is no fixed point
+    await _recompute(hass, entry)
+    _expect(hass, entry, head_a, hold=False, fan="medium")  # ours, stepped down
+    await _set_temp(hass, SENSOR_A, 63)
+    await _recompute(hass, entry)
+    _expect(hass, entry, head_a, hold=False, fan="low")  # ramp continues
+
+
+async def test_s1c_active_seed_above_ceiling_still_holds(hass: HomeAssistant):
+    """Ceiling=medium; restored NOT held, but the head reports 'high' while
+    actively cooling. Boost could never have written high: a hand did, so the
+    guard that S11b pins for an idle seed holds for an active one too."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+    entry = await _setup_fan_boost(hass, head_a, head_b, fan_boost_max="medium")
+    coord = entry.runtime_data
+    await _set_temp(hass, SENSOR_A, 64)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "medium"  # the ceiling
+    _restart(coord, {head_a: False})
+    await _user_set_fan(hass, head_a, "high")  # wall remote during the outage
+    await _recompute(hass, entry)
+    _expect(hass, entry, head_a, hold=True, fan="high")
+
+
 async def test_s2_boost_residue_satisfied_at_seed(hass: HomeAssistant):
     """THE LIVE DEFECT. Head 'cool fan=quiet' at restart, room satisfied."""
     head_a, _b, entry = await _std(hass)

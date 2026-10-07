@@ -39,29 +39,62 @@ _GLOBAL_ICONS = {
 _ZONE_ICONS = ("mdi:bed", "mdi:sofa")  # legacy zone-0/1 icons; generic beyond
 
 
+# The coordinator's echo memory for this head — the last two fan tokens it
+# commanded — published as switch attributes so a clean restored state carries
+# it (a restore reads the state first; see async_added_to_hass).
+ATTR_LAST_FAN_COMMAND = "last_fan_command"
+ATTR_PRIOR_FAN_COMMAND = "prior_fan_command"
+
+
+def _token(value: Any) -> str | None:
+    """A restored fan token, or None for anything that is not one."""
+    return value if isinstance(value, str) else None
+
+
 @dataclass(frozen=True)
 class FanHoldRestoreData(ExtraStoredData):
-    """The one bool a Fan auto switch carries across a restart.
+    """What a Fan auto switch carries across a restart beside its state.
 
-    The switch's own state cannot always carry it. The switch is unavailable
-    while the head is missing from the state machine, so a head whose
-    integration is unloaded or failed at shutdown leaves ``unavailable``
-    persisted — not an answer to "was this room held?". HA stores extra
-    restore data beside the state whatever the state says, so the hold
-    survives the outage that hid it.
+    ``held`` is the one bool that decides a restart: the switch's own state
+    cannot always carry it. The switch is unavailable while the head is
+    missing from the state machine, so a head whose integration is unloaded
+    or failed at shutdown leaves ``unavailable`` persisted — not an answer to
+    "was this room held?". HA stores extra restore data beside the state
+    whatever the state says, so the hold survives the outage that hid it.
+
+    ``last``/``prior`` are the coordinator's echo memory for the head, the
+    last two fan tokens it commanded (None until it commanded one). They let
+    the seed tell a pre-restart token reported late from a hand on the fan.
+    Readers before this field ignore it; a record without it restores the
+    bool alone.
     """
 
     held: bool
+    last: str | None = None
+    prior: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """Serialize for the restore store."""
-        return {"held": self.held}
+        return {
+            "held": self.held,
+            ATTR_LAST_FAN_COMMAND: self.last,
+            ATTR_PRIOR_FAN_COMMAND: self.prior,
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> FanHoldRestoreData | None:
-        """Rebuild from the store; anything but a clean bool is no answer."""
+        """Rebuild from the store; anything but a clean bool is no answer.
+
+        A token that is not a string is no memory, not a different answer.
+        """
         held = data.get("held")
-        return cls(held) if isinstance(held, bool) else None
+        if not isinstance(held, bool):
+            return None
+        return cls(
+            held,
+            _token(data.get(ATTR_LAST_FAN_COMMAND)),
+            _token(data.get(ATTR_PRIOR_FAN_COMMAND)),
+        )
 
 
 async def async_setup_entry(
@@ -191,24 +224,33 @@ class MXZZoneFanAutoSwitch(
         after upgrading has no stored state at all: one clean fallback to
         observed-state seeding).
 
-        A clean on/off state is the answer whenever there is one. When there is
-        not — the head was missing at shutdown, so HA persisted the switch as
-        ``unavailable`` — the same truth rode along in extra restore data,
-        which HA stores whatever the state says. Either way what comes back is
-        the pre-restart hold, so a hold the user released restores as released
-        and is never resurrected.
+        A clean on/off state is the answer whenever there is one, and its
+        attributes carry the coordinator's echo memory for the head. When
+        there is not — the head was missing at shutdown, so HA persisted the
+        switch as ``unavailable``, with no attributes — the same truth and
+        memory rode along in extra restore data, which HA stores whatever the
+        state says. Either way what comes back is the pre-restart hold, so a
+        hold the user released restores as released and is never resurrected.
         """
         await super().async_added_to_hass()
         last = await self.async_get_last_state()
         if last is not None and not self._restored_state_is_stale(last):
-            held: bool | None = None
+            stored: FanHoldRestoreData | None = None
             if last.state in ("on", "off"):
-                held = last.state == "off"
+                stored = FanHoldRestoreData(
+                    last.state == "off",
+                    _token(last.attributes.get(ATTR_LAST_FAN_COMMAND)),
+                    _token(last.attributes.get(ATTR_PRIOR_FAN_COMMAND)),
+                )
             elif (extra := await self.async_get_last_extra_data()) is not None:
                 stored = FanHoldRestoreData.from_dict(extra.as_dict())
-                held = stored.held if stored is not None else None
-            if held is not None:
-                self.coordinator.restore_fan_hold(self._zone.climate_id, held=held)
+            if stored is not None:
+                self.coordinator.restore_fan_hold(
+                    self._zone.climate_id,
+                    held=stored.held,
+                    last=stored.last,
+                    prior=stored.prior,
+                )
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self._zone.climate_id], self._handle_head_change
@@ -221,10 +263,23 @@ class MXZZoneFanAutoSwitch(
         self.async_write_ha_state()
 
     @property
+    def extra_state_attributes(self) -> dict[str, str | None]:
+        """The coordinator's last two fan commands to this head, as attributes.
+
+        Published live, so a clean restored state carries the echo memory home
+        (an unavailable state has no attributes; extra restore data covers it).
+        """
+        last, prior = self.coordinator.fan_command_memory(self._zone.climate_id)
+        return {ATTR_LAST_FAN_COMMAND: last, ATTR_PRIOR_FAN_COMMAND: prior}
+
+    @property
     def extra_restore_state_data(self) -> FanHoldRestoreData:
-        """Persist the hold truth beside the state, available or not."""
+        """Persist the hold truth and echo memory beside the state, available or not."""
+        last, prior = self.coordinator.fan_command_memory(self._zone.climate_id)
         return FanHoldRestoreData(
-            held=not self.coordinator.fan_auto_is_on(self._zone.climate_id)
+            held=not self.coordinator.fan_auto_is_on(self._zone.climate_id),
+            last=last,
+            prior=prior,
         )
 
     @property
