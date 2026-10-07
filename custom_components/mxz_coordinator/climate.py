@@ -128,6 +128,9 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
     async def async_added_to_hass(self) -> None:
         """Re-render when the underlying head changes (fan/vane reflected live)."""
         await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_delivery_listener(self.async_write_ha_state)
+        )
         # Track the head (fan/vane) and, when wired, the stage sensor so the
         # airflow display is live as the firmware ramps its own `auto` — no
         # coordinator refresh required.

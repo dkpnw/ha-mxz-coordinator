@@ -594,6 +594,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._plan_lock = self._refresh_lock if self._needs_legacy_refresh_guard else asyncio.Lock()
         self._refresh_generation = 0
         self._delivery_followup = False
+        self._delivery_listeners: set[Callable[[], None]] = set()
         self._delivery_error: Exception | None = None
         self._refresh_pending = False
         self._refresh_wake = asyncio.Event()
@@ -781,7 +782,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._coast_retired = True
         self._cancel_coast_timer()
         self._refresh_pending = False
-        self._cancel_refresh_followup()
+        if self._refresh_followup_timer is not None or self._needs_legacy_refresh_guard:
+            self._cancel_refresh_followup()
         self._fresh_retired = True
         self._cancel_fresh_timer()
         for cancel in self._heal_timers.values():
@@ -1310,7 +1312,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Retain current inputs independently of HA's debounce timer."""
         if self._retired:
             return
-        if self._deliveries or self._needs_legacy_refresh_guard and (
+        if self._deliveries:
+            # New intent must progress even while another head is still held.
+            self._delivery_followup = True
+        await self._async_request_ordinary_refresh()
+
+    async def _async_request_ordinary_refresh(self) -> None:
+        """Retain ordinary head reports without promoting echoes to new intent."""
+        if self._retired:
+            return
+        if self._plan_lock.locked():
+            self._refresh_wake.set()
+        if self._delivery_followup or self._needs_legacy_refresh_guard and (
             self._plan_lock.locked() or self._debounced_refresh._execute_lock.locked()
         ):
             self._refresh_pending = True
@@ -1328,6 +1341,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._refresh_followup_timer is not None or self._needs_legacy_refresh_guard:
                 self._cancel_refresh_followup()
             self._refresh_pending = False
+            self._delivery_followup = False
             self._refresh_wake.clear()
             return await self._async_update_data_once()
 
@@ -1383,11 +1397,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             async with self._plan_lock:
                 if self._retired or self._refresh_generation != generation:
                     return
-            if self._deliveries or self._delivery_followup or self._needs_legacy_refresh_guard:
+            if self._delivery_followup:
                 self._delivery_followup = False
                 await self.async_refresh()
+            elif self._deliveries:
+                await self._async_request_ordinary_refresh()
             else:
-                await super(MXZCoordinator, self).async_request_refresh()
+                await self.async_request_refresh()
 
         @callback
         def _fire(_now: Any) -> None:
@@ -1704,6 +1720,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._delivery_error = err
             self.last_update_success = False
             self._publish_delivery()
+            # A global failure still updates every coordinator entity, even
+            # when the failing delivery has outlived its creating refresh.
+            self.async_update_listeners()
 
     @callback
     def _finish_delivery(
@@ -1865,6 +1884,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for i, zone in enumerate(self.zones)
         ]
 
+    @callback
+    def async_add_delivery_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Observe software delivery without a refresh-completion notification."""
+        self._delivery_listeners.add(listener)
+        return partial(self._delivery_listeners.discard, listener)
+
     def _publish_delivery(self) -> None:
         """Publish changed diagnostics immediately, without another decision."""
         for plan in (self.data, self._applying_plan):
@@ -1872,7 +1897,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 for view, zone in zip(plan.get("zones", ()), self.zones):
                     view.update(self.command_attributes(zone.climate_id))
                     view["control_reasons"] = self._control_reasons(zone)
-        self.async_update_listeners()
+        for listener in tuple(self._delivery_listeners):
+            listener()
         successor = getattr(self.config_entry, "runtime_data", None)
         if isinstance(successor, MXZCoordinator) and successor is not self and not successor._retired:
             # The old handler may return after unload; publish that software
@@ -2826,7 +2852,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         that moved is an attribute that changed, whatever the temperature did.
         """
         self._observe_input(event)
-        self.hass.async_create_task(self.async_request_refresh())
+        generation = self._refresh_generation
+
+        async def _request_current_input() -> None:
+            # A decision since this receipt already read the current sensor
+            # states. Do not turn the rest of that burst into a delivery retry.
+            if self._refresh_generation == generation:
+                await self.async_request_refresh()
+
+        self.hass.async_create_task(_request_current_input(), eager_start=False)
 
     @callback
     def _on_input_report(self, event: Event) -> None:
@@ -2955,7 +2989,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             old_state is None or old_state.state in UNAVAILABLE_STATES
         )
         if refresh_needed or new_fan != old_fan or capabilities_changed or availability_changed:
-            self.hass.async_create_task(self.async_request_refresh())
+            if (
+                self._needs_legacy_refresh_guard
+                and self._plan_lock.locked()
+                and not self._debounced_refresh._execute_lock.locked()
+                and not self._retired
+            ):
+                # A direct refresh leaves HA's debouncer free. Its tracked
+                # task waits for the plan, keeping this echo in the same drain.
+                self._refresh_wake.set()
+                self.hass.async_create_task(super().async_request_refresh())
+            else:
+                self.hass.async_create_task(self._async_request_ordinary_refresh())
 
     @callback
     def _arm_or_cancel(

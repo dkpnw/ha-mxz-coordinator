@@ -53,6 +53,13 @@ class MXZPlanSensor(MXZEntity, CoordinatorEntity[MXZCoordinator], SensorEntity):
         MXZEntity.__init__(self, coordinator, KEY_PLAN)
         CoordinatorEntity.__init__(self, coordinator)
 
+    async def async_added_to_hass(self) -> None:
+        """Publish delivery observations independently of completed refreshes."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_delivery_listener(self.async_write_ha_state)
+        )
+
     @property
     def native_value(self) -> str | None:
         """The chosen shared mode."""

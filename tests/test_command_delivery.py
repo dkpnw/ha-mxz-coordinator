@@ -729,3 +729,40 @@ async def test_deferred_delivery_releases_creating_service_and_transaction(
         assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
         assert not coord._deliveries and not coord._vane_cleanup_pending
+
+
+@pytest.mark.parametrize("deferred", [False, True])
+async def test_delivery_disclosure_is_not_refresh_completion(hass, request, monkeypatch, deferred):
+    """Both room surfaces update during a call without a locked completion."""
+    from homeassistant.core import callback
+
+    from tests.test_idle_action import _force_state_dispatch
+
+    _force_state_dispatch(hass, monkeypatch, deferred=deferred)
+    rig = delivery.__wrapped__(hass, request, monkeypatch)
+    r = await anext(rig)
+    windows = []
+
+    @callback
+    def completed():
+        windows.append(r.coord._plan_lock.locked())
+
+    remove = r.coord.async_add_listener(completed)
+    try:
+        gate = r.arm()
+        r.sensor()
+        r.tick()
+        await until(gate["entered"].is_set)
+        room = r.hass.states.get(_eid(r.hass, r.entry, "_primary_thermostat"))
+        assert room.attributes["command_status"] == "pending"
+        assert r.zone()["command_status"] == "pending"
+        assert not any(windows)
+        r.release(gate)
+        await until(lambda: r.zone()["command_status"] == "returned")
+        room = r.hass.states.get(_eid(r.hass, r.entry, "_primary_thermostat"))
+        assert room.attributes["command_status"] == "returned"
+        await r.settle()
+        assert windows and not any(windows)
+    finally:
+        remove()
+        await rig.aclose()
