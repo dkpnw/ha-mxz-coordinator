@@ -1,0 +1,57 @@
+name: HA 2026.10 qualification
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-ha202610:
+    name: Python 3.14.8 / HA 2026.10.0 / generated plugin
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    steps:
+      - name: Public hosted source boundary
+        env:
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          refuse() { echo "HA202610_REFUSED=$1" >&2; exit 1; }
+          test "${REPOSITORY_PRIVATE:-}" = false || refuse repository
+          test "${RUNNER_ENVIRONMENT:-}" = github-hosted || refuse runner
+          test "${RUNNER_ARCH:-}" = X64 || refuse architecture
+          test -n "${ImageOS:-}" || refuse image
+          test "${GITHUB_RUN_ATTEMPT:-}" = 1 || refuse attempt
+          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || refuse source
+          case "${GITHUB_EVENT_NAME:-}:${GITHUB_REF:-}" in
+            push:refs/heads/*|workflow_dispatch:refs/heads/*) ;;
+            pull_request:refs/pull/*/merge)
+              test -n "${GITHUB_HEAD_REF:-}" && test -n "${GITHUB_BASE_REF:-}" || refuse pull-request ;;
+            *) refuse event ;;
+          esac
+          for ref in "${GITHUB_REF#refs/heads/}" "${GITHUB_HEAD_REF:-}" "${GITHUB_BASE_REF:-}"; do
+            case "$ref" in
+              ci/issue25-discriminator|ci/issue25-independent-repeat|ci/issue25-harness-admission|ci/issue25-harness-replacement|ci/issue25-harness-repeat) refuse diagnostic-ref ;;
+            esac
+          done
+          . /etc/os-release
+          test "${ID:-}:${VERSION_ID:-}" = ubuntu:26.04 || refuse os
+          test -n "${ImageVersion:-}" || refuse image-version
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact public source and artifact setup
+        run: bash tools/ci-ha202610.sh setup
+      - name: Additional lane controls
+        run: bash tools/ci-ha202610.sh checks
+      - name: Ordinary admission sentinel
+        run: bash tools/ci-ha202610.sh sentinel
+      - name: Full retained suite with original phases
+        run: bash tools/ci-ha202610.sh suite
+      - name: Complete source, dependency, build and phase evidence
+        if: always()
+        run: bash tools/ci-ha202610.sh export
