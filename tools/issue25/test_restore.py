@@ -378,16 +378,16 @@ class Trial:
         identity = (self.entry.entry_id, self.entry.created_at, self.switch(0), self.switch(1))
         self.snapshot("pre-shutdown")
         if unavailable:
-            # Same external fault on both bases. No coordinator/switch truth is set.
+            # Keep the registered Head and its capabilities present: removing its
+            # state makes the next refresh fail validation before this handler,
+            # letting per-zone isolation recover the coordinator prematurely.
+            # The same external handler fault stays active until unload on both bases.
             b = self.heads[1]
             b.fail_temperature = True
             b._attr_target_temperature_high = None
             b.async_write_ha_state()
             await self.refresh()
-            for h in self.heads:
-                self.hass.states.async_remove(h.entity_id)
-            await self.hass.async_block_till_done()
-            self.snapshot("after-dependency-failure-and-head-removal")
+            self.snapshot("after-persistent-dependency-failure")
             for i in range(2):
                 if self.hass.states.get(self.switch(i)).state != "unavailable":
                     self.unknown.append(f"cycle{self.cycle}/room{i}: unavailable shutdown unreached")

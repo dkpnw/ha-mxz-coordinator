@@ -354,3 +354,198 @@ def test_diagnostic_phase_line_boundary(tmp_path, monkeypatch, when, outcome, pr
         assert phases == ([expected] if separator else [])
         assert config._ordinary_reports == {node: [(when, outcome, False)]}
         assert bool(session.shouldstop) == (outcome == 'failed')
+
+
+def external_method(class_name, method_name):
+    """Read only the named harness method; no HA/product/module imports."""
+    import ast
+    from pathlib import Path
+
+    path = Path(__file__).parents[1] / 'tools/issue25/test_restore.py'
+    tree = ast.parse(path.read_text())
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == class_name)
+    return next(n for n in cls.body if isinstance(n, ast.AsyncFunctionDef) and n.name == method_name)
+
+
+def external_callable(method, namespace):
+    import ast
+    from types import CodeType, FunctionType
+
+    code = compile(ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[])),
+                   '<external-harness-contract>', 'exec')
+    body = next(part for part in code.co_consts if isinstance(part, CodeType))
+    defaults = tuple(ast.literal_eval(value) for value in method.args.defaults)
+    return FunctionType(body, namespace, argdefs=defaults)
+
+
+def observe_external_shutdown(method, switch_state='unavailable'):
+    """Record stimulus up to serialization; never model coordinator/HA behavior.
+
+    The switch input is an independent observation supplied by this control.
+    No platform, coordinator, store, restore getter or product oracle runs here.
+    """
+    import asyncio
+
+    rows = {'head_a': object(), 'head_b': object(),
+            'switch_a': SimpleNamespace(state=switch_state),
+            'switch_b': SimpleNamespace(state=switch_state)}
+    original_rows = dict(rows)
+    observations = []
+    heads = []
+    for entity_id in ('head_a', 'head_b'):
+        h = SimpleNamespace(entity_id=entity_id, fail_temperature=False,
+                            _attr_target_temperature_high=70, _attr_fan_mode='high',
+                            pending=['old-auto'])
+        h.async_write_ha_state = lambda h=h: observations.append(
+            ('publish', h.entity_id, h.fail_temperature, h._attr_target_temperature_high))
+        heads.append(h)
+
+    async def refresh():
+        observations.append(('refresh', heads[1].fail_temperature,
+                             heads[1]._attr_target_temperature_high))
+
+    async def drained():
+        observations.append(('drain',))
+
+    async def origin(stage):
+        observations.append(('origin', stage))
+
+    class SerializationBoundary(Exception):
+        pass
+
+    async def stop_before_serialization(hass):
+        raise SerializationBoundary
+
+    trial = SimpleNamespace(
+        heads=heads, entry=SimpleNamespace(runtime_data=object(), entry_id='same-entry', created_at=1),
+        cycle=0, unknown=[], switch=lambda i: ('switch_a', 'switch_b')[i],
+        snapshot=lambda label: observations.append(('snapshot', label)),
+        origin_guard=origin, refresh=refresh,
+        hass=SimpleNamespace(states=SimpleNamespace(get=rows.get, async_remove=rows.pop),
+                             async_block_till_done=drained))
+    restart = external_callable(method, {'async_mock_restore_state_shutdown_restart': stop_before_serialization})
+    with pytest.raises(SerializationBoundary):
+        asyncio.run(restart(trial, unavailable=True))
+    return trial, rows, original_rows, observations
+
+
+@pytest.mark.parametrize('mutation', ['none', 'remove-head-states', 'omit-external-fault'])
+def test_external_fault_survives_to_serialization(mutation):
+    import ast
+
+    method = external_method('Trial', 'restart')
+    fault = next(n for n in method.body if isinstance(n, ast.If)
+                 and isinstance(n.test, ast.Name) and n.test.id == 'unavailable')
+    if mutation == 'remove-head-states':
+        # The actual R2 regression: state deletion leaves registered handlers alive.
+        fault.body.extend(ast.parse('for h in self.heads:\n self.hass.states.async_remove(h.entity_id)').body)
+    elif mutation == 'omit-external-fault':
+        fault.body = [n for n in fault.body if not (
+            isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Attribute)
+            and n.targets[0].attr == 'fail_temperature')]
+    trial, rows, original, observations = observe_external_shutdown(method)
+
+    def contract():
+        # Require the same live rows, persistent fault, unchanged fan reports and
+        # queues. A missing row or bypassed handler cannot meet this contract.
+        assert rows == original, 'external Head disappeared'
+        assert trial.heads[1].fail_temperature, 'external fault absent'
+        assert not trial.heads[0].fail_temperature
+        assert trial.heads[1]._attr_target_temperature_high is None
+        assert ('publish', 'head_b', True, None) in observations
+        assert ('refresh', True, None) in observations
+        assert observations.index(('publish', 'head_b', True, None)) < observations.index(('refresh', True, None))
+        assert all(h._attr_fan_mode == 'high' and h.pending == ['old-auto'] for h in trial.heads)
+        assert trial.unknown == []
+
+    if mutation == 'none':
+        contract()
+    else:
+        with pytest.raises(AssertionError, match='external Head disappeared|external fault absent'):
+            contract()
+
+
+@pytest.mark.parametrize('state', ['on', 'off'])
+def test_unreached_external_fault_retains_unknown(state):
+    trial, _, _, _ = observe_external_shutdown(external_method('Trial', 'restart'), state)
+    assert trial.unknown == ['cycle1/room0: unavailable shutdown unreached',
+                             'cycle1/room1: unavailable shutdown unreached']
+
+
+def test_external_fault_recovery_after_load_before_setup():
+    import ast
+    import asyncio
+    from copy import deepcopy
+
+    method = external_method('Trial', 'restart')
+    recovery = next(n for n in method.body if isinstance(n, ast.For)
+                    and isinstance(n.iter, ast.Attribute) and n.iter.attr == 'heads')
+
+    def position(call_name):
+        return next(i for i, statement in enumerate(method.body) if any(
+            isinstance(n, ast.Call) and (
+                isinstance(n.func, ast.Attribute) and n.func.attr == call_name
+                or isinstance(n.func, ast.Name) and n.func.id == call_name)
+            for n in ast.walk(statement)))
+
+    assert (position('async_mock_restore_state_shutdown_restart') < position('async_unload')
+            < position('load_after_removal') < method.body.index(recovery) < position('async_setup'))
+    for omit_recovery in (False, True):
+        fragment = deepcopy(method)
+        fragment.body = [deepcopy(recovery)]
+        if omit_recovery:
+            fragment.body[0].body = [n for n in fragment.body[0].body if not isinstance(n, ast.Assign)]
+        published = []
+        heads = [SimpleNamespace(fail_temperature=True, _attr_fan_mode='high', pending=['old-auto'])
+                 for _ in range(2)]
+        for h in heads:
+            h.async_write_ha_state = lambda h=h, published=published: published.append(h.fail_temperature)
+        recover = external_callable(fragment, {})
+        asyncio.run(recover(SimpleNamespace(heads=heads)))
+        assert all(h._attr_fan_mode == 'high' and h.pending == ['old-auto'] for h in heads)
+        if omit_recovery:
+            with pytest.raises(AssertionError):
+                assert published == [False, False]
+        else:
+            assert published == [False, False]
+            assert all(not h.fail_temperature for h in heads)
+
+
+def test_external_temperature_handler_fault_is_persistent_and_recoverable():
+    import asyncio
+    from copy import deepcopy
+    from time import monotonic
+
+    events, published = [], []
+    deliver = external_callable(external_method('Head', 'deliver'), {
+        'asyncio': asyncio, 'deepcopy': deepcopy, 'monotonic': monotonic,
+        'trace': lambda event, **values: events.append((event, values))})
+    head = SimpleNamespace(calls=[], entity_id='invented', fail_temperature=True,
+                           delay_auto=False, pending=[], _attr_hvac_mode='cool',
+                           _attr_fan_mode='high', _attr_target_temperature_low=68,
+                           _attr_target_temperature_high=None,
+                           async_write_ha_state=lambda: published.append('publish'))
+
+    async def exercise():
+        for _ in range(2):
+            args = {'hvac_mode': 'cool', 'target_temp_low': 68, 'target_temp_high': 70,
+                    'entity_id': ['invented']}
+            with pytest.raises(RuntimeError, match='invented dependency failure'):
+                await deliver(head, 'temperature', args)
+            args['entity_id'].append('later-mutation')
+        assert published == [] and head._attr_target_temperature_high is None
+        assert all(c['args']['entity_id'] == ['invented'] and c['entered'].is_set()
+                   and not c['returned'].is_set() and 'returned_at' not in c for c in head.calls)
+        assert len({id(c[k]) for c in head.calls for k in ('entered', 'returned')}) == 4
+        assert [event for event, _ in events] == ['handler-entry', 'handler-error'] * 2
+        # A healthy fan command still works; the fault belongs to temperature.
+        await deliver(head, 'fan', {'fan_mode': 'middle'})
+        assert head._attr_fan_mode == 'middle' and len(published) == 1
+        head.fail_temperature = False
+        await deliver(head, 'temperature', {'hvac_mode': 'cool', 'target_temp_low': 68,
+                                           'target_temp_high': 70})
+        assert head._attr_target_temperature_high == 70 and len(published) == 2
+        assert head.calls[-1]['returned'].is_set()
+        assert head.calls[-1]['returned_at'] >= head.calls[-1]['at']
+
+    asyncio.run(exercise())
