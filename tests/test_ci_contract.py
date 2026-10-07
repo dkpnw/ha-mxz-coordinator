@@ -447,11 +447,14 @@ def test_actual_export_five_mib_boundary(tmp_path, workflow, exit_code, size):
     (root / "conftest.py").write_bytes(plugin.read_bytes())
     (root / "test_invented_boundary.py").write_text(
         f"def test_invented_boundary():\n    assert {exit_code} == 0\n")
+    # Explicit child fixture scope for pytest-asyncio; plain pytest accepts -o
+    # without introducing an unregistered option into an ini configuration file.
     phases = subprocess.run([sys.executable, "-I", "-m", "pytest", "-p", "no:cacheprovider",
+                             "-o", "asyncio_default_fixture_loop_scope=function",
                              "-q", "-s", "test_invented_boundary.py"], cwd=root, env=env,
                             stdin=subprocess.DEVNULL, check=False, capture_output=True, timeout=15)
-    assert phases.returncode == exit_code and phases.stderr == b"", phases.stderr
-    assert b"PHASES_VALID=true\n" in phases.stdout
+    assert phases.returncode == exit_code and phases.stderr == b"", phases
+    assert b"PHASES_VALID=true\n" in phases.stdout, phases
     payload = b"x" * (size - len(phases.stdout) - 1) + b"\n" + phases.stdout
     assert len(payload) == size
     (root / "suite.log").write_bytes(payload)
