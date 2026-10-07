@@ -292,3 +292,65 @@ def test_admission_record_shared_stream(tmp_path, monkeypatch, revert_flush):
                 require_integrity(captured, payload)
         else:
             require_integrity(captured, payload)
+
+
+@pytest.mark.parametrize(('when', 'outcome', 'progress'), [
+    ('setup', 'failed', 'test.py '),
+    ('call', 'passed', 'test.py '),
+    ('teardown', 'passed', 'E'),
+    ('teardown', 'failed', '.'),
+], ids=['setup-error', 'call-pass', 'teardown-pass', 'teardown-error'])
+def test_diagnostic_phase_line_boundary(tmp_path, monkeypatch, when, outcome, progress):
+    import io
+    import json
+    import sys
+    from types import ModuleType
+
+    from tools import pytest_phases
+    from tools.issue25 import conftest as admission
+
+    node = 'issue25/test_invented.py::test_boundary'
+    report = pytest.TestReport(node, ('test_invented.py', 0, 'test_boundary'), {},
+                               outcome, 'invented failure' if outcome == 'failed' else None,
+                               when, duration=0.25)
+
+    class ReportProvider:
+        def pytest_runtest_makereport(self, item, call):
+            return report
+
+    for separator in (False, True):
+        manager = pytest.PytestPluginManager()
+        manager.register(pytest_phases)
+        manager.register(ReportProvider())
+        if separator:
+            plugin = ModuleType('diagnostic_boundary')
+            plugin.pytest_runtest_makereport = admission.pytest_runtest_makereport
+            manager.register(plugin)
+        config = SimpleNamespace(option=SimpleNamespace())
+        pytest_phases.pytest_configure(config)
+        session = SimpleNamespace(shouldstop=False)
+        item = SimpleNamespace(config=config, session=session, nodeid=node,
+                               path=tmp_path / 'issue25/test_invented.py')
+        call = SimpleNamespace(when=when, excinfo=None)
+        path = tmp_path / f'boundary-{separator}.log'
+        with (
+            path.open('w+b', buffering=0) as raw,
+            io.TextIOWrapper(io.BufferedWriter(raw), encoding='utf-8') as output,
+            monkeypatch.context() as patch,
+        ):
+            patch.setattr(sys, 'stdout', output)
+            output.write(progress)
+            returned = manager.hook.pytest_runtest_makereport(item=item, call=call)
+            assert returned is report
+            # The boundary flush must reach the real file even while the phase
+            # plugin's subsequent print is still buffered.
+            expected_prefix = (progress + '\n').encode() if separator else b''
+            assert path.read_bytes() == expected_prefix
+        lines = path.read_text().splitlines()
+        phases = [json.loads(line.removeprefix('PHASE ')) for line in lines if line.startswith('PHASE ')]
+        expected = {'node': node, 'phase': when, 'outcome': outcome,
+                    'category': 'unknown' if outcome == 'failed' else 'green', 'seconds': 0.25}
+        # Removing just the separator reproduces the parent's lost record.
+        assert phases == ([expected] if separator else [])
+        assert config._ordinary_reports == {node: [(when, outcome, False)]}
+        assert bool(session.shouldstop) == (outcome == 'failed')

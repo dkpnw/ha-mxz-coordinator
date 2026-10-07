@@ -335,6 +335,14 @@ def pytest_collection_finish(session):
                        session.config._issue25_expected["mode"])
 
 
+@pytest.hookimpl(hookwrapper=True, trylast=True)
+def pytest_runtest_makereport(item, call):
+    # Terminal progress (notably setup's E) has no trailing newline. This inner
+    # wrapper finishes that line before the unchanged phase wrapper emits.
+    yield
+    print(flush=True)
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_fixture_setup(fixturedef, request):
     if fixturedef.argname in ("hass", "hass_storage", "enable_custom_integrations", "trial"):
