@@ -145,12 +145,19 @@ async def _shutdown(hass: HomeAssistant, entry: MockConfigEntry) -> None:
 
 
 async def _load_store(hass: HomeAssistant, expected: list) -> None:
-    """Observe the real Store call/result; never supply a replacement result."""
+    """Cold-load the persisted input, independently of removal memory/cache."""
     restore = rs.async_get(hass)
+    previous_store = restore.store
+    removed = dict(restore.last_states)
+    # Use HA's own Store construction (version/key/encoder), retaining the
+    # active restore helper. phcc seeds only a cold Store from hass_storage.
+    restore.store = rs.RestoreStateData(hass).store
+    assert restore.store is not previous_store
     real_load = restore.store.async_load
     calls = []
 
     async def observed_load():
+        assert restore.store._data is None  # observe the fixture-read branch; never clear it
         result = await real_load()
         calls.append(deepcopy(result))
         return result
@@ -158,6 +165,15 @@ async def _load_store(hass: HomeAssistant, expected: list) -> None:
     with patch.object(restore.store, "async_load", new=observed_load):
         await restore.async_load()
     assert calls == [expected]
+    for record in expected:
+        sid = record["state"]["entity_id"]
+        loaded = restore.last_states[sid]
+        assert loaded is not removed.get(sid)
+        assert loaded.state.entity_id == sid
+        assert loaded.state.state == record["state"]["state"]
+        assert dict(loaded.state.attributes) == record["state"]["attributes"]
+        assert loaded.state.last_updated == datetime.fromisoformat(record["state"]["last_updated"])
+        assert (loaded.extra_data.as_dict() if loaded.extra_data else None) == record.get("extra_data")
 
 
 async def _startup(hass: HomeAssistant, entry: MockConfigEntry) -> None:
