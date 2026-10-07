@@ -111,6 +111,14 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
             self._base_features |= ClimateEntityFeature.SWING_HORIZONTAL_MODE
 
     @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Room explanations and software command observations."""
+        return {
+            **self.coordinator.command_attributes(self._head_id),
+            "control_reasons": self.coordinator._control_reasons(self._zone),
+        }
+
+    @property
     def supported_features(self) -> ClimateEntityFeature:
         """Advertise fan control only when the underlying head really does."""
         if head_fan_modes(self.hass, self._head_id) is not None:
@@ -201,8 +209,8 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         """
         if not self.coordinator.coordinator_enable or not self._enabled:
             return HVACAction.OFF
-        engage = self.coordinator.data.get(f"{self._zone.slug}_engage")
-        shared = self.coordinator.data.get("state")
+        engage = (self.coordinator.data or {}).get(f"{self._zone.slug}_engage")
+        shared = (self.coordinator.data or {}).get("state")
         if engage == MODE_COOL and shared == MODE_COOL:
             return HVACAction.COOLING
         if engage == MODE_HEAT and shared == MODE_HEAT:
@@ -299,11 +307,8 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         selects that same "low", this issues set_fan_mode low on the head — a
         genuine manual hold at low, exactly as intended (the coordinator's latch
         picks it up as a deliberate departure from `auto`)."""
-        await self.hass.services.async_call(
-            "climate",
-            "set_fan_mode",
-            {"entity_id": self._head_id, "fan_mode": fan_mode},
-            blocking=True,
+        await self.coordinator.async_head_service(
+            self._head_id, "set_fan_mode", {"fan_mode": fan_mode}, manual=True,
         )
 
     # -- write paths (drive the helper entities; never coordinator state) ---

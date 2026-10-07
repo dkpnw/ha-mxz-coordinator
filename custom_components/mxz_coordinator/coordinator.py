@@ -579,22 +579,32 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._arm_freshness(self._started_ts)
         self._unsubs: list[Any] = []
         self._heal_timers: dict[tuple[str, str], Any] = {}
-        # State-change callbacks can run synchronously inside a service call.
-        # Let those callbacks evaluate the plan that owns the in-flight writes;
-        # DataUpdateCoordinator publishes it only after _async_update_data returns.
+        # State callbacks may run inside a service call or one loop turn later.
+        # Keep the current decision, while each delivery slot separately owns
+        # its head's applicable action until those pending reports are dispatched.
         self._applying_plan: dict[str, Any] | None = None
-        # HA 2024.12's request-refresh debouncer discards a call while its
-        # execution lock is held, and its direct refresh path does not
-        # serialize concurrent updates. Later HA debouncers identify their
-        # lock owner and already retain that request, so leave those lanes on
-        # HA's unchanged path. On the old path, remember only that current
-        # inputs need one more look; the follow-up captures no plan or input.
+        # Refreshes serialize decisions, not external completion. An input can
+        # release the current wait; each head retains its applicable action until
+        # its real handler returns. A deferred head retains only current-input
+        # work, never a queue of obsolete plans.
         self._needs_legacy_refresh_guard = not hasattr(
             self._debounced_refresh, "_execute_lock_owner"
         )
         self._refresh_lock = asyncio.Lock()
+        self._plan_lock = self._refresh_lock if self._needs_legacy_refresh_guard else asyncio.Lock()
+        self._refresh_generation = 0
+        self._delivery_followup = False
+        self._delivery_error: Exception | None = None
         self._refresh_pending = False
+        self._refresh_wake = asyncio.Event()
         self._refresh_followup_timer: Any | None = None
+        self._deliveries: dict[str, dict[str, Any]] = hass.data.setdefault(
+            f"{DOMAIN}_deliveries", {}
+        )
+        self._head_locks: dict[str, asyncio.Lock] = hass.data.setdefault(
+            f"{DOMAIN}_head_locks", {}
+        )
+        self._command_observations: dict[str, dict[str, Any]] = {}
         # Seed data so entities have something to read before the first refresh.
         self.data = self._compute()
         if self._freshness:
@@ -750,10 +760,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         ``_retired`` first, so nothing this incarnation already scheduled can
         write a head again. Every pending self-heal, dry, dwell and coast timer
-        is cancelled here. Retiring the kicks is last because it still owes
-        one thing: parking a head this coordinator woke (see _restore_woken).
+        is cancelled here. Retiring kicks is last: a head they woke is parked
+        only when it has no outstanding handler (see _restore_woken_heads).
         """
         self._retired = True
+        self._retire_deliveries()
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
@@ -932,6 +943,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "sensor_health": healths[i],
                         "sensor_age": None if ages[i] is None else int(ages[i]),
                         "control_reasons": self._control_reasons(zone),
+                        **self.command_attributes(zone.climate_id),
                     }
                     for i, zone in enumerate(self.zones)
                 ],
@@ -948,7 +960,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _control_reasons(self, zone: Zone) -> list[dict[str, str]]:
         """Room detail on the existing plan, including unavailable Fan-auto.
 
-        These are lookup/intent explanations, not delivery or hardware claims.
+        These describe lookup, intent and software delivery, never hardware receipt.
         The plan itself can be unavailable after a global update failure.
         """
         reasons = []
@@ -969,11 +981,17 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             elif not features & ClimateEntityFeature.FAN_MODE:
                 add("Fan control is not advertised by this head.",
                     "Use the head's own controls; Fan auto requires advertised auto support.")
-            elif not isinstance(modes, (list, tuple)) or not modes or any(
-                not isinstance(mode, str) for mode in modes
+            elif not isinstance(modes, (list, tuple)) or not any(
+                isinstance(mode, str) for mode in modes
             ):
                 add("Fan capabilities unavailable or malformed.",
                     "Wait for valid fan options from the head integration.")
+            elif any(not isinstance(mode, str) for mode in modes):
+                supported = head_has_fan_auto(self.hass, zone.climate_id)
+                add("Malformed fan options ignored; " + (
+                    "advertised auto remains available." if supported
+                    else "no supported auto option is advertised."
+                ), "Review capability metadata in the head integration.")
             elif not head_has_fan_auto(self.hass, zone.climate_id):
                 add("Fan auto is not supported by this head.",
                     "Use the head's own fan controls; no auto option is invented.")
@@ -989,6 +1007,34 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if zone.climate_id in self._fan_on_pending:
             add("Explicit Fan auto ON is waiting for a usable speed report.",
                 "Wait for the report, or turn Fan auto OFF to cancel the handback.")
+        if not self.data or not self.last_update_success:
+            add("Current plan unavailable.",
+                "Check the integration error and restore its inputs, then recompute.")
+        if self._head_native_limits(zone.climate_id) is None:
+            if self._head_safe_band(zone.climate_id) is not None:
+                add("Native head limits unavailable; using the reported state band.",
+                    "Restore native limit metadata; displayed limits can be rounded.")
+            else:
+                add("Head limits unavailable; using configured temperature clamps.",
+                    "Restore valid head limits; configured clamps do not prove hardware acceptance.")
+        observed = self.command_attributes(zone.climate_id)
+        status = observed["command_status"]
+        if status == "pending":
+            add(f"Command to {zone.climate_id} pending since {observed['command_attempted_at']}.",
+                "Wait for the existing handler to return; no overlapping replacement is sent.")
+        if observed["command_deferred"]:
+            add("Newest room intent deferred behind the pending command.",
+                "It will be recomputed from current inputs after that handler returns.")
+        if status == "rejected":
+            add(f"Last command to {zone.climate_id} rejected at {observed['command_failed_at']}: "
+                f"{observed['command_error']}",
+                "Check the head integration; the next ordinary update may try again.")
+        if status == "cancelled; outcome unknown":
+            add("Command cancelled; external outcome unknown.",
+                "Check the head integration and its report before relying on delivery.")
+        if observed["command_retired_at"] != "not yet recorded" and status == "pending":
+            add(f"Command ownership retired at {observed['command_retired_at']}.",
+                "Already accepted work may return late; retired follow-on commands are suppressed.")
         entry = self.config_entry
         if not entry.options and CONF_DEMAND_THRESHOLD in entry.data:
             add("Options are empty; settings are read from the data mirror.",
@@ -999,7 +1045,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ) if key not in conf]
         if absent:
             add(f"Default fan settings used for: {', '.join(absent)}.",
-                "Review Configure if these defaults are not intended.")
+                "The stored entry does not establish whether defaults were intended; review Configure.")
         if (
             CONF_FAN_BOOST_ENABLE in conf and not isinstance(conf[CONF_FAN_BOOST_ENABLE], bool)
             or CONF_FAN_BOOST_MAX in conf and conf[CONF_FAN_BOOST_MAX] not in FAN_LADDER
@@ -1253,31 +1299,28 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._fresh_timer = None
 
     async def async_request_refresh(self) -> None:
-        """Request one current-input follow-up when a refresh is active."""
-        if self._needs_legacy_refresh_guard and (
-            self._refresh_lock.locked()
-            or self._debounced_refresh._execute_lock.locked()
+        """Retain current inputs independently of HA's debounce timer."""
+        if self._retired:
+            return
+        if self._deliveries or self._needs_legacy_refresh_guard and (
+            self._plan_lock.locked() or self._debounced_refresh._execute_lock.locked()
         ):
             self._refresh_pending = True
-            # _refresh_lock ends when update-data returns, but HA 2024.12 keeps
-            # its debouncer lock through publication and synchronous listeners.
-            # A zero-delay callback armed in that completion window runs after
-            # the current task has returned through the debouncer and released
-            # the lock.  Observe that legacy lock only; never acquire it.
-            if not self._refresh_lock.locked():
+            self._refresh_wake.set()
+            if not self._plan_lock.locked():
                 self._sync_refresh_followup()
             return
         await super().async_request_refresh()
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Refresh with the HA 2024 race guard only where it is needed."""
-        if not self._needs_legacy_refresh_guard:
-            return await self._async_update_data_once()
-        async with self._refresh_lock:
-            # A direct refresh can reach this lock before the scheduled
-            # follow-up. It already supplies the current-input pass, so the
-            # still-queued callback would be redundant.
-            self._cancel_refresh_followup()
+        """Serialize plan decisions on every supported HA version."""
+        async with self._plan_lock:
+            self._refresh_generation += 1
+            self._delivery_error = None
+            if self._refresh_followup_timer is not None or self._needs_legacy_refresh_guard:
+                self._cancel_refresh_followup()
+            self._refresh_pending = False
+            self._refresh_wake.clear()
             return await self._async_update_data_once()
 
     async def _async_update_data_once(self) -> dict[str, Any]:
@@ -1288,6 +1331,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # in flight is newer than this plan.
         selection_seq = self._selection_seq
         self._applying_plan = plan
+        # This is computed intent, not delivery confirmation. Per-head software
+        # status accompanies it, and in-flight action ownership remains separate.
+        self.data = plan
+        # Resolve an existing coast wakeup as soon as the decision resolves it;
+        # an unrelated pending transport must not postpone its cancellation.
+        if not self._coasted:
+            self._cancel_coast_timer()
         try:
             await self._apply(plan, selection_seq)
             # _apply is what settles the manual-fan latch (it reads each head's
@@ -1303,7 +1353,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._sync_dwell_timer(plan)
             self._sync_coast_timer()
             self._sync_freshness_timer()
-            if self._needs_legacy_refresh_guard:
+            if self._refresh_pending or self._needs_legacy_refresh_guard:
                 self._sync_refresh_followup()
 
     def _sync_refresh_followup(self) -> None:
@@ -1317,14 +1367,36 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._refresh_pending = False
         self._cancel_refresh_followup()
 
+        generation = self._refresh_generation
+
+        async def _refresh_current() -> None:
+            # A direct refresh already waiting on the plan lock consumes this
+            # request. Check after it publishes, not when the timer is picked.
+            async with self._plan_lock:
+                if self._retired or self._refresh_generation != generation:
+                    return
+            if self._deliveries or self._delivery_followup or self._needs_legacy_refresh_guard:
+                self._delivery_followup = False
+                await self.async_refresh()
+            else:
+                await super(MXZCoordinator, self).async_request_refresh()
+
         @callback
         def _fire(_now: Any) -> None:
             self._refresh_followup_timer = None
             if self._retired:
                 return
-            self.hass.async_create_task(self.async_request_refresh())
+            self.hass.async_create_task(_refresh_current())
 
-        self._refresh_followup_timer = async_call_later(self.hass, 0, _fire)
+        if self._needs_legacy_refresh_guard:
+            self._refresh_followup_timer = async_call_later(self.hass, 0, _fire)
+        else:
+            async def _run() -> None:
+                self._refresh_followup_timer = None
+                await _refresh_current()
+
+            task = self.hass.async_create_task(_run(), eager_start=False)
+            self._refresh_followup_timer = task.cancel
 
     def _cancel_refresh_followup(self) -> None:
         """Cancel the one queued current-input follow-up, if any."""
@@ -1463,7 +1535,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- actuator (mirrors script.mxz_coordinate) ---------------------------
     async def _apply(self, plan: dict[str, Any], selection_seq: int) -> None:
-        """Drive the heads toward the plan. Sole head-writer; idempotent.
+        """Schedule each head's ordered plan writes; idempotent.
 
         ``selection_seq`` is the explicit-request ordinal read when this plan
         was computed; the writeback at the end skips itself if a person has
@@ -1493,6 +1565,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if any(engage not in valid_eng for engage in engages):
             return
 
+        tasks = []
         for zone, engage in zip(self.zones, engages):
             if zone.climate_id in self._vane_kicks:
                 continue  # mid vane-kick: leave the head alone until it finishes
@@ -1519,62 +1592,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 eco_cool=self.eco_cool,
                 eco_heat=self.eco_heat,
             )
-            # Per-zone isolation: one head rejecting a command degrades THAT
-            # zone (logged), never the whole coordinator (#6).
-            try:
-                # None = rejected reading; the fan ladder is unreachable then
-                # (a room with no vote never gets act cool|heat), so 0.0 is
-                # the honest "no distance known" input rather than a guess.
-                shown = plan[f"{zone.slug}_temp"]
-                delta = 0.0 if shown is None else abs(shown - float(zone.target))
-                if act in (MODE_COOL, MODE_HEAT):
-                    # Dwell memory: re-stamped every cycle while running, so
-                    # the timestamp reads "when conditioning stopped".
-                    self._last_active[zone.climate_id] = (
-                        act,
-                        dt_util.utcnow().timestamp(),
-                    )
-                if act != MODE_FAN_ONLY:
-                    self._cancel_dry_timer(zone.climate_id)
-                # Idle-off transition edge: hand the fan back to "auto" while
-                # the head is still awake, so it never rests on a boost ladder
-                # token (which a later restart would seed as a manual hold).
-                # Eco and zone-disable offs keep their original no-handback
-                # behavior; a latched (held) head gets no write either way.
-                cur = self.hass.states.get(zone.climate_id)
-                handback = (
-                    act == MODE_OFF
-                    and self.idle_action != IDLE_ACTION_FAN_ONLY
-                    and engage != MODE_OFF
-                    and not self._eco_active()
-                    and not self.inhibited
-                    and cur is not None
-                    and cur.state not in (MODE_OFF, *UNAVAILABLE_STATES)
-                )
-                if handback:
-                    await self._apply_fan(zone.climate_id, MODE_FAN_ONLY, delta)
-                    if self._retired:
-                        return
-                await self._apply_head(zone.climate_id, act, low, high)
-                if self._retired:
-                    return
-                # No fan writes while held (the `eco` hold reaches here): the
-                # fan-boost/latch machinery stays frozen so standby residue
-                # can't be read as a manual hold on release — it is reseeded
-                # via _reseed_fan_after_standby on the release edge.
-                if handback:
-                    self._fan_idx.pop(zone.climate_id, None)
-                elif not self.inhibited:
-                    await self._apply_fan(zone.climate_id, act, delta)
-                    if self._retired:
-                        return
-            except HomeAssistantError as err:
-                _LOGGER.error(
-                    "MXZ: applying %s to %s failed (zone degraded, others continue): %s",
-                    act,
-                    zone.climate_id,
-                    err,
-                )
+            shown = plan[f"{zone.slug}_temp"]
+            delta = 0.0 if shown is None else abs(shown - float(zone.target))
+            task = self._queue_delivery(zone.climate_id, act, low, high, delta, engage)
+            if task is not None:
+                tasks.append(task)
+        await self._wait_deliveries(tasks)
 
         # Stamp the flip only on a real mode change (cool<->heat) — and never
         # over a person's request that arrived while the head services above
@@ -1585,6 +1608,233 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.current_shared_mode = state
             self._last_mode_change_ts = dt_util.utcnow().timestamp()
             self.async_update_listeners()  # let the shared-mode select re-render
+
+    def _queue_delivery(
+        self, climate_id: str, act: str, low: float, high: float,
+        delta: float = 0.0, engage: str | None = None,
+    ) -> asyncio.Task | None:
+        """One real operation per head, with at most one current-input follow-up.
+
+        The registry lives with HA, so reload cannot forget an older handler.
+        A waiting new incarnation inherits no old intent or fan provenance.
+        """
+        intent = (act, low, high, delta, engage, self.inhibited, self.fan_auto_is_on(climate_id))
+        if active := self._deliveries.get(climate_id):
+            changed = (
+                active["owner"] is not self or active["retired"] or active["manual"]
+                or active["intent"] != intent
+            )
+            active["next"] = self if changed else None
+            active["superseded"] = changed
+            if changed:
+                self._publish_delivery()
+            return None
+        active = {
+            "owner": self, "act": act, "intent": intent, "next": None,
+            "superseded": False, "retired": False, "manual": False, "locked": False,
+        }
+        self._deliveries[climate_id] = active
+        task = self.hass.async_create_task(
+            self._deliver_head(climate_id, active, act, low, high, delta, engage),
+            eager_start=False,
+        )
+        active["task"] = task
+        task.add_done_callback(partial(self._finish_delivery, climate_id, active))
+        return task
+
+    async def _wait_deliveries(self, tasks: list[asyncio.Task]) -> None:
+        """Wait for ordinary work, but let new inputs make a new decision."""
+        if not tasks:
+            return
+        wake = asyncio.create_task(self._refresh_wake.wait())
+        pending = set(tasks)
+        try:
+            while pending and not wake.done():
+                done, _ = await asyncio.wait(pending | {wake}, return_when=asyncio.FIRST_COMPLETED)
+                pending -= done
+        finally:
+            wake.cancel()
+            await asyncio.gather(wake, return_exceptions=True)
+        if self._delivery_error is not None:
+            raise self._delivery_error
+
+    def _delivery_owned(self, active: dict[str, Any]) -> bool:
+        return (
+            not self._retired and self.coordinator_enable
+            and not active["superseded"] and not active["retired"] and not active["manual"]
+        )
+
+    async def _deliver_head(
+        self, climate_id: str, active: dict[str, Any], act: str,
+        low: float, high: float, delta: float, engage: str | None,
+    ) -> None:
+        """Preserve the existing per-head sequence; never follow obsolete work."""
+        try:
+            # Own the complete per-head sequence, including fan observation.
+            # A queued manual command runs before the next sequence inspects its
+            # fan token; no pre-lock guess can overwrite that manual choice.
+            async with self._head_locks.setdefault(climate_id, asyncio.Lock()):
+                active["locked"] = True
+                await self._deliver_head_steps(climate_id, active, act, low, high, delta, engage)
+        except HomeAssistantError as err:
+            _LOGGER.error(
+                "MXZ: applying %s to %s failed (zone degraded, others continue): %s",
+                act, climate_id, err,
+            )
+        except Exception as err:
+            # Unexpected dependency failures retain the existing global failure
+            # and restore-channel semantics, even if this head outlives a plan.
+            _LOGGER.exception("MXZ: unexpected command failure for %s", climate_id)
+            self._delivery_error = err
+            self.last_update_success = False
+            self._publish_delivery()
+
+    @callback
+    def _finish_delivery(
+        self, climate_id: str, active: dict[str, Any], _task: asyncio.Task,
+    ) -> None:
+        """Release ownership after the call's queued state callbacks run."""
+        if self._deliveries.get(climate_id) is active:
+            self._deliveries.pop(climate_id)
+        successor = active["next"]
+        if successor is not None and not successor._retired:
+            successor._refresh_pending = True
+            successor._delivery_followup = True
+            successor._sync_refresh_followup()
+
+    async def _deliver_head_steps(
+        self, climate_id: str, active: dict[str, Any], act: str,
+        low: float, high: float, delta: float, engage: str | None,
+    ) -> None:
+        if not self._delivery_owned(active):
+            return
+        if engage is None:  # fixed standby park, no fan machinery
+            await self._apply_head(climate_id, act, low, high)
+            return
+        if act in (MODE_COOL, MODE_HEAT):
+            self._last_active[climate_id] = (act, dt_util.utcnow().timestamp())
+        if act != MODE_FAN_ONLY:
+            self._cancel_dry_timer(climate_id)
+        cur = self.hass.states.get(climate_id)
+        handback = (
+            act == MODE_OFF and self.idle_action != IDLE_ACTION_FAN_ONLY
+            and engage != MODE_OFF and not self._eco_active() and not self.inhibited
+            and cur is not None and cur.state not in (MODE_OFF, *UNAVAILABLE_STATES)
+        )
+        if handback:
+            await self._apply_fan(climate_id, MODE_FAN_ONLY, delta)
+            if not self._delivery_owned(active):
+                return
+        await self._apply_head(climate_id, act, low, high)
+        if not self._delivery_owned(active):
+            return
+        if handback:
+            self._fan_idx.pop(climate_id, None)
+        elif not self.inhibited:
+            await self._apply_fan(climate_id, act, delta)
+
+    def _retire_deliveries(self) -> None:
+        """Disown follow-ons without pretending to interrupt external work."""
+        for climate_id, active in self._deliveries.items():
+            if active["owner"] is self:
+                active["retired"] = True
+                active["superseded"] = True
+                self._command_observations.setdefault(climate_id, {})["command_retired_at"] = (
+                    dt_util.utcnow().isoformat()
+                )
+            if active["next"] is self:
+                active["next"] = None
+        for observed in self._command_observations.values():
+            if observed.get("command_status") == "pending":
+                observed["command_retired_at"] = dt_util.utcnow().isoformat()
+        self._refresh_wake.set()
+        self._publish_delivery()
+
+    async def async_head_service(
+        self, climate_id: str, service: str, payload: dict[str, Any],
+        *, retiring: bool = False, manual: bool = False, vane: bool = False,
+    ) -> None:
+        """Serialize actual climate handlers even across entry incarnations."""
+        active = self._deliveries.get(climate_id)
+        if manual and active:
+            # A facade gesture supersedes the old sequence before it yields,
+            # while the actual manual handler still waits for the old return.
+            active["manual"] = True
+        if active and active.get("task") is asyncio.current_task() and active["locked"]:
+            if self._delivery_owned(active):
+                await self._call_head_service(climate_id, service, payload)
+            return
+        async with self._head_locks.setdefault(climate_id, asyncio.Lock()):
+            if self._retired and not retiring:
+                return
+            if vane and not self._owns_vane_kick(climate_id):
+                return
+            await self._call_head_service(climate_id, service, payload)
+
+    async def _call_head_service(
+        self, climate_id: str, service: str, payload: dict[str, Any],
+    ) -> None:
+        """Observe a serialized software call, never claim physical receipt."""
+        observed = self._command_observations.setdefault(climate_id, {})
+        observed.update(command_status="pending", command_attempted_at=dt_util.utcnow().isoformat())
+        self._publish_delivery()
+        try:
+            await self.hass.services.async_call(
+                "climate", service, {"entity_id": climate_id, **payload}, blocking=True,
+            )
+        except asyncio.CancelledError:
+            observed["command_status"] = "cancelled; outcome unknown"
+            raise
+        except Exception as err:
+            observed.update(
+                command_status="rejected", command_failed_at=dt_util.utcnow().isoformat(),
+                command_error=str(err),
+            )
+            raise
+        else:
+            observed.update(command_status="returned", command_returned_at=dt_util.utcnow().isoformat())
+        finally:
+            self._publish_delivery()
+
+    def command_attributes(self, climate_id: str) -> dict[str, Any]:
+        """Software observations, with honest absence rather than invented dates."""
+        observed = self._command_observations.get(climate_id, {})
+        active = self._deliveries.get(climate_id)
+        if active and active["owner"] is not self:
+            observed = active["owner"]._command_observations.get(climate_id, {})
+        head = self.hass.states.get(climate_id)
+        return {
+            "head_state_updated_at": head.last_updated.isoformat() if head else "not yet recorded",
+            **{key: observed.get(key, "not yet recorded") for key in (
+                "command_attempted_at", "command_returned_at", "command_failed_at", "command_retired_at",
+            )},
+            "command_status": observed.get("command_status", "not yet recorded"),
+            "command_error": observed.get("command_error"),
+            "command_deferred": bool(active and active["next"] is self),
+            "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+            "plan_target_basis": "computed intent; command return does not prove physical application",
+        }
+
+    def room_details(self) -> list[dict[str, Any]]:
+        """Existing room diagnostics remain useful even without a current plan."""
+        views = (self.data or {}).get("zones", ())
+        return [
+            {
+                **(views[i] if i < len(views) else {"name": zone.name}),
+                **self.command_attributes(zone.climate_id),
+                "control_reasons": self._control_reasons(zone),
+            }
+            for i, zone in enumerate(self.zones)
+        ]
+
+    def _publish_delivery(self) -> None:
+        """Publish changed diagnostics immediately, without another decision."""
+        for plan in (self.data, self._applying_plan):
+            if plan:
+                for view, zone in zip(plan.get("zones", ()), self.zones):
+                    view.update(self.command_attributes(zone.climate_id))
+                    view["control_reasons"] = self._control_reasons(zone)
+        self.async_update_listeners()
 
     def _parked_by_standby(self) -> bool:
         """Whether an inhibit hold is parking every head at one fixed mode.
@@ -1676,12 +1926,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             cancel()
 
     def _planned_act_for(self, entity_id: str) -> str | None:
-        """The act the LAST computed plan implies for this head, or None.
+        """The action owning this head's writes, else the current plan's action.
 
-        Lets the off-drift self-heal tell a plan-parked off head (idle_action
+        A newer decision may already be published while this head still reports
+        an older operation. Lets the off-drift self-heal tell a plan-parked off head (idle_action
         off, eco) from a genuine wall-remote off during an active call — the
         former must not be "healed" back awake.
         """
+        if active := self._deliveries.get(entity_id):
+            return active["act"]
         data = self._applying_plan if self._applying_plan is not None else self.data or {}
         state = data.get("state")
         if state not in (MODE_COOL, MODE_HEAT):
@@ -1706,23 +1959,16 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         survives the hold (reconciled on release, see _reseed_fan_after_standby).
         Same per-zone isolation as _apply, and skips a head mid vane-kick.
         """
+        tasks = []
         for zone in self.zones:
             if self._retired:
                 return
             if zone.climate_id in self._vane_kicks:
                 continue
-            try:
-                await self._apply_head(zone.climate_id, mode, 0.0, 0.0)
-                if self._retired:
-                    return
-            except HomeAssistantError as err:
-                _LOGGER.error(
-                    "MXZ: standby-parking %s to %s failed "
-                    "(zone degraded, others continue): %s",
-                    zone.climate_id,
-                    mode,
-                    err,
-                )
+            task = self._queue_delivery(zone.climate_id, mode, 0.0, 0.0)
+            if task is not None:
+                tasks.append(task)
+        await self._wait_deliveries(tasks)
 
     # -- per-head operating band (native-unit safe clamp, #10) --------------
     def _head_native_limits(
@@ -1856,15 +2102,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 cur = _as_float(state.attributes.get("temperature")) if state else None
                 if cur_mode == act and cur is not None and abs(cur - setpoint) < tol:
                     return  # idempotent
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_temperature",
+                await self.async_head_service(
+                    climate_id, "set_temperature",
                     {
-                        "entity_id": climate_id,
                         "hvac_mode": act,
                         "temperature": setpoint,
                     },
-                    blocking=True,
                 )
                 return
             cur_low = _as_float(state.attributes.get("target_temp_low")) if state else None
@@ -1879,27 +2122,22 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 and abs(cur_high - high) < tol
             ):
                 return  # idempotent
-            await self.hass.services.async_call(
-                "climate",
-                "set_temperature",
+            await self.async_head_service(
+                climate_id, "set_temperature",
                 {
-                    "entity_id": climate_id,
                     "hvac_mode": act,
                     "target_temp_low": low,
                     "target_temp_high": high,
                 },
-                blocking=True,
             )
             return
 
         # fan_only / off -> set_hvac_mode only (a bare temperature throws)
         if cur_mode == act:
             return
-        await self.hass.services.async_call(
-            "climate",
-            "set_hvac_mode",
-            {"entity_id": climate_id, "hvac_mode": act},
-            blocking=True,
+        await self.async_head_service(
+            climate_id, "set_hvac_mode",
+            {"hvac_mode": act},
         )
 
     async def _apply_fan(self, climate_id: str, act: str, delta: float) -> None:
@@ -2364,11 +2602,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, token)
             self._fan_cmd[climate_id] = token
         self._publish_fan_state(climate_id)
-        await self.hass.services.async_call(
-            "climate",
-            "set_fan_mode",
-            {"entity_id": climate_id, "fan_mode": token},
-            blocking=True,
+        await self.async_head_service(
+            climate_id, "set_fan_mode",
+            {"fan_mode": token},
         )
 
     # -- vane apply / kick ----------------------------------------------------
@@ -2420,11 +2656,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Recorded before the call, not after: once the wake is issued we
             # own parking that head again even if we never see it return.
             self._vane_kick_woken.add(climate_id)
-            await self.hass.services.async_call(
-                "climate",
-                "set_hvac_mode",
-                {"entity_id": climate_id, "hvac_mode": MODE_FAN_ONLY},
-                blocking=True,
+            await self.async_head_service(
+                climate_id, "set_hvac_mode",
+                {"hvac_mode": MODE_FAN_ONLY}, vane=True,
             )
             if not self._owns_vane_kick(climate_id):
                 return
@@ -2438,11 +2672,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await asyncio.sleep(self._vane_kick_apply)
                 if not self._owns_vane_kick(climate_id):
                     return
-            await self.hass.services.async_call(
-                "climate",
-                "set_hvac_mode",
-                {"entity_id": climate_id, "hvac_mode": MODE_OFF},
-                blocking=True,
+            await self.async_head_service(
+                climate_id, "set_hvac_mode",
+                {"hvac_mode": MODE_OFF}, vane=True,
             )
             self._vane_kick_woken.discard(climate_id)  # parked, nothing owed
             if not self._owns_vane_kick(climate_id):
@@ -2496,21 +2728,30 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         The kick's own ``off`` restore is what hands a temporarily woken head
         back to the plan; a retired kick never gets to send it, so the retiring
-        path sends it here instead, before retirement completes. Only a head
+        path sends it here instead when no handler is still pending. Only a head
         still sitting in the fan_only *we* commanded is parked — anything else
-        means someone took the head over, and that choice stands.
+        means someone took the head over, and that choice stands. A pending
+        handler can finish late; retirement issues no overlapping or late park.
         """
         for climate_id in tuple(self._vane_kick_woken):
             self._vane_kick_woken.discard(climate_id)
             state = self.hass.states.get(climate_id)
             if state is None or state.state != MODE_FAN_ONLY:
                 continue
+            lock = self._head_locks.get(climate_id)
+            if lock is not None and lock.locked():
+                # The accepted wake may still be inside its real handler. A
+                # second OFF would overlap it; retirement cannot retract that
+                # work and must not wait indefinitely for its external return.
+                _LOGGER.warning(
+                    "MXZ: %s still has a pending handler; retirement sends no overlapping park",
+                    climate_id,
+                )
+                continue
             try:
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": climate_id, "hvac_mode": MODE_OFF},
-                    blocking=True,
+                await self.async_head_service(
+                    climate_id, "set_hvac_mode",
+                    {"hvac_mode": MODE_OFF}, retiring=True,
                 )
             except HomeAssistantError as err:
                 _LOGGER.error(
@@ -2756,6 +2997,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_user_changed(self) -> None:
         """A helper entity changed by the user -> recompute + act."""
         if not self.coordinator_enable:
+            self._retire_deliveries()
             await self._async_retire_vane_kicks()
         await self.async_request_refresh()
 

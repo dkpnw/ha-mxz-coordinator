@@ -56,9 +56,12 @@ class MXZPlanSensor(MXZEntity, CoordinatorEntity[MXZCoordinator], SensorEntity):
     @property
     def native_value(self) -> str | None:
         """The chosen shared mode."""
-        return self.coordinator.data.get("state")
+        return (self.coordinator.data or {}).get("state")
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        data = self.coordinator.data
-        return {key: data.get(key) for key in _ATTRS}
+        data = self.coordinator.data or {}
+        return {
+            **{key: data.get(key) for key in _ATTRS},
+            "zones": self.coordinator.room_details(),
+        }
