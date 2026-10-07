@@ -1712,6 +1712,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Release ownership after the call's queued state callbacks run."""
         if self._deliveries.get(climate_id) is active:
             self._deliveries.pop(climate_id)
+            self._publish_delivery()
         successor = active["next"]
         if successor is not None and not successor._retired:
             successor._refresh_pending = True

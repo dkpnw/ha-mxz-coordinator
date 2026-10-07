@@ -8,6 +8,8 @@ from datetime import datetime
 import pytest
 from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import EVENT_CALL_SERVICE
+from homeassistant.core import callback
 from homeassistant.helpers.entity_component import DATA_INSTANCES
 
 from custom_components.mxz_coordinator.const import (
@@ -347,6 +349,90 @@ async def test_late_vane_return_updates_reloaded_room_disclosure(hass, monkeypat
         if hasattr(entry, "runtime_data") and not entry.runtime_data._retired:
             assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
+
+
+async def test_deferred_no_issuance_completion_updates_both_room_surfaces(hass, monkeypatch, request):
+    """Actual completion clears deferral even when the planned head is already off."""
+    from tests.test_vane_kick import _setup_kickable, _start_blocked_kick
+
+    entry, heads, vane = await _setup_kickable(hass)
+    old = entry.runtime_data
+    cid = heads[0].entity_id
+    harness = await _start_blocked_kick(hass, entry, heads[0], vane, "wake", monkeypatch, request)
+    old._vane_kick_retire = 0.05
+    reload = asyncio.create_task(hass.config_entries.async_reload(entry.entry_id))
+    service_calls = []
+    unsubscribe = hass.bus.async_listen(
+        EVENT_CALL_SERVICE, callback(lambda event: service_calls.append(dict(event.data)))
+    )
+    try:
+        await until(reload.done, 3.0)
+        assert await reload
+        assert entry.state is ConfigEntryState.LOADED
+        current = entry.runtime_data
+        assert current is not old
+        room_id = _eid(hass, entry, "_primary_thermostat")
+        plan_id = _eid(hass, entry, "_plan")
+        await until(lambda: cid in current._deliveries, 1.0)
+        generation = current._refresh_generation
+        # Let already scheduled peer work finish, without another input or clock sweep.
+        await asyncio.sleep(0.5)
+        assert current._refresh_generation == generation
+        assert not current._plan_lock.locked()
+        assert set(current._deliveries) == {cid}
+        assert current._deliveries[cid]["owner"] is current
+        assert current._deliveries[cid]["locked"] is False
+        assert current._head_locks[cid].locked()
+        assert not harness.kick_task.done()
+        assert harness.commands == [("head", "fan_only"), ("head", "off")]
+        assert hass.states.get(cid).state == "off"
+        before = hass.states.get(room_id).attributes
+        for view in (before, hass.states.get(plan_id).attributes["zones"][0]):
+            assert view["command_deferred"] is True
+            assert view["command_status"] == "pending"
+            assert view["command_ownership_retired"] is True
+            assert view["vane_retirement_cleanup"]["command_status"] == "returned"
+            assert "deferred behind the pending command" in json.dumps(view["control_reasons"])
+            assert "pending since" in json.dumps(view["control_reasons"])
+        calls_before = list(service_calls)
+        harness.barrier.release.set()
+        await until(harness.kick_task.done, 1.0)
+        await harness.kick_task
+        await until(lambda: cid not in current._deliveries, 2.0)
+        await hass.async_block_till_done()
+        # The handler returned, the queued no-op left, and nobody issued anything.
+        assert not current._deliveries
+        assert not current._vane_cleanup_pending
+        assert not current._head_locks[cid].locked()
+        assert current._refresh_generation == generation
+        assert service_calls == calls_before
+        assert harness.commands == [("head", "fan_only"), ("head", "off")]
+        print("DELIVERY_NO_ISSUANCE " + json.dumps({
+            "issued_after_release": service_calls[len(calls_before):],
+            "deliveries_remaining": len(current._deliveries),
+            "refresh_generation_unchanged": current._refresh_generation == generation,
+        }))
+        for view in (hass.states.get(room_id).attributes, hass.states.get(plan_id).attributes["zones"][0]):
+            assert view["command_deferred"] is False
+            assert "deferred behind the pending command" not in json.dumps(view["control_reasons"])
+            assert view["command_status"] == "returned"
+            assert "pending since" not in json.dumps(view["control_reasons"])
+            assert view["command_ownership_retired"] is True
+            assert view["command_attempted_at"] == before["command_attempted_at"]
+            assert view["command_retired_at"] == before["command_retired_at"]
+            assert view["vane_retirement_cleanup"] == before["vane_retirement_cleanup"]
+    finally:
+        harness.barrier.release.set()
+        await until(harness.kick_task.done)
+        await harness.kick_task
+        assert await reload
+        if hasattr(entry, "runtime_data") and not entry.runtime_data._retired:
+            assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+        unsubscribe()
+        assert not old._deliveries
+        assert not old._vane_cleanup_pending
+        assert not old._head_locks[cid].locked()
 
 
 async def test_inhibit_retires_only_its_pending_vane_wake(hass, monkeypatch, request):
