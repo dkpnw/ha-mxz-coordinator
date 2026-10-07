@@ -256,7 +256,6 @@ class MissingComponent:
     def find_spec(self, fullname, path=None, target=None):
         if fullname == "custom_components.mxz_coordinator" or fullname.startswith("custom_components.mxz_coordinator."):
             raise ModuleNotFoundError("No module named 'custom_components.mxz_coordinator'", name="custom_components.mxz_coordinator")
-        return None
 
 
 class DecoyComponent:

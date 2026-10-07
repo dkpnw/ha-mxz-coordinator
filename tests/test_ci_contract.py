@@ -129,7 +129,8 @@ def test_actual_job_gates(workflow, case, event, ref, head, base, attempt, ordin
     env = {"GITHUB_EVENT_NAME": event, "GITHUB_REF": ref, "GITHUB_RUN_ATTEMPT": str(attempt),
            "GITHUB_SHA": "a" * 40, "REPOSITORY_PRIVATE": "false",
            "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_ARCH": "X64"}
-    result = subprocess.run(["bash", "-euo", "pipefail", "-c", guard], env=env,
+    # Match noninteractive CI execution without host profile/rc startup.
+    result = subprocess.run(["bash", "--noprofile", "--norc", "-euo", "pipefail", "-c", guard], env=env,
                             check=False, capture_output=True, text=True, timeout=5)
     valid = False
     assert (result.returncode == 0) is valid
@@ -153,7 +154,7 @@ def test_actual_preacquisition_settings_guard(workflow, key, value):
     for name in ("pytest", "issue25"):
         steps = workflow["jobs"][name]["steps"]
         assert "uses" not in steps[0]
-        result = subprocess.run(["bash", "-euo", "pipefail", "-c", steps[0]["run"]], env=env,
+        result = subprocess.run(["bash", "--noprofile", "--norc", "-euo", "pipefail", "-c", steps[0]["run"]], env=env,
                                 check=False, capture_output=True, text=True, timeout=5)
         assert result.returncode != 0
         reason = {"GITHUB_SHA": "source", "REPOSITORY_PRIVATE": "repository",
@@ -169,7 +170,7 @@ def test_checkout_binding_and_process_layout(workflow, tmp_path):
         steps = workflow["jobs"][name]["steps"]
         binding = next(s["run"] for s in steps if s.get("name") == "Checkout source binding")
         for sha in ("a" * 40, "b" * 40, ""):
-            result = subprocess.run(["/bin/bash", "-euo", "pipefail", "-c", binding],
+            result = subprocess.run(["/bin/bash", "--noprofile", "--norc", "-euo", "pipefail", "-c", binding],
                                     env={"PATH": str(tmp_path), "GITHUB_SHA": sha},
                                     check=False, capture_output=True, text=True, timeout=5)
             assert (result.returncode == 0) is (sha == "a" * 40)
@@ -269,7 +270,7 @@ esac
 
 
 def run_suite_source(source, root, env):
-    return subprocess.run(["bash", "-euo", "pipefail", "-c", source], cwd=root, env=env,
+    return subprocess.run(["bash", "--noprofile", "--norc", "-euo", "pipefail", "-c", source], cwd=root, env=env,
                           check=False, capture_output=True, text=True, timeout=5)
 
 
@@ -464,7 +465,7 @@ def test_recovery_route_actual_guards(workflow, case, event, ref, head, base, at
     env = {'GITHUB_EVENT_NAME': event, 'GITHUB_REF': ref, 'GITHUB_HEAD_REF': head, 'GITHUB_BASE_REF': base,
            'GITHUB_RUN_ATTEMPT': str(attempt), 'GITHUB_SHA': 'a' * 40, 'REPOSITORY_PRIVATE': 'false',
            'RUNNER_ENVIRONMENT': 'github-hosted', 'RUNNER_ARCH': 'X64'}
-    result = subprocess.run(['bash', '-euo', 'pipefail', '-c', guard], env=env,
+    result = subprocess.run(['bash', '--noprofile', '--norc', '-euo', 'pipefail', '-c', guard], env=env,
                             check=False, capture_output=True, text=True, timeout=5)
     assert result.returncode == (0 if reason is None else 1), result.stderr
     assert result.stderr.strip() == ('' if reason is None else 'ISSUE25_REFUSED=' + reason)

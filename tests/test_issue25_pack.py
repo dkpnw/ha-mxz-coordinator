@@ -324,7 +324,7 @@ import json
 import os
 import sys
 from pathlib import Path
-'''+f'fault = {fault!r}\ncalls = Path({str(calls)!r})\npack_ids = {phase_ids}\n'+'''
+'''+f'fault = {fault!r}\ncalls = Path({str(calls)!r})\npack_ids = {phase_ids}\n'+r'''
 root, export, base, commit, tree, inventory, expected = sys.argv[1:]
 d = Path(expected).parent
 case = os.environ['ISSUE25_CASE_ID']
@@ -403,7 +403,7 @@ import io
 import sys
 import tarfile
 from pathlib import Path
-'''+f'fault={fault!r}\nexports=Path({str(exports)!r})\nline={tree_line!r}\nproduct={product!r}\n'+'''
+'''+f'fault={fault!r}\nexports=Path({str(exports)!r})\nline={tree_line!r}\nproduct={product!r}\n'+r'''
 args = sys.argv[1:]
 if args == ['rev-parse', 'HEAD']: print('a' * 40)
 elif args == ['rev-parse', 'HEAD^{tree}']: print('b' * 40)
@@ -470,6 +470,7 @@ def test_parent_stops_before_next_base_on_export_or_marker_failure(tmp_path, fau
     result = subprocess.run(['bash', str(PACK.with_name('run.sh'))], cwd=root, env=env,
                             check=False, capture_output=True, text=True, timeout=15)
     calls = calls_file.read_text().splitlines() if calls_file.exists() else []
+    assert exports_file.is_file(), result
     exports = exports_file.read_text().splitlines()
     if fault in ('none', 'red'):
         assert calls == ['released', 'main'] and len(exports) == 2, result.stdout + result.stderr
@@ -641,6 +642,7 @@ def test_parent_refuses_incomplete_native_contract(tmp_path, fault):
     result = subprocess.run(['bash', str(PACK.with_name('run.sh'))], cwd=root, env=env,
                             check=False, capture_output=True, text=True, timeout=15)
     assert result.returncode != 0, result.stdout + result.stderr
+    assert calls.is_file(), result
     assert calls.read_text().splitlines() == (['P-release', 'P-main', 'N-missing'] if stage == 'A3' else ['released'])
     assert 'CONTROL_REJECTION_EXPECTED=N-missing' not in result.stdout
     reasons = {

@@ -43,7 +43,7 @@ def test_exported_admission_helper_contracts(tmp_path, case, capsys):
            'GITHUB_REF': 'refs/heads/ci/issue25-harness-admission', 'GITHUB_EVENT_NAME': 'push',
            'GITHUB_RUN_ATTEMPT': '1', 'GITHUB_RUN_ID': '123', 'GITHUB_SHA': 'a' * 40}
     config = SimpleNamespace(rootpath=export, inipath=Path(data['expected_config']),
-                             pluginmanager=SimpleNamespace(hasplugin=lambda name: True, list_name_plugin=lambda: []),
+                             pluginmanager=SimpleNamespace(hasplugin=lambda name: True, list_name_plugin=list),
                              getoption=lambda name: {'importmode': 'prepend', 'asyncio_mode': 'auto'}[name])
     modules = {}
     for name, filename, locations in (
