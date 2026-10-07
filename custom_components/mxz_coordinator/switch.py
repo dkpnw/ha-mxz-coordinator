@@ -39,9 +39,11 @@ _GLOBAL_ICONS = {
 _ZONE_ICONS = ("mdi:bed", "mdi:sofa")  # legacy zone-0/1 icons; generic beyond
 
 
-# The coordinator's echo memory for this head — the last two fan tokens it
-# commanded — published as switch attributes so a clean restored state carries
-# it (a restore reads the state first; see async_added_to_hass).
+# Echo baselines, including adopted observations and held user tokens; these
+# historical attribute names do NOT prove command delivery or token ownership.
+# Dual-channel persistence is a workaround for the frozen lifecycle read oracle:
+# clean states must not read extra data. Unavailable states use extra data.
+# Attributes can lag coordinator memory; they are not an atomic command journal.
 ATTR_LAST_FAN_COMMAND = "last_fan_command"
 ATTR_PRIOR_FAN_COMMAND = "prior_fan_command"
 
@@ -63,8 +65,8 @@ class FanHoldRestoreData(ExtraStoredData):
     whatever the state says, so the hold survives the outage that hid it.
 
     ``last``/``prior`` are the coordinator's echo memory for the head, the
-    last two fan tokens it commanded (None until it commanded one). They let
-    the seed tell a pre-restart token reported late from a hand on the fan.
+    last two commanded or adopted tokens (None before any baseline). They
+    permit bounded echo tolerance, not proof that a token came from us.
     Readers before this field ignore it; a record without it restores the
     bool alone.
     """
@@ -133,9 +135,9 @@ class MXZBaseSwitch(MXZEntity, SwitchEntity, RestoreEntity):
             last := await self.async_get_last_state()
         ) is not None and not self._restored_state_is_stale(last):
             self._attr_is_on = last.state == "on"
-        self._seed()
+        self._seed(restored=True)
 
-    def _seed(self) -> None:
+    def _seed(self, *, restored: bool = False) -> None:
         raise NotImplementedError
 
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -159,8 +161,12 @@ class MXZSwitch(MXZBaseSwitch):
         self._key = key
         self._attr_icon = _GLOBAL_ICONS[key]
 
-    def _seed(self) -> None:
+    def _seed(self, *, restored: bool = False) -> None:
         setattr(self.coordinator, self._key, self._attr_is_on)
+        if self._key == KEY_COORDINATOR_ENABLE:
+            self.coordinator._restored_coordinator_on = restored and self._attr_is_on
+            if not restored:
+                self.coordinator._startup_resume.clear()
 
 
 class MXZZoneEnableSwitch(MXZBaseSwitch):
@@ -177,8 +183,14 @@ class MXZZoneEnableSwitch(MXZBaseSwitch):
         self._attr_translation_key = "zone_enable"
         self._attr_translation_placeholders = {"zone": zone.name}
 
-    def _seed(self) -> None:
+    def _seed(self, *, restored: bool = False) -> None:
+        was_enabled = self._zone.enable
         self._zone.enable = self._attr_is_on
+        if restored and self._attr_is_on:
+            self.coordinator._startup_resume[self._zone.slug] = None
+        elif restored or not was_enabled or not self._attr_is_on:
+            self.coordinator._startup_resume.pop(self._zone.slug, None)
+            self.coordinator._engage_latch[self._zone.slug] = ""
 
 
 class MXZZoneFanAutoSwitch(
@@ -196,8 +208,9 @@ class MXZZoneFanAutoSwitch(
     a head still carrying boost's last fan token at restart is
     indistinguishable from a hold the user placed while the head idled (the
     token value cannot separate them — four shipped bug shapes proved it).
-    Reconciliation always takes the TOKEN from the observed head, so a speed
-    changed via wall remote during the outage stays the user's. Turning the
+    Reconciliation takes the TOKEN from the observed head. Known holds survive;
+    not-held restores use bounded echo tolerance, with an indistinguishable
+    remembered-token edge and conservative false holds for stale memory. Turning the
     switch ON hands control back to boost; OFF pins the head's current speed.
     Apple's Home app renders only a climate service's fixed characteristics —
     there's no room for a custom control inside the climate tile — so this
@@ -220,9 +233,10 @@ class MXZZoneFanAutoSwitch(
         Runs during platform setup, before the coordinator's first compute
         (async_setup_entry awaits the platforms; STARTUP_RECOVER_DELAY adds
         margin on HA start). A stale restore — older than the config entry —
-        belongs to a previous incarnation (#7) and is ignored (a first restart
-        after upgrading has no stored state at all: one clean fallback to
-        observed-state seeding).
+        belongs to a previous incarnation (#7) and is ignored. An older version
+        may have a valid bool-only state: it retains hold truth but has no echo
+        memory, so auto followed by a late rung remains indistinguishable from
+        a new manual pick and conservatively holds.
 
         A clean on/off state is the answer whenever there is one, and its
         attributes carry the coordinator's echo memory for the head. When
@@ -264,13 +278,25 @@ class MXZZoneFanAutoSwitch(
 
     @property
     def extra_state_attributes(self) -> dict[str, str | None]:
-        """The coordinator's last two fan commands to this head, as attributes.
+        """Echo baselines and a reason when advertised control awaits a speed.
 
-        Published live, so a clean restored state carries the echo memory home
-        (an unavailable state has no attributes; extra restore data covers it).
+        Published at entity updates, so a clean state carries an echo snapshot
+        (which can lag writes). Restore filters impossible tokens to auto;
+        these attributes are not a command log. An unavailable state has no
+        attributes; extra restore data covers its ownership snapshot.
         """
         last, prior = self.coordinator.fan_command_memory(self._zone.climate_id)
-        return {ATTR_LAST_FAN_COMMAND: last, ATTR_PRIOR_FAN_COMMAND: prior}
+        head = self.hass.states.get(self._zone.climate_id)
+        reason = None
+        if head is not None and head.attributes.get("fan_mode") is None:
+            reason = (
+                "Current fan speed unavailable; waiting for a head report. "
+                "Fan auto intent is retained; no fan command is sent until speed returns."
+            )
+        return {
+            ATTR_LAST_FAN_COMMAND: last, ATTR_PRIOR_FAN_COMMAND: prior,
+            "fan_control_reason": reason,
+        }
 
     @property
     def extra_restore_state_data(self) -> FanHoldRestoreData:

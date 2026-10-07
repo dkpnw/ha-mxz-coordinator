@@ -5,16 +5,16 @@ real lifecycle — restore state dumped and re-read through the mocked
 ``core.restore_state`` store, the entry unloaded and set up again with a fresh
 coordinator — not through cleared dictionaries or injected restore truth:
 
-* H1: a room caught mid-run by a restart RESUMES that run to its target. The
-  engage latch seeds from the head's own mode on the room's first ENABLED
-  compute; the construction-time compute, which runs before the enable
-  switches restore, must not spend that seed.
+* H1: a room caught mid-run by a restart resumes to its target with genuinely
+  restored zone and coordinator ON. Missing startup evidence stays pending;
+  construction and first live enable cannot adopt a hand-run head.
 * F (fan ownership): a room the coordinator was driving comes back driven.
-  The Fan auto switch carries the coordinator's echo memory — its last two
-  fan commands to the head — across the restart, so a coordinator-written
+  The Fan auto switch carries echo baselines (commands and adopted observations)
+  across the restart, so an eligible coordinator-written
   token reported late (after a provisional ``auto``, or once a missing speed
   arrives) is its own residue, not a hand on the fan, while a token outside
-  that memory is a hold. A head that reports no speed gets no fan write.
+  that memory conservatively holds. Legacy and stale-memory false holds remain
+  explicit limitations, not passing fix claims. No speed means no fan write.
 
 Like test_registry_lifecycle, "restart" is an in-process store round trip:
 not a new Home Assistant process, and not hardware. HA-only; the local
@@ -24,7 +24,10 @@ non-HA contract batch cannot run these.
 from __future__ import annotations
 
 from collections.abc import Callable
+from copy import deepcopy
+from datetime import datetime
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -32,7 +35,7 @@ pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.const import EVENT_CALL_SERVICE
-from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import restore_state as rs
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import (
@@ -42,6 +45,7 @@ from pytest_homeassistant_custom_component.common import (
 
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
+    CONF_FAN_BOOST_MAX,
     CONF_MODE_HYSTERESIS,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
@@ -112,16 +116,80 @@ async def _switch(hass: HomeAssistant, entity_id: str, on: bool) -> None:
 
 
 async def _shutdown(hass: HomeAssistant, entry: MockConfigEntry) -> None:
-    """Dump restore state through the store, then unload the entry."""
+    """Dump, unload, then LOAD: removal must not substitute its memory record."""
+    switches = [_eid(hass, entry, f"_{room}_fan_auto") for room in ("primary", "secondary")]
     await async_mock_restore_state_shutdown_restart(hass)
+    restore = rs.async_get(hass)
+    raw = deepcopy(await restore.store.async_load())
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+    removed = {sid: restore.last_states[sid] for sid in switches}
+    await _load_store(hass, raw)
+    records = {r["state"]["entity_id"]: r for r in raw}
+    for sid in switches:
+        loaded = restore.last_states[sid]
+        assert loaded is not removed[sid]
+        assert loaded.state.entity_id == sid
+        assert loaded.state.state == records[sid]["state"]["state"]
+        assert dict(loaded.state.attributes) == records[sid]["state"]["attributes"]
+        assert loaded.state.last_updated == datetime.fromisoformat(records[sid]["state"]["last_updated"])
+        assert loaded.state.last_updated >= entry.created_at
+        assert (loaded.extra_data.as_dict() if loaded.extra_data else None) == records[sid].get("extra_data")
+
+
+async def _load_store(hass: HomeAssistant, expected: list) -> None:
+    """Observe the real Store call/result; never supply a replacement result."""
+    restore = rs.async_get(hass)
+    real_load = restore.store.async_load
+    calls = []
+
+    async def observed_load():
+        result = await real_load()
+        calls.append(deepcopy(result))
+        return result
+
+    with patch.object(restore.store, "async_load", new=observed_load):
+        await restore.async_load()
+    assert calls == [expected]
 
 
 async def _startup(hass: HomeAssistant, entry: MockConfigEntry) -> None:
-    """Set the entry up again: a fresh coordinator, restored helpers, first refresh."""
-    assert await hass.config_entries.async_setup(entry.entry_id)
+    """Prove both Fan-auto restore getters read the supplied loaded records."""
+    restore = rs.async_get(hass)
+    supplied = {
+        _eid(hass, entry, f"_{room}_fan_auto"): restore.last_states[
+            _eid(hass, entry, f"_{room}_fan_auto")
+        ] for room in ("primary", "secondary")
+    }
+    reads = []
+    real_state = rs.RestoreEntity.async_get_last_state
+    real_extra = rs.RestoreEntity.async_get_last_extra_data
+
+    async def state_read(entity):
+        result = await real_state(entity)
+        if entity.entity_id in supplied:
+            assert result is supplied[entity.entity_id].state
+            reads.append((entity.entity_id, "state"))
+        return result
+
+    async def extra_read(entity):
+        result = await real_extra(entity)
+        if entity.entity_id in supplied:
+            assert result is supplied[entity.entity_id].extra_data
+            reads.append((entity.entity_id, "extra"))
+        return result
+
+    with (
+        patch.object(rs.RestoreEntity, "async_get_last_state", new=state_read),
+        patch.object(rs.RestoreEntity, "async_get_last_extra_data", new=extra_read),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    expected = {(sid, "state") for sid in supplied}
+    expected.update((sid, "extra") for sid, record in supplied.items()
+                    if record.state.state not in ("on", "off"))
+    assert set(reads) == expected
+    assert len(reads) == len(expected)
 
 
 def _head(hass: HomeAssistant, entity_id: str):
@@ -246,6 +314,19 @@ async def test_restored_idle_head_inside_drift_stays_satisfied(
 
     assert _engage(hass, entry, 1) == "satisfied"
     assert hass.states.get(head_b).state != mode
+    if mode == "heat":
+        # Keep the heat manual-OFF control as well as the parked heat control.
+        await _run_b(hass, entry, head_b, mode)
+        await hass.services.async_call(
+            "climate", "set_hvac_mode", {"entity_id": head_b, "hvac_mode": "off"},
+            blocking=True,
+        )
+        await hass.async_block_till_done()
+        assert hass.states.get(head_b).state == "off"
+        await _shutdown(hass, entry)
+        await _startup(hass, entry)
+        assert _engage(hass, entry, 1) == "satisfied"
+        assert hass.states.get(head_b).state != mode
 
 
 @pytest.mark.parametrize("mode", ["cool", "heat"])
@@ -264,17 +345,18 @@ async def test_fresh_reading_past_drift_engages_without_prior_run(
     assert hass.states.get(head_b).state == mode
 
 
-async def test_restored_disabled_room_does_not_resume(hass: HomeAssistant) -> None:
+@pytest.mark.parametrize("mode", ["cool", "heat"])
+async def test_restored_disabled_room_does_not_resume(hass: HomeAssistant, mode: str) -> None:
     """A room restored DISABLED stays parked; enabling it later starts no run."""
     entry, _head_a, head_b = await _setup(hass)
-    await _run_b(hass, entry, head_b, "cool")
+    await _run_b(hass, entry, head_b, mode)
     enable_b = _eid(hass, entry, "_secondary_enable")
     await _switch(hass, enable_b, False)
     await _recompute(hass, entry)
     assert hass.states.get(head_b).state == "off"  # a disabled room is parked off
     # A hand turns the head on again just before the restart.
     await hass.services.async_call(
-        "climate", "set_hvac_mode", {"entity_id": head_b, "hvac_mode": "cool"},
+        "climate", "set_hvac_mode", {"entity_id": head_b, "hvac_mode": mode},
         blocking=True,
     )
     await hass.async_block_till_done()
@@ -288,6 +370,41 @@ async def test_restored_disabled_room_does_not_resume(hass: HomeAssistant) -> No
     await _switch(hass, enable_b, True)
     await _recompute(hass, entry)
     assert _engage(hass, entry, 1) == "satisfied"  # 71 is inside the drift
+    assert hass.states.get(head_b).state == "fan_only"
+
+    # Discriminator: with the coordinator OFF a hand can run the head. Neither
+    # first live zone-enable nor first live coordinator-enable adopts that run.
+    coordinator_enable = _eid(hass, entry, "_coordinator_enable")
+    await _switch(hass, coordinator_enable, False)
+    await _switch(hass, enable_b, False)
+    await _shutdown(hass, entry)
+    await _startup(hass, entry)
+    await hass.services.async_call(
+        "climate", "set_hvac_mode", {"entity_id": head_b, "hvac_mode": mode},
+        blocking=True,
+    )
+    await _switch(hass, enable_b, True)
+    assert hass.states.get(head_b).state == mode  # kill switch still OFF
+    assert _engage(hass, entry, 1) == "satisfied"
+    await _switch(hass, coordinator_enable, True)
+    await _recompute(hass, entry)
+    assert _engage(hass, entry, 1) == "satisfied"
+    assert hass.states.get(head_b).state == "fan_only"
+
+    # Restored zone ON is insufficient when coordinator ON was not restored.
+    await _switch(hass, coordinator_enable, False)
+    await hass.services.async_call(
+        "climate", "set_hvac_mode", {"entity_id": head_b, "hvac_mode": mode},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    await _shutdown(hass, entry)
+    await _startup(hass, entry)
+    assert hass.states.get(head_b).state == mode
+    assert _engage(hass, entry, 1) == "satisfied"
+    await _switch(hass, coordinator_enable, True)
+    await _recompute(hass, entry)
+    assert _engage(hass, entry, 1) == "satisfied"
     assert hass.states.get(head_b).state == "fan_only"
 
 
@@ -395,32 +512,44 @@ async def test_provisional_auto_then_late_token_is_the_coordinators_echo(
     assert hass.states.get(head_a).attributes["fan_mode"] == "medium"
 
 
+@pytest.mark.parametrize("origin", ["late-echo", "manual-pick"])
 async def test_late_token_without_memory_is_still_a_departure(
-    hass: HomeAssistant,
+    hass: HomeAssistant, hass_storage: dict, origin: str,
 ) -> None:
-    """Control: a record from before the memory (state only, no attributes) has
-    nothing to tolerate the late token with — it is a departure, as it was.
-    The memory, not a blanket post-restart exemption, decides."""
+    """F7 remains unresolved: an old bool-only record has no echo provenance.
+
+    Both histories have the same observations: restored ON, auto, then high.
+    Adopting the late echo would also steal the manual pick. This is an
+    invented legacy-format Store input, NOT an old-version execution or a fix.
+    """
     entry, head_a, _head_b = await _setup(hass, **{CONF_FAN_BOOST_ENABLE: True})
     (await _idle_on_residue(hass, entry, head_a))()
     switch_a = _eid(hass, entry, "_primary_fan_auto")
 
     await _shutdown(hass, entry)
-    # Explicitly labelled negative: the switch's record is rewritten without
-    # its attributes (same incarnation, so it is still honored).
-    data = rs.async_get(hass)
-    old = data.last_states[switch_a]
-    data.last_states[switch_a] = rs.StoredState(State(switch_a, "on"), None, old.last_seen)
+    # Labelled legacy-format input. Load it through Store after removal; do
+    # not let an in-memory injection masquerade as loaded-record evidence.
+    legacy = deepcopy(hass_storage["core.restore_state"])
+    record = next(r for r in legacy["data"] if r["state"]["entity_id"] == switch_a)
+    record["state"]["attributes"].pop(ATTR_LAST_FAN_COMMAND)
+    record["state"]["attributes"].pop(ATTR_PRIOR_FAN_COMMAND)
+    record["state"]["attributes"].pop("fan_control_reason", None)
+    record["extra_data"] = {"held": False}
+    hass_storage["core.restore_state"] = legacy
+    await _load_store(hass, legacy["data"])
     await _report(hass, head_a, "auto")
     await _startup(hass, entry)
     assert hass.states.get(switch_a).state == "on"
 
     writes = _fan_writes(hass)
-    await _report(hass, head_a, "high")
+    if origin == "late-echo":
+        await _report(hass, head_a, "high")
+    else:
+        await _user_set_fan(hass, head_a, "high")
     await _recompute(hass, entry)
     assert hass.states.get(switch_a).state == "off"
     assert _fan_hold(hass, entry, 0) is True
-    assert writes == []
+    assert writes == ([] if origin == "late-echo" else [(head_a, "high")])
 
 
 @pytest.mark.parametrize("held", [False, True], ids=["not-held", "held"])
@@ -450,6 +579,26 @@ async def test_missing_speed_at_restart_keeps_truth_pending(
     assert hass.states.get(switch_a).state == ("off" if held else "on")
     assert _fan_hold(hass, entry, 0) is held
     assert writes == []
+    assert "Current fan speed unavailable" in hass.states.get(switch_a).attributes["fan_control_reason"]
+    if held:
+        await _set_fan_auto(hass, switch_a, False)  # absent speed cannot erase known OFF
+        assert hass.states.get(switch_a).state == "off"
+        assert _fan_hold(hass, entry, 0) is True
+        assert writes == []
+
+    # Missing capability is a separate state, not speed=None or proof of no fan.
+    head = _head(hass, head_a)
+    modes = head.fan_modes
+    head._attr_fan_modes = None
+    head.async_write_ha_state()
+    await hass.async_block_till_done()
+    await _recompute(hass, entry)
+    assert hass.states.get(switch_a).state == "unavailable"
+    assert _fan_hold(hass, entry, 0) is held
+    assert writes == []
+    head._attr_fan_modes = modes
+    head.async_write_ha_state()
+    await hass.async_block_till_done()
 
     await _report(hass, head_a, "high")  # the speed arrives
     await _recompute(hass, entry)
@@ -464,6 +613,22 @@ async def test_missing_speed_at_restart_keeps_truth_pending(
         assert hass.states.get(switch_a).state == "on"
         assert _fan_hold(hass, entry, 0) is False
         assert hass.states.get(head_a).attributes["fan_mode"] == "high"  # boost's rung
+        # Explicit ON must also survive when the speed is still unknown, with
+        # no blind write and no reinterpretation of recovery as a manual pick.
+        await _set_fan_auto(hass, switch_a, False)
+        await _report(hass, head_a, None)
+        writes.clear()
+        await _set_fan_auto(hass, switch_a, True)
+        await _recompute(hass, entry)
+        assert hass.states.get(switch_a).state == "on"
+        assert _fan_hold(hass, entry, 0) is False
+        assert writes == []
+        await _report(hass, head_a, "medium")
+        await _recompute(hass, entry)
+        assert hass.states.get(switch_a).state == "on"
+        assert _fan_hold(hass, entry, 0) is False
+        assert hass.states.get(switch_a).attributes["fan_control_reason"] is None
+        assert hass.states.get(head_a).attributes["fan_mode"] == "high"
     else:
         assert writes == [(head_a, "auto")]
         assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
@@ -574,3 +739,220 @@ def test_restore_record_memory_is_tolerant(record: dict, expected) -> None:
     assert FanHoldRestoreData(False, "auto", "high").as_dict() == {
         "held": False, ATTR_LAST_FAN_COMMAND: "auto", ATTR_PRIOR_FAN_COMMAND: "high",
     }
+
+
+@pytest.mark.parametrize(
+    ("mode", "missing"),
+    [("cool", "absent-head"), ("heat", "unavailable-head"),
+     ("cool", "unknown-head"), ("cool", "sensor"), ("heat", "sensor")],
+)
+async def test_restored_run_waits_for_late_evidence(
+    hass: HomeAssistant, mode: str, missing: str,
+) -> None:
+    """Unknown startup evidence is not a spent run; usable 71/69 resumes to 70."""
+    entry, head_a, head_b = await _setup(hass)
+    await _run_b(hass, entry, head_b, mode)
+    await _shutdown(hass, entry)
+    head = _head(hass, head_b)
+    if missing == "sensor":
+        hass.states.async_set(SENSOR_B, "unavailable")
+    elif missing == "absent-head":
+        hass.states.async_remove(head_b)
+    else:
+        hass.states.async_set(head_b, missing.removesuffix("-head"))
+    await hass.async_block_till_done()
+    await _startup(hass, entry)
+    assert _engage(hass, entry, 0) == "satisfied"
+    assert hass.states.get(head_a).state == "fan_only"
+    if missing == "sensor":
+        assert hass.states.get(head_b).state == "fan_only"  # invalid sensor still parks
+        # Sensor recovery alone cannot spend the pending seed if the head has
+        # meanwhile disappeared. Both inputs must be usable together.
+        hass.states.async_remove(head_b)
+        await hass.async_block_till_done()
+        await _set_temp(hass, SENSOR_B, INSIDE[mode])
+        await _recompute(hass, entry)
+        assert hass.states.get(head_b) is None
+        head.async_write_ha_state()  # our earlier fan_only park, not a new hand run
+        await hass.async_block_till_done()
+    else:
+        assert hass.states.get(head_b) is None or hass.states.get(head_b).state in ("unknown", "unavailable")
+        head.async_write_ha_state()  # original cool/heat report arrives unchanged
+        await hass.async_block_till_done()
+    await _recompute(hass, entry)
+    assert _engage(hass, entry, 1) == mode
+    assert hass.states.get(head_b).state == mode
+    await _set_temp(hass, SENSOR_B, 70)
+    await _recompute(hass, entry)
+    assert _engage(hass, entry, 1) == "satisfied"
+    assert hass.states.get(head_b).state == "fan_only"
+
+    if missing == "sensor":
+        # Manual OFF while the sensor is missing also cancels remembered run
+        # evidence. It differs from the coordinator's own fan_only park.
+        await _run_b(hass, entry, head_b, mode)
+        await _shutdown(hass, entry)
+        hass.states.async_set(SENSOR_B, "unavailable")
+        await hass.async_block_till_done()
+        await _startup(hass, entry)
+        await hass.services.async_call(
+            "climate", "set_hvac_mode", {"entity_id": head_b, "hvac_mode": "off"},
+            blocking=True,
+        )
+        await hass.async_block_till_done()
+        await _set_temp(hass, SENSOR_B, INSIDE[mode])
+        await _recompute(hass, entry)
+        assert _engage(hass, entry, 1) == "satisfied"
+        assert hass.states.get(head_b).state == "fan_only"
+
+        # A changed target while waiting invalidates the pending startup run.
+        await _run_b(hass, entry, head_b, mode)
+        await _shutdown(hass, entry)
+        hass.states.async_set(SENSOR_B, "unavailable")
+        await hass.async_block_till_done()
+        await _startup(hass, entry)
+        await _set_target(hass, _eid(hass, entry, "_secondary_target"), NEARER[mode])
+        await _set_temp(hass, SENSOR_B, INSIDE[mode])
+        await _recompute(hass, entry)
+        assert _engage(hass, entry, 1) == "satisfied"
+        assert hass.states.get(head_b).state == "fan_only"
+
+
+@pytest.mark.parametrize("token", ["high", "turbo"], ids=["above-ceiling", "non-ladder"])
+async def test_remembered_user_token_never_waives_ceiling(
+    hass: HomeAssistant, token: str,
+) -> None:
+    """ON adopts user observations too: persistence must not turn those into authority."""
+    entry, head_a, _head_b = await _setup(
+        hass, **{CONF_FAN_BOOST_ENABLE: True, CONF_FAN_BOOST_MAX: "medium"},
+    )
+    head = _head(hass, head_a)
+    head._attr_fan_modes = [*head.fan_modes, "turbo"]
+    head.async_write_ha_state()
+    await _user_set_fan(hass, head_a, token)
+    await _recompute(hass, entry)
+    switch = _eid(hass, entry, "_primary_fan_auto")
+    assert hass.states.get(switch).state == "off"
+    await _set_fan_auto(hass, switch, True)
+    await _recompute(hass, entry)
+    assert hass.states.get(switch).state == "on"
+    assert hass.states.get(switch).attributes[ATTR_PRIOR_FAN_COMMAND] == token
+
+    await _shutdown(hass, entry)
+    await _report(hass, head_a, token)
+    writes = _fan_writes(hass)
+    await _startup(hass, entry)
+    assert hass.states.get(switch).state == "off"
+    assert _fan_hold(hass, entry, 0) is True
+    assert writes == []
+    assert hass.states.get(head_a).attributes["fan_mode"] == token
+    await _set_fan_auto(hass, switch, True)
+    await _recompute(hass, entry)
+    assert hass.states.get(switch).state == "on"
+    assert hass.states.get(switch).attributes[ATTR_PRIOR_FAN_COMMAND] == token
+    await _shutdown(hass, entry)
+    # Test the late path as well as the first restored observation: auto must
+    # not arm echo tolerance for the remembered impossible user token.
+    await _report(hass, head_a, "auto")
+    await _startup(hass, entry)
+    writes = _fan_writes(hass)
+    await _report(hass, head_a, token)
+    await _recompute(hass, entry)
+    assert hass.states.get(switch).state == "off"
+    assert _fan_hold(hass, entry, 0) is True
+    assert writes == []
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+    assert writes == []
+    assert hass.states.get(head_a).attributes["fan_mode"] == token
+
+
+async def test_older_store_cannot_prove_a_later_rung_is_owned(
+    hass: HomeAssistant, hass_storage: dict,
+) -> None:
+    """F4 limitation: actual dump predates later commands, despite valid identity.
+
+    This models an older surviving periodic record, not the timing/frequency of
+    a real crash. It intentionally documents a conservative false hold. The
+    fresh manual outside-memory control forbids silently broadening adoption.
+    """
+    entry, head_a, _head_b = await _setup(hass, **{CONF_FAN_BOOST_ENABLE: True})
+    switch = _eid(hass, entry, "_primary_fan_auto")
+    await _set_temp(hass, SENSOR_A, 72)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "medium"
+    await async_mock_restore_state_shutdown_restart(hass)
+    older = deepcopy(hass_storage["core.restore_state"])
+    assert _stored(hass_storage, switch)["state"]["attributes"][ATTR_LAST_FAN_COMMAND] == "medium"
+    (await _idle_on_residue(hass, entry, head_a))()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    # No new shutdown dump: load the genuine earlier record after removal.
+    assert hass_storage["core.restore_state"] == older
+    removed = rs.async_get(hass).last_states[switch]
+    await _load_store(hass, older["data"])
+    assert rs.async_get(hass).last_states[switch] is not removed
+    writes = _fan_writes(hass)
+    await _startup(hass, entry)
+    assert hass.states.get(switch).state == "off"  # unresolved ownership, not proof of a hand
+    assert _fan_hold(hass, entry, 0) is True
+    assert writes == []
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+    await _set_fan_auto(hass, switch, True)
+    await _recompute(hass, entry)
+    assert hass.states.get(switch).state == "on"
+    assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
+
+
+async def test_entry_reload_preserves_ownership_and_manual_handback(hass: HomeAssistant) -> None:
+    """Rows 1–4 under entry reload, deliberately separate from cold Store reads."""
+    entry, head_a, head_b = await _setup(hass, **{CONF_FAN_BOOST_ENABLE: True})
+    reinstate = await _idle_on_residue(hass, entry, head_a)
+    await _set_temp(hass, SENSOR_B, 75)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_b).attributes["fan_mode"] == "high"
+    # Change the sensor at the unload boundary, before the new incarnation can
+    # drive it. No direct latch mutation or fake restore is involved.
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    await _set_temp(hass, SENSOR_B, 72)
+    reinstate()
+    await _startup(hass, entry)  # memory-only reload reads removal-time records
+    switch = _eid(hass, entry, "_primary_fan_auto")
+    assert hass.states.get(switch).state == "on"
+    assert _fan_hold(hass, entry, 0) is False
+    assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
+    assert hass.states.get(head_b).attributes["fan_mode"] == "medium"
+    assert _fan_hold(hass, entry, 1) is False
+    await _set_temp(hass, SENSOR_B, 71)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_b).attributes["fan_mode"] == "low"
+
+    await _user_set_fan(hass, head_a, "medium")
+    await _recompute(hass, entry)
+    assert hass.states.get(switch).state == "off"
+    writes = _fan_writes(hass)
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+    assert hass.states.get(switch).state == "off"
+    assert _fan_hold(hass, entry, 0) is True
+    assert [w for w in writes if w[0] == head_a] == []
+    await _set_fan_auto(hass, switch, True)
+    await _recompute(hass, entry)
+    assert hass.states.get(switch).state == "on"
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+    await _report(hass, head_a, "medium")  # adopted pre-ON token, delayed echo
+    await _recompute(hass, entry)
+    assert hass.states.get(switch).state == "on"
+    assert _fan_hold(hass, entry, 0) is False
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+    await _set_fan_auto(hass, switch, False)
+    assert hass.states.get(switch).state == "off"
+    await _set_fan_auto(hass, switch, True)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
+    await _set_fan_auto(hass, switch, False)  # OFF at auto remains a no-op
+    assert hass.states.get(switch).state == "on"

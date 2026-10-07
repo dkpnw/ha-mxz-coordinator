@@ -461,8 +461,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # on satisfied/fan_only/eco (which would steal the user's pick and self-
         # unlatch). The latch releases only when the head is observed back at
         # "auto" (the user handing control back). Per-head decision memory, like
-        # _fan_idx: _fan_cmd is the last token WE wrote; _fan_prev the one before
-        # it (an echo of a just-written token can briefly still read as the prior
+        # _fan_idx: _fan_cmd is the last commanded OR adopted observation;
+        # _fan_prev the prior baseline (an echo can briefly still read as the prior
         # value — a mismatch is only a user departure if it differs from BOTH).
         self._fan_cmd: dict[str, str] = {}
         self._fan_prev: dict[str, str] = {}
@@ -473,13 +473,21 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # reads the token from the OBSERVED head state. Absent or stale
         # restore data -> plain seeding (below).
         self._fan_restore: dict[str, bool] = {}
+        # Explicit ON with no current speed is an instruction, not evidence
+        # that the first speed subsequently reported was a manual departure.
+        self._fan_on_pending: set[str] = set()
 
         # Engage latch (decision state, like _fan_idx): "" = coasting, cool|heat
         # = mid-run toward target (the head may still be parked in fan_only by a
         # shared-mode mismatch; the run resumes when the mode returns). Seeded
-        # lazily from the head's own mode on the first compute so an in-flight
-        # run resumes across restarts.
-        self._engage_latch: dict[str, str] = {}
+        # from the head only with restored zone AND coordinator ON intent.
+        # Construction and first live enable have no prior run to adopt.
+        self._engage_latch: dict[str, str] = {zone.slug: "" for zone in self.zones}
+        self._restored_coordinator_on = False
+        # None = head evidence unknown; "" = known idle; cool/heat = observed
+        # run awaiting a usable sensor. Keep that observation across our own
+        # sensor-failure park, without changing the ordinary dropout policy.
+        self._startup_resume: dict[str, str | None] = {}
 
         # Vane-kick bookkeeping: heads mid-kick are skipped by _apply so the
         # plan doesn't turn them back off while the louvre is still traveling.
@@ -780,9 +788,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _compute(self) -> dict[str, Any]:
         """Recompute the plan dict from current inputs. Commands nothing.
 
-        The one piece of state it touches is the per-zone engage latch
-        (decision memory, like ``_fan_idx``) — seeded on a zone's first
-        compute and advanced with each result.
+        It advances the per-zone engage latch and any pending startup seed.
+        Missing startup evidence is retained separately from a known idle run.
 
         The plan carries per-zone keys (``{slug}_demand`` / ``{slug}_engage`` /
         ``{slug}_temp``) — zones 0/1 use the primary/secondary slugs, so the
@@ -827,14 +834,30 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 neutral=DEMAND_NEUTRAL,
                 **common,
             )
-            if zone.slug not in self._engage_latch and zone.enable:
-                # First compute for an ENABLED zone: resume a run the head was
-                # already commanded into (cool/heat survive restarts). A
-                # disabled room has no run to remember, so it stays unseeded
-                # until it is enabled: the construction-time compute runs
-                # before the enable switches restore, and seeding there spent
-                # the in-flight run as "off" before the restored ON could
-                # resume it.
+            if zone.slug in self._startup_resume:
+                if not (
+                    zone.enable and self.coordinator_enable and self._restored_coordinator_on
+                ):
+                    self._startup_resume.pop(zone.slug)
+                else:
+                    head = self.hass.states.get(zone.climate_id)
+                    if (
+                        self._startup_resume[zone.slug] is None
+                        and head is not None and head.state not in UNAVAILABLE_STATES
+                    ):
+                        self._startup_resume[zone.slug] = (
+                            head.state if head.state in (MODE_COOL, MODE_HEAT) else ""
+                        )
+                    seed = self._startup_resume[zone.slug]
+                    if (
+                        ok and seed is not None and head is not None
+                        and head.state not in UNAVAILABLE_STATES
+                    ):
+                        self._engage_latch[zone.slug] = seed
+                        self._startup_resume.pop(zone.slug)
+            elif zone.slug not in self._engage_latch and zone.enable:
+                # An enabled room's target changed: preserve the existing
+                # live retargeting behavior, separately from restart intent.
                 head = self.hass.states.get(zone.climate_id)
                 self._engage_latch[zone.slug] = (
                     head.state
@@ -1397,6 +1420,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for zone, engage in zip(self.zones, engages):
             if zone.climate_id in self._vane_kicks:
                 continue  # mid vane-kick: leave the head alone until it finishes
+            if zone.slug in self._startup_resume:
+                head = self.hass.states.get(zone.climate_id)
+                if head is None or head.state in UNAVAILABLE_STATES:
+                    # Do not manufacture the missing startup mode with our own
+                    # park/write. A known head still follows sensor-failure parking.
+                    continue
             act = head_action(
                 engage=engage,
                 mode=state,
@@ -1911,6 +1940,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         a re-gesture to the SAME token the head already reports is invisible; that
         limitation is accepted.
         """
+        if climate_id in self._fan_on_pending:
+            self._fan_on_pending.remove(climate_id)
+            self._fan_restore.pop(climate_id, None)
+            self._adopt_fan_speed(climate_id, observed)
+            return False
         restored = self._fan_restore.pop(climate_id, None)
         if restored is not None:
             return self._reconcile_restored_hold(climate_id, observed, restored, act)
@@ -1955,7 +1989,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Consume a restored hold truth against the first speed the head reports.
 
         The Fan-auto switch restores the held/not-held bool and, for a zone that
-        was not held, the last two tokens the previous incarnation commanded
+        was not held, the previous incarnation's command/observation baselines
         (already in ``_fan_cmd``/``_fan_prev``, see ``restore_fan_hold``). The
         token itself is always taken from the OBSERVED head.
 
@@ -1965,10 +1999,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         * held: still held, at the observed token (same token: the hold simply
           survived; different non-auto token: the user moved the hold during the
           outage — theirs either way).
-        * not held: boost was driving. With command memory, a token we commanded
-          (last or prior) is ours — the residue of an interrupted handback, or
-          our rung reported late — whatever the room is doing now; any other
-          token appeared by hand during the outage and holds. Without memory,
+        * not held: boost was driving. With memory, an in-ceiling ladder token
+          matching last/prior is treated as residue, whatever the room is doing
+          now. Above-ceiling and non-ladder tokens hold even if remembered:
+          memory can contain user picks. A nonmatching token conservatively
+          holds; a stale dump can cause a false hold, so this is NOT proof of
+          a manual gesture. Without memory,
           any ladder token up to the boost ceiling is one boost could have
           written and is ours (the documented edge: a pick made while HA itself
           was down is indistinguishable from residue); a token boost could never
@@ -1992,7 +2028,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 and FAN_LADDER.index(observed) <= self._fan_max_idx()
             )
         else:
-            ours = observed in (last, self._fan_prev.get(climate_id))
+            ours = (
+                observed in FAN_LADDER
+                and FAN_LADDER.index(observed) <= self._fan_max_idx()
+                and observed in (last, self._fan_prev.get(climate_id))
+            )
         if not ours:
             self._hold_at(climate_id, observed)
             return True
@@ -2057,8 +2097,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         filtered by the switch and never reach here. With fan boost disabled
         the data is simply never consumed (the fan machinery is inert).
 
-        ``last``/``prior`` are the last two fan tokens the previous
-        incarnation commanded, when the restored record carried them. For a
+        ``last``/``prior`` are command/adopted-observation baselines from the
+        previous incarnation, when the restored record carried them. For a
         zone that was NOT held they re-arm the echo tolerance across the
         restart, so a head that reports a pre-restart token late — after a
         provisional ``auto``, or once its missing speed arrives — is read as
@@ -2069,15 +2109,24 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         self._fan_restore[climate_id] = held
         if not held and last is not None:
-            self._fan_cmd[climate_id] = last
-            self._fan_prev[climate_id] = last if prior is None else prior
+            # Memory includes adopted user tokens, not just our commands.
+            # S11b wins even when an impossible token is reported AFTER a
+            # provisional auto. Such a token cannot arm restored echo tolerance.
+            def eligible(token: str) -> str:
+                if token in FAN_LADDER and FAN_LADDER.index(token) <= self._fan_max_idx():
+                    return token
+                return FAN_AUTO
+
+            self._fan_cmd[climate_id] = eligible(last)
+            self._fan_prev[climate_id] = eligible(last if prior is None else prior)
 
     def fan_command_memory(self, climate_id: str) -> tuple[str | None, str | None]:
-        """The last two fan tokens commanded to this head: ``(last, prior)``.
+        """The last two command/adopted-observation baselines: ``(last, prior)``.
 
-        ``None`` where nothing has been commanded (or restored) yet. Published
-        by the Fan-auto switch so the memory rides a restart (see
-        ``restore_fan_hold``).
+        ``None`` where no baseline exists. Restore filters tokens outside the
+        current ceiling/ladder to auto; this is echo-tolerance state, NOT an
+        audit of sent or delivered commands. Published by the Fan-auto switch
+        so the memory rides a restart (see ``restore_fan_hold``).
         """
         return (self._fan_cmd.get(climate_id), self._fan_prev.get(climate_id))
 
@@ -2115,10 +2164,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         # With boost disabled, restored truth stays pending even with a live head.
         # A switch gesture supersedes that pending truth.
-        self._fan_restore.pop(climate_id, None)
         state = self.hass.states.get(climate_id)
         observed = state.attributes.get("fan_mode") if state is not None else None
         if on:
+            self._fan_restore.pop(climate_id, None)
+            self._fan_on_pending.discard(climate_id)
             if observed is not None:
                 # Adopt the current speed so boost resumes from it without a
                 # spurious re-latch (rolls _fan_prev, pins _fan_idx to max for a
@@ -2126,19 +2176,24 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._adopt_fan_speed(climate_id, observed)
             else:
                 self._fan_latched[climate_id] = False
+                self._fan_on_pending.add(climate_id)
             await self.async_request_refresh()
             return
         # OFF: hold at the current speed. Auto is nothing to hold onto.
         if observed is None or observed == FAN_AUTO:
+            if observed == FAN_AUTO:
+                self._fan_restore.pop(climate_id, None)
             _LOGGER.debug(
                 "fan-auto OFF for %s ignored: head at %s (nothing to hold)",
                 climate_id,
                 observed,
             )
             return
+        self._fan_restore.pop(climate_id, None)
         self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, observed)
         self._fan_cmd[climate_id] = observed
         self._fan_latched[climate_id] = True
+        self._fan_on_pending.discard(climate_id)
 
     def _seed_matches_boost(
         self, climate_id: str, observed: str, act: str, delta: float
@@ -2448,6 +2503,20 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         new_state = event.data.get("new_state")
         old_state = event.data.get("old_state")
         mode = new_state.state if new_state else None
+        pending = next(
+            (zone for zone in self.zones
+             if zone.climate_id == entity_id and zone.slug in self._startup_resume),
+            None,
+        )
+        if pending is not None:
+            if mode == MODE_OFF and self._planned_act_for(entity_id) != MODE_OFF:
+                # A reported OFF beyond our own sensor-failure park cancels
+                # the remembered startup run, just like OFF present at restore.
+                self._startup_resume[pending.slug] = ""
+            if mode not in (None, *UNAVAILABLE_STATES) and mode != (
+                old_state.state if old_state else None
+            ):
+                self.hass.async_create_task(self.async_request_refresh())
 
         self._arm_or_cancel(
             entity_id, "band", mode in BANNED_MODES, BAND_DRIFT_DELAY
@@ -2549,12 +2618,17 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def reset_engage_latch(self, slug: str) -> None:
         """Forget a zone's engage latch (its target changed -> fresh decision).
 
-        The next compute re-seeds from the head's actual mode, so an in-flight
-        run toward the same direction continues seamlessly to the new target,
-        while a direction change re-evaluates immediately instead of wasting a
-        cycle disengaging a stale latch.
+        An enabled, live room re-seeds from its head's mode, preserving existing
+        retargeting behavior. A disabled room or a still-unresolved startup gets
+        a fresh decision; new intent must not revive an old pending run.
         """
-        self._engage_latch.pop(slug, None)
+        if slug in self._startup_resume or not self.coordinator_enable or not any(
+            zone.slug == slug and zone.enable for zone in self.zones
+        ):
+            self._startup_resume.pop(slug, None)
+            self._engage_latch[slug] = ""
+        else:
+            self._engage_latch.pop(slug, None)
 
     async def async_user_changed(self) -> None:
         """A helper entity changed by the user -> recompute + act."""
