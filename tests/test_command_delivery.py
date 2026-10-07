@@ -461,29 +461,139 @@ async def test_disable_then_enable_does_not_revive_old_followons(delivery):
     assert r.peak["a"] == 1
 
 
-async def test_resistant_vane_wake_retires_without_an_overlapping_park(hass, monkeypatch, request):
-    """An accepted wake can finish late; retirement cannot send a second call."""
+@pytest.mark.parametrize("cleanup_returns_first", [True, False])
+async def test_resistant_vane_retirement_preserves_guard_and_ordinary_order(
+    hass, monkeypatch, request, cleanup_returns_first,
+):
+    """Legacy own-wake parking is separate; new work waits for both handlers."""
     from tests.test_vane_kick import _setup_kickable, _start_blocked_kick
 
     entry, heads, vane = await _setup_kickable(hass)
     coord = entry.runtime_data
+    cid = heads[0].entity_id
     harness = await _start_blocked_kick(hass, entry, heads[0], vane, "wake", monkeypatch, request)
     coord._vane_kick_retire = 0.05
+    before = coord.command_attributes(cid)
+    cleanup_entered, cleanup_release = asyncio.Event(), asyncio.Event()
+    original_mode = heads[0].async_set_hvac_mode
+    original_fan = heads[0].async_set_fan_mode
+    next_calls = []
+
+    async def mode(value):
+        await original_mode(value)
+        if value == "off":
+            cleanup_entered.set()
+            await cleanup_release.wait()
+
+    async def fan(value):
+        next_calls.append(value)
+        await original_fan(value)
+
+    monkeypatch.setattr(heads[0], "async_set_hvac_mode", mode)
+    monkeypatch.setattr(heads[0], "async_set_fan_mode", fan)
     unload = asyncio.create_task(hass.config_entries.async_unload(entry.entry_id))
+    successor = None
+    next_command = None
     try:
-        await until(unload.done, 1.0)
-        assert await unload
+        await until(cleanup_entered.is_set, 1.0)
         assert coord._retired
         assert not harness.kick_task.done()
-        assert harness.commands == [("head", "fan_only")]
-        assert hass.states.get(heads[0].entity_id).state == "fan_only"
-        assert coord.command_attributes(heads[0].entity_id)["command_retired_at"] != "not yet recorded"
+        assert harness.commands == [("head", "fan_only"), ("head", "off")]
+        assert hass.states.get(cid).state == "off"
+        observed = coord.command_attributes(cid)
+        assert observed["command_status"] == "pending"
+        assert observed["command_attempted_at"] == before["command_attempted_at"]
+        assert observed["command_returned_at"] == before["command_returned_at"]
+        assert observed["command_retired_at"] != "not yet recorded"
+        assert observed["command_ownership_retired"] is True
+        assert observed["vane_retirement_cleanup"]["command_status"] == "pending"
+        assert "physically stopped" in json.dumps(coord.room_details())
+        # A fresh coordinator uses the same real per-head ordering, without
+        # depending on HA entry setup waiting for unload's cleanup to finish.
+        successor = type(coord)(hass, entry)
+        assert successor.command_attributes(cid) == observed
+        next_command = asyncio.create_task(successor.async_head_service(
+            cid, "set_fan_mode", {"fan_mode": "low"}, manual=True,
+        ))
+        await asyncio.sleep(0.03)
+        assert not next_command.done() and next_calls == []
+        if cleanup_returns_first:
+            cleanup_release.set()
+            await until(unload.done, 1.0)
+            assert await unload
+            assert not harness.kick_task.done()
+            observed = coord.command_attributes(cid)
+            assert observed["command_status"] == "pending"
+            assert observed["command_returned_at"] == before["command_returned_at"]
+            assert observed["vane_retirement_cleanup"]["command_status"] == "returned"
+            assert coord._head_locks[cid].locked()
+        else:
+            harness.barrier.release.set()
+            await until(harness.kick_task.done, 1.0)
+            await harness.kick_task
+            observed = coord.command_attributes(cid)
+            assert observed["command_status"] == "returned"
+            assert observed["vane_retirement_cleanup"]["command_status"] == "pending"
+            assert not unload.done()
+        await asyncio.sleep(0.03)
+        assert not next_command.done() and next_calls == []
+        cleanup_release.set()
+        harness.barrier.release.set()
+        await until(next_command.done, 1.0)
+        await next_command
+        assert next_calls == ["low"]
+        assert successor.command_attributes(cid)["command_ownership_retired"] is False
+        assert successor.command_attributes(cid)["command_retired_at"] == observed["command_retired_at"]
     finally:
+        cleanup_release.set()
         harness.barrier.release.set()
         await until(harness.kick_task.done)
         await harness.kick_task
         await unload
+        if next_command is not None:
+            await next_command
+        if successor is not None:
+            await successor.async_shutdown_listeners()
         await hass.async_block_till_done()
-    assert harness.commands == [("head", "fan_only")]
+    assert harness.commands == [("head", "fan_only"), ("head", "off")]
     assert not coord._vane_kicks and not coord._vane_kick_woken
-    assert not coord._head_locks[heads[0].entity_id].locked()
+    assert not coord._vane_cleanup_pending
+    assert not coord._head_locks[cid].locked()
+
+
+async def test_queued_vane_has_no_own_wake_retirement_permission(hass, monkeypatch):
+    """Reported fan_only plus a queued kick is not an issued own wake."""
+    from tests.test_vane_kick import _setup_kickable
+
+    entry, heads, vane = await _setup_kickable(hass)
+    coord = entry.runtime_data
+    cid = heads[0].entity_id
+    lock = coord._head_locks.setdefault(cid, asyncio.Lock())
+    await lock.acquire()
+    commands = []
+    original = heads[0].async_set_hvac_mode
+
+    async def mode(value):
+        commands.append(value)
+        await original(value)
+
+    monkeypatch.setattr(heads[0], "async_set_hvac_mode", mode)
+    try:
+        await coord.async_apply_vane(cid, vane.entity_id, "SWING")
+        kick = coord._vane_kicks[cid]
+        await asyncio.sleep(0.03)
+        assert not kick.done()
+        assert cid not in coord._vane_kick_woken
+        # A later device report cannot turn an unissued wake into ownership.
+        await original("fan_only")
+        assert hass.states.get(cid).state == "fan_only"
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        assert kick.done()
+        assert commands == []
+        assert hass.states.get(cid).state == "fan_only"
+        assert coord.command_attributes(cid)["vane_retirement_cleanup"] == {}
+    finally:
+        lock.release()
+        if not coord._retired:
+            await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()

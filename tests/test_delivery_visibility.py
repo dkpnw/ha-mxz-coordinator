@@ -275,3 +275,53 @@ async def test_fresh_public_command_observations_are_explicitly_absent(delivery)
     assert view["head_state_updated_at"] == head.last_updated.isoformat()
     assert not r.calls("a", kind="enter")
     assert not r.calls("b", kind="enter")
+
+
+async def test_late_vane_return_updates_reloaded_room_disclosure(hass, monkeypatch, request):
+    """A cleanup return never stands in for the pending wake, across reload."""
+    from tests.test_vane_kick import _setup_kickable, _start_blocked_kick
+
+    entry, heads, vane = await _setup_kickable(hass)
+    old = entry.runtime_data
+    harness = await _start_blocked_kick(hass, entry, heads[0], vane, "wake", monkeypatch, request)
+    old._vane_kick_retire = 0.05
+    unload = asyncio.create_task(hass.config_entries.async_unload(entry.entry_id))
+    setup = None
+    try:
+        await until(unload.done, 1.0)
+        assert await unload
+        assert not harness.kick_task.done()
+        assert harness.commands == [("head", "fan_only"), ("head", "off")]
+        room_id = _eid(hass, entry, "_primary_thermostat")
+        setup = asyncio.create_task(hass.config_entries.async_setup(entry.entry_id))
+        await until(lambda: (room := hass.states.get(room_id)) is not None
+                    and room.attributes.get("command_status") == "pending", 1.0)
+        current = entry.runtime_data
+        assert current is not old
+        room = hass.states.get(room_id)
+        assert room.attributes["command_status"] == "pending"
+        assert room.attributes["command_ownership_retired"] is True
+        assert room.attributes["vane_retirement_cleanup"]["command_status"] == "returned"
+        assert "pending since" in json.dumps(room.attributes["control_reasons"])
+        retired_at = room.attributes["command_retired_at"]
+        harness.barrier.release.set()
+        await until(harness.kick_task.done)
+        await harness.kick_task
+        await until(lambda: hass.states.get(room_id).attributes["command_status"] == "returned", 1.0)
+        room = hass.states.get(room_id)
+        assert room.attributes["command_retired_at"] == retired_at
+        assert "pending since" not in json.dumps(room.attributes["control_reasons"])
+        assert datetime.fromisoformat(room.attributes["command_returned_at"]) >= datetime.fromisoformat(
+            room.attributes["vane_retirement_cleanup"]["command_returned_at"]
+        )
+        assert harness.commands == [("head", "fan_only"), ("head", "off")]
+    finally:
+        harness.barrier.release.set()
+        await until(harness.kick_task.done)
+        await harness.kick_task
+        await unload
+        if setup is not None:
+            assert await setup
+        if hasattr(entry, "runtime_data") and not entry.runtime_data._retired:
+            assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
