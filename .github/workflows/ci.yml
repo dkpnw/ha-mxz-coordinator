@@ -140,7 +140,7 @@ jobs:
           test "$(wc -c < "$RUNNER_TEMP/sentinel.log")" -le 1048576
       - name: Exact admission comparison objects
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-harness-admission' && github.run_attempt == 1 && matrix.lane == 'py3.12-ha2024.12.0' }}
-        run: git fetch --no-tags --depth=1 origin 3a9863896f8affb6f71cbd1e495df21b17a69ff3 4f47f164848f10135b1b1ea3151f60ad3f415b69
+        run: git fetch --no-tags --depth=1 origin 3a9863896f8affb6f71cbd1e495df21b17a69ff3 7b0ee8fd353f9a55f3c0209ccfb57b53c1704677
       - name: Six exported setup controls
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-harness-admission' && github.run_attempt == 1 && matrix.lane == 'py3.12-ha2024.12.0' }}
         env:
@@ -335,7 +335,7 @@ jobs:
           timeout --signal=TERM --kill-after=5s 60s python -m pytest -p tools.pytest_phases tests/test_changeover.py::test_changeover_from_temperature_sensor -q -s > "$RUNNER_TEMP/sentinel.log" 2>&1
           test "$(wc -c < "$RUNNER_TEMP/sentinel.log")" -le 1048576
       - name: Exact public comparison objects
-        run: git fetch --no-tags --depth=1 origin 3a9863896f8affb6f71cbd1e495df21b17a69ff3 4f47f164848f10135b1b1ea3151f60ad3f415b69
+        run: git fetch --no-tags --depth=1 origin 3a9863896f8affb6f71cbd1e495df21b17a69ff3 7b0ee8fd353f9a55f3c0209ccfb57b53c1704677
       - name: Two frozen issue25 packs
         env:
           ISSUE25_MODE: pack
