@@ -2283,6 +2283,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._fan_restore[climate_id] = True
                 self._fan_latched[climate_id] = True
                 self._publish_fan_state(climate_id)
+                await self.async_request_refresh()
                 return
             if observed == FAN_AUTO:
                 self._fan_restore.pop(climate_id, None)
@@ -2298,6 +2299,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fan_latched[climate_id] = True
         self._fan_on_pending.discard(climate_id)
         self._publish_fan_state(climate_id)
+        await self.async_request_refresh()
 
     def _seed_matches_boost(
         self, climate_id: str, observed: str, act: str, delta: float
@@ -2603,11 +2605,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- self-heal A (band drift) -------------------------------------------
     @callback
     def _on_head_change(self, event: Event) -> None:
-        """Detect a head drifting into a banned mode or off-while-enabled."""
+        """Track head inputs and detect banned-mode/off-while-enabled drift."""
         entity_id: str = event.data["entity_id"]
         new_state = event.data.get("new_state")
         old_state = event.data.get("old_state")
         mode = new_state.state if new_state else None
+        refresh_needed = False
         pending = next(
             (zone for zone in self.zones
              if zone.climate_id == entity_id and zone.slug in self._startup_resume),
@@ -2621,7 +2624,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if mode not in (None, *UNAVAILABLE_STATES) and mode != (
                 old_state.state if old_state else None
             ):
-                self.hass.async_create_task(self.async_request_refresh())
+                refresh_needed = True
 
         self._arm_or_cancel(
             entity_id, "band", mode in BANNED_MODES, BAND_DRIFT_DELAY
@@ -2647,7 +2650,22 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # a refresh on our own echo harmless.
         new_fan = new_state.attributes.get("fan_mode") if new_state else None
         old_fan = old_state.attributes.get("fan_mode") if old_state else None
-        if new_fan != old_fan:
+        # Capability metadata and head availability also feed the plan's room
+        # explanations, even when there is no new fan observation. Use the same
+        # debounced refresh; ordinary echoes still rely on idempotent apply.
+        new_attrs = new_state.attributes if new_state else {}
+        old_attrs = old_state.attributes if old_state else {}
+        capabilities_changed = any(
+            type(new_attrs.get(key)) is not type(old_attrs.get(key))
+            or new_attrs.get(key) != old_attrs.get(key)
+            for key in ("fan_modes", "supported_features")
+        )
+        availability_changed = (
+            new_state is None or mode in UNAVAILABLE_STATES
+        ) != (
+            old_state is None or old_state.state in UNAVAILABLE_STATES
+        )
+        if refresh_needed or new_fan != old_fan or capabilities_changed or availability_changed:
             self.hass.async_create_task(self.async_request_refresh())
 
     @callback

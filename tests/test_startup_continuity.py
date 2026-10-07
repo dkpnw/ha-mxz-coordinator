@@ -75,6 +75,7 @@ from tests.test_drive import (
     _setup_mock_heads,
     _user_set_fan,
 )
+from tests.test_idle_action import _settle_requested_refreshes
 
 # Target 70 and the default drift of 1 for both rooms. "run" starts a run,
 # "inside" is inside the drift (a fresh room coasts there, a running room
@@ -1157,9 +1158,18 @@ async def test_saved_pending_handback_survives_restart_and_reload(
     # hold until a report exists. It must not issue a blind command.
     await _report(hass, head_a, None)
     await _set_fan_auto(hass, switch, True)
+    await _settle_requested_refreshes(hass, entry.runtime_data)
+    assert hass.states.get(head_a).attributes.get("fan_mode") is None
+    assert _fan_hold(hass, entry, 0) is False
+    assert "Explicit Fan auto ON is waiting" in _reasons(hass, entry)
+    writes.clear()
     await _set_fan_auto(hass, switch, False)
+    await _settle_requested_refreshes(hass, entry.runtime_data)
     assert hass.states.get(switch).state == "off"
     assert ATTR_FAN_ON_PENDING not in hass.states.get(switch).attributes
+    assert _fan_hold(hass, entry, 0) is True
+    assert "Explicit Fan auto ON is waiting" not in _reasons(hass, entry)
+    assert writes == []
     writes.clear()
     await _shutdown(hass, entry)
     await _startup(hass, entry)
@@ -1246,20 +1256,42 @@ async def test_plan_explains_unavailable_room_inputs(
     head = _head(hass, head_a)
     original = hass.states.get(head_a)
     assert "Previous fan hold unavailable" in _reasons(hass, entry)
+    await _settle_requested_refreshes(hass, entry.runtime_data)
+    healthy = deepcopy(hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][1])
+    healthy_switch = _eid(hass, entry, "_secondary_fan_auto")
     if group == "head-sensor":
+        # No fan observation or sensor event may conceal head invalidation.
+        await _report(hass, head_a, None)
+        await _settle_requested_refreshes(hass, entry.runtime_data)
+        available = hass.states.get(head_a)
         for missing in (None, "unknown", "unavailable"):
             if missing is None:
                 hass.states.async_remove(head_a)
             else:
-                hass.states.async_set(head_a, missing)
+                hass.states.async_set(head_a, missing, available.attributes)
+            await hass.async_block_till_done()
+            await _settle_requested_refreshes(hass, entry.runtime_data)
+            assert f"Head {head_a} unavailable" in _reasons(hass, entry)
+            assert hass.states.get(switch).state == "unavailable"
+            assert hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][1] == healthy
+            assert hass.states.get(healthy_switch).state == "on"
+            assert writes == []
             hass.states.async_set(SENSOR_A, "unavailable")
             await hass.async_block_till_done()
-            await _recompute(hass, entry)
+            await _settle_requested_refreshes(hass, entry.runtime_data)
             reasons = _reasons(hass, entry)
             assert f"Head {head_a} unavailable" in reasons
             assert f"Room sensor {SENSOR_A} unavailable" in reasons
             assert hass.states.get(switch).state == "unavailable"
             assert "Head" not in _reasons(hass, entry, 1)
+            # Restore only the head while the sensor remains unavailable.
+            hass.states.async_set(head_a, available.state, available.attributes)
+            await hass.async_block_till_done()
+            await _settle_requested_refreshes(hass, entry.runtime_data)
+            assert "Head" not in _reasons(hass, entry)
+            assert hass.states.get(switch).state == "on"
+            await _set_temp(hass, SENSOR_A, 70)
+            await _settle_requested_refreshes(hass, entry.runtime_data)
         head.async_write_ha_state()
         await _set_temp(hass, SENSOR_A, 70)
         await _recompute(hass, entry)
@@ -1293,9 +1325,27 @@ async def test_plan_explains_unavailable_room_inputs(
             attrs = {**original.attributes, "supported_features": features, "fan_modes": modes}
             hass.states.async_set(head_a, original.state, attrs)
             await hass.async_block_till_done()
-            await _recompute(hass, entry)
+            await _settle_requested_refreshes(hass, entry.runtime_data)
             assert expected in _reasons(hass, entry)
             assert hass.states.get(switch).state == "unavailable"
+            assert hass.states.get(head_a).state == original.state
+            assert hass.states.get(head_a).attributes["fan_mode"] == original.attributes["fan_mode"]
+            assert hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][1] == healthy
+            assert hass.states.get(healthy_switch).state == "on"
+            assert writes == []
+            # Metadata-only recovery keeps both HVAC state and speed identical.
+            hass.states.async_set(head_a, original.state, original.attributes)
+            await hass.async_block_till_done()
+            await _settle_requested_refreshes(hass, entry.runtime_data)
+            assert "capabilities" not in _reasons(hass, entry)
+            assert "not advertised" not in _reasons(hass, entry)
+            assert "not supported" not in _reasons(hass, entry)
+            assert hass.states.get(switch).state == "on"
+            assert hass.states.get(head_a).state == original.state
+            assert hass.states.get(head_a).attributes["fan_mode"] == original.attributes["fan_mode"]
+            assert hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][1] == healthy
+            assert hass.states.get(healthy_switch).state == "on"
+            assert writes == []
         head.async_write_ha_state()
         await _report(hass, head_a, None)
         await _recompute(hass, entry)
