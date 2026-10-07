@@ -419,7 +419,11 @@ class Trial:
                 rs.async_get(self.hass).last_states.pop(self.switch(i), None)
             trace("negative-only-injection", kind="remove-both-fan-restore-records")
         elif variant == "demand":
-            self.hass.states.async_set(SENSORS[1], "71", {"unit_of_measurement": "°F"})
+            # B's demand changes while it is still cooling. 72 is past its engage
+            # drift (target 70 + drift 1), so the recreated coordinator engages B
+            # from this reading alone: on both bases the head-mode latch seed is
+            # spent by the construction-time compute, before zones are enabled.
+            self.hass.states.async_set(SENSORS[1], "72", {"unit_of_measurement": "°F"})
         elif variant == "provisional":
             self.heads[0].report("auto")
         elif variant == "missing-speed":
@@ -458,6 +462,10 @@ class Trial:
         assert self.entry.runtime_data is not original, "UNKNOWN: coordinator not recreated"
         assert identity == (self.entry.entry_id, self.entry.created_at, self.switch(0), self.switch(1))
         self.snapshot("after-setup")
+        if variant == "demand":
+            # The engaged run continues toward its target; 71 is still above it.
+            self.hass.states.async_set(SENSORS[1], "71", {"unit_of_measurement": "°F"})
+            await self.hass.async_block_till_done()
         await self.refresh()
 
     async def delivery(self, held=False):

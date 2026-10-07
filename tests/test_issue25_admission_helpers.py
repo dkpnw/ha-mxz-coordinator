@@ -549,3 +549,138 @@ def test_external_temperature_handler_fault_is_persistent_and_recoverable():
         assert head.calls[-1]['returned_at'] >= head.calls[-1]['at']
 
     asyncio.run(exercise())
+
+
+def demand_writes(tree):
+    """Run only restart's demand-gated statements, split at entry setup.
+
+    Records the external sensor writes they make. No HA, product, Store,
+    coordinator or restore getter runs; statements are checked to be external.
+    """
+    import ast
+    import asyncio
+    from copy import deepcopy
+
+    sensors = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
+                   and getattr(n.targets[0], 'id', None) == 'SENSORS')
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Trial')
+    method = next(n for n in cls.body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'restart')
+    allowed = {'self.hass.states.async_set', 'self.hass.async_block_till_done'}
+
+    def position(name):
+        return [i for i, statement in enumerate(method.body) if any(
+            isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == name
+            or isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == name
+            for n in ast.walk(statement))]
+
+    def chain(node):
+        while isinstance(node, ast.If):
+            yield node
+            node = node.orelse[0] if len(node.orelse) == 1 else None
+
+    setup = position('async_setup')[0]
+    branches = [(i, n) for i, statement in enumerate(method.body) for n in chain(statement)
+                if ast.unparse(n.test) == "variant == 'demand'"]
+    writes = []
+    for index, branch in branches:
+        for n in ast.walk(ast.Module(body=branch.body, type_ignores=[])):
+            if isinstance(n, ast.Call):
+                assert ast.unparse(n.func) in allowed, f'non-external demand stimulus: {ast.unparse(n)}'
+            assert not isinstance(n, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)), (
+                'non-external demand stimulus: assignment')
+            if isinstance(n, ast.Attribute):
+                assert any(a.startswith(ast.unparse(n)) for a in allowed), (
+                    f'non-external demand stimulus: {ast.unparse(n)}')
+        phase = 'before-setup' if index < setup else 'after-setup'
+        assert phase == 'after-setup' or index > position('load_after_removal')[0], 'demand before Store load'
+        assert phase == 'before-setup' or index < position('refresh')[-1], 'demand after final refresh'
+        fragment = deepcopy(ast.parse('async def branch(self):\n    pass').body[0])
+        fragment.body = deepcopy(branch.body)
+
+        async def drained(phase=phase):
+            writes.append((phase, 'drain'))
+
+        hass = SimpleNamespace(async_block_till_done=drained, states=SimpleNamespace(
+            async_set=lambda entity, value, attributes, phase=phase: writes.append(
+                (phase, 'set', entity, value, attributes))))
+        asyncio.run(external_callable(fragment, {'SENSORS': sensors})(SimpleNamespace(hass=hass)))
+    return sensors, writes
+
+
+def require_changed_demand(tree):
+    """Independent stimulus contract; frozen 71 and the configured invariant.
+
+    The invented entry configures no drift, so B's engage drift is the °F
+    default (1.0 on both pinned bases, 1.0 in the R3 plan). A reading past
+    target + drift engages a room without any prior run; one at or inside it
+    does not, so 71 alone after a restart is no changed cooling demand.
+    """
+    import ast
+    from itertools import pairwise
+
+    drift = 1.0
+    fixture = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'trial')
+    entry = next(n for n in ast.walk(fixture) if isinstance(n, ast.Call)
+                 and ast.unparse(n.func) == 'MockConfigEntry')
+    keywords = {k.arg: k.value for k in entry.keywords}
+    keys = {ast.literal_eval(k) for d in ast.walk(keywords['data']) if isinstance(d, ast.Dict) for k in d.keys}
+    assert 'options' not in keywords and not {'engage_deadband', 'demand_threshold', 'drift'} & keys, (
+        'configured drift changed')
+    sets = [n for n in ast.walk(fixture) if isinstance(n, ast.Call) and n.args
+            and [ast.unparse(a) for a in n.args[:2]] == ["'number'", "'set_value'"]]
+    assert sets and all('_target' in ast.unparse(n.args[2]) for n in sets), 'non-target number write'
+    targets = {ast.literal_eval(k.value) for n in sets for k in n.keywords if k.arg == 'value'}
+    assert len(targets) == 1, 'ambiguous configured target'
+    target = float(targets.pop())
+    sensors, writes = demand_writes(tree)
+    values = {phase: [w[3] for w in writes if w[0] == phase and w[1] == 'set']
+              for phase in ('before-setup', 'after-setup')}
+    assert all(w[2] == sensors[1] and w[4] == {'unit_of_measurement': '°F'}
+               for w in writes if w[1] == 'set'), 'not the external B sensor'
+    assert values['before-setup'] and float(values['before-setup'][-1]) > target + drift, (
+        'changed demand not past configured drift before setup')
+    assert values['after-setup'] and values['after-setup'][-1] == '71', 'frozen 71 reading not reached'
+    run = [float(v) for v in values['before-setup'][-1:] + values['after-setup']]
+    assert all(target < b <= a for a, b in pairwise(run)), 'run crossed or left its target approach'
+    assert writes[-1] == ('after-setup', 'drain'), 'final reading not drained before refresh'
+
+
+@pytest.mark.parametrize('mutation', ['none', 'original-71-only', 'lower-before-setup', 'missing-final',
+                                      'other-room', 'private-latch', 'configured-drift'])
+def test_changed_demand_stimulus_contract(mutation):
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse((Path(__file__).parents[1] / 'tools/issue25/test_restore.py').read_text())
+    restart = next(m for c in tree.body if isinstance(c, ast.ClassDef) and c.name == 'Trial'
+                   for m in c.body if isinstance(m, ast.AsyncFunctionDef) and m.name == 'restart')
+    demand = [n for s in restart.body for n in ast.walk(s)
+              if isinstance(n, ast.If) and ast.unparse(n.test) == "variant == 'demand'"]
+    before, after = demand
+    late = next(s for s in restart.body if after in ast.walk(s))
+    if mutation == 'original-71-only':
+        before.body[-1].value.args[1].value = '71'
+        restart.body.remove(late)
+    elif mutation == 'lower-before-setup':
+        before.body.extend(after.body)
+        restart.body.remove(late)
+    elif mutation == 'missing-final':
+        restart.body.remove(late)
+    elif mutation == 'other-room':
+        after.body[0].value.args[0] = ast.parse('SENSORS[0]', mode='eval').body
+    elif mutation == 'private-latch':
+        after.body.append(ast.parse("self.entry.runtime_data._engage_latch['secondary'] = 'cool'").body[0])
+    elif mutation == 'configured-drift':
+        entry = next(n for n in ast.walk(tree) if isinstance(n, ast.Call)
+                     and ast.unparse(n.func) == 'MockConfigEntry')
+        data = next(k.value for k in entry.keywords if k.arg == 'data')
+        data.keys.append(ast.Constant('engage_deadband'))
+        data.values.append(ast.Constant(0.5))
+    if mutation == 'none':
+        require_changed_demand(tree)
+        return
+    expected = {'original-71-only': 'not past configured drift', 'lower-before-setup': 'not past configured drift',
+                'missing-final': 'frozen 71', 'other-room': 'external B sensor',
+                'private-latch': 'non-external', 'configured-drift': 'configured drift changed'}[mutation]
+    with pytest.raises(AssertionError, match=expected):
+        require_changed_demand(tree)
