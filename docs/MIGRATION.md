@@ -199,10 +199,9 @@ the switch instead. (beta.17 removed the first only partially: a slider hold cou
 release itself on drift. beta.18 is the complete change.)
 
 **Fan-hold restore introduced in v3.0.1.** The **Fan auto**
-switch remembers whether you were holding and reconciles that against what the head
-actually reports at startup — so a hold at any speed comes back as your hold, and the
-boost's leftover speed (even on a satisfied room, which earlier versions could mis-read
-as a hold) is recognized and cleared. Two narrow edges, documented: a fan speed set from
+switch stores held/not-held intent for reconciliation with the head's report at
+startup. That distinguishes a saved hold from automatic residue, but earlier releases
+still failed the idle/delayed-report shape corrected in 3.4.0 below. A fan speed set from
 a wall remote while HA itself was down, on a room that was not held, reads as leftover
 and is cleared; and the first restart after upgrading (before the switch has stored
 anything) can fall back to interpreting the reported speed. See the 3.4.0 correction
@@ -220,7 +219,9 @@ genuine manual hold (a speed the boost wouldn't be using) still survives the res
 
 Automatic — nothing to do. On first startup the config entry migrates from the flat
 primary/secondary shape to an ordered `zones` list. Zones 0/1 keep the `primary`/`secondary`
-entity unique_ids, so **all entity IDs, history, and dashboards are unchanged**. To add more
+entity unique_ids. Existing registry records keep their entity IDs, preserving those
+references in history and dashboards. Other runtime changes can still affect what a
+dashboard reports. To add more
 zones to an existing entry, use **⋮ → Reconfigure** on the config entry (see the README's
 "Reconfiguring" section) — no need to remove and re-add.
 
