@@ -5,6 +5,14 @@ from types import SimpleNamespace
 import pytest
 
 
+def _run_local(coroutine):
+    """Finalize an owned loop without replacing the framework's current loop."""
+    import asyncio
+
+    with asyncio.Runner(loop_factory=asyncio.new_event_loop) as runner:
+        return runner.run(coroutine)
+
+
 # D rows import only the diagnostic helper module (stdlib + pytest). Hooks are
 # never registered by this import, and no product/dependency probe is performed.
 @pytest.mark.parametrize('case', range(1, 56), ids=[f'D{i:02d}' for i in range(1, 56)])
@@ -384,8 +392,6 @@ def observe_external_shutdown(method, switch_state='unavailable'):
     The switch input is an independent observation supplied by this control.
     No platform, coordinator, store, restore getter or product oracle runs here.
     """
-    import asyncio
-
     rows = {'head_a': object(), 'head_b': object(),
             'switch_a': SimpleNamespace(state=switch_state),
             'switch_b': SimpleNamespace(state=switch_state)}
@@ -425,7 +431,7 @@ def observe_external_shutdown(method, switch_state='unavailable'):
                              async_block_till_done=drained))
     restart = external_callable(method, {'async_mock_restore_state_shutdown_restart': stop_before_serialization})
     with pytest.raises(SerializationBoundary):
-        asyncio.run(restart(trial, unavailable=True))
+        _run_local(restart(trial, unavailable=True))
     return trial, rows, original_rows, observations
 
 
@@ -474,7 +480,6 @@ def test_unreached_external_fault_retains_unknown(state):
 
 def test_external_fault_recovery_after_load_before_setup():
     import ast
-    import asyncio
     from copy import deepcopy
 
     method = external_method('Trial', 'restart')
@@ -501,7 +506,7 @@ def test_external_fault_recovery_after_load_before_setup():
         for h in heads:
             h.async_write_ha_state = lambda h=h, published=published: published.append(h.fail_temperature)
         recover = external_callable(fragment, {})
-        asyncio.run(recover(SimpleNamespace(heads=heads)))
+        _run_local(recover(SimpleNamespace(heads=heads)))
         assert all(h._attr_fan_mode == 'high' and h.pending == ['old-auto'] for h in heads)
         if omit_recovery:
             with pytest.raises(AssertionError):
@@ -548,7 +553,7 @@ def test_external_temperature_handler_fault_is_persistent_and_recoverable():
         assert head.calls[-1]['returned'].is_set()
         assert head.calls[-1]['returned_at'] >= head.calls[-1]['at']
 
-    asyncio.run(exercise())
+    _run_local(exercise())
 
 
 def demand_writes(tree):
@@ -558,7 +563,6 @@ def demand_writes(tree):
     coordinator or restore getter runs; statements are checked to be external.
     """
     import ast
-    import asyncio
     from copy import deepcopy
 
     sensors = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
@@ -603,7 +607,7 @@ def demand_writes(tree):
         hass = SimpleNamespace(async_block_till_done=drained, states=SimpleNamespace(
             async_set=lambda entity, value, attributes, phase=phase: writes.append(
                 (phase, 'set', entity, value, attributes))))
-        asyncio.run(external_callable(fragment, {'SENSORS': sensors})(SimpleNamespace(hass=hass)))
+        _run_local(external_callable(fragment, {'SENSORS': sensors})(SimpleNamespace(hass=hass)))
     return sensors, writes
 
 

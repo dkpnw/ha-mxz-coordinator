@@ -39,6 +39,11 @@ def _pending_restore(held: bool) -> tuple[MXZCoordinator, MXZZoneFanAutoSwitch]:
     coordinator.fan_boost_enable = False
     coordinator.fan_boost_max = FAN_LADDER[-1]
     coordinator._fan_restore = {}
+    coordinator._fan_restore_problem = {
+        HEAD: "Previous fan hold unavailable; using reported speed."
+    }
+    coordinator._fan_on_pending = set()
+    coordinator._fan_state_writers = {}
     coordinator._fan_latched = {}
     coordinator._fan_cmd = {}
     coordinator._fan_prev = {}
