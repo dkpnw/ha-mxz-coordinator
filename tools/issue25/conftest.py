@@ -17,7 +17,7 @@ REFS = {
 }
 BASES = {
     "released": ("3a9863896f8affb6f71cbd1e495df21b17a69ff3", "238636de6d067c8e05b59993819cc5187c2bf9df"),
-    "main": ("dd5c8f6da79faed9e2d97b7fda4098302ef2f855", "3ea17e8b1b2a730c01454db85510e255e460cbb4"),
+    "main": ("f4a919112173c8bf5fe4d232d40cfd4aaa4f81a9", "d2b06a63c333e7a5ed8c8353b1a71fd255f5cac0"),
 }
 PACK_ITEMS = [f"tools/issue25/test_restore.py::test_restore_schedule[{name}]" for name in (
     "01-clean-twice", "02-unavailable-twice", "03-manual-twin", "04-options-reload",
