@@ -149,11 +149,12 @@ jobs:
         run: |
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
           bash tools/issue25/run.sh
+      # 300 s: hosted full-suite runs took ~140 s and the suite grows; only attempt 1 may run.
       - name: Full retained suite
         run: |
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
           suite_exit=0
-          timeout --signal=TERM --kill-after=5s 180s python -m pytest -p tools.pytest_phases tests/ -q -s > "$RUNNER_TEMP/suite.log" 2>&1 || suite_exit=$?
+          timeout --signal=TERM --kill-after=5s 300s python -m pytest -p tools.pytest_phases tests/ -q -s > "$RUNNER_TEMP/suite.log" 2>&1 || suite_exit=$?
           printf '%s\n' "$suite_exit" > "$RUNNER_TEMP/suite.exit"
           echo "SUITE_EXIT=$suite_exit"
           exit "$suite_exit"

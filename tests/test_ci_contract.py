@@ -300,12 +300,12 @@ exit "$INVENTED_EXIT"
 set -eu
 test "$1" = --signal=TERM
 test "$2" = --kill-after=5s
-test "$3" = 180s
+test "$3" = 300s
 shift 3
 if test "$INVENTED_OUTCOME" = timeout; then
   exec /usr/bin/timeout --signal=TERM --kill-after=1s 0.2s "$@"
 fi
-exec /usr/bin/timeout --signal=TERM --kill-after=5s 180s "$@"
+exec /usr/bin/timeout --signal=TERM --kill-after=5s 300s "$@"
 ''')
     watchdog.chmod(0o755)
     env.update(INVENTED_OUTCOME=outcome, INVENTED_EXIT=str(expected))
