@@ -516,8 +516,10 @@ Use the floor when your platform cannot run the exact .10 bundle, and label the 
 with its actual floor versions. It does not validate .10. Do not disable ordinary HA
 plugin loading, replace failed phases with collection, or infer hardware results from
 mock entities. Restore uses normal `RestoreEntity` state/extra data; flow schemas use
-Voluptuous. HA .10 provides central `reconfigure_successful` abort text; the floor
-retains local `already_configured` fallback text. Tested backend reasons and available
+Voluptuous. MXZ raises its own `reconfigure_successful` and `already_configured` aborts
+without HA's central translation domain (the floor has no such parameter), so both
+strings ship locally in `strings.json`/`translations/en.json`; tests resolve every flow
+reason through HA's translation loader on each lane. Tested backend reasons and available
 translation dictionaries do not establish the frontend's fallback/rendering selection.
 This source does not implement the separate HA 2026.11 restore changes,
 and no .11 support claim follows from .10 results.
