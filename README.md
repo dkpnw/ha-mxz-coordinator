@@ -435,13 +435,14 @@ confirmation.
 
 The thermostat, Fan auto switch and plan's `zones` include added diagnostics listed in
 [Entity map](docs/ENTITY-MAP.md#integration-diagnostic-surfaces-340). Delivery changes
-publish immediately, even outside refresh completion. `head_state_updated_at` changes
-on head attribute updates, so a room's thermostat can emit `state_changed` while its
-visible mode/temperature is unchanged. These volatile attributes can increase recorder
-history/storage when the entities are recorded and fire automations with a bare state
-trigger. Use an explicit state transition or selected attribute when that is your
-automation's intent. Exact database rows, bytes and hourly growth have not been measured;
-state-event counts do not establish those quantities. The diagnostic timestamp is retained.
+publish immediately, even outside refresh completion. `head_state_updated_at` is only
+on the plan's `zones`, as of the plan's last update; the head entity shows its own live
+time. A head update the room thermostat does not display, such as the head's own
+temperature reading, adds no thermostat `state_changed` event. Delivery progress, fan
+state and reason changes still update these attributes, which can add recorder
+history/storage and fire automations with a bare state trigger. Use an explicit state
+transition or selected attribute when that is your automation's intent. Exact database
+rows, bytes and hourly growth have not been measured.
 
 Sensor refreshes already covered by a newer decision are coalesced by generation.
 Pending delivery can prompt a follow-up outside the ordinary debounce; several requests

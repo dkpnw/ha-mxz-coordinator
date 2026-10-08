@@ -20,7 +20,7 @@ the legacy YAML mappings below. These existing entities carry the observations:
 | --- | --- | --- |
 | Room `climate.*_thermostat` and `sensor.*_plan` → `zones[]` | `command_attempted_at`, `command_returned_at`, `command_failed_at`, `command_retired_at` | HA software observation times; missing times are `not yet recorded`. |
 | Same room surfaces | `command_status`, `command_error`, `command_deferred`, `command_ownership_retired` | Delivery progress, error and ownership; a handler return does not prove physical application. |
-| Same room surfaces | `head_state_updated_at` | The head's HA `last_updated`, including attribute changes; `not yet recorded` if the head is missing. |
+| `sensor.*_plan` → `zones[]` only | `head_state_updated_at` | The head's HA `last_updated` as of the plan's last update; `not yet recorded` if the head is missing. Not on the room thermostat, so head attribute-only updates add no thermostat events. |
 | Same room surfaces | `command_timestamp_basis`, `plan_target_basis` | Explicit software-time and computed-intent boundaries. |
 | Same room surfaces | `vane_retirement_cleanup`, `control_reasons` | Retired vane cleanup observations and current reasons with next steps. |
 | Room `switch.*_fan_auto` | `last_fan_command`, `prior_fan_command` | Command/adopted-observation baselines for echo tolerance; absent memory is `null`. These are not a delivery journal. |
@@ -33,8 +33,9 @@ reason. No fan write is sent before
 the head reports a usable current speed.
 
 Delivery observations publish immediately, including outside refresh completion.
-Volatile attributes can produce `state_changed` events even when a thermostat's
-visible mode/temperature is unchanged, especially on head attribute-only updates.
+Delivery progress, fan state and reason changes can produce `state_changed` events
+even when a thermostat's visible mode/temperature is unchanged. A head attribute-only
+update the thermostat does not display adds none.
 When recorded, these entities can add history/storage and trigger bare state
 automations more often. Actual recorder rows, bytes and hourly growth have not been
 measured. See [Migration](MIGRATION.md#added-diagnostics-and-state-events) for the

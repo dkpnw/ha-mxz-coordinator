@@ -411,22 +411,23 @@ this is not a promise of one compute per sensor write.
 Room thermostats and plan `zones[]` add `command_attempted_at`, `command_returned_at`,
 `command_failed_at`, `command_retired_at`, `command_status`, `command_error`,
 `command_ownership_retired`, `command_deferred`, `command_timestamp_basis`,
-`plan_target_basis`, `head_state_updated_at`, `vane_retirement_cleanup` and
-`control_reasons`. Fan auto adds `last_fan_command`, `prior_fan_command`,
+`plan_target_basis`, `vane_retirement_cleanup` and `control_reasons`. Plan `zones[]`
+alone adds `head_state_updated_at`. Fan auto adds `last_fan_command`, `prior_fan_command`,
 `fan_control_reason` and `fan_on_pending`. See the
 [diagnostic surface map](ENTITY-MAP.md#integration-diagnostic-surfaces-340).
 Last/prior tokens are echo/adopted-observation baselines, not a command receipt log.
 Missing observations say `not yet recorded`; a service return proves only an HA
 handler return. Delivery listeners publish immediately outside decision completion.
 
-These attributes are volatile. A head attribute-only update changes
-`head_state_updated_at` and can emit an extra thermostat `state_changed` event even
-with unchanged visible mode/temperature. Fan-state and command-progress changes can
-also produce events. Recorded entities may therefore add history/storage, and bare
-state-trigger automations may run more often. Select explicit transitions or relevant
-attributes for your automation. A probe counting state events does not measure
-recorder database rows, bytes or one-hour growth; those quantities remain unmeasured.
-No diagnostic timestamp was removed or recording policy changed for this release.
+These attributes are volatile. Fan-state, reason and command-progress changes can
+emit a thermostat `state_changed` event with unchanged visible mode/temperature.
+Recorded entities may therefore add history/storage, and bare state-trigger
+automations may run more often. Select explicit transitions or relevant attributes
+for your automation. `head_state_updated_at` is kept off the room thermostat so a head
+attribute-only update it does not display adds no thermostat event or recorder row;
+the plan carries it as of its last update and the head entity shows its own live time.
+Recorder database rows, bytes and one-hour growth remain unmeasured. No recording
+policy changed for this release.
 
 ## Configure value validation and older saved values (3.4.0)
 

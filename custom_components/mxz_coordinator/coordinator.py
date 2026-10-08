@@ -1857,9 +1857,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         active = self._deliveries.get(climate_id)
         if active and active["owner"] is not self:
             observed = active["owner"]._command_observations.get(climate_id, {})
-        head = self.hass.states.get(climate_id)
         return {
-            "head_state_updated_at": head.last_updated.isoformat() if head else "not yet recorded",
             **{key: observed.get(key, "not yet recorded") for key in (
                 "command_attempted_at", "command_returned_at", "command_failed_at", "command_retired_at",
             )},
@@ -1873,15 +1871,23 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
     def room_details(self) -> list[dict[str, Any]]:
-        """Existing room diagnostics remain useful even without a current plan."""
+        """Existing room diagnostics remain useful even without a current plan.
+
+        Only the plan carries the head's ``last_updated``, as of this publish.
+        The room thermostat re-renders on every head event, so a live copy
+        there would turn each head attribute-only update into a state event and
+        recorder row; the head entity already shows its own time.
+        """
         views = (self.data or {}).get("zones", ())
+        heads = [self.hass.states.get(zone.climate_id) for zone in self.zones]
         return [
             {
                 **(views[i] if i < len(views) else {"name": zone.name}),
                 **self.command_attributes(zone.climate_id),
+                "head_state_updated_at": head.last_updated.isoformat() if head else "not yet recorded",
                 "control_reasons": self._control_reasons(zone),
             }
-            for i, zone in enumerate(self.zones)
+            for i, (zone, head) in enumerate(zip(self.zones, heads))
         ]
 
     @callback

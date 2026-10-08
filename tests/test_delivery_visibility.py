@@ -8,7 +8,7 @@ from datetime import datetime
 import pytest
 from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import EVENT_CALL_SERVICE
+from homeassistant.const import EVENT_CALL_SERVICE, EVENT_STATE_CHANGED
 from homeassistant.core import callback
 from homeassistant.helpers.entity_component import DATA_INSTANCES
 
@@ -278,6 +278,37 @@ async def test_fresh_public_command_observations_are_explicitly_absent(delivery)
     assert view["head_state_updated_at"] == head.last_updated.isoformat()
     assert not r.calls("a", kind="enter")
     assert not r.calls("b", kind="enter")
+
+
+@pytest.mark.parametrize("delivery", [{"start_enabled": False}], indirect=True)
+async def test_head_attribute_only_update_adds_no_room_thermostat_event(delivery):
+    """A head report the room tile does not show creates no room state row.
+
+    The head's last_updated stays on the plan's zones[] (as of its publish)
+    and on the head itself; a live copy on the thermostat made every head
+    attribute-only update a thermostat state_changed event and recorder row.
+    """
+    r = delivery
+    room = _eid(r.hass, r.entry, "_primary_thermostat")
+    head = r.heads["a"]
+    assert "head_state_updated_at" not in r.hass.states.get(room).attributes
+    changed = []
+    unsub = r.hass.bus.async_listen(
+        EVENT_STATE_CHANGED, callback(lambda event: changed.append(event.data["entity_id"]))
+    )
+    try:
+        head._attr_current_temperature = 71.5  # the room tile shows the room sensor
+        head.async_write_ha_state()
+        await r.settle()
+        assert head.entity_id in changed
+        assert room not in changed
+        # Control: a change the tile does show still publishes.
+        head._attr_fan_mode = "high"
+        head.async_write_ha_state()
+        await r.settle()
+        assert room in changed
+    finally:
+        unsub()
 
 
 async def test_late_vane_return_updates_reloaded_room_disclosure(hass, monkeypatch, request):
