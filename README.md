@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="custom_components/mxz_coordinator/brand/dark_logo.png">
+    <img src="custom_components/mxz_coordinator/brand/logo.png" alt="MXZ Coordinator logo: a dial running from cool blue to warm orange, with two heads on one unit." width="420">
+  </picture>
+</p>
+
 # MXZ Coordinator
 
 **Set one temperature per room. The coordinator chooses one shared heating or cooling mode.**
