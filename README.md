@@ -116,7 +116,8 @@ Setup has four steps. Only **Save and finish** creates the entry.
    the head's device when matching registry records exist. Missing records or no
    matching device leave those optional controls unset; edit them later in Configure.
 4. **Check this before you save.** Read each priority, head and sensor line.
-   Select **Change advanced settings** to tune comfort, then return to the summary.
+   Select **Change advanced settings** to tune comfort on the same pages Configure
+   uses, then **Back to summary**.
    Select **Go back to heads and rooms** to correct the mapping.
    Select **Save and finish** when it is right.
 
@@ -142,17 +143,20 @@ with invented heads (Studio, Loft, Den, Nook) and invented sensors.
 </tr>
 </table>
 
-Skipping advanced settings uses defaults for your HA temperature unit. If the selected heads
-cannot all use the usual `fan_only` idle action, setup sends you to advanced settings to
-choose a supported alternative. It does not silently replace that default.
+Skipping advanced settings uses defaults for your HA temperature unit. **Change advanced
+settings** opens a menu of the Comfort, Fan and idle, Seasons, Away and setpoint limits
+and Standby hold pages, pre-filled with those defaults. Submitting a page keeps its
+answers and returns to that menu; nothing is saved until **Save and finish**. If the
+selected heads cannot all use the usual Fan only idle action, **Save and finish** opens
+Fan and idle to choose a supported alternative. It does not silently replace that default.
 
 <details>
-<summary>Setup's advanced step: Comfort tuning (all optional)</summary>
+<summary>Setup's advanced step as it looked in 3.4.0 (one form)</summary>
 
-<img src="images/mxz-3.4.0-setup-advanced-c1007a.png" width="420" alt="Setup's Comfort tuning form with every comfort, lockout, standby hold, idle action and fan boost field pre-filled for °F.">
+<img src="images/mxz-3.4.0-setup-advanced-c1007a.png" width="420" alt="3.4.0 setup Comfort tuning form with every comfort, lockout, standby hold, idle action and fan boost field pre-filled for °F.">
 
-The full form opened by **Change advanced settings**, pre-filled with °F defaults.
-Submitting it returns to the summary.
+3.4.0's single form, pre-filled with °F defaults. From 3.4.1 the same fields are split
+across the advanced pages described above.
 </details>
 
 After **Save and finish**, Home Assistant shows its own device **Name and assign** step.
@@ -260,7 +264,7 @@ An entity name you set in HA takes precedence over the room label. Renaming a he
 alone does not update a saved room name. A room rename does not change its entity ID.
 
 Reconfigure checks the entry's saved idle action against the submitted heads. If it
-is incompatible, change **Idle action** in Configure while the current heads still
+is incompatible, change **When a room reaches target** (Configure → Fan and idle) while the current heads still
 support that choice, or select compatible heads and retry. Existing overlapping
 entries may keep or remove heads they already stored; they cannot expand that overlap.
 Another open flow can still reserve those heads. MXZ does not repair or disable the
@@ -275,37 +279,54 @@ by closing the flow after a successful save with MXZ's own completion text.
 
 ## Configure comfort and sensor settings
 
-Open **Settings → Devices & services → MXZ Coordinator → Configure**.
-The single form contains comfort settings, per-room vane/airflow overrides and freshness
-profiles. Change the values, then submit. Temperature fields use your HA unit; mode
-dwell is in seconds, coil drying and freshness durations are in minutes.
+Open **Settings → Devices & services → MXZ Coordinator → Configure**. Configure opens
+on a menu:
+
+| Page | Settings | Collapsed section |
+| --- | --- | --- |
+| **Comfort** | Allowed drift, Mode switch threshold, Resting mode | **Advanced**: Minimum time between mode switches |
+| **Fan and idle** | Fan boost, Fan boost top speed, When a room reaches target, Coil drying time | — |
+| **Seasons** | Weather source, Lock out heat when the high is at least, Lock out cool when the high is at most | **Safety overrides**: Heat anyway below, Cool anyway above |
+| **Away and setpoint limits** | Away low limit, Away high limit | **Head setpoint range**: Lowest setpoint, Highest setpoint |
+| **Standby hold** | Hold signal, Active state, During a hold | — |
+| **Rooms** | A submenu with one page per room, in priority order, titled by the room's name: Airflow sensor, Vertical vane, Horizontal vane | **Sensor freshness**: the six freshness fields |
+
+Submitting a page saves that page and closes the dialog. Open Configure again for the
+next page. Units are shown in each number box: temperatures use your HA unit, the mode
+switch time is in seconds, and coil drying and freshness durations are in minutes. A
+save merges the page's values into the existing options, mirrors them into entry data
+and reloads once. It never touches a setting on another page. A save that leaves entry
+data and options unchanged needs no reload.
 
 <details>
-<summary>Screenshots of the full Configure form, top to bottom</summary>
+<summary>Screenshots of the 3.4.0 single form (the menu replaced it)</summary>
+
+These show 3.4.0's one-form Configure. The fields are the same; their labels, grouping
+and order changed in 3.4.1.
 
 <table>
 <tr>
-<td width="50%"><img src="images/mxz-3.4.0-configure-comfort-c1007a.png" alt="Top of the MXZ Coordinator tuning form: comfort thresholds, setpoint range, resting mode, lockout safety limits and seasonal changeover fields in °F."></td>
-<td width="50%"><img src="images/mxz-3.4.0-configure-idle-fan-c1007a.png" alt="Configure form standby hold, idle action, coil-dry minutes and fan boost fields."></td>
+<td width="50%"><img src="images/mxz-3.4.0-configure-comfort-c1007a.png" alt="3.4.0 Configure form, top: comfort thresholds, setpoint range, resting mode, lockout safety limits and seasonal changeover fields in °F."></td>
+<td width="50%"><img src="images/mxz-3.4.0-configure-idle-fan-c1007a.png" alt="3.4.0 Configure form: standby hold, idle action, coil-dry minutes and fan boost fields."></td>
 </tr>
 <tr>
-<td>Comfort, setpoint range, resting mode, lockouts and seasonal changeover.</td>
-<td>Standby hold, idle action, coil drying and fan boost.</td>
+<td>3.4.0: comfort, setpoint range, resting mode, lockouts and seasonal changeover.</td>
+<td>3.4.0: standby hold, idle action, coil drying and fan boost.</td>
 </tr>
 <tr>
-<td><img src="images/mxz-3.4.0-configure-primary-vane-freshness-c1007a.png" alt="Configure form Primary vertical and horizontal vane, airflow sensor and six freshness fields."></td>
-<td><img src="images/mxz-3.4.0-configure-secondary-vane-freshness-c1007a.png" alt="Configure form Secondary vertical and horizontal vane, airflow sensor and six freshness fields."></td>
+<td><img src="images/mxz-3.4.0-configure-primary-vane-freshness-c1007a.png" alt="3.4.0 Configure form: Primary vertical and horizontal vane, airflow sensor and six freshness fields."></td>
+<td><img src="images/mxz-3.4.0-configure-secondary-vane-freshness-c1007a.png" alt="3.4.0 Configure form: Secondary vertical and horizontal vane, airflow sensor and six freshness fields."></td>
 </tr>
 <tr>
-<td>Priority 1 room, labeled Primary: vanes, airflow and all six freshness fields.</td>
-<td>Priority 2 room, labeled Secondary: the same fields.</td>
+<td>3.4.0: the priority 1 room's vanes, airflow and freshness fields.</td>
+<td>3.4.0: the priority 2 room's fields. Each room now has its own page.</td>
 </tr>
 <tr>
-<td><img src="images/mxz-3.4.0-configure-zone3-vane-freshness-c1007a.png" alt="Configure form Zone 3 vertical and horizontal vane, airflow sensor and six freshness fields, then Submit."></td>
+<td><img src="images/mxz-3.4.0-configure-zone3-vane-freshness-c1007a.png" alt="3.4.0 Configure form: Zone 3 vertical and horizontal vane, airflow sensor and six freshness fields, then Submit."></td>
 <td></td>
 </tr>
 <tr>
-<td>Priority 3 room, labeled Zone 3, then Submit. The form labels these fields by priority, not room name.</td>
+<td>3.4.0: the priority 3 room's fields, then Submit.</td>
 <td></td>
 </tr>
 </table>
@@ -313,65 +334,69 @@ dwell is in seconds, coil drying and freshness durations are in minutes.
 
 | Setting | Use it for |
 | --- | --- |
-| Demand threshold / Re-engage drift | Shared-mode voting and how far a satisfied room drifts before calling again. Per-room drift numbers can override the global drift. |
-| Mode hysteresis | Minimum dwell between shared heat/cool changes; default 600 seconds. |
-| Firmware minimum/maximum setpoint | The head's allowed range. Commands are also bounded by usable head limits. |
-| Idle action / Coil-dry minutes | Fan-only, off, or fan-only after cooling for a dwell then off. Choices depend on common head support. |
-| Resting mode | Last called mode, cool or heat when no room is calling. |
-| Fan boost / Fan boost maximum speed | Automatic fan ladder and its ceiling. A manual hold takes precedence. |
-| Eco cool/heat extremes | Protection thresholds used by eco and the default standby hold. Keep the equipment's own safeguards. |
-| Seasonal changeover and lockout thresholds | Weather/outdoor-temperature input and seasonal heat/cool lockouts, with safety floor/ceiling. |
-| Standby hold entity / active state / action | An external signal that holds enabled coordination in `eco`, `off` or `fan_only`. Missing/unknown/unavailable input releases the hold. |
-| Room vane and airflow overrides | Correct detection, select another entity, or clear a field to remove that optional wiring. |
+| Mode switch threshold / Allowed drift | Shared-mode voting and how far a satisfied room drifts before calling again. Per-room drift numbers can override the global drift. |
+| Minimum time between mode switches | Minimum dwell between shared heat/cool changes; default 600 seconds. |
+| Lowest / Highest setpoint | The head's allowed range. Commands are also bounded by usable head limits. |
+| When a room reaches target / Coil drying time | Fan only, Off, or Off after drying (fan only after cooling for a dwell, then off). Choices depend on common head support. |
+| Resting mode | Last used, Cool or Heat when no room is calling. |
+| Fan boost / Fan boost top speed | Automatic fan ladder and its ceiling. A manual hold takes precedence. |
+| Away low / high limit | Protection thresholds used by eco and the default standby hold. Keep the equipment's own safeguards. |
+| Weather source, lockout temperatures and safety overrides | Weather/outdoor-temperature input and seasonal heat/cool lockouts, with the heat-anyway and cool-anyway limits. |
+| Hold signal / Active state / During a hold | An external signal that holds enabled coordination in `eco`, `off` or `fan_only`. Missing/unknown/unavailable input releases the hold. |
+| Room vanes and airflow sensor | Correct detection, select another entity, or clear a field to remove that optional wiring. |
 
 A head with no HA state or unknown `hvac_modes`, a head missing either `heat` or `cool`,
-or heads with no common parking mode block the whole form's save. Restore the head
-integration's capability reports or use Reconfigure to select compatible heads, then
-reopen Configure. An `unavailable` head that still reports the required capabilities
-can pass this check; availability alone does not determine it. An unsupported saved
-idle action requires an explicit compatible choice.
+or heads with no common idle mode block every save: Configure shows the error instead
+of its menu, and a page opened just before the head changed shows the same error.
+Restore the head integration's capability reports or use Reconfigure to select
+compatible heads, then reopen Configure. An `unavailable` head that still reports the
+required capabilities can pass this check; availability alone does not determine it.
 
 All numeric comfort temperatures, thresholds and durations must be finite numbers:
-`nan` and `±inf` are rejected. Demand threshold S, Re-engage drift, Mode hysteresis
-and Coil-dry minutes cannot be negative. Zero is allowed for demand and the two
-durations; Re-engage drift also has its selector's 0.5–5 °F / 0.25–2.5 °C bounds.
-Negative Celsius temperatures are legitimate in temperature fields. The paired rules are:
+`nan` and `±inf` are rejected. Mode switch threshold, Allowed drift, Minimum time
+between mode switches and Coil drying time cannot be negative. Zero is allowed for the
+threshold and the two durations; Allowed drift also has its selector's 0.5–5 °F /
+0.25–2.5 °C bounds. Negative Celsius temperatures are legitimate in temperature fields.
+Each pair sits on one page:
 
-| Configure labels (in HA's temperature unit) | Accepted order |
-| --- | --- |
-| Eco heat extreme / Eco cool extreme | Heat ≤ cool; equality is allowed. |
-| Firmware minimum setpoint / Firmware maximum setpoint | Minimum ≤ maximum; equality is allowed. |
-| Heat-lockout safety floor / Cool-lockout safety ceiling | Floor ≤ ceiling; equality is allowed. |
-| Cool-lockout when forecast daily high ≤ / Heat-lockout when forecast daily high ≥ | Cool threshold < heat threshold; equality is rejected to retain a shoulder band. |
+| Labels (in HA's temperature unit) | Page | Accepted order |
+| --- | --- | --- |
+| Away low limit / Away high limit | Away and setpoint limits | Low ≤ high; equality is allowed. |
+| Lowest setpoint / Highest setpoint | Away and setpoint limits → Head setpoint range | Lowest ≤ highest; equality is allowed. |
+| Heat anyway below / Cool anyway above | Seasons → Safety overrides | Heat ≤ cool; equality is allowed. |
+| Lock out cool when the high is at most / Lock out heat when the high is at least | Seasons | Cool threshold < heat threshold; equality is rejected to retain a shoulder band. |
 
-Values saved by 3.3.0 are not silently rewritten on upgrade. If they violate these
-rules, submitting Configure, even to change another setting, is refused until you
-repair the highlighted values. For a pair error, inspect both fields and correct
-their order; for “Enter a finite number” or “This value cannot be negative”, replace
-that value. Review the complete form and submit again. A threshold or freshness error
-rejects the whole submission: none of its other edits is saved. Freshness durations
-have their separate positive-minute rules below.
+A page checks only the values it shows. A refused page saves none of its edits, keeps
+what you typed and does not reload the entry. An error on a field inside a collapsed
+section is shown above that section, which opens: Home Assistant does not show field
+errors inside a section. An invalid freshness profile is one error for the room page:
+“Nothing was saved.”
+
+Values saved by 3.3.0 or earlier are not silently rewritten on upgrade, and a stored
+value that a page would now refuse does not block the other pages. Instead the menu
+shows a **Needs attention** line naming each such value and the page that fixes it: an
+idle action the heads no longer support, an inverted pair, or a room's freshness
+profile that doesn't fit together. The line is empty when nothing needs fixing. Open
+the named page, correct the value and save.
 
 <table>
 <tr>
-<td width="33%"><img src="images/mxz-3.4.0-configure-reject-clamp-field-c1007a.png" alt="Configure error on both Firmware minimum setpoint 80 and Firmware maximum setpoint 70: the lowest accepted setpoint cannot be above the highest."></td>
-<td width="33%"><img src="images/mxz-3.4.0-configure-reject-freshness-top-c1007a.png" alt="Configure form-level error asking to check every sensor freshness profile, ending Nothing was saved."></td>
+<td width="33%"><img src="images/mxz-3.4.0-configure-reject-clamp-field-c1007a.png" alt="3.4.0 Configure error on both Firmware minimum setpoint 80 and Firmware maximum setpoint 70: the lowest accepted setpoint cannot be above the highest."></td>
+<td width="33%"><img src="images/mxz-3.4.0-configure-reject-freshness-top-c1007a.png" alt="3.4.0 Configure form-level error asking to check every sensor freshness profile, ending Nothing was saved."></td>
 <td width="33%"><img src="images/mxz-3.4.0-configure-saved-c1007a.png" alt="Success dialog reading Options successfully saved. with a Finish button."></td>
 </tr>
 <tr>
-<td>A minimum setpoint above the maximum marks both fields.</td>
-<td>An invalid freshness profile rejects the form: “Nothing was saved.”</td>
-<td>A later valid submission saves.</td>
+<td>3.4.0: a minimum setpoint above the maximum marked both fields. In 3.4.1 the error shows above the Head setpoint range section.</td>
+<td>3.4.0: an invalid freshness profile rejected the form. In 3.4.1 it rejects that room's page.</td>
+<td>A valid page saves and closes.</td>
 </tr>
 </table>
 
-A changed save merges tunables into existing options, mirrors them into entry data,
-and reloads once. It does not replace the options with only the edited field. A save that leaves entry
-data/options unchanged needs no reload. The data mirror can recover tuned values
-when options are empty, but does not prove how they became empty. Review and save
-Configure if that warning appears. Cleared vane/airflow fields remove their overrides;
-a cleared standby entity explicitly removes that hold. Do not infer that every
-optional field has the same clearing behavior.
+The data mirror can recover tuned values when options are empty, but does not prove
+how they became empty. Review and save Configure if that warning appears. On a room
+page, a cleared vane or airflow field removes that wiring from that room only. On the
+Standby hold page, a cleared Hold signal explicitly removes the hold; no other page
+can clear it. Do not infer that every optional field has the same clearing behavior.
 
 ### Choose a sensor freshness contract
 
@@ -379,15 +404,16 @@ Leave the profile empty if you cannot establish a reporting contract. MXZ shows
 `cadence_unknown`, displays age and applies no age cutoff. Giving only an interval,
 or keeping `evidence_basis: unknown`, does not make a sensor trustworthy.
 
-To enable age checking, supply a positive **report interval** or **maximum age**, then
-choose an evidence basis. With only an interval the maximum is three intervals. An
+Each room's profile is on its page (Configure → Rooms → the room → **Sensor freshness**).
+To enable age checking, supply a positive **Report interval** or **Maximum age**, then
+choose a **Freshness evidence** basis. With only an interval the maximum is three intervals. An
 explicit maximum must be at least the interval. Startup grace defaults to that maximum.
 
 | Evidence basis | Choose it when |
 | --- | --- |
-| `ha_state_write` | The source guarantees each HA write is a current reading, even when its numeric value is unchanged. Cached/restored replays can defeat this basis. |
-| `sample_timestamp` | The source supplies a trustworthy advancing sample marker. Enter exactly one timestamp or sequence attribute. Timestamps need a timezone and cannot be in the future; sequences must increase. |
-| `unknown` | No reliable reporting contract exists. Clear durations and marker fields to remove the profile. |
+| Every update is a new reading (`ha_state_write`) | The source guarantees each HA write is a current reading, even when its numeric value is unchanged. Cached/restored replays can defeat this basis. |
+| Sensor reports a sample time or counter (`sample_timestamp`) | The source supplies a trustworthy advancing sample marker. Enter exactly one timestamp or sequence attribute. Timestamps need a timezone and cannot be in the future; sequences must increase. |
+| Not set (`unknown`) | No reliable reporting contract exists. Clear durations and marker fields to remove the profile. |
 
 An invalid reading steps aside immediately. A valid but stale room leaves automatic
 demand and parks by the configured idle action (`off` under eco), while its recognized
@@ -478,13 +504,13 @@ entity tests do not prove the fan control appears in the bridge without a reload
 
 `fan_only` idle keeps the indoor fan moving. On my heads, idle air smelled off and the
 smell stopped while the coil was actively cooling. That pattern does not diagnose its
-cause; it is why the **Idle action** option (Configure) offers three parks:
+cause; it is why **When a room reaches target** (Configure → Fan and idle) offers three parks:
 
 | Setting | Requested idle action |
 | --- | --- |
 | `Fan only` (default) | circulates in `fan_only`. Unchanged from earlier versions. |
 | `Off` | sends `off`, asking the head to stop. |
-| `Off after a coil-dry period` | requests `fan_only` for a dwell after **cooling** (default 10 min), then `off`. After heating it requests `off` immediately. |
+| `Off after drying` | requests `fan_only` for a dwell after **cooling** (default 10 min), then `off`. After heating it requests `off` immediately. |
 
 Facts to know before you switch:
 

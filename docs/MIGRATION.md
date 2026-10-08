@@ -152,7 +152,7 @@ zone (`climate.*_<zone>_thermostat`) — see "Single-target HomeKit/Google tile"
 4. **Re-point automations/dashboards** at the new entity IDs (table above).
 5. **Set targets and room enables**, then turn on `switch.*_coordinator_enable`.
    Tunable constants (S, D, hysteresis, eco extremes, clamp, resting-mode bias) live in
-   the integration's **Configure** → options dialog.
+   the integration's **Configure** dialog.
 
 ### Return to the legacy YAML package
 
@@ -434,6 +434,26 @@ the plan carries it as of its last update and the head entity shows its own live
 Recorder database rows, bytes and one-hour growth remain unmeasured. No recording
 policy changed for this release.
 
+## Configure is a menu of pages (3.4.1)
+
+Configure no longer opens one long form. It opens a menu: Comfort, Fan and idle,
+Seasons, Away and setpoint limits, Standby hold, and Rooms (one page per room, titled
+by the room's name). Rarely changed fields sit in collapsed sections. Setup's **Change
+advanced settings** opens the same pages. No stored key, entry version, validation rule
+or error key changed, and nothing is migrated.
+
+- Submitting a page saves that page only, with one reload. A page never changes a
+  setting it doesn't show: saving Comfort keeps the standby hold entity, and saving one
+  room keeps every other room's vanes, airflow sensor and freshness profile.
+- Validation is per page. A value saved by an older version that its page would now
+  refuse no longer blocks unrelated edits. The menu's **Needs attention** line names it
+  and the page that fixes it.
+- An error on a field inside a collapsed section is shown above that section, which
+  opens.
+- Field labels changed. The 3.4.0 sections below use the old labels; the README's
+  [Configure](../README.md#configure-comfort-and-sensor-settings) section has the new
+  ones and the page for each pair.
+
 ## Configure value validation and older saved values (3.4.0)
 
 Configure and setup's advanced tuning reject non-finite numeric comfort values
@@ -459,10 +479,12 @@ nonzero shoulder band. Ordering errors mark both fields. Non-finite values show
 
 3.3.0 could save combinations now rejected. Upgrade/migration does not silently
 rewrite or newly validate those stored values. The entry continues to use them;
-retention is not evidence they are safe or useful. The next Configure submission
-validates the submitted form, including saved values supplied as defaults, so even
-an unrelated edit can be refused. Repair the indicated numeric values and both
-members of any inverted/equal-changeover pair, review the whole form and resubmit.
+retention is not evidence they are safe or useful. In 3.4.0 the next Configure
+submission validated the submitted form, including saved values supplied as defaults,
+so even an unrelated edit could be refused. From 3.4.1 only the page that shows the
+value refuses it, and the menu's Needs attention line names it (see
+[Configure is a menu of pages](#configure-is-a-menu-of-pages-341)). Repair the indicated
+numeric values and both members of any inverted/equal-changeover pair on that page.
 A refused submission saves none of its other settings and does not reload the entry.
 Freshness has separate finite **positive-minute** and whole-profile requirements in
 [Stale room sensors](#stale-room-sensors-340); comfort's zero allowances do not apply there.
@@ -492,10 +514,11 @@ heads, then retry. You cannot save other tunables in Configure until the configu
 resolve.
 
 This blocks every Configure save, including unrelated comfort or freshness edits.
+From 3.4.1 Configure shows this error instead of its menu.
 An `unavailable` state that retains the required capability attributes can pass;
 the gate reads capabilities rather than requiring a particular availability state.
 Recover the head integration's metadata or select compatible heads in Reconfigure,
-then reopen Configure and review its complete form before saving.
+then reopen Configure.
 
 The room thermostat now advertises fan control only when the underlying climate entity has
 Home Assistant's fan-mode feature and a non-empty option list. It passes those option strings
@@ -754,9 +777,9 @@ a standby hold, or a setpoint clamp.
 | --- | --- |
 | Stop new coordinated control, retaining the last commanded state | `switch.*_coordinator_enable` off (the kill-switch); an accepted external call may still return |
 | Hold the heads at the protection band, still conditioning a room at the extremes | the [standby hold entity](#external-inhibit--low-power-standby-hold) (`inhibit_entity`) with its default `eco` action |
-| Request a fixed park during an active hold | the same standby hold with **What held heads do** set to `off` or `fan_only`, while coordination is enabled |
+| Request a fixed park during an active hold | the same standby hold with **During a hold** (Configure → Standby hold) set to Off or Fan only, while coordination is enabled |
 | Take one room out of coordination | that room's `switch.*_<zone>_enable` off |
-| Stop a satisfied head's fan instead of circulating | **Idle action** → `Off` (or `Off after a coil-dry period`) |
+| Stop a satisfied head's fan instead of circulating | **When a room reaches target** (Configure → Fan and idle) → Off (or Off after drying) |
 | Turn one head off right now | the head's own controls, with the kill-switch off |
 
 **YAML package:** `input_select.hvac_shared_mode` still lists all four options and keeps its
@@ -807,8 +830,10 @@ Reconfigure gained the same shape — heads, room names, sensors, summary — an
 names moved onto their own step. Clearing a name there still falls back to the head's own
 name. Its summary reports each effective stored freshness profile and leaves only
 unconfigured rooms at cadence unknown. Comfort and freshness settings stay in
-**Configure**: one form, the existing per-room override fields plus the six freshness
-fields per room, and the same merge-and-mirror save.
+**Configure**: in 3.4.0 one form, the existing per-room override fields plus the six
+freshness fields per room, and the same merge-and-mirror save. From 3.4.1 Configure is
+a menu of pages, with one page per room (see
+[Configure is a menu of pages](#configure-is-a-menu-of-pages-341)).
 
 ## A room can return to the global drift (3.4.0)
 
