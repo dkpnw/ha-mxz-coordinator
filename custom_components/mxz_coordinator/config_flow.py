@@ -2068,7 +2068,9 @@ class MXZOptionsFlow(OptionsFlow):
     stored value that the page owning it would now refuse.
     """
 
-    _room_index = 0
+    # The open room page's head. A room is found by its head, not its slot:
+    # Reconfigure can reorder or remove rooms while this dialog is open.
+    _room_head: str | None = None
 
     def _zones_and_heads(self) -> tuple[list[dict[str, Any]], list[str]]:
         zones = _effective_zones(self.config_entry)
@@ -2201,7 +2203,10 @@ class MXZOptionsFlow(OptionsFlow):
         )
 
     async def _async_open_room(self, index: int) -> ConfigFlowResult:
-        self._room_index = index
+        zones, _ = self._zones_and_heads()
+        if index >= len(zones):
+            return await self.async_step_rooms()  # the menu was out of date
+        self._room_head = zones[index].get(ZONE_CLIMATE)
         return await self.async_step_room()
 
     async def async_step_room_1(self, user_input: Any = None) -> ConfigFlowResult:
@@ -2242,7 +2247,17 @@ class MXZOptionsFlow(OptionsFlow):
         if problem := head_mode_problem(self.hass, heads):
             error, placeholders = problem
             return self._blocked(error, placeholders)
-        index = self._room_index
+        index = next(
+            (
+                position
+                for position, candidate in enumerate(zones)
+                if candidate.get(ZONE_CLIMATE) == self._room_head
+            ),
+            None,
+        )
+        if index is None:
+            # Reconfigure removed this room while its page was open.
+            return await self.async_step_rooms()
         zone = zones[index]
         title = {"room": _room_name(zone, index)}
         if user_input is None:

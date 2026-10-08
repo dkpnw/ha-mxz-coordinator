@@ -241,6 +241,51 @@ async def test_saving_one_room_keeps_every_other_rooms_wiring(
         assert "zones" not in entry.options
 
 
+async def test_a_room_page_follows_its_room_through_a_reorder(
+    hass: HomeAssistant,
+) -> None:
+    """The open page edits the room it showed, even if Reconfigure moved it.
+
+    Reconfigure can reorder rooms while a Configure room page is open. The
+    submit must land on the same head's record, not on whichever room now
+    sits in the slot the page was opened from.
+    """
+    entry = _entry(hass)
+    result = await open_options_page(hass, entry, "room_2")
+    assert result["description_placeholders"] == {"room": "Bedroom"}
+    submission = {**prefilled(result), "stage": "sensor.bedroom_new_stage"}
+    swapped = deepcopy(entry.data["zones"])
+    swapped[0], swapped[1] = swapped[1], swapped[0]
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "zones": swapped})
+
+    result = await submit(hass.config_entries.options, result, submission)
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY, result
+    expected = deepcopy(swapped)
+    expected[0]["stage_sensor"] = "sensor.bedroom_new_stage"
+    assert entry.data["zones"] == expected
+
+
+async def test_a_room_removed_while_its_page_is_open_saves_nothing(
+    hass: HomeAssistant,
+) -> None:
+    """A room Reconfigure removed meanwhile is not resurrected or misfiled."""
+    entry = _entry(hass)
+    result = await open_options_page(hass, entry, "room_3")
+    submission = prefilled(result)
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, "zones": entry.data["zones"][:2]}
+    )
+    before = _snapshot(entry)
+
+    result = await submit(hass.config_entries.options, result, submission)
+
+    assert result["type"] is FlowResultType.MENU
+    assert result["step_id"] == "rooms"
+    assert result["menu_options"] == ["room_1", "room_2", "init"]
+    assert _snapshot(entry) == before
+
+
 # --- §6 item 3: flow-only keys never reach storage -------------------------
 
 
