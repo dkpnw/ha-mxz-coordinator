@@ -377,16 +377,20 @@ enabled decision starts coasting and uses the ordinary re-engage band. Live reta
 of an enabled resolved room retains its head-mode reseeding behavior.
 
 Clean restored switch states use ordinary RestoreEntity state; unavailable states use
-extra restore data for held/not-held intent and echo baselines. Missing, invalid or
-stale records fall back conservatively to the reported speed, with one exception: a
-room idling under idle action `fan_only` that reports a speed the boost could have set
-is read as the coordinator's own idle when the entry is at least ten minutes old and its
-coordinator switch restored ON. So a speed picked by hand while that room idled in
-`fan_only`, followed by a restart that loses its record, is not held; a fresh install,
-re-added entry or first enable still honors the reported speed. Explicit Fan auto ON
-can wait for a usable report, and a later OFF cancels that handback. A recognized hold
-survives; a remote speed change during an HA outage on a previously automatic room
-may be read as residue. Restore data is not a durable command-delivery journal.
+extra restore data for held/not-held intent and echo baselines. A recognized hold
+survives. For a room that was not held, a speed the boost could never have set (outside
+its ladder or above the boost ceiling) is held. A room idling under idle action
+`fan_only` that reports any speed the boost could have set is read as the coordinator's
+own idle, whether or not a record exists: such a head can report a speed of its own
+while idling, and a hold there would never clear (issue 25). Without a usable record
+this also needs an entry at least ten minutes old whose coordinator switch restored ON,
+so a fresh install, re-added entry or first enable still honors the reported speed. Any
+other room with a record reads a speed matching its remembered commands as residue and
+holds any other; missing, invalid or stale records fall back conservatively to the
+reported speed. The cost: a speed changed by hand on an automatic room while HA was
+down may be read as residue and handed back, and on a `fan_only`-idle room any speed
+the boost could have set is. Explicit Fan auto ON can wait for a usable report, and a
+later OFF cancels that handback. Restore data is not a durable command-delivery journal.
 
 No saved record is normal on a fresh install or for a newly added room; it adds no
 fan-hold reason. A stale record says it belongs to an older entry; a present but

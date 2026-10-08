@@ -236,7 +236,9 @@ class MXZZoneFanAutoSwitch(
     token value cannot separate them — four shipped bug shapes proved it).
     Reconciliation takes the TOKEN from the observed head. Known holds survive;
     not-held restores use bounded echo tolerance, with an indistinguishable
-    remembered-token edge and conservative false holds for stale memory. Turning the
+    remembered-token edge and conservative false holds for stale memory; a
+    room idling in fan_only under that idle action reads any speed boost could
+    have set as its own (#25). Turning the
     switch ON hands control back to boost; OFF pins the head's current speed.
     Apple's Home app renders only a climate service's fixed characteristics —
     there's no room for a custom control inside the climate tile — so this

@@ -13,7 +13,9 @@ coordinator — not through cleared dictionaries or injected restore truth:
   across the restart, so an eligible coordinator-written
   token reported late (after a provisional ``auto``, or once a missing speed
   arrives) is its own residue, not a hand on the fan, while a token outside
-  that memory conservatively holds. Legacy and stale-memory false holds remain
+  that memory conservatively holds — except on the first reading of a room
+  idling under idle_action fan_only, where any speed the boost could have set
+  is the room's own (issue 25). Legacy and stale-memory false holds remain
   explicit limitations, not passing fix claims. No speed means no fan write.
 
 Like test_registry_lifecycle, "restart" is an in-process store round trip:
@@ -41,22 +43,35 @@ from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.const import EVENT_CALL_SERVICE, EVENT_STATE_CHANGED
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import restore_state as rs
+from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
+    MockModule,
+    MockPlatform,
     async_mock_restore_state_shutdown_restart,
+    mock_integration,
+    mock_platform,
 )
 
 from custom_components.mxz_coordinator.const import (
     CONF_DEMAND_THRESHOLD,
     CONF_FAN_BOOST_ENABLE,
     CONF_FAN_BOOST_MAX,
+    CONF_IDLE_ACTION,
     CONF_MODE_HYSTERESIS,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
+    CONF_ZONES,
     DOMAIN,
+    IDLE_ACTION_FAN_ONLY,
+    IDLE_ACTION_OFF,
+    ZONE_CLIMATE,
+    ZONE_NAME,
+    ZONE_SENSOR,
 )
 from custom_components.mxz_coordinator.switch import (
     ATTR_FAN_ON_PENDING,
@@ -67,6 +82,7 @@ from custom_components.mxz_coordinator.switch import (
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
+    MockHead,
     _eid,
     _recompute,
     _set_fan_auto,
@@ -711,20 +727,27 @@ async def test_memory_rides_the_unavailable_record(
 
 @pytest.mark.parametrize(
     ("token", "expect_hold"),
-    [("medium", True), ("low", False)],
-    ids=["outside-memory-holds", "remembered-token-edge"],
+    [("medium", False), ("low", False), ("turbo", True)],
+    ids=["outside-memory-idle-edge", "remembered-token-edge", "non-ladder-holds"],
 )
 async def test_token_changed_by_hand_during_outage(
     hass: HomeAssistant, hass_storage: dict, token: str, expect_hold: bool, record_property,
 ) -> None:
     """A hand on the fan while HA was down, on a room that was not held.
 
-    A token the coordinator never commanded is the person's: it holds. The
-    documented edge: a pick of a token the memory remembers (here the 'low'
-    rung the boost eased to before handing back) is indistinguishable from the
-    coordinator's own echo and is handed back — as it would be live.
+    The room idles in fan_only under the default idle action, so any ladder
+    speed the boost could have set is read as the room's own idle (issue 25:
+    the head reports such speeds by itself, and a hold there never clears).
+    The documented edge: a pick of such a speed during the outage —
+    remembered ('low', the rung the boost eased to) or not ('medium') — is
+    handed back. A token the boost could never have written is the person's:
+    it holds. An active room still holds a token outside memory
+    (test_active_room_keeps_the_memory_rule_after_restart).
     """
     entry, head_a, _head_b = await _setup(hass, **{CONF_FAN_BOOST_ENABLE: True})
+    head = _head(hass, head_a)
+    head._attr_fan_modes = [*head.fan_modes, "turbo"]
+    head.async_write_ha_state()
     history = _observable_history(hass, entry, head_a, None)
     await _set_temp(hass, SENSOR_A, 75)
     await _recompute(hass, entry)
@@ -752,6 +775,279 @@ async def test_token_changed_by_hand_during_outage(
         assert writes == [(head_a, "auto")]
         assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
     record_property("observable_history", json.dumps(history, default=str))
+
+
+async def _idle_after_boost(hass: HomeAssistant, entry: MockConfigEntry, head: str, sensor: str) -> None:
+    """The room ran a boost to 'high', reached its target and idles in fan_only.
+
+    The handback landed: the head reports auto and the record's memory is
+    (last=auto, prior=high), the state after any ordinary run.
+    """
+    await _set_temp(hass, sensor, 75)
+    await _recompute(hass, entry)
+    assert hass.states.get(head).attributes["fan_mode"] == "high"
+    await _set_temp(hass, sensor, 70)
+    await _recompute(hass, entry)
+    assert hass.states.get(head).state == "fan_only"
+    assert hass.states.get(head).attributes["fan_mode"] == "auto"
+
+
+@pytest.mark.parametrize(
+    "token", ["low", "high"], ids=["token-outside-memory", "token-in-memory"],
+)
+async def test_idle_fan_only_room_reads_its_own_speed_after_restart(
+    hass: HomeAssistant, hass_storage: dict, token: str,
+) -> None:
+    """Issue 25 on an ordinary restart with a saved record (3.4.0's steady state).
+
+    An established room idling under idle_action fan_only comes back with its
+    head reporting a speed of its own. Whether or not the token is one the
+    record remembers, it is a speed the boost could have set on a room the
+    coordinator idles, not a hand on the fan: no hold, and the handback is
+    reissued.
+    """
+    entry, head_a, _head_b = await _setup(hass, **{CONF_FAN_BOOST_ENABLE: True})
+    entry.created_at = dt_util.utcnow() - timedelta(days=30)
+    await _idle_after_boost(hass, entry, head_a, SENSOR_A)
+    switch_a = _eid(hass, entry, "_primary_fan_auto")
+
+    await _shutdown(hass, entry)
+    record = _stored(hass_storage, switch_a)
+    assert record["state"]["state"] == "on"
+    assert record["state"]["attributes"][ATTR_LAST_FAN_COMMAND] == "auto"
+    assert record["state"]["attributes"][ATTR_PRIOR_FAN_COMMAND] == "high"
+    await _report(hass, head_a, token)  # the head's own reading on reconnect
+    writes = _fan_writes(hass)
+    await _startup(hass, entry)
+
+    assert hass.states.get(switch_a).state == "on"
+    assert _fan_hold(hass, entry, 0) is False
+    assert writes == [(head_a, "auto")]
+    assert hass.states.get(head_a).state == "fan_only"
+    assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
+
+    # Later restarts are ordinary restarts too: the same reading again, no hold.
+    await _shutdown(hass, entry)
+    await _report(hass, head_a, token)
+    await _startup(hass, entry)
+    assert _fan_hold(hass, entry, 0) is False
+
+
+@pytest.mark.parametrize("token", ["turbo", "high"], ids=["non-ladder", "above-ceiling"])
+async def test_idle_restart_still_holds_what_boost_could_not_have_set(
+    hass: HomeAssistant, token: str,
+) -> None:
+    """The fan_only-idle reading is narrow: a token outside the ladder or above
+    the ceiling is not one the boost could have set, and holds."""
+    entry, head_a, _head_b = await _setup(
+        hass, **{CONF_FAN_BOOST_ENABLE: True, CONF_FAN_BOOST_MAX: "medium"},
+    )
+    entry.created_at = dt_util.utcnow() - timedelta(days=30)
+    head = _head(hass, head_a)
+    head._attr_fan_modes = [*head.fan_modes, "turbo"]
+    head.async_write_ha_state()
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "medium"
+    await _set_temp(hass, SENSOR_A, 70)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
+    switch_a = _eid(hass, entry, "_primary_fan_auto")
+
+    await _shutdown(hass, entry)
+    await _report(hass, head_a, token)
+    writes = _fan_writes(hass)
+    await _startup(hass, entry)
+    assert hass.states.get(switch_a).state == "off"
+    assert _fan_hold(hass, entry, 0) is True
+    assert writes == []
+    assert hass.states.get(head_a).attributes["fan_mode"] == token
+
+
+@pytest.mark.parametrize(
+    ("idle_action", "expect_hold"),
+    [(IDLE_ACTION_FAN_ONLY, False), (IDLE_ACTION_OFF, True)],
+    ids=["idle-fan-only", "idle-off-keeps-memory-rule"],
+)
+async def test_room_satisfied_during_outage_by_idle_action(
+    hass: HomeAssistant, idle_action: str, expect_hold: bool,
+) -> None:
+    """The room reached its target while HA was down; its head still cools and
+    reports a rung outside the record's memory (medium, auto).
+
+    Under idle_action fan_only the room now idles in fan_only, so the rung is
+    its own idle. Under idle_action off the head is handed back through
+    fan_only before parking, and that reading keeps the memory rule: it holds.
+    """
+    entry, head_a, _head_b = await _setup(
+        hass, **{CONF_FAN_BOOST_ENABLE: True, CONF_FAN_BOOST_MAX: "medium",
+                 CONF_IDLE_ACTION: idle_action},
+    )
+    entry.created_at = dt_util.utcnow() - timedelta(days=30)
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "cool"
+    assert hass.states.get(head_a).attributes["fan_mode"] == "medium"
+    switch_a = _eid(hass, entry, "_primary_fan_auto")
+
+    await _shutdown(hass, entry)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _report(hass, head_a, "low")
+    assert hass.states.get(head_a).state == "cool"
+    writes = _fan_writes(hass)
+    await _startup(hass, entry)
+    assert hass.states.get(switch_a).state == ("off" if expect_hold else "on")
+    assert _fan_hold(hass, entry, 0) is expect_hold
+    if expect_hold:
+        assert writes == []
+        assert hass.states.get(head_a).state == "off"
+        assert hass.states.get(head_a).attributes["fan_mode"] == "low"
+    else:
+        assert writes == [(head_a, "auto")]
+        assert hass.states.get(head_a).state == "fan_only"
+
+
+@pytest.mark.parametrize(
+    ("token", "expect_hold"),
+    [("middle", True), ("high", False)],
+    ids=["outside-memory-holds", "commanded-rung-keeps-driving"],
+)
+async def test_active_room_keeps_the_memory_rule_after_restart(
+    hass: HomeAssistant, token: str, expect_hold: bool,
+) -> None:
+    """Control for the idle reading: a room still cooling at restart is matched
+    against the record's memory (high, medium), as before."""
+    entry, head_a, _head_b = await _setup(hass, **{CONF_FAN_BOOST_ENABLE: True})
+    entry.created_at = dt_util.utcnow() - timedelta(days=30)
+    await _set_temp(hass, SENSOR_A, 72)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "medium"
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+    switch_a = _eid(hass, entry, "_primary_fan_auto")
+    assert hass.states.get(switch_a).attributes[ATTR_PRIOR_FAN_COMMAND] == "medium"
+
+    await _shutdown(hass, entry)
+    await _report(hass, head_a, token)
+    writes = _fan_writes(hass)
+    await _startup(hass, entry)
+    assert hass.states.get(head_a).state == "cool"
+    assert hass.states.get(switch_a).state == ("off" if expect_hold else "on")
+    assert _fan_hold(hass, entry, 0) is expect_hold
+    assert [w for w in writes if w[0] == head_a] == []
+    assert hass.states.get(head_a).attributes["fan_mode"] == token
+
+
+async def _setup_four(hass: HomeAssistant) -> tuple[MockConfigEntry, list[str], list[str]]:
+    """Four heads on one outdoor unit, boost on, every room at its target."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    heads = [MockHead(name) for name in "abcd"]
+    sensors = [f"sensor.room_{name}_temp" for name in "abcd"]
+
+    async def _setup_platform(hass, config, async_add_entities, discovery_info=None):
+        async_add_entities(heads)
+
+    mock_integration(hass, MockModule("test"))
+    mock_platform(hass, "test.climate", MockPlatform(async_setup_platform=_setup_platform))
+    assert await async_setup_component(hass, "climate", {"climate": {"platform": "test"}})
+    await hass.async_block_till_done()
+    for sensor in sensors:
+        await _set_temp(hass, sensor, 70)
+    entry = MockConfigEntry(
+        domain=DOMAIN, version=2, title="MXZ Coordinator",
+        data={
+            CONF_ZONES: [
+                {ZONE_NAME: f"Room {i + 1}", ZONE_CLIMATE: head.entity_id, ZONE_SENSOR: sensor}
+                for i, (head, sensor) in enumerate(zip(heads, sensors, strict=True))
+            ],
+            CONF_FAN_BOOST_ENABLE: True,
+            CONF_MODE_HYSTERESIS: 0,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    slugs = ("primary", "secondary", "zone_3", "zone_4")
+    for slug in slugs:
+        await _switch(hass, _eid(hass, entry, f"_{slug}_enable"), True)
+    await _switch(hass, _eid(hass, entry, "_coordinator_enable"), True)
+    for slug in slugs:
+        await _set_target(hass, _eid(hass, entry, f"_{slug}_target"), 70)
+    await _recompute(hass, entry)
+    return entry, [head.entity_id for head in heads], sensors
+
+
+async def test_reporter_restart_four_rooms_three_idle(hass: HomeAssistant) -> None:
+    """Issue 25 as reported: four rooms, three idling in fan_only, one cooling,
+    an ordinary restart. 3.3.0 held the three idle rooms; none is held now, and
+    the cooling room keeps being driven from its rung."""
+    entry, heads, sensors = await _setup_four(hass)
+    entry.created_at = dt_util.utcnow() - timedelta(days=30)
+    for sensor in sensors:
+        await _set_temp(hass, sensor, 75)
+    await _recompute(hass, entry)
+    assert [hass.states.get(h).attributes["fan_mode"] for h in heads] == ["high"] * 4
+    for sensor in sensors[:3]:
+        await _set_temp(hass, sensor, 70)
+    await _recompute(hass, entry)
+    assert [hass.states.get(h).state for h in heads] == ["fan_only"] * 3 + ["cool"]
+    assert [hass.states.get(h).attributes["fan_mode"] for h in heads] == ["auto"] * 3 + ["high"]
+
+    await _shutdown(hass, entry)
+    for head, token in zip(heads, ("low", "quiet", "medium", "high"), strict=True):
+        await _report(hass, head, token)
+    writes = _fan_writes(hass)
+    await _startup(hass, entry)
+
+    assert [_fan_hold(hass, entry, room) for room in range(4)] == [False] * 4
+    assert sorted(writes) == sorted((head, "auto") for head in heads[:3])
+    assert [hass.states.get(h).state for h in heads] == ["fan_only"] * 3 + ["cool"]
+    assert [hass.states.get(h).attributes["fan_mode"] for h in heads] == ["auto"] * 3 + ["high"]
+    await _set_temp(hass, sensors[3], 71)
+    await _recompute(hass, entry)
+    assert hass.states.get(heads[3]).attributes["fan_mode"] == "low"
+
+
+@pytest.mark.parametrize(
+    "fan_auto_record", ["on", "unavailable"], ids=["clean-record", "no-usable-record"],
+)
+async def test_upgrade_restart_from_330_records(
+    hass: HomeAssistant, hass_storage: dict, fan_auto_record: str,
+) -> None:
+    """The first restart after upgrading from 3.3.0 on an established entry.
+
+    3.3.0 stored the Fan auto switch as a bare on/off with no memory and no
+    extra data, and the coordinator switch under the same unique id. A clean
+    record restores not-held with no memory; an unavailable one is no record,
+    and the coordinator switch's 3.3.0 ON record is what marks the previous
+    run. Either way the idle room's own reading is not a hold.
+    """
+    entry, head_a, _head_b = await _setup(hass, **{CONF_FAN_BOOST_ENABLE: True})
+    entry.created_at = dt_util.utcnow() - timedelta(days=30)
+    await _idle_after_boost(hass, entry, head_a, SENSOR_A)
+    switch_a = _eid(hass, entry, "_primary_fan_auto")
+
+    await _shutdown(hass, entry)
+    # Labelled 3.3.0-format input, loaded through Store after removal.
+    legacy = deepcopy(hass_storage["core.restore_state"])
+    record = next(r for r in legacy["data"] if r["state"]["entity_id"] == switch_a)
+    for key in (ATTR_LAST_FAN_COMMAND, ATTR_PRIOR_FAN_COMMAND, "fan_control_reason"):
+        record["state"]["attributes"].pop(key, None)
+    record["state"]["state"] = fan_auto_record
+    record.pop("extra_data", None)
+    enable = _eid(hass, entry, "_coordinator_enable")
+    assert next(r for r in legacy["data"] if r["state"]["entity_id"] == enable)["state"]["state"] == "on"
+    hass_storage["core.restore_state"] = legacy
+    await _load_store(hass, legacy["data"])
+    await _report(hass, head_a, "low")
+    writes = _fan_writes(hass)
+    await _startup(hass, entry)
+
+    assert entry.runtime_data._restored_coordinator_on is True
+    assert hass.states.get(switch_a).state == "on"
+    assert _fan_hold(hass, entry, 0) is False
+    assert writes == [(head_a, "auto")]
 
 
 @pytest.mark.parametrize(
@@ -922,14 +1218,18 @@ async def test_remembered_user_token_never_waives_ceiling(
     assert hass.states.get(head_a).attributes["fan_mode"] == token
 
 
+@pytest.mark.parametrize("room", ["active", "idle"])
 async def test_older_store_cannot_prove_a_later_rung_is_owned(
-    hass: HomeAssistant, hass_storage: dict, record_property,
+    hass: HomeAssistant, hass_storage: dict, room: str, record_property,
 ) -> None:
     """F4 limitation: actual dump predates later commands, despite valid identity.
 
     This models an older surviving periodic record, not the timing/frequency of
-    a real crash. It intentionally documents a conservative false hold. The
-    fresh manual outside-memory control forbids silently broadening adoption.
+    a real crash. In a room still cooling it intentionally documents a
+    conservative false hold; the fresh manual outside-memory control forbids
+    silently broadening adoption there. A room idling in fan_only under the
+    default idle action needs no proof: the boost's rung is read as its own
+    idle (issue 25), so the older record cannot cause a hold.
     """
     entry, head_a, _head_b = await _setup(hass, **{CONF_FAN_BOOST_ENABLE: True})
     history = _observable_history(hass, entry, head_a, None)
@@ -941,7 +1241,13 @@ async def test_older_store_cannot_prove_a_later_rung_is_owned(
     older = deepcopy(hass_storage["core.restore_state"])
     history["record"] = deepcopy(_stored(hass_storage, switch))
     assert _stored(hass_storage, switch)["state"]["attributes"][ATTR_LAST_FAN_COMMAND] == "medium"
-    (await _idle_on_residue(hass, entry, head_a))()
+    if room == "idle":
+        (await _idle_on_residue(hass, entry, head_a))()
+    else:
+        await _set_temp(hass, SENSOR_A, 75)
+        await _recompute(hass, entry)
+        assert hass.states.get(head_a).state == "cool"
+        assert hass.states.get(head_a).attributes["fan_mode"] == "high"
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     # No new shutdown dump: load the genuine earlier record after removal.
@@ -951,14 +1257,21 @@ async def test_older_store_cannot_prove_a_later_rung_is_owned(
     assert rs.async_get(hass).last_states[switch] is not removed
     writes = _fan_writes(hass)
     await _startup(hass, entry)
-    assert hass.states.get(switch).state == "off"  # unresolved ownership, not proof of a hand
-    assert _fan_hold(hass, entry, 0) is True
-    assert writes == []
-    assert hass.states.get(head_a).attributes["fan_mode"] == "high"
-    await _set_fan_auto(hass, switch, True)
-    await _recompute(hass, entry)
-    assert hass.states.get(switch).state == "on"
-    assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
+    if room == "idle":
+        assert hass.states.get(switch).state == "on"
+        assert _fan_hold(hass, entry, 0) is False
+        assert writes == [(head_a, "auto")]
+        assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
+    else:
+        assert hass.states.get(switch).state == "off"  # unresolved ownership, not proof of a hand
+        assert _fan_hold(hass, entry, 0) is True
+        assert writes == []
+        assert hass.states.get(head_a).attributes["fan_mode"] == "high"
+        await _set_fan_auto(hass, switch, True)
+        await _recompute(hass, entry)
+        assert hass.states.get(switch).state == "on"
+        assert _fan_hold(hass, entry, 0) is False
+        assert hass.states.get(head_a).attributes["fan_mode"] == "high"  # boost's rung at delta 5
     record_property("observable_history", json.dumps(history, default=str))
 
 
@@ -1206,8 +1519,14 @@ async def test_saved_pending_handback_survives_restart_and_reload(
 async def test_pending_handback_requires_fresh_strict_not_held_record(
     hass: HomeAssistant, hass_storage: dict, bad: str,
 ) -> None:
-    """Labelled malformed/legacy Store inputs through both real getter channels."""
-    entry, head_a, _ = await _setup(hass, **{CONF_FAN_BOOST_ENABLE: True})
+    """Labelled malformed/legacy Store inputs through both real getter channels.
+
+    The reported speed is above the ceiling: token inference holds it, and
+    only an honored instruction would adopt it.
+    """
+    entry, head_a, _ = await _setup(
+        hass, **{CONF_FAN_BOOST_ENABLE: True, CONF_FAN_BOOST_MAX: "medium"},
+    )
     switch = _eid(hass, entry, "_primary_fan_auto")
     for channel in ("clean", "unavailable"):
         await _user_set_fan(hass, head_a, "high")
@@ -1239,14 +1558,14 @@ async def test_pending_handback_requires_fresh_strict_not_held_record(
             record["state"]["attributes"] = {}
         hass_storage["core.restore_state"] = saved
         await _load_store(hass, saved["data"])
-        await _report(hass, head_a, "medium")  # outside the saved high baseline
+        await _report(hass, head_a, "high")  # the user's token, above the ceiling
         writes = _fan_writes(hass)
         await _startup(hass, entry)
         assert hass.states.get(switch).state == "off"
         assert _fan_hold(hass, entry, 0) is True
         assert ATTR_FAN_ON_PENDING not in hass.states.get(switch).attributes
         assert writes == []
-        assert hass.states.get(head_a).attributes["fan_mode"] == "medium"
+        assert hass.states.get(head_a).attributes["fan_mode"] == "high"
         if bad == "stale":
             assert "older entry" in _reasons(hass, entry)
         if bad == "malformed-held" and channel == "unavailable":

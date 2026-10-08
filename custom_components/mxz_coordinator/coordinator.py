@@ -2399,18 +2399,20 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         * held: still held, at the observed token (same token: the hold simply
           survived; different non-auto token: the user moved the hold during the
           outage — theirs either way).
-        * not held: boost was driving. With memory, an in-ceiling ladder token
-          matching last/prior is treated as residue, whatever the room is doing
-          now. Above-ceiling and non-ladder tokens hold even if remembered:
-          memory can contain user picks. A nonmatching token conservatively
-          holds; a stale dump can cause a false hold, so this is NOT proof of
-          a manual gesture. Without memory,
-          any ladder token up to the boost ceiling is one boost could have
-          written and is ours (the documented edge: a pick made while HA itself
-          was down is indistinguishable from residue); a token boost could never
-          have written — outside the ladder, above the ceiling — holds. Never a
-          fixed-point guess: a mere change of delta is not a manual gesture. An
-          active room resumes the ladder from the observed rung.
+        * not held: boost was driving. A token boost could never have written —
+          outside the ladder, above the ceiling — holds, even if remembered:
+          memory can contain user picks. An in-ceiling ladder token is ours
+          when there is no memory, when it matches last/prior, or when the
+          room is idling in fan_only under idle_action fan_only (#25): such a
+          head can report a speed of its own while idling, and a hold there never
+          self-corrects because the room never reads a clean "auto". Otherwise
+          (an active room, another idle action) a nonmatching token
+          conservatively holds; a stale dump can cause a false hold, so this is
+          NOT proof of a manual gesture. The documented edge: a pick made while
+          HA itself was down is indistinguishable from residue wherever the
+          token is read as ours. Never a fixed-point guess: a mere change of
+          delta is not a manual gesture. An active room resumes the ladder from
+          the observed rung.
         """
         if observed == FAN_AUTO:
             self._fan_latched[climate_id] = False
@@ -2422,22 +2424,21 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._hold_at(climate_id, observed)
             return True
         last = self._fan_cmd.get(climate_id)
-        if last is None:
-            ours = (
-                observed in FAN_LADDER
-                and FAN_LADDER.index(observed) <= self._fan_max_idx()
+        remembered = observed in (last, self._fan_prev.get(climate_id))
+        ours = (
+            observed in FAN_LADDER
+            and FAN_LADDER.index(observed) <= self._fan_max_idx()
+            and (
+                last is None
+                or remembered
+                or (act == MODE_FAN_ONLY and self.idle_action == IDLE_ACTION_FAN_ONLY)
             )
-        else:
-            ours = (
-                observed in FAN_LADDER
-                and FAN_LADDER.index(observed) <= self._fan_max_idx()
-                and observed in (last, self._fan_prev.get(climate_id))
-            )
+        )
         if not ours:
             self._hold_at(climate_id, observed)
             return True
         self._fan_latched[climate_id] = False
-        if last is None:
+        if not remembered:
             # Baseline stamped so a slow echo of this token isn't a departure.
             self._fan_prev[climate_id] = observed
             self._fan_cmd[climate_id] = observed
