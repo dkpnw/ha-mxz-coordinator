@@ -1193,6 +1193,7 @@ async def test_saved_pending_handback_survives_restart_and_reload(
     await _recompute(hass, entry)
     assert hass.states.get(switch).state == "off"
     assert _fan_hold(hass, entry, 0) is True
+    assert "fan hold" not in _reasons(hass, entry)  # a usable record needs no reason
     assert writes == []
     await _report(hass, head_a, "auto")
     await _recompute(hass, entry)
@@ -1271,7 +1272,11 @@ async def test_plan_explains_unavailable_room_inputs(
     writes = _fan_writes(hass)
     head = _head(hass, head_a)
     original = hass.states.get(head_a)
-    assert "Previous fan hold unavailable" in _reasons(hass, entry)
+    # A fresh install has no previous fan hold to lose: no reason is shown.
+    # Stale and malformed records still explain themselves (below and in
+    # test_pending_handback_requires_fresh_strict_not_held_record).
+    assert "fan hold" not in _reasons(hass, entry)
+    assert "fan hold" not in _reasons(hass, entry, 1)
     await _settle_requested_refreshes(hass, entry.runtime_data)
     healthy = deepcopy(hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][1])
     healthy_switch = _eid(hass, entry, "_secondary_fan_auto")

@@ -483,10 +483,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # from the same synchronous memory change, even mid-apply. This is
         # observation/intent, not evidence that a service reached hardware.
         self._fan_state_writers: dict[str, Callable[[], None]] = {}
-        self._fan_restore_problem = {
-            zone.climate_id: "Previous fan hold unavailable: no prior fan hold record available; using reported speed."
-            for zone in self.zones
-        }
+        # A restore record that existed but could not be used (stale or
+        # malformed), set by the Fan-auto switch. No record at all — a fresh
+        # install or newly added room — is not a problem and adds no reason.
+        self._fan_restore_problem: dict[str, str] = {}
 
         # Engage latch (decision state, like _fan_idx): "" = coasting, cool|heat
         # = mid-run toward target (the head may still be parked in fan_only by a
