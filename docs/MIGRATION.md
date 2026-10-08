@@ -6,8 +6,9 @@
 for setup/reconfigure validation, room rename/reorder and registry continuity, optional
 sensor freshness, Follow global drift, shared-mode choices, and command delivery with
 manual-intent and restore corrections. The manifest version is 3.4.0; config-entry
-schema version remains 2. The declared HA floor remains 2024.12.0. Final source/version,
-rendered UI and exact final release-artifact/rollback qualification are still pending.
+schema version remains 2. The declared HA floor remains 2024.12.0. Final source/version
+and exact final release-artifact/rollback qualification are still pending. The README's
+setup, Reconfigure and Configure screenshots were rendered on HA 2026.10.0 only.
 Earlier invented-entry checks executed actual older-artifact rollback with the limits below;
 they do not qualify this final candidate's artifact.
 This document is upgrade guidance, not a claim that 3.4.0 has been published.

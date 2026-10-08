@@ -18,8 +18,9 @@ Use [Reconfigure](#reconfigure-heads-rooms-and-sensors) to change the room list 
 
 This checkout prepares **3.4.0**. Its setup, sensor, room-lifecycle and command-delivery
 changes are described in [Migration](docs/MIGRATION.md#upgrading-to-340).
-Final release validation and new rendered setup/Reconfigure/Configure captures remain
-pending. Existing dashboard images show an earlier release. They are not new 3.4.0 captures.
+Final release validation remains pending. The setup, Reconfigure and Configure screenshots
+below are 3.4.0 captures from Home Assistant 2026.10.0 with invented heads and sensors.
+The dashboard image shows an earlier release.
 
 > Shared as-is; support is best-effort. Automated checks use invented heads and sensors.
 > They establish software behavior, not physical performance on your equipment.
@@ -120,9 +121,44 @@ Setup has four steps. Only **Save and finish** creates the entry.
    Select **Go back to heads and rooms** to correct the mapping.
    Select **Save and finish** when it is right.
 
+The screenshots in this README come from Home Assistant 2026.10.0 in its dark theme,
+with invented heads (Studio, Loft, Den, Nook) and invented sensors.
+
+<table>
+<tr>
+<td width="50%"><img src="images/mxz-3.4.0-setup-heads-c1007a.png" alt="Setup heads step with Studio, Loft and Den heads in priority order and the outdoor unit named Upstairs outdoor unit."></td>
+<td width="50%"><img src="images/mxz-3.4.0-setup-rooms-c1007a.png" alt="Rooms step with Room 1 to 3 names Studio, Loft and Den under a duplicate-name error from the previous submit."></td>
+</tr>
+<tr>
+<td>1. Heads: three heads in priority order and an outdoor-unit name.</td>
+<td>2. Rooms: the names are corrected to Studio, Loft and Den. The error above them is from the previous submit, which had two Studios.</td>
+</tr>
+<tr>
+<td><img src="images/mxz-3.4.0-setup-sensors-c1007a.png" alt="Room temperature sensors step listing each room's head, sensor and current reading."></td>
+<td><img src="images/mxz-3.4.0-setup-summary-c1007a.png" alt="Check this before you save summary with priority, head, sensor, reading and unknown cadence per room, and Save and finish, Change advanced settings and Go back to heads and rooms."></td>
+</tr>
+<tr>
+<td>3. Sensors: the list shows the last submitted sensor and reading for each room. Den's earlier, unavailable porch sensor is still listed; Den temperature is picked but not yet submitted.</td>
+<td>4. Summary: each room's priority, head, sensor, reading and cadence, then the three choices.</td>
+</tr>
+</table>
+
 Skipping advanced settings uses defaults for your HA temperature unit. If the selected heads
 cannot all use the usual `fan_only` idle action, setup sends you to advanced settings to
 choose a supported alternative. It does not silently replace that default.
+
+<details>
+<summary>Setup's advanced step: Comfort tuning (all optional)</summary>
+
+<img src="images/mxz-3.4.0-setup-advanced-c1007a.png" width="420" alt="Setup's Comfort tuning form with every comfort, lockout, standby hold, idle action and fan boost field pre-filled for °F.">
+
+The full form opened by **Change advanced settings**, pre-filled with °F defaults.
+Submitting it returns to the summary.
+</details>
+
+After **Save and finish**, Home Assistant shows its own device **Name and assign** step.
+
+<img src="images/mxz-3.4.0-setup-complete-c1007a.png" width="420" alt="Home Assistant's Name and assign step for the new MXZ Coordinator device, with Device name, Area and Skip and finish.">
 
 After saving, open the integration's device page. Set the room targets, enable the
 rooms you want to coordinate, then turn on **Coordinator enable**. New room enables
@@ -142,6 +178,45 @@ or use them in HA; avoid exposing a second raw-head control for the same room.
 | A sensor is `unknown`, `unavailable`, non-numeric or non-finite | You may finish setup. The summary warns; that room makes no automatic demand until its reading is valid. |
 | A sensor's unit attribute is absent or `null` | MXZ reads it in HA's system unit. Verify that interpretation. Celsius, Fahrenheit and kelvin convert to the system unit. An empty string (`""`), another unsupported string or a non-string unit is invalid and blocks saving. |
 
+<details>
+<summary>Screenshots of setup errors and warnings</summary>
+
+<table>
+<tr>
+<td width="50%"><img src="images/mxz-3.4.0-setup-heads-error-capability-c1007a.png" alt="Heads step error: climate.guest_fan_unit does not advertise both heat and cool."></td>
+<td width="50%"><img src="images/mxz-3.4.0-setup-already-configured-c1007a.png" alt="Heads step error: Nook, Loft and Studio heads are already assigned to another MXZ Coordinator entry."></td>
+</tr>
+<tr>
+<td>A fan-only guest unit is rejected because it lacks heat and cool.</td>
+<td>The heads belong to another entry. The error names them, and the heads step stays open.</td>
+</tr>
+<tr>
+<td><img src="images/mxz-3.4.0-setup-heads-error-reserved-c1007a.png" alt="Heads step error: climate.studio_head is selected in another unfinished MXZ Coordinator flow."></td>
+<td><img src="images/mxz-3.4.0-setup-rooms-error-duplicate-c1007a.png" alt="Rooms step error: two rooms have the same name, Studio."></td>
+</tr>
+<tr>
+<td>A head is reserved by another open setup dialog.</td>
+<td>Two rooms have the same name.</td>
+</tr>
+<tr>
+<td><img src="images/mxz-3.4.0-setup-sensors-error-shared-c1007a.png" alt="Sensors step error: sensor.studio_temperature is used for more than one room."></td>
+<td><img src="images/mxz-3.4.0-setup-sensors-error-unit-c1007a.png" alt="Sensors step error: MXZ Coordinator cannot read the temperature unit reported by sensor.garage_probe."></td>
+</tr>
+<tr>
+<td>One sensor picked for two rooms is blocked.</td>
+<td>A sensor whose unit cannot be converted is blocked.</td>
+</tr>
+<tr>
+<td><img src="images/mxz-3.4.0-setup-summary-warning-unavailable-c1007a.png" alt="Summary with Den's sensor sensor.porch_temperature unavailable and a warning that the room makes no automatic demand until it reports a valid number."></td>
+<td></td>
+</tr>
+<tr>
+<td>An unavailable sensor is accepted. The summary warns that the room makes no automatic demand until it reads a valid number.</td>
+<td></td>
+</tr>
+</table>
+</details>
+
 The summary's reporting age is information. Setup adds no sensor timeout. Heads,
 ownership, sensors and the chosen idle action are checked again at the final save;
 a change while the summary is open can send you back to correct it.
@@ -153,6 +228,25 @@ Use this to add/remove heads, change priority, rename rooms, change sensors, or 
 the outdoor-unit title and drift-alert service. It follows heads → rooms → sensors →
 summary, pre-filled from the entry. Select **Save and finish** to apply it.
 Comfort and sensor-freshness settings stay in Configure.
+
+<table>
+<tr>
+<td width="50%"><img src="images/mxz-3.4.0-reconfigure-heads-c1007a.png" alt="Reconfigure heads step with Nook, Loft and Studio heads in priority order."></td>
+<td width="50%"><img src="images/mxz-3.4.0-reconfigure-rooms-c1007a.png" alt="Reconfigure room names step pre-filled with Nook, Loft and Studio in the new priority order."></td>
+</tr>
+<tr>
+<td>Heads: Nook added at priority 1, Loft kept at 2, Studio moved from 1 to 3, Den dropped.</td>
+<td>Room names in the new priority order. An empty box uses the head's own name.</td>
+</tr>
+<tr>
+<td><img src="images/mxz-3.4.0-reconfigure-sensors-c1007a.png" alt="Reconfigure sensors step: Loft and Studio keep their sensors and readings; Nook temperature picked for the new room."></td>
+<td><img src="images/mxz-3.4.0-reconfigure-summary-c1007a.png" alt="Reconfigure summary noting Studio moved from priority 1 with its settings, climate.den_head removed with its entities, and one reload on save."></td>
+</tr>
+<tr>
+<td>Sensors: kept rooms show their current sensors; Nook temperature is picked for the new room.</td>
+<td>Summary: Studio's move, its saved freshness profile, Den's removal and the reload note. Only <b>Save and finish</b> and <b>Go back to heads and rooms</b> are offered.</td>
+</tr>
+</table>
 
 For a kept head, submitted room names and sensors replace the old ones. Vane wiring
 and other stored room fields are retained. Reordering moves existing registry records
@@ -176,8 +270,10 @@ other entry for you.
 A save that changes entry data, title or identity triggers one reload. A save that
 leaves them unchanged triggers none. Reload
 rebuilds the coordinator and restarts sensor-health observation. Reconfigure finishes
-by closing the flow after a successful save. Home Assistant supplies completion
-wording; fresh rendered captures still need to confirm it.
+by closing the flow after a successful save with MXZ's own completion text.
+
+<img src="images/mxz-3.4.0-reconfigure-complete-c1007a.png" width="420" alt="MXZ Coordinator dialog reading Reconfiguration was successful. with a Close button.">
+
 
 ## Configure comfort and sensor settings
 
@@ -185,6 +281,37 @@ Open **Settings → Devices & services → MXZ Coordinator → Configure**.
 The single form contains comfort settings, per-room vane/airflow overrides and freshness
 profiles. Change the values, then submit. Temperature fields use your HA unit; mode
 dwell is in seconds, coil drying and freshness durations are in minutes.
+
+<details>
+<summary>Screenshots of the full Configure form, top to bottom</summary>
+
+<table>
+<tr>
+<td width="50%"><img src="images/mxz-3.4.0-configure-comfort-c1007a.png" alt="Top of the MXZ Coordinator tuning form: comfort thresholds, setpoint range, resting mode, lockout safety limits and seasonal changeover fields in °F."></td>
+<td width="50%"><img src="images/mxz-3.4.0-configure-idle-fan-c1007a.png" alt="Configure form standby hold, idle action, coil-dry minutes and fan boost fields."></td>
+</tr>
+<tr>
+<td>Comfort, setpoint range, resting mode, lockouts and seasonal changeover.</td>
+<td>Standby hold, idle action, coil drying and fan boost.</td>
+</tr>
+<tr>
+<td><img src="images/mxz-3.4.0-configure-primary-vane-freshness-c1007a.png" alt="Configure form Primary vertical and horizontal vane, airflow sensor and six freshness fields."></td>
+<td><img src="images/mxz-3.4.0-configure-secondary-vane-freshness-c1007a.png" alt="Configure form Secondary vertical and horizontal vane, airflow sensor and six freshness fields."></td>
+</tr>
+<tr>
+<td>Priority 1 room, labeled Primary: vanes, airflow and all six freshness fields.</td>
+<td>Priority 2 room, labeled Secondary: the same fields.</td>
+</tr>
+<tr>
+<td><img src="images/mxz-3.4.0-configure-zone3-vane-freshness-c1007a.png" alt="Configure form Zone 3 vertical and horizontal vane, airflow sensor and six freshness fields, then Submit."></td>
+<td></td>
+</tr>
+<tr>
+<td>Priority 3 room, labeled Zone 3, then Submit. The form labels these fields by priority, not room name.</td>
+<td></td>
+</tr>
+</table>
+</details>
 
 | Setting | Use it for |
 | --- | --- |
@@ -226,6 +353,19 @@ their order; for “Enter a finite number” or “This value cannot be negative
 that value. Review the complete form and submit again. A threshold or freshness error
 rejects the whole submission: none of its other edits is saved. Freshness durations
 have their separate positive-minute rules below.
+
+<table>
+<tr>
+<td width="33%"><img src="images/mxz-3.4.0-configure-reject-clamp-field-c1007a.png" alt="Configure error on both Firmware minimum setpoint 80 and Firmware maximum setpoint 70: the lowest accepted setpoint cannot be above the highest."></td>
+<td width="33%"><img src="images/mxz-3.4.0-configure-reject-freshness-top-c1007a.png" alt="Configure form-level error asking to check every sensor freshness profile, ending Nothing was saved."></td>
+<td width="33%"><img src="images/mxz-3.4.0-configure-saved-c1007a.png" alt="Success dialog reading Options successfully saved. with a Finish button."></td>
+</tr>
+<tr>
+<td>A minimum setpoint above the maximum marks both fields.</td>
+<td>An invalid freshness profile rejects the form: “Nothing was saved.”</td>
+<td>A later valid submission saves.</td>
+</tr>
+</table>
 
 A changed save merges tunables into existing options, mirrors them into entry data,
 and reloads once. It does not replace the options with only the edited field. A save that leaves entry
@@ -519,8 +659,11 @@ mock entities. Restore uses normal `RestoreEntity` state/extra data; flow schema
 Voluptuous. MXZ raises its own `reconfigure_successful` and `already_configured` aborts
 without HA's central translation domain (the floor has no such parameter), so both
 strings ship locally in `strings.json`/`translations/en.json`; tests resolve every flow
-reason through HA's translation loader on each lane. Tested backend reasons and available
-translation dictionaries do not establish the frontend's fallback/rendering selection.
+reason through HA's translation loader on each lane. On HA 2026.10.0 (frontend
+20260930.2) the real frontend rendered the local text, “Reconfiguration was successful.”
+with its trailing period, not HA's central text, which has none
+([screenshot](images/mxz-3.4.0-reconfigure-complete-c1007a.png)). The floor's rendering
+of local abort text was not captured, and `already_configured` was not rendered.
 This source does not implement the separate HA 2026.11 restore changes,
 and no .11 support claim follows from .10 results.
 
