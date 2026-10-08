@@ -57,10 +57,10 @@ Backend setup, reconfigure and Configure APIs have local synthetic execution evi
 including complete original full/API runs on the accepted product implementation.
 This recipe's newer Python archive and generated plugin build are distinct artifacts;
 shared package versions alone do not make them identical to earlier local runtimes.
-Genuine hosted .10 validation and final frontend rendering remain pending. HA .10
-supplies the central `reconfigure_successful` abort text; the retained floor has local
-`already_configured` fallback text. Available translation dictionaries do not prove
-which text a frontend renders. Normal RestoreEntity and Voluptuous are exercised;
+Genuine hosted .10 validation remains pending. MXZ raises `reconfigure_successful`
+without the central domain and ships its own string; the real 2026.10 frontend rendered
+it as "Reconfiguration was successful." (README screenshot). The retained floor has
+local `already_configured` fallback text; floor rendering was not captured. Normal RestoreEntity and Voluptuous are exercised;
 HA 2026.11 restore changes are outside this target. If your platform cannot run these
 exact artifacts, use the README's locked local floor recipe and label the result
 2024.12.0. A floor run does not qualify .10.

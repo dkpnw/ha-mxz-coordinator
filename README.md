@@ -127,18 +127,18 @@ with invented heads (Studio, Loft, Den, Nook) and invented sensors.
 <table>
 <tr>
 <td width="50%"><img src="images/mxz-3.4.0-setup-heads-c1007a.png" alt="Setup heads step with Studio, Loft and Den heads in priority order and the outdoor unit named Upstairs outdoor unit."></td>
-<td width="50%"><img src="images/mxz-3.4.0-setup-rooms-c1007a.png" alt="Rooms step with Room 1 to 3 names Studio, Loft and Den under a duplicate-name error from the previous submit."></td>
+<td width="50%"><img src="images/mxz-3.4.0-setup-rooms-c1007b.png" alt="Rooms step listing the three heads by priority, with Room 1 to 3 names pre-filled as Studio head, Loft head and Den head."></td>
 </tr>
 <tr>
 <td>1. Heads: three heads in priority order and an outdoor-unit name.</td>
-<td>2. Rooms: the names are corrected to Studio, Loft and Den. The error above them is from the previous submit, which had two Studios.</td>
+<td>2. Rooms: each name is pre-filled from its head's name and can be edited.</td>
 </tr>
 <tr>
-<td><img src="images/mxz-3.4.0-setup-sensors-c1007a.png" alt="Room temperature sensors step listing each room's head, sensor and current reading."></td>
+<td><img src="images/mxz-3.4.0-setup-sensors-c1007b.png" alt="Room temperature sensors step listing Studio, Loft and Den with their heads, and Studio, Loft and Den temperature picked."></td>
 <td><img src="images/mxz-3.4.0-setup-summary-c1007a.png" alt="Check this before you save summary with priority, head, sensor, reading and unknown cadence per room, and Save and finish, Change advanced settings and Go back to heads and rooms."></td>
 </tr>
 <tr>
-<td>3. Sensors: the list shows the last submitted sensor and reading for each room. Den's earlier, unavailable porch sensor is still listed; Den temperature is picked but not yet submitted.</td>
+<td>3. Sensors: each room with its head, and one temperature sensor picked per room, before submit.</td>
 <td>4. Summary: each room's priority, head, sensor, reading and cadence, then the three choices.</td>
 </tr>
 </table>
