@@ -4,8 +4,8 @@ This diagnostic uses invented heads and sensors with actual HA climate service
 handlers. It compares these immutable products using **identical** test bytes:
 
 - Released: `3a9863896f8affb6f71cbd1e495df21b17a69ff3`
-- Main comparison slot: tested candidate `c13114f94d18f26ed375f63d6a7df90376bf1134`
-  (tree `853a6441c14f441f8ad7336dfd7f08c19ec9c9be`).
+- Main comparison slot: candidate `dd5c8f6da79faed9e2d97b7fda4098302ef2f855`
+  (tree `3ea17e8b1b2a730c01454db85510e255e460cbb4`).
 
 The slot named `main` exports this exact candidate until it is merged into public
 main. The workflow/harness source commit is recorded separately from the exported
