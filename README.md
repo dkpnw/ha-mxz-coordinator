@@ -16,11 +16,10 @@ cannot heat one room and cool another at the same time.
 Use [Reconfigure](#reconfigure-heads-rooms-and-sensors) to change the room list and
 [Configure](#configure-comfort-and-sensor-settings) to tune it. No YAML is required.
 
-This checkout prepares **3.4.0**. Its setup, sensor, room-lifecycle and command-delivery
-changes are described in [Migration](docs/MIGRATION.md#upgrading-to-340).
-Final release validation remains pending. The setup, Reconfigure and Configure screenshots
-below are 3.4.0 captures from Home Assistant 2026.10.0 with invented heads and sensors.
-The dashboard image shows an earlier release.
+**3.4.0** changes setup, sensor handling, the room lifecycle and command delivery; read
+[Migration](docs/MIGRATION.md#upgrading-to-340) before upgrading. The setup, Reconfigure
+and Configure screenshots below are 3.4.0 captures from Home Assistant 2026.10.0 with
+invented heads and sensors. The dashboard image shows an earlier release.
 
 > Shared as-is; support is best-effort. Automated checks use invented heads and sensors.
 > They establish software behavior, not physical performance on your equipment.
@@ -273,7 +272,6 @@ rebuilds the coordinator and restarts sensor-health observation. Reconfigure fin
 by closing the flow after a successful save with MXZ's own completion text.
 
 <img src="images/mxz-3.4.0-reconfigure-complete-c1007a.png" width="420" alt="MXZ Coordinator dialog reading Reconfiguration was successful. with a Close button.">
-
 
 ## Configure comfort and sensor settings
 
@@ -611,10 +609,10 @@ linger, and MXZ filters records from before the new entry's creation.
 
 ## Developer setup and tested support
 
-The declared HA floor is 2024.12.0. Retained local full-suite evidence exists for these
-exact targets on the accepted product implementation; final 3.4.0 source/version and
-release validation remain pending. Automated entities are invented. Current rendered
-forms and physical behavior are separate evidence requirements.
+The declared HA floor is 2024.12.0. The full test suite runs on these exact targets with
+invented entities; it covers software behavior, not physical behavior on equipment. The
+form screenshots were captured on HA 2026.10.0 only; the floor's rendering of the forms
+was not captured.
 
 | Python | Home Assistant | Dependency setup |
 | --- | --- | --- |

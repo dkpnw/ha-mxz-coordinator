@@ -2,16 +2,13 @@
 
 ## Upgrading to 3.4.0
 
-3.4.0 is the normal minor candidate after 3.3.0. It includes reviewed product changes
-for setup/reconfigure validation, room rename/reorder and registry continuity, optional
-sensor freshness, Follow global drift, shared-mode choices, and command delivery with
-manual-intent and restore corrections. The manifest version is 3.4.0; config-entry
-schema version remains 2. The declared HA floor remains 2024.12.0. Final source/version
-and exact final release-artifact/rollback qualification are still pending. The README's
-setup, Reconfigure and Configure screenshots were rendered on HA 2026.10.0 only.
-Earlier invented-entry checks executed actual older-artifact rollback with the limits below;
-they do not qualify this final candidate's artifact.
-This document is upgrade guidance, not a claim that 3.4.0 has been published.
+3.4.0 is a minor release after 3.3.0. It changes setup/reconfigure validation, room
+rename/reorder and registry continuity, and adds optional sensor freshness, Follow
+global drift and shared-mode choices, with command-delivery, manual-intent and restore
+corrections. The config-entry schema version remains 2. The declared HA floor remains
+2024.12.0. The README's setup, Reconfigure and Configure screenshots were rendered on
+HA 2026.10.0 only. The rollback checks below ran on earlier 3.4.0 builds with invented
+entries, within the limits stated there; they were not repeated on the released files.
 
 For an existing integration entry:
 
@@ -21,8 +18,8 @@ For an existing integration entry:
 2. Record room/head/sensor mappings, priority, targets, enables, drift overrides,
    fan holds, shared mode, lockouts, idle action and standby settings. Include
    automation references to priority slots as well as entity IDs.
-3. When 3.4.0 is released and validated, update its download in HACS (or replace only
-   `custom_components/mxz_coordinator` from that release), then restart HA. Confirm
+3. Update the download in HACS (or replace only `custom_components/mxz_coordinator`
+   from the 3.4.0 release), then restart HA. Confirm
    the installed manifest reads 3.4.0. Do not delete and recreate the entry to upgrade.
 4. Check the entry, registry identities and restored room settings. Inspect the plan
    sensor and underlying heads before relying on control. An existing enabled entry
@@ -39,19 +36,19 @@ receive new identities. This does not promise behavior is unchanged on upgrade.
 
 ### Roll back to an older integration release
 
-A configuration snapshot restored on this same candidate has been exercised with
+A configuration snapshot restored on a 3.4.0 build has been exercised with
 invented entries, migration, unload/re-setup and registry identity checks. That is
 **not** evidence that an older released integration or HA artifact can read the new
 state. No older-artifact rollback is qualified by that result.
 
 Separate checks executed the actual v3.3.0 tag source artifact and a local 3.4.0
-candidate archive in fresh HA processes, using real invented `.storage` files.
+build archive in fresh HA processes, using real invented `.storage` files.
 On Python 3.13.16 / HA 2026.2.3, ordinary upgrade, restart/reload and direct old-code
 rollback retained the tested targets, enables, lockouts, active drift override and
 clean on/off fan hold. That does **not** mean v3.3.0 accepts every newer entry unchanged:
 
 - A Fan auto hold saved as `unavailable` with newer extra restore data stayed held
-  under the same 3.4.0 candidate, but became automatic under v3.3.0 on the identical
+  under the same 3.4.0 build, but became automatic under v3.3.0 on the identical
   snapshot. Code replacement alone lost that hold.
 - Loading the old artifact with the compatible complete **pre-upgrade** snapshot
   recovered the earlier hold in that case. Newer changes were absent, as expected.
@@ -66,10 +63,9 @@ clean on/off fan hold. That does **not** mean v3.3.0 accepts every newer entry u
 - Returning to 3.3.0 also returns to its older issue 25 behavior; restoring settings
   cannot preserve the newer control correction in old code.
 
-These bounded checks precede the final diagnostic wording change. They did not test
-HA's backup UI, old HA-core artifact rollback, reordered-room rollback or arbitrary
-crashes. Final exact artifact/version/CI and rollback acceptance still require review
-and release checks; a successful check of known loss is not a preservation success.
+These bounded checks ran on earlier 3.4.0 builds. They did not test HA's backup UI,
+old HA-core artifact rollback, reordered-room rollback or arbitrary crashes. A check
+that confirms a known loss is not evidence that anything else is preserved.
 
 The rollback target needs an exact previously installed integration release/artifact,
 its manifest version/hash and a compatible HA version, together with the matching
@@ -85,8 +81,7 @@ check identities, mappings, priority, targets, enables, holds and raw-head state
 resuming. Reapply later intentional changes only after checking their compatibility.
 A restored backup loses changes made since it was taken and may affect other HA
 configuration. Heads are external equipment: backup recovery does not roll back
-commands they already received. Verify the final release artifact and its specific
-upgrade/rollback outcomes before making a release claim.
+commands they already received.
 
 ## Moving from the YAML package
 
