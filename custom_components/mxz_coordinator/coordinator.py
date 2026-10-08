@@ -105,6 +105,7 @@ from .const import (
     IDLE_ACTION_FAN_ONLY,
     IDLE_ACTION_OFF,
     IDLE_ACTION_OFF_AFTER_DRY,
+    IDLE_SEED_MIN_ENTRY_AGE,
     INHIBIT_ACTION_ECO,
     INHIBIT_ACTION_FAN_ONLY,
     INHIBIT_ACTION_OFF,
@@ -2311,7 +2312,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
           from the head's own state" — a manual pick that predates the restart
           is honored — UNLESS the reading is a speed the ladder would hold at
           the current delta, which is our own boost speed echoing back (see
-          ``_seed_matches_boost``).
+          ``_seed_matches_boost``), or our own fan_only idle on an established
+          entry (see ``_seed_is_own_idle``).
 
         A hold ends ONLY on a gesture: the Fan-auto switch, or an observed "auto".
         Room drift, target changes, and slider moves between speeds never release
@@ -2365,6 +2367,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # own boost speed echoing back, not a manual pick -> adopt it and keep
         # driving. A DEPARTURE never adopts: every slider move is a hold.
         if seeding:
+            if self._seed_is_own_idle(observed, act):
+                # Baseline stamped so a slow echo of this token isn't a
+                # departure; the return-to-auto write then proceeds.
+                self._fan_latched[climate_id] = False
+                self._fan_prev[climate_id] = observed
+                self._fan_cmd[climate_id] = observed
+                return False
             idx = self._seed_matches_boost(climate_id, observed, act, delta)
             if idx is not None:
                 self._adopt_fan_speed(climate_id, observed, idx)
@@ -2657,6 +2666,36 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             max_idx=self._fan_max_idx(),
         )
         return obs_idx if idx == obs_idx else None
+
+    def _seed_is_own_idle(self, observed: str, act: str) -> bool:
+        """True if a seed with no restore data is our own fan_only idle (#25).
+
+        idle_action="fan_only" drives a satisfied head to "auto" every cycle,
+        yet a real head can report a concrete token while idling that way.
+        Seeding that as a hold never self-corrects: unlike an active seed, the
+        zone never leaves fan_only for a clean "auto" reading. So on a restart
+        of an ESTABLISHED coordinator — this entry's own coordinator switch
+        restored ON (it was running before), and the entry at least
+        ``IDLE_SEED_MIN_ENTRY_AGE`` old — an in-ceiling ladder token boost
+        could have written is read as ours. A first-ever compute (fresh
+        install or re-added entry: nothing restored ON; or a first live
+        enable, however long after install) keeps honoring a pre-install
+        manual pick (S10). The accepted edge: a pick made while the zone
+        idled in fan_only, followed by a restart that loses the Fan-auto
+        restore, is indistinguishable and is not held.
+        """
+        if (
+            act != MODE_FAN_ONLY
+            or self.idle_action != IDLE_ACTION_FAN_ONLY
+            or not self._restored_coordinator_on
+            or observed not in FAN_LADDER
+            or FAN_LADDER.index(observed) > self._fan_max_idx()
+        ):
+            return False
+        created = self.config_entry.created_at
+        return created is not None and dt_util.utcnow() - created >= timedelta(
+            seconds=IDLE_SEED_MIN_ENTRY_AGE
+        )
 
     async def _write_fan(self, climate_id: str, token: str) -> None:
         """Issue a fan_mode write and remember it (last + prior, for the echo race).

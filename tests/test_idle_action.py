@@ -19,6 +19,7 @@ import pytest
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
+from homeassistant.components.climate import HVACMode
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COOLDOWN
 from homeassistant.util import dt as dt_util
@@ -30,6 +31,7 @@ from pytest_homeassistant_custom_component.common import (
 
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
+    CONF_FAN_BOOST_MAX,
     CONF_IDLE_ACTION,
     CONF_MODE_HYSTERESIS,
     CONF_PRIMARY_CLIMATE,
@@ -587,3 +589,111 @@ async def test_restart_residue_token_with_not_held_restore_is_dropped(
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is False
+
+
+async def test_restart_after_idle_fan_only_self_parked_seeds_clean(
+    hass: HomeAssistant,
+) -> None:
+    """Default idle_action="fan_only" (#25): restarting while idle must not
+    phantom-latch, even with no restore data (first post-upgrade restart, or
+    the switch's stale-restore guard rejecting it) -- on an ESTABLISHED entry
+    (see IDLE_SEED_MIN_ENTRY_AGE; a genuinely first-ever compute keeps the old
+    behavior, S10).
+
+    Unlike idle_action="off", a fan_only idle never hands the fan back to a
+    bare "auto" readback on real hardware -- the head's own fan-auto algorithm
+    can report a concrete, non-"auto" token while idling under OUR policy,
+    indistinguishable by token alone from a manual pick. No gesture happened
+    here at all: the head is driven straight to that token, same technique
+    S14 uses for "a token surviving a restart with no service call behind
+    it" (the mock head only ever echoes exactly what a service call writes,
+    so there's no other way to simulate a real head's own auto-reported
+    token). This must seed clean -- the live defect (#25) is the seed
+    fallback treating any non-"auto" reading as a hold with no idle_action
+    awareness at all, latching three real zones within 9ms of each other on
+    an ordinary HA restart.
+    """
+    entry, head_a, _b = await _setup_idle(hass, idle_action="fan_only")
+    entry.created_at = dt_util.utcnow() - timedelta(days=30)  # established install
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _recompute(hass, entry)
+    a = hass.states.get(head_a)
+    assert a.state == "fan_only"
+    assert a.attributes["fan_mode"] == "auto"  # never touched; nothing to restore from
+
+    hass.states.async_set(head_a, "fan_only", {**a.attributes, "fan_mode": "low"})
+
+    coord = entry.runtime_data
+    _restart(coord)  # no restore injection = stale/absent, same as S9
+    coord._restored_coordinator_on = True  # a real restart restores the kill switch ON
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False
+
+
+async def _restart_self_parked(
+    hass: HomeAssistant,
+    *,
+    idle_action: str = "fan_only",
+    token: str = "low",
+    established: bool = True,
+    restored_on: bool = True,
+    temp: float = 70,
+    head_state: str = "fan_only",
+    **extra: Any,
+) -> bool:
+    """The #25 shape with one gate input varied; returns fan_hold after the seed."""
+    entry, head_a, _b = await _setup_idle(hass, idle_action=idle_action, **extra)
+    if established:
+        entry.created_at = dt_util.utcnow() - timedelta(days=30)
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+    await _set_temp(hass, SENSOR_A, temp)
+    await _recompute(hass, entry)
+    coord = entry.runtime_data
+    _restart(coord)  # no restore data; wiped first so the token's first reader seeds
+    coord._restored_coordinator_on = restored_on
+    # Set on the mock entity itself so its later writes keep the head's own token.
+    head = hass.data["entity_components"]["climate"].get_entity(head_a)
+    head._attr_hvac_mode = HVACMode(head_state)
+    head._attr_fan_mode = token
+    head.async_write_ha_state()
+    await _recompute(hass, entry)
+    return hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][0]["fan_hold"]
+
+
+async def test_idle_seed_young_entry_still_latches(hass: HomeAssistant) -> None:
+    """Inside IDLE_SEED_MIN_ENTRY_AGE the seed may be a first-ever compute (S10)."""
+    assert await _restart_self_parked(hass, established=False) is True
+
+
+async def test_idle_seed_first_live_enable_still_latches(hass: HomeAssistant) -> None:
+    """An old entry whose coordinator was enabled live, not restored ON, has no
+    prior run behind it: the pre-install pick is honored however late the enable."""
+    assert await _restart_self_parked(hass, restored_on=False) is True
+
+
+async def test_idle_seed_above_ceiling_still_latches(hass: HomeAssistant) -> None:
+    """Boost could never have written a token above fan_boost_max."""
+    assert await _restart_self_parked(
+        hass, token="high", **{CONF_FAN_BOOST_MAX: "medium"}
+    ) is True
+
+
+async def test_idle_seed_non_ladder_token_still_latches(hass: HomeAssistant) -> None:
+    assert await _restart_self_parked(hass, token="diffuse") is True
+
+
+async def test_idle_seed_idle_action_off_unaffected(hass: HomeAssistant) -> None:
+    """idle_action="off" reaches the seed as fan_only via the auto handback; the
+    carve-out is for the fan_only policy only."""
+    assert await _restart_self_parked(hass, idle_action=IDLE_ACTION_OFF) is True
+
+
+async def test_idle_seed_active_zone_unaffected(hass: HomeAssistant) -> None:
+    """An actively cooling seed off the ladder's fixed point still latches."""
+    assert await _restart_self_parked(
+        hass, token="quiet", temp=80, head_state="cool"
+    ) is True

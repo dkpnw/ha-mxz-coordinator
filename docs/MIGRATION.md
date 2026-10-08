@@ -378,7 +378,12 @@ of an enabled resolved room retains its head-mode reseeding behavior.
 
 Clean restored switch states use ordinary RestoreEntity state; unavailable states use
 extra restore data for held/not-held intent and echo baselines. Missing, invalid or
-stale records fall back conservatively to the reported speed. Explicit Fan auto ON
+stale records fall back conservatively to the reported speed, with one exception: a
+room idling under idle action `fan_only` that reports a speed the boost could have set
+is read as the coordinator's own idle when the entry is at least ten minutes old and its
+coordinator switch restored ON. So a speed picked by hand while that room idled in
+`fan_only`, followed by a restart that loses its record, is not held; a fresh install,
+re-added entry or first enable still honors the reported speed. Explicit Fan auto ON
 can wait for a usable report, and a later OFF cancels that handback. A recognized hold
 survives; a remote speed change during an HA outage on a previously automatic room
 may be read as residue. Restore data is not a durable command-delivery journal.
