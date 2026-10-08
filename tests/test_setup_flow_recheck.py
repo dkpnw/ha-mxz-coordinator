@@ -27,6 +27,7 @@ from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mxz_coordinator.const import DOMAIN
+from tests.flow_pages import default, setup_tuning, submit
 
 ALPHA = "climate.sandbox_alpha"
 BETA = "climate.sandbox_beta"
@@ -137,8 +138,7 @@ async def test_final_save_rechecks_selected_idle(
 ) -> None:
     """M28-C1: a head losing the chosen parking mode must refuse the save."""
     result = await _review(hass)
-    result = await _press(hass, result, "tuning")
-    result = await _submit(hass, result, {"idle_action": action})
+    result = await setup_tuning(hass, result, {"idle_action": action})
     assert result["step_id"] == "review"
     assert not hass.config_entries.async_entries(DOMAIN)
     _head(hass, HEADS[0], [mode for mode in ALL_MODES if mode != lost])
@@ -154,8 +154,7 @@ async def test_final_save_rechecks_selected_idle(
 async def test_changed_heads_rechecks_cached_tuning(hass: HomeAssistant) -> None:
     """M28-C1: swapping a head after advanced revalidates the cached choice."""
     result = await _review(hass)
-    result = await _press(hass, result, "tuning")
-    result = await _submit(hass, result, {"idle_action": "off"})
+    result = await setup_tuning(hass, result, {"idle_action": "off"})
     result = await _press(hass, result, "user")
     new_heads = [HEADS[0], GAMMA]
     _head(hass, new_heads[1], ["heat", "cool", "fan_only"])
@@ -232,8 +231,7 @@ async def test_lost_heat_cool_is_reported_before_a_lost_sensor(
     sent, with the head's own error, even when a sensor is missing too.
     """
     result = await _review(hass)
-    result = await _press(hass, result, "tuning")
-    result = await _submit(hass, result, {"idle_action": "off"})
+    result = await setup_tuning(hass, result, {"idle_action": "off"})
     _head(hass, HEADS[1], ["off", "fan_only"])
     hass.states.async_remove(SENSORS[0])
 
@@ -249,8 +247,9 @@ async def test_lost_heat_cool_is_reported_before_a_lost_sensor(
 async def test_back_keeps_names_sensors_title_and_tuning(hass: HomeAssistant) -> None:
     """Control: every answer given survives the review screen's back option."""
     result = await _review(hass, notify=NOTIFY)
-    result = await _press(hass, result, "tuning")
-    result = await _submit(hass, result, {"mode_hysteresis": 777, "idle_action": "off"})
+    result = await setup_tuning(
+        hass, result, {"mode_hysteresis": 777, "idle_action": "off"}
+    )
     result = await _press(hass, result, "user")
     assert _suggestion(result, "heads") == HEADS
     assert _suggestion(result, "notify_service") == NOTIFY
@@ -264,9 +263,11 @@ async def test_back_keeps_names_sensors_title_and_tuning(hass: HomeAssistant) ->
     assert [_suggestion(result, f"sensor_{i}") for i in (1, 2)] == SENSORS
     result = await _submit(hass, result, dict(zip(("sensor_1", "sensor_2"), SENSORS)))
     assert not hass.config_entries.async_entries(DOMAIN)
-    result = await _press(hass, result, "tuning")
-    assert result["data_schema"]({})["mode_hysteresis"] == 777
-    result = await _submit(hass, result, {})
+    result = await _press(hass, await _press(hass, result, "tuning"), "comfort")
+    assert default(result, "mode_hysteresis") == 777
+    result = await submit(hass.config_entries.flow, result, {})
+    assert result["step_id"] == "tuning"
+    result = await _press(hass, result, "review")
     assert not hass.config_entries.async_entries(DOMAIN)
     result = await _press(hass, result, "finish")
     assert result["title"] == "Revised title"

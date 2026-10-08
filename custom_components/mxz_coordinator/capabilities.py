@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.components.climate.const import ATTR_FAN_MODES, ATTR_HVAC_MODES
-from homeassistant.const import ATTR_SUPPORTED_FEATURES
+from homeassistant.const import ATTR_FRIENDLY_NAME, ATTR_SUPPORTED_FEATURES
 from homeassistant.core import HomeAssistant
 
 from .const import (
@@ -24,6 +24,13 @@ _IDLE_MODES = {
     IDLE_ACTION_OFF_AFTER_DRY: frozenset(
         (HVACMode.FAN_ONLY.value, HVACMode.OFF.value)
     ),
+}
+# The idle selector's option labels (strings.json selector.idle_action), without
+# "(default)": the idle error names choices the way the dropdown shows them.
+IDLE_ACTION_LABELS = {
+    IDLE_ACTION_FAN_ONLY: "Fan only",
+    IDLE_ACTION_OFF: "Off",
+    IDLE_ACTION_OFF_AFTER_DRY: "Off after drying",
 }
 
 
@@ -80,6 +87,13 @@ def supported_idle_actions(
     )
 
 
+def head_label(hass: HomeAssistant, entity_id: str) -> str:
+    """A head's friendly name, or its entity id when it has none."""
+    state = hass.states.get(entity_id)
+    name = state.attributes.get(ATTR_FRIENDLY_NAME) if state is not None else None
+    return str(name) if name else entity_id
+
+
 def head_mode_problem(
     hass: HomeAssistant,
     heads: Iterable[str],
@@ -128,9 +142,14 @@ def head_mode_problem(
     return (
         "idle_action_unsupported",
         {
-            "idle_action": idle_action,
-            "unsupported_heads": ", ".join(missing_idle),
-            "supported_idle_actions": ", ".join(alternatives) or "none",
+            "idle_action": IDLE_ACTION_LABELS.get(idle_action, idle_action),
+            "unsupported_heads": ", ".join(
+                head_label(hass, head) for head in missing_idle
+            ),
+            "supported_idle_actions": " or ".join(
+                IDLE_ACTION_LABELS[action] for action in alternatives
+            )
+            or "none",
         },
     )
 

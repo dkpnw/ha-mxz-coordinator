@@ -66,6 +66,21 @@ from custom_components.mxz_coordinator.const import (
     ZONE_VANE_VERTICAL,
     unit_profile,
 )
+from tests.flow_pages import (
+    SECTION_FIELDS,
+    fields,
+    marker_of,
+    nest,
+    open_options_page,
+    page_of,
+    prefilled,
+    save_options,
+    save_options_page,
+    sections,
+    setup_tuning,
+    submit,
+    suggested,
+)
 
 _VALID = {
     CONF_PRIMARY_CLIMATE: "climate.primary",
@@ -164,26 +179,21 @@ def _form_heads(result: config_entries.ConfigFlowResult) -> list[str]:
 def _form_suggested(
     result: config_entries.ConfigFlowResult, field: str
 ) -> str | None:
-    """Return a form field's suggested value."""
-    for marker in result["data_schema"].schema:
-        if marker.schema == field:
-            return marker.description.get("suggested_value")
-    raise AssertionError(f"missing schema field: {field}")
+    """Return a form field's suggested value, inside a section or not."""
+    return suggested(result, field)
 
 
 def _select_options(
     result: config_entries.ConfigFlowResult, field: str
 ) -> list[str]:
     """Return the options exposed by one SelectSelector field."""
-    for marker, field_selector in result["data_schema"].schema.items():
-        if marker.schema == field:
-            return list(field_selector.config["options"])
-    raise AssertionError(f"missing schema field: {field}")
+    _, field_selector = marker_of(result, field)
+    return list(field_selector.config["options"])
 
 
 def _form_has_field(result: config_entries.ConfigFlowResult, field: str) -> bool:
-    """Whether one form schema displays a named field."""
-    return any(marker.schema == field for marker in result["data_schema"].schema)
+    """Whether one form schema displays a named field, inside a section or not."""
+    return field in fields(result)
 
 
 async def _start_user_flow(hass: HomeAssistant) -> config_entries.ConfigFlowResult:
@@ -531,10 +541,7 @@ async def test_setup_tuning_accepts_overrides(hass: HomeAssistant) -> None:
         result["flow_id"],
         {"sensor_1": "sensor.primary_temp", "sensor_2": "sensor.secondary_temp"},
     )
-    result = await _press(hass, result, "tuning")
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_DEMAND_THRESHOLD: 5.0}
-    )
+    result = await setup_tuning(hass, result, {CONF_DEMAND_THRESHOLD: 5.0})
     result = await _press(hass, result, "finish")
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["options"][CONF_DEMAND_THRESHOLD] == 5.0
@@ -608,22 +615,18 @@ async def test_setup_requires_explicit_supported_idle_alternative(
         {"sensor_1": "sensor.primary_temp", "sensor_2": "sensor.secondary_temp"},
     )
 
-    # Saving cannot fill the parking mode itself, so it routes into advanced.
+    # Saving cannot fill the parking mode itself, so it opens Fan and idle.
     result = await _press(hass, result, "finish")
-    assert result["step_id"] == "tuning"
+    assert result["step_id"] == "fan_idle"
     assert result["errors"] == {CONF_IDLE_ACTION: "idle_action_unsupported"}
     assert _select_options(result, CONF_IDLE_ACTION) == [IDLE_ACTION_OFF]
-    idle_marker = next(
-        marker
-        for marker in result["data_schema"].schema
-        if marker.schema == CONF_IDLE_ACTION
-    )
+    idle_marker, _ = marker_of(result, CONF_IDLE_ACTION)
     assert idle_marker.default is vol.UNDEFINED
 
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_IDLE_ACTION: IDLE_ACTION_OFF}
+    result = await submit(
+        hass.config_entries.flow, result, {CONF_IDLE_ACTION: IDLE_ACTION_OFF}
     )
-    result = await _press(hass, result, "finish")
+    result = await _press(hass, await _press(hass, result, "review"), "finish")
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_IDLE_ACTION] == IDLE_ACTION_OFF
     assert result["options"][CONF_IDLE_ACTION] == IDLE_ACTION_OFF
@@ -643,22 +646,23 @@ async def test_setup_rechecks_idle_capability_at_final_save(
         flow_id,
         {"sensor_1": "sensor.primary_temp", "sensor_2": "sensor.secondary_temp"},
     )
-    result = await _press(hass, result, "tuning")
-    assert result["step_id"] == "tuning"
+    result = await _press(hass, await _press(hass, result, "tuning"), "fan_idle")
+    assert result["step_id"] == "fan_idle"
 
     _set_capabilities(
         hass, "climate.secondary", hvac_modes=["off", "cool", "heat"]
     )
-    result = await hass.config_entries.flow.async_configure(
-        flow_id, {CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY}
+    result = await submit(
+        hass.config_entries.flow, result, {CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY}
     )
 
-    assert result["step_id"] == "tuning"
+    assert result["step_id"] == "fan_idle"
     assert result["errors"] == {CONF_IDLE_ACTION: "idle_action_unsupported"}
+    # The choices are named as the dropdown shows them, not by stored token.
     assert result["description_placeholders"] == {
-        "idle_action": IDLE_ACTION_FAN_ONLY,
+        "idle_action": "Fan only",
         "unsupported_heads": "climate.secondary",
-        "supported_idle_actions": IDLE_ACTION_OFF,
+        "supported_idle_actions": "Off",
     }
     assert _select_options(result, CONF_IDLE_ACTION) == [IDLE_ACTION_OFF]
     assert hass.config_entries.async_entries(DOMAIN) == []
@@ -759,9 +763,9 @@ async def test_reconfigure_rejects_head_that_cannot_honor_stored_idle_action(
     assert result["step_id"] == "reconfigure"
     assert result["errors"] == {"heads": "idle_action_unsupported"}
     assert result["description_placeholders"] == {
-        "idle_action": IDLE_ACTION_OFF_AFTER_DRY,
+        "idle_action": "Off after drying",
         "unsupported_heads": "climate.c",
-        "supported_idle_actions": IDLE_ACTION_OFF,
+        "supported_idle_actions": "Off",
     }
     assert _form_heads(result) == ["climate.a", "climate.c"]
     assert _entry_snapshot(current) == before
@@ -1379,11 +1383,9 @@ async def test_options_flow_round_trips(hass: HomeAssistant) -> None:
     entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["type"] is FlowResultType.FORM
+    assert result["type"] is FlowResultType.MENU
 
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_DEMAND_THRESHOLD: 4.0}
-    )
+    result = await save_options(hass, entry, {CONF_DEMAND_THRESHOLD: 4.0})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_DEMAND_THRESHOLD] == 4.0
 
@@ -1393,10 +1395,7 @@ async def test_options_flow_round_trips_idle_action(hass: HomeAssistant) -> None
     entry = MockConfigEntry(domain=DOMAIN, data=_VALID, title="MXZ Coordinator")
     entry.add_to_hass(hass)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_IDLE_ACTION: "off_after_dry"}
-    )
+    result = await save_options(hass, entry, {CONF_IDLE_ACTION: "off_after_dry"})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_IDLE_ACTION] == "off_after_dry"
 
@@ -1413,7 +1412,7 @@ async def test_options_flow_rejects_unsupported_idle_without_mutation(
     )
     entry.add_to_hass(hass)
     before = _entry_snapshot(entry)
-    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await open_options_page(hass, entry, "fan_idle")
     assert IDLE_ACTION_OFF_AFTER_DRY in _select_options(result, CONF_IDLE_ACTION)
 
     # The displayed choice becomes invalid before the user submits it. This
@@ -1421,16 +1420,18 @@ async def test_options_flow_rejects_unsupported_idle_without_mutation(
     _set_capabilities(
         hass, "climate.secondary", hvac_modes=["off", "cool", "heat"]
     )
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_IDLE_ACTION: IDLE_ACTION_OFF_AFTER_DRY}
+    result = await submit(
+        hass.config_entries.options,
+        result,
+        {CONF_IDLE_ACTION: IDLE_ACTION_OFF_AFTER_DRY},
     )
 
-    assert result["step_id"] == "init"
+    assert result["step_id"] == "fan_idle"
     assert result["errors"] == {CONF_IDLE_ACTION: "idle_action_unsupported"}
     assert result["description_placeholders"] == {
-        "idle_action": IDLE_ACTION_OFF_AFTER_DRY,
+        "idle_action": "Off after drying",
         "unsupported_heads": "climate.secondary",
-        "supported_idle_actions": IDLE_ACTION_OFF,
+        "supported_idle_actions": "Off",
     }
     assert _select_options(result, CONF_IDLE_ACTION) == [IDLE_ACTION_OFF]
     assert _entry_snapshot(entry) == before
@@ -1446,7 +1447,11 @@ async def test_options_flow_rejects_unsupported_idle_without_mutation(
 async def test_options_flow_keeps_recovery_form_when_no_idle_choice_is_known(
     hass: HomeAssistant, missing_state: bool, error: str
 ) -> None:
-    """Configure renders an authored recovery error, never an empty selector."""
+    """Configure renders an authored recovery error instead of its menu.
+
+    No page can be opened while the heads cannot be coordinated, so nothing
+    can be saved; the form has no fields to fill in.
+    """
     entry = MockConfigEntry(
         domain=DOMAIN,
         data=_VALID,
@@ -1474,19 +1479,15 @@ async def test_options_flow_keeps_recovery_form_when_no_idle_choice_is_known(
         if missing_state
         else "climate.primary, climate.secondary"
     )
-    assert not _form_has_field(result, CONF_IDLE_ACTION)
-    assert result["data_schema"]({})[CONF_DEMAND_THRESHOLD] == 4.0
+    assert fields(result) == []
     assert _entry_snapshot(entry) == before
 
     # A submit while the heads remain unresolved stays on the same actionable
     # public form and still cannot mutate stored data, options, or identity.
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_DEMAND_THRESHOLD: 5.0}
-    )
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
     assert result["step_id"] == "init"
     assert result["errors"] == {"base": error}
-    assert not _form_has_field(result, CONF_IDLE_ACTION)
-    assert result["data_schema"]({})[CONF_DEMAND_THRESHOLD] == 5.0
+    assert fields(result) == []
     assert _entry_snapshot(entry) == before
 
 
@@ -1508,19 +1509,15 @@ async def test_options_flow_preserves_incompatible_stored_idle_until_explicit_ch
     for entity_id in ("climate.primary", "climate.secondary"):
         _set_capabilities(hass, entity_id, hvac_modes=["off", "cool", "heat"])
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["step_id"] == "init"
+    result = await open_options_page(hass, entry, "fan_idle")
+    assert result["step_id"] == "fan_idle"
     assert _select_options(result, CONF_IDLE_ACTION) == [IDLE_ACTION_OFF]
-    idle_marker = next(
-        marker
-        for marker in result["data_schema"].schema
-        if marker.schema == CONF_IDLE_ACTION
-    )
+    idle_marker, _ = marker_of(result, CONF_IDLE_ACTION)
     assert idle_marker.default is vol.UNDEFINED
     assert _entry_snapshot(entry) == before
 
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_IDLE_ACTION: IDLE_ACTION_OFF}
+    result = await submit(
+        hass.config_entries.options, result, {CONF_IDLE_ACTION: IDLE_ACTION_OFF}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_IDLE_ACTION] == IDLE_ACTION_OFF
@@ -1542,10 +1539,7 @@ async def test_options_flow_merges_and_mirrors_to_data(hass: HomeAssistant) -> N
     )
     entry.add_to_hass(hass)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_DEMAND_THRESHOLD: 5.0}
-    )
+    result = await save_options(hass, entry, {CONF_DEMAND_THRESHOLD: 5.0})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     # merge: the un-submitted changeover_entity survives; the new value applies.
     assert result["data"][CONF_CHANGEOVER_ENTITY] == "weather.home"
@@ -1580,26 +1574,27 @@ async def test_options_flow_zone_override_folds_into_zones(hass: HomeAssistant) 
     )
     entry.add_to_hass(hass)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"primary_stage": "sensor.primary_stage"}
+    result = await save_options_page(
+        hass, entry, "room_1", {"stage": "sensor.primary_stage"}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     # Folded into the zones list, wired to the right zone only.
     assert entry.data[CONF_ZONES][0][ZONE_STAGE_SENSOR] == "sensor.primary_stage"
     assert ZONE_STAGE_SENSOR not in entry.data[CONF_ZONES][1]
     # Never stored flat (options or the data mirror).
-    assert "primary_stage" not in entry.options
-    assert "primary_stage" not in entry.data
+    for key in ("stage", "primary_stage", "freshness"):
+        assert key not in entry.options
+        assert key not in entry.data
 
 
 async def test_options_flow_clears_inhibit_entity(hass: HomeAssistant) -> None:
-    """A real submit with the standby-hold entity field cleared actually clears it.
+    """A Standby hold submit with the hold field cleared actually clears it.
 
-    The field is always rendered and a pre-filled value is submitted back, so an
-    absent key on a non-empty submit is a deliberate clear — the resilience merge
-    must not resurrect the old entity (in options OR the data mirror). The
-    coordinator then reads it as "no standby hold configured".
+    The page always renders the field and a pre-filled value is submitted back,
+    so an absent key on a non-empty submit is a deliberate clear — the
+    resilience merge must not resurrect the old entity (in options OR the data
+    mirror). The coordinator then reads it as "no standby hold configured".
+    Pages that don't show the field keep it (test_configure_menu).
     """
     from custom_components.mxz_coordinator.coordinator import MXZCoordinator
 
@@ -1611,27 +1606,29 @@ async def test_options_flow_clears_inhibit_entity(hass: HomeAssistant) -> None:
     )
     entry.add_to_hass(hass)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_DEMAND_THRESHOLD: 5.0}  # inhibit field cleared
-    )
+    result = await open_options_page(hass, entry, "standby")
+    assert _form_suggested(result, CONF_INHIBIT_ENTITY) == "binary_sensor.grid"
+    result = await submit(
+        hass.config_entries.options, result, {"inhibit_active_state": "off"}
+    )  # inhibit field cleared
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_INHIBIT_ENTITY] is None
     assert entry.data[CONF_INHIBIT_ENTITY] is None  # mirror cleared too
-    assert result["data"][CONF_DEMAND_THRESHOLD] == 5.0  # merge still merges
+    assert result["data"]["inhibit_active_state"] == "off"
+    assert result["data"][CONF_DEMAND_THRESHOLD] == 3.0  # merge still merges
 
     coordinator = MXZCoordinator(hass, entry)
     assert coordinator.inhibit_entity is None
 
 
 async def test_options_flow_refuses_empty(hass: HomeAssistant) -> None:
-    """An empty submit on an empty-options entry aborts instead of persisting {}."""
+    """An empty page submit on an empty-options entry aborts instead of persisting {}."""
     entry = MockConfigEntry(domain=DOMAIN, data=_VALID, title="MXZ Coordinator")
     entry.add_to_hass(hass)
     flow = MXZOptionsFlow()
     flow.hass = hass
     flow.handler = entry.entry_id
-    result = await flow.async_step_init(user_input={})
+    result = await flow.async_step_comfort(user_input={})
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "empty_options"
 
@@ -1684,11 +1681,10 @@ async def test_options_flow_clears_auto_detected_zone_override(
     )
     entry.add_to_hass(hass)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await open_options_page(hass, entry, "room_1")
+    assert _form_suggested(result, "vane_vertical") == "select.primary_vane"
     # Submit without the primary vane field — i.e. the user cleared it.
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_DEMAND_THRESHOLD: 3.0}
-    )
+    result = await submit(hass.config_entries.options, result, {})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     # The auto-detected vane is gone from the zone (cleared, not stuck).
     assert entry.data[CONF_ZONES][0].get(ZONE_VANE_VERTICAL) is None
@@ -1724,11 +1720,8 @@ async def test_options_flow_preserves_untouched_zone_override(
     )
     entry.add_to_hass(hass)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {CONF_DEMAND_THRESHOLD: 3.0, "primary_vane_vertical": "select.primary_vane"},
-    )
+    result = await open_options_page(hass, entry, "room_1")
+    result = await submit(hass.config_entries.options, result, prefilled(result))
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.data[CONF_ZONES][0][ZONE_VANE_VERTICAL] == "select.primary_vane"
 
@@ -1907,18 +1900,25 @@ async def test_options_flow_rejects_invalid_tuning_and_preserves_last_valid(
     entry.add_to_hass(hass)
     before = _entry_snapshot(entry)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], submission
-    )
+    result = await save_options(hass, entry, submission)
 
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "init"
-    assert result["errors"] == expected_errors
+    assert result["step_id"] == page_of(next(iter(submission)))
+    # A field inside a collapsed section reports on the section key (the
+    # frontend renders no field error inside a section), and that section
+    # re-opens; fields outside sections keep their own keys.
+    owner = {
+        field: key for key, owned in SECTION_FIELDS.items() for field in owned
+    }
+    assert result["errors"] == {
+        owner.get(field, field): error for field, error in expected_errors.items()
+    }
     assert _entry_snapshot(entry) == before
     # The rejected form still renders the field the user must correct.
     for field in expected_errors:
         assert _form_has_field(result, field)
+        if field in owner:
+            assert sections(result)[owner[field]].options["collapsed"] is False
 
 
 @pytest.mark.parametrize(
@@ -1963,10 +1963,7 @@ async def test_options_flow_accepts_boundary_tuning_values(
     entry = MockConfigEntry(domain=DOMAIN, data=_VALID, title="MXZ Coordinator")
     entry.add_to_hass(hass)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], submission
-    )
+    result = await save_options(hass, entry, submission)
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     key, value = next(iter(submission.items()))
@@ -1994,30 +1991,27 @@ async def test_options_flow_keeps_every_untouched_tunable_on_rejection(
     )
     entry.add_to_hass(hass)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_CLAMP_MIN: 90.0}  # above the stored clamp_max
+    result = await save_options(
+        hass, entry, {CONF_CLAMP_MIN: 90.0}  # above the stored clamp_max
     )
 
-    assert result["errors"] == {
-        CONF_CLAMP_MIN: "clamp_inverted",
-        CONF_CLAMP_MAX: "clamp_inverted",
-    }
+    # Both members sit in the setpoint range section, so the error is its.
+    assert result["errors"] == {"setpoint_range": "clamp_inverted"}
     assert dict(entry.options) == stored
 
 
 # --- M41: per-room sensor freshness profiles ---------------------------------
 
 
-def _freshness_submission(prefix: str, **overrides: object) -> dict[str, object]:
-    """Return one complete trusted sample-time profile for a room."""
+def _freshness_submission(**overrides: object) -> dict[str, object]:
+    """Return one complete trusted sample-time profile for a room page."""
     profile: dict[str, object] = {
-        f"{prefix}_report_interval": 60.0,
-        f"{prefix}_max_age": 180.0,
-        f"{prefix}_startup_grace": 180.0,
-        f"{prefix}_evidence_basis": "sample_timestamp",
-        f"{prefix}_sample_timestamp_attribute": "sampled_at",
-        f"{prefix}_sample_sequence_attribute": "",
+        "report_interval": 60.0,
+        "max_age": 180.0,
+        "startup_grace": 180.0,
+        "evidence_basis": "sample_timestamp",
+        "sample_timestamp_attribute": "sampled_at",
+        "sample_sequence_attribute": "",
     }
     profile.update(overrides)
     return profile
@@ -2034,10 +2028,7 @@ async def test_options_flow_round_trips_freshness_profile_into_zone_config(
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_ZONES: zones}, title="MXZ Coordinator")
     entry.add_to_hass(hass)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], _freshness_submission("primary")
-    )
+    result = await save_options_page(hass, entry, "room_1", _freshness_submission())
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     profile = entry.data[CONF_ZONES][0]
@@ -2077,9 +2068,9 @@ async def test_options_flow_displayed_minutes_reach_coordinator_deadline(
         {**state.attributes, "sampled_at": sample.isoformat()},
     )
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await open_options_page(hass, entry, "room_1")
     submitted = result["data_schema"](
-        _freshness_submission("primary", primary_startup_grace=90.0)
+        nest(result, _freshness_submission(startup_grace=90.0))
     )
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], submitted
@@ -2127,17 +2118,17 @@ async def test_options_profile_in_options_saves_and_reaches_consumer(
     entry.add_to_hass(hass)
     assert MXZCoordinator(hass, entry)._freshness["primary"] == (360.0, 360.0)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert _form_suggested(result, "primary_report_interval") == 2.0
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
+    result = await open_options_page(hass, entry, "room_1")
+    assert _form_suggested(result, "report_interval") == 2.0
+    result = await submit(
+        hass.config_entries.options,
+        result,
         _freshness_submission(
-            "primary",
-            primary_report_interval=1.0,
-            primary_max_age=3.0,
-            primary_startup_grace=2.0,
-            primary_evidence_basis="ha_state_write",
-            primary_sample_timestamp_attribute="",
+            report_interval=1.0,
+            max_age=3.0,
+            startup_grace=2.0,
+            evidence_basis="ha_state_write",
+            sample_timestamp_attribute="",
         ),
     )
 
@@ -2186,13 +2177,10 @@ async def test_options_profile_in_options_clears_and_reaches_consumer(
     )
     entry.add_to_hass(hass)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert (
-        _form_suggested(result, "primary_sample_sequence_attribute")
-        == "sample_sequence"
-    )
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"primary_evidence_basis": "unknown"}
+    result = await open_options_page(hass, entry, "room_1")
+    assert _form_suggested(result, "sample_sequence_attribute") == "sample_sequence"
+    result = await submit(
+        hass.config_entries.options, result, {"evidence_basis": "unknown"}
     )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -2215,7 +2203,10 @@ async def test_options_profile_in_options_clears_and_reaches_consumer(
 async def test_options_profile_in_options_rejection_is_atomic(
     hass: HomeAssistant,
 ) -> None:
-    """F2/F4: a later invalid field rolls back every effective-store change."""
+    """F2/F4: an invalid profile rolls back every change on its room page.
+
+    The page's wiring edit is refused with the profile, in both stores.
+    """
     option_zones = _zones("climate.primary", "climate.secondary")
     option_zones[0].update(
         {
@@ -2235,13 +2226,13 @@ async def test_options_profile_in_options_rejection_is_atomic(
     entry.add_to_hass(hass)
     before = _entry_snapshot(entry)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
+    result = await save_options_page(
+        hass,
+        entry,
+        "room_1",
         {
-            **_freshness_submission("primary", primary_report_interval=0.0),
-            **_freshness_submission("secondary"),
-            CONF_DEMAND_THRESHOLD: 5.0,
+            **_freshness_submission(report_interval=0.0),
+            "stage": "sensor.primary_stage",
         },
     )
 
@@ -2314,9 +2305,15 @@ async def test_reconfigure_review_discloses_effective_freshness_profiles(
 
 
 async def test_options_freshness_error_has_english_copy() -> None:
-    """F4: the one emitted profile error resolves in both English files."""
+    """F4: the one emitted profile error resolves in both English files.
+
+    The duration rules live in the room page's freshness section, and the
+    unit is minutes: shown in each duration box, so no label needs to say it.
+    """
     import json
     from pathlib import Path
+
+    from custom_components.mxz_coordinator.config_flow import _room_schema
 
     messages = []
     root = Path("custom_components/mxz_coordinator")
@@ -2325,30 +2322,34 @@ async def test_options_freshness_error_has_english_copy() -> None:
         message = data["options"]["error"]["freshness_profile_invalid"]
         assert "finite positive minutes" in message
         assert "Nothing was saved" in message
-        step = data["options"]["step"]["init"]
-        assert "three missed reports" in step["description"]
-        assert "explicit maximum age overrides" in step["description"]
-        duration_labels = [
-            value
-            for key, value in step["data"].items()
-            if key.endswith(("_report_interval", "_max_age", "_startup_grace"))
+        freshness = data["options"]["step"]["room"]["sections"]["freshness"]
+        assert "three missed reports" in freshness["description"]
+        assert "explicit maximum age overrides" in freshness["description"]
+        durations = ("report_interval", "max_age", "startup_grace")
+        assert all(freshness["data"][key] for key in durations)
+        assert not [
+            label
+            for label in freshness["data"].values()
+            if "seconds" in label or "hours" in label
         ]
-        assert len(duration_labels) == 24
-        assert all("minutes" in label for label in duration_labels)
-        assert all("seconds" not in label for label in duration_labels)
         messages.append(message)
     assert messages[0] == messages[1]
+
+    form = {"data_schema": _room_schema({})}
+    for key in ("report_interval", "max_age", "startup_grace"):
+        _, number = marker_of(form, key)
+        assert number.config["unit_of_measurement"] == "min", key
 
 
 @pytest.mark.parametrize(
     "submission",
     [
-        _freshness_submission("primary", primary_report_interval=0),
-        _freshness_submission("primary", primary_max_age=float("inf")),
-        _freshness_submission("primary", primary_max_age=30),
-        _freshness_submission("primary", primary_evidence_basis="not_a_basis"),
-        _freshness_submission("primary", primary_sample_timestamp_attribute="", primary_sample_sequence_attribute=""),
-        _freshness_submission("primary", primary_evidence_basis="ha_state_write"),
+        _freshness_submission(report_interval=0),
+        _freshness_submission(max_age=float("inf")),
+        _freshness_submission(max_age=30),
+        _freshness_submission(evidence_basis="not_a_basis"),
+        _freshness_submission(sample_timestamp_attribute="", sample_sequence_attribute=""),
+        _freshness_submission(evidence_basis="ha_state_write"),
     ],
     ids=["nonpositive", "nonfinite", "max_below_interval", "bad_basis", "missing_marker", "marker_for_ha_write"],
 )
@@ -2373,8 +2374,7 @@ async def test_options_flow_rejects_invalid_freshness_profile_without_mutation(
     entry.add_to_hass(hass)
     before = _entry_snapshot(entry)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(result["flow_id"], submission)
+    result = await save_options_page(hass, entry, "room_1", submission)
 
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "freshness_profile_invalid"}
@@ -2391,9 +2391,8 @@ async def test_options_flow_clears_freshness_profile_to_unknown_cadence(
     ]
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_ZONES: zones}, title="MXZ Coordinator")
     entry.add_to_hass(hass)
-    clear = {"primary_evidence_basis": "unknown"}
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(result["flow_id"], clear)
+    clear = {"evidence_basis": "unknown"}
+    result = await save_options_page(hass, entry, "room_1", clear)
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert not set(entry.data[CONF_ZONES][0]).intersection({ZONE_REPORT_INTERVAL, ZONE_MAX_AGE, ZONE_STARTUP_GRACE, ZONE_EVIDENCE_BASIS, ZONE_SAMPLE_TIMESTAMP_ATTR})
@@ -2424,23 +2423,18 @@ async def test_setup_flow_rejects_then_accepts_symmetrically_per_unit(
         result["flow_id"],
         {"sensor_1": "sensor.primary_temp", "sensor_2": "sensor.secondary_temp"},
     )
-    result = await _press(hass, result, "tuning")
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_CLAMP_MIN: clamp_max + 1.0}
-    )
+    result = await setup_tuning(hass, result, {CONF_CLAMP_MIN: clamp_max + 1.0})
 
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "tuning"
-    assert result["errors"] == {
-        CONF_CLAMP_MIN: "clamp_inverted",
-        CONF_CLAMP_MAX: "clamp_inverted",
-    }
+    assert result["step_id"] == "limits"
+    # Both members sit in the setpoint range section, so the error is its.
+    assert result["errors"] == {"setpoint_range": "clamp_inverted"}
     assert hass.config_entries.async_entries(DOMAIN) == []
 
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_CLAMP_MIN: clamp_max}
+    result = await submit(
+        hass.config_entries.flow, result, {CONF_CLAMP_MIN: clamp_max}
     )
-    result = await _press(hass, result, "finish")
+    result = await _press(hass, await _press(hass, result, "review"), "finish")
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["options"][CONF_CLAMP_MIN] == clamp_max
@@ -2463,10 +2457,11 @@ async def test_options_flow_validates_symmetrically_in_celsius(
     entry.add_to_hass(hass)
     before = _entry_snapshot(entry)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["data_schema"]({})[CONF_ECO_COOL_MAX] == defaults[CONF_ECO_COOL_MAX]
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
+    result = await open_options_page(hass, entry, "limits")
+    assert prefilled(result)[CONF_ECO_COOL_MAX] == defaults[CONF_ECO_COOL_MAX]
+    result = await submit(
+        hass.config_entries.options,
+        result,
         {CONF_ECO_HEAT_MIN: float(defaults[CONF_ECO_COOL_MAX]) + 1.0},
     )
     assert result["errors"] == {
@@ -2475,8 +2470,8 @@ async def test_options_flow_validates_symmetrically_in_celsius(
     }
     assert _entry_snapshot(entry) == before
 
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_ECO_HEAT_MIN: -5.0}
+    result = await submit(
+        hass.config_entries.options, result, {CONF_ECO_HEAT_MIN: -5.0}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_ECO_HEAT_MIN] == -5.0
@@ -2633,27 +2628,29 @@ async def test_options_ha_write_unused_marker_rejection_preserves_entry(
         options_owned,
     )
     before = _entry_snapshot(entry)
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    submission = result["data_schema"]({
-        "primary_report_interval": 2.0,
-        "primary_evidence_basis": "ha_state_write",
-        f"primary_{marker}": "previous_marker",
-        CONF_DEMAND_THRESHOLD: 4.0,
-    })
+    result = await open_options_page(hass, entry, "room_1")
+    flat = {
+        "report_interval": 2.0,
+        "evidence_basis": "ha_state_write",
+        marker: "previous_marker",
+        "stage": "sensor.primary_stage",
+    }
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], submission
+        result["flow_id"], result["data_schema"](nest(result, flat))
     )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "freshness_profile_invalid"}
     assert _entry_snapshot(entry) == before
     assert MXZCoordinator(hass, entry)._freshness == {"primary": (360.0, 360.0)}
     # Removing the marker permits the same form to save the accompanying edit.
-    submission.pop(f"primary_{marker}")
+    flat.pop(marker)
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], submission
+        result["flow_id"], result["data_schema"](nest(result, flat))
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.options[CONF_DEMAND_THRESHOLD] == 4.0
+    zones = {**entry.data, **entry.options}[CONF_ZONES]
+    assert zones[0][ZONE_STAGE_SENSOR] == "sensor.primary_stage"
+    assert entry.options[CONF_DEMAND_THRESHOLD] == 3.0
     assert entry.options["unrelated_option"] == "retained"
     assert MXZCoordinator(hass, entry)._freshness == {"primary": (360.0, 360.0)}
 

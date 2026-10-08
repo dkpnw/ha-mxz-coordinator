@@ -14,6 +14,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfTemperature
 from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 from homeassistant.util import dt as dt_util
@@ -544,22 +545,13 @@ def _sensors_schema(count: int, suggestions: list[str] | None = None) -> vol.Sch
     )
 
 
-def _zone_override_keys() -> set[str]:
-    """Every possible per-zone override key (flow-input-only, never stored flat).
-
-    Covers vane vertical/horizontal AND the airflow (stage) sensor: all fold
-    into the zones list, and a stale flat copy would shadow it in the
-    coordinator's {**data, **options} merge.
-    """
-    keys: set[str] = set()
-    for i in range(MAX_ZONES):
-        slug = zone_slug(i)
-        keys.add(f"{slug}_vane_vertical")
-        keys.add(f"{slug}_vane_horizontal")
-        keys.add(f"{slug}_stage")
-    return keys
-
-
+# A room page's wiring fields (flow key, zone key). Clearing one removes that
+# wiring from the room.
+_ROOM_WIRING_FIELDS = (
+    ("stage", ZONE_STAGE_SENSOR),
+    ("vane_vertical", ZONE_VANE_VERTICAL),
+    ("vane_horizontal", ZONE_VANE_HORIZONTAL),
+)
 _FRESHNESS_ZONE_FIELDS = (
     ("report_interval", ZONE_REPORT_INTERVAL),
     ("max_age", ZONE_MAX_AGE),
@@ -568,15 +560,217 @@ _FRESHNESS_ZONE_FIELDS = (
     ("sample_timestamp_attribute", ZONE_SAMPLE_TIMESTAMP_ATTR),
     ("sample_sequence_attribute", ZONE_SAMPLE_SEQUENCE_ATTR),
 )
+_FRESHNESS_SECTION = "freshness"
+
+# Configure and setup pages: (top-level fields, {section: fields}), in display
+# order. Every tunable sits on exactly one page, and each validated pair sits
+# on one page, so a page's own validation never needs a value it doesn't show.
+_PAGES: dict[str, tuple[tuple[str, ...], dict[str, tuple[str, ...]]]] = {
+    "comfort": (
+        (CONF_ENGAGE_DEADBAND, CONF_DEMAND_THRESHOLD, CONF_RESTING_MODE_BIAS),
+        {"advanced": (CONF_MODE_HYSTERESIS,)},
+    ),
+    "fan_idle": (
+        (
+            CONF_FAN_BOOST_ENABLE,
+            CONF_FAN_BOOST_MAX,
+            CONF_IDLE_ACTION,
+            CONF_COIL_DRY_MINUTES,
+        ),
+        {},
+    ),
+    "seasons": (
+        (
+            CONF_CHANGEOVER_ENTITY,
+            CONF_CHANGEOVER_HEAT_ABOVE,
+            CONF_CHANGEOVER_COOL_BELOW,
+        ),
+        {"safety": (CONF_HEAT_LOCKOUT_FLOOR, CONF_COOL_LOCKOUT_CEILING)},
+    ),
+    "limits": (
+        (CONF_ECO_HEAT_MIN, CONF_ECO_COOL_MAX),
+        {"setpoint_range": (CONF_CLAMP_MIN, CONF_CLAMP_MAX)},
+    ),
+    "standby": (
+        (CONF_INHIBIT_ENTITY, CONF_INHIBIT_ACTIVE_STATE, CONF_INHIBIT_ACTION),
+        {},
+    ),
+}
+# Page names as the menu shows them, for the Needs attention line.
+_PAGE_NAMES = {
+    "comfort": "Comfort",
+    "fan_idle": "Fan and idle",
+    "seasons": "Seasons",
+    "limits": "Away and setpoint limits",
+    "standby": "Standby hold",
+}
 
 
-def _freshness_profile_keys() -> set[str]:
-    """Return the flow-only freshness keys that fold into a zone record."""
-    return {
-        f"{zone_slug(index)}_{suffix}"
+def _page_fields(page: str) -> tuple[str, ...]:
+    """Every field one page shows, sections included."""
+    top, groups = _PAGES[page]
+    return top + tuple(field for fields in groups.values() for field in fields)
+
+
+def _flow_only_keys() -> frozenset[str]:
+    """Every key that is flow input only and must never be stored flat.
+
+    The section keys and the generic room-page keys of this flow, plus the
+    3.4.0 per-slot keys (``primary_vane_vertical`` …): those fold into the
+    zones list too, and a stale flat copy — still present in some old entries —
+    would shadow it in the coordinator's {**data, **options} merge.
+    """
+    room_keys = {key for key, _ in _ROOM_WIRING_FIELDS + _FRESHNESS_ZONE_FIELDS}
+    section_keys = {key for _, groups in _PAGES.values() for key in groups}
+    slot_keys = {
+        f"{zone_slug(index)}_{key}"
         for index in range(MAX_ZONES)
-        for suffix, _ in _FRESHNESS_ZONE_FIELDS
+        for key in room_keys
     }
+    return frozenset(room_keys | section_keys | slot_keys | {_FRESHNESS_SECTION})
+
+
+_FLOW_ONLY_KEYS = _flow_only_keys()
+
+
+def _flatten(user_input: dict[str, Any]) -> dict[str, Any]:
+    """Lift each section's nested fields to the top level.
+
+    The frontend submits ``{"advanced": {"mode_hysteresis": 600}}``; validation
+    and storage only ever see the flat field, never the section key.
+    """
+    flat: dict[str, Any] = {}
+    for key, value in user_input.items():
+        if isinstance(value, dict) and key in _FLOW_ONLY_KEYS:
+            flat.update(value)
+        else:
+            flat[key] = value
+    return flat
+
+
+def _errors_by_section(
+    groups: dict[str, tuple[str, ...]], errors: dict[str, str]
+) -> dict[str, str]:
+    """Report each error on a sectioned field on its section key instead.
+
+    The frontend does not render a field error inside a section on any
+    version; an error on the section key renders above the section.
+    """
+    owner = {field: key for key, fields in groups.items() for field in fields}
+    return {owner.get(field, field): error for field, error in errors.items()}
+
+
+def _page_schema(
+    union: vol.Schema, page: str, expanded: set[str] | frozenset[str] = frozenset()
+) -> vol.Schema:
+    """Pick one page's fields out of the full tunables schema.
+
+    Sections are collapsed unless named in ``expanded`` (one with an error),
+    and required: the frontend always submits a section, and an optional one
+    renders its defaults wrongly on some frontends.
+    """
+    by_key = {marker.schema: (marker, value) for marker, value in union.schema.items()}
+
+    def pick(fields: tuple[str, ...]) -> dict[Any, Any]:
+        # The idle field is absent when no idle mode is known; the page is
+        # blocked before it renders in that case.
+        return dict(by_key[field] for field in fields if field in by_key)
+
+    top, groups = _PAGES[page]
+    schema = pick(top)
+    for key, fields in groups.items():
+        schema[vol.Required(key)] = section(
+            vol.Schema(pick(fields)), {"collapsed": key not in expanded}
+        )
+    return vol.Schema(schema)
+
+
+def _page_form(
+    hass: HomeAssistant,
+    page: str,
+    values: dict[str, Any],
+    idle_options: tuple[str, ...],
+    errors: dict[str, str] | None = None,
+) -> tuple[vol.Schema, dict[str, str]]:
+    """One page's schema, pre-filled from ``values``, and its section errors.
+
+    Unset temperature tunables fall back to the system-unit profile; a saved
+    or just-submitted value always wins.
+    """
+    temperature_unit = str(hass.config.units.temperature_unit)
+    profile = unit_profile(temperature_unit == UnitOfTemperature.CELSIUS)
+    engage_min, engage_max = profile["engage_bounds"]
+    union = _tunables_schema(
+        {**profile["defaults"], **values},
+        engage_min,
+        engage_max,
+        idle_options,
+        temperature_unit=temperature_unit,
+    )
+    page_errors = _errors_by_section(_PAGES[page][1], errors or {})
+    return _page_schema(union, page, frozenset(page_errors)), page_errors
+
+
+def _room_view(zone: dict[str, Any]) -> dict[str, Any]:
+    """A stored zone as the room page's field values."""
+    view = {key: zone.get(zone_key) for key, zone_key in _ROOM_WIRING_FIELDS}
+    view.update(_zone_freshness_profile(zone))
+    return view
+
+
+def _room_schema(view: dict[str, Any], expanded: bool = False) -> vol.Schema:
+    """The room page: wiring at the top, the freshness profile in a section.
+
+    Suggested values show what is wired now, and an untouched field is
+    submitted back with its value, so only an explicit clear removes wiring.
+    """
+    freshness: dict[Any, Any] = {}
+    for key, _ in _FRESHNESS_ZONE_FIELDS:
+        if key == "evidence_basis":
+            # Custom values keep invalid raw API submissions inside this
+            # form, where M23 requires one diagnostic and no mutation.
+            freshness[vol.Optional(key, default=view.get(key) or "unknown")] = (
+                selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=list(EVIDENCE_BASES),
+                        custom_value=True,
+                        translation_key="evidence_basis",
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                )
+            )
+        elif key in {"sample_timestamp_attribute", "sample_sequence_attribute"}:
+            freshness[
+                vol.Optional(key, description={"suggested_value": view.get(key)})
+            ] = _ROOM_NAME_SELECTOR
+        else:
+            freshness[
+                vol.Optional(key, description={"suggested_value": view.get(key)})
+            ] = _num("min")
+    return vol.Schema(
+        {
+            vol.Optional(
+                "stage", description={"suggested_value": view.get("stage")}
+            ): _STAGE_SELECTOR,
+            vol.Optional(
+                "vane_vertical",
+                description={"suggested_value": view.get("vane_vertical")},
+            ): _VANE_SELECTOR,
+            vol.Optional(
+                "vane_horizontal",
+                description={"suggested_value": view.get("vane_horizontal")},
+            ): _VANE_SELECTOR,
+            vol.Required(_FRESHNESS_SECTION): section(
+                vol.Schema(freshness), {"collapsed": not expanded}
+            ),
+        }
+    )
+
+
+def _room_name(zone: dict[str, Any], index: int) -> str:
+    """The name a room is shown by: its stored name, else its head."""
+    name = zone.get(ZONE_NAME)
+    return name if isinstance(name, str) and name else str(zone.get(ZONE_CLIMATE) or zone_slug(index))
 
 
 def _freshness_error(profile: dict[str, Any]) -> str | None:
@@ -699,72 +893,14 @@ def _freshness_summary(zone: dict[str, Any]) -> str:
     return "Cadence: " + "; ".join(parts) + "."
 
 
-def _num() -> selector.NumberSelector:
-    return selector.NumberSelector(
-        selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
+def _num(unit: str | None = None) -> selector.NumberSelector:
+    """A free number box; ``unit`` is shown in the box, display only."""
+    config = selector.NumberSelectorConfig(
+        mode=selector.NumberSelectorMode.BOX, step="any"
     )
-
-
-def _options_schema(
-    current: dict[str, Any],
-    celsius: bool,
-    zones: list[dict[str, Any]],
-    idle_options: tuple[str, ...],
-) -> vol.Schema:
-    # Unset temperature tunables fall back to the system-unit profile (clean
-    # metric values on a °C system, the legacy °F values otherwise); an
-    # already-saved value always wins. Non-temperature keys aren't in the
-    # profile, so they fall through to their plain DEFAULT_* below.
-    profile = unit_profile(celsius)
-    eff = {**profile["defaults"], **current}
-    engage_min, engage_max = profile["engage_bounds"]
-
-    # Vane selects + the airflow (stage) sensor are auto-detected at setup;
-    # expose per-zone overrides (suggested_value shows what's currently wired).
-    zone_fields: dict[Any, Any] = {}
-    for i, zone in enumerate(zones):
-        slug = zone_slug(i)
-        zone_fields[
-            vol.Optional(
-                f"{slug}_vane_vertical",
-                description={"suggested_value": zone.get(ZONE_VANE_VERTICAL)},
-            )
-        ] = _VANE_SELECTOR
-        zone_fields[
-            vol.Optional(
-                f"{slug}_vane_horizontal",
-                description={"suggested_value": zone.get(ZONE_VANE_HORIZONTAL)},
-            )
-        ] = _VANE_SELECTOR
-        zone_fields[
-            vol.Optional(
-                f"{slug}_stage",
-                description={"suggested_value": zone.get(ZONE_STAGE_SENSOR)},
-            )
-        ] = _STAGE_SELECTOR
-        profile = _zone_freshness_profile(zone)
-        for suffix, _ in _FRESHNESS_ZONE_FIELDS:
-            key = f"{slug}_{suffix}"
-            if suffix == "evidence_basis":
-                # Custom values keep invalid raw API submissions inside this
-                # form, where M23 requires one diagnostic and no mutation.
-                zone_fields[vol.Optional(key, default=profile.get(suffix, "unknown"))] = (
-                    selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=list(EVIDENCE_BASES),
-                            custom_value=True,
-                            mode=selector.SelectSelectorMode.DROPDOWN,
-                        )
-                    )
-                )
-            elif suffix in {"sample_timestamp_attribute", "sample_sequence_attribute"}:
-                zone_fields[vol.Optional(key, description={"suggested_value": profile.get(suffix)})] = _ROOM_NAME_SELECTOR
-            else:
-                zone_fields[vol.Optional(key, description={"suggested_value": profile.get(suffix)})] = _num()
-
-    return _tunables_schema(
-        eff, engage_min, engage_max, idle_options
-    ).extend(zone_fields)
+    if unit:
+        config["unit_of_measurement"] = unit
+    return selector.NumberSelector(config)
 
 
 # Duration/magnitude tunables where a negative value is meaningless. Temperature
@@ -866,7 +1002,14 @@ def _tunables_schema(
     engage_min: float,
     engage_max: float,
     idle_options: tuple[str, ...] = IDLE_ACTION_OPTIONS,
+    *,
+    temperature_unit: str | None = None,
 ) -> vol.Schema:
+    """Every tunable, as one schema: setup's and Configure's pages pick from it.
+
+    ``temperature_unit`` labels the temperature boxes (display only). Stored
+    values are the same with or without it.
+    """
     idle_action = eff.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION)
     idle_field: dict[vol.Marker, selector.SelectSelector] = {}
     if idle_options:
@@ -887,7 +1030,7 @@ def _tunables_schema(
             vol.Optional(
                 CONF_DEMAND_THRESHOLD,
                 default=eff.get(CONF_DEMAND_THRESHOLD, DEFAULT_DEMAND_THRESHOLD),
-            ): _num(),
+            ): _num(temperature_unit),
             vol.Optional(
                 CONF_ENGAGE_DEADBAND,
                 default=eff.get(CONF_ENGAGE_DEADBAND, DEFAULT_ENGAGE_DEADBAND),
@@ -897,28 +1040,29 @@ def _tunables_schema(
                     min=engage_min,
                     max=engage_max,
                     step=engage_min / 2,
+                    **({"unit_of_measurement": temperature_unit} if temperature_unit else {}),
                 )
             ),
             vol.Optional(
                 CONF_MODE_HYSTERESIS,
                 default=eff.get(CONF_MODE_HYSTERESIS, DEFAULT_MODE_HYSTERESIS),
-            ): _num(),
+            ): _num("s"),
             vol.Optional(
                 CONF_ECO_COOL_MAX,
                 default=eff.get(CONF_ECO_COOL_MAX, DEFAULT_ECO_COOL_MAX),
-            ): _num(),
+            ): _num(temperature_unit),
             vol.Optional(
                 CONF_ECO_HEAT_MIN,
                 default=eff.get(CONF_ECO_HEAT_MIN, DEFAULT_ECO_HEAT_MIN),
-            ): _num(),
+            ): _num(temperature_unit),
             vol.Optional(
                 CONF_CLAMP_MIN,
                 default=eff.get(CONF_CLAMP_MIN, DEFAULT_CLAMP_MIN),
-            ): _num(),
+            ): _num(temperature_unit),
             vol.Optional(
                 CONF_CLAMP_MAX,
                 default=eff.get(CONF_CLAMP_MAX, DEFAULT_CLAMP_MAX),
-            ): _num(),
+            ): _num(temperature_unit),
             vol.Optional(
                 CONF_RESTING_MODE_BIAS,
                 default=eff.get(
@@ -936,13 +1080,13 @@ def _tunables_schema(
                 default=eff.get(
                     CONF_HEAT_LOCKOUT_FLOOR, DEFAULT_HEAT_LOCKOUT_FLOOR
                 ),
-            ): _num(),
+            ): _num(temperature_unit),
             vol.Optional(
                 CONF_COOL_LOCKOUT_CEILING,
                 default=eff.get(
                     CONF_COOL_LOCKOUT_CEILING, DEFAULT_COOL_LOCKOUT_CEILING
                 ),
-            ): _num(),
+            ): _num(temperature_unit),
             vol.Optional(
                 CONF_CHANGEOVER_ENTITY,
                 description={"suggested_value": eff.get(CONF_CHANGEOVER_ENTITY)},
@@ -954,13 +1098,13 @@ def _tunables_schema(
                 default=eff.get(
                     CONF_CHANGEOVER_HEAT_ABOVE, DEFAULT_CHANGEOVER_HEAT_ABOVE
                 ),
-            ): _num(),
+            ): _num(temperature_unit),
             vol.Optional(
                 CONF_CHANGEOVER_COOL_BELOW,
                 default=eff.get(
                     CONF_CHANGEOVER_COOL_BELOW, DEFAULT_CHANGEOVER_COOL_BELOW
                 ),
-            ): _num(),
+            ): _num(temperature_unit),
             vol.Optional(
                 CONF_INHIBIT_ENTITY,
                 description={"suggested_value": eff.get(CONF_INHIBIT_ENTITY)},
@@ -989,7 +1133,7 @@ def _tunables_schema(
             vol.Optional(
                 CONF_COIL_DRY_MINUTES,
                 default=eff.get(CONF_COIL_DRY_MINUTES, DEFAULT_COIL_DRY_MINUTES),
-            ): _num(),
+            ): _num("min"),
             vol.Optional(
                 CONF_FAN_BOOST_ENABLE,
                 default=eff.get(
@@ -1002,11 +1146,98 @@ def _tunables_schema(
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=list(FAN_LADDER),
+                    translation_key="fan_speed",
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
         }
     )
+
+
+# The Needs attention line's words for a stored value that fails validation.
+# Labels match the page field labels in strings.json (a test holds them
+# together); pairs get one sentence, because either value can be the wrong one.
+_FIELD_LABELS = {
+    CONF_ENGAGE_DEADBAND: "Allowed drift",
+    CONF_DEMAND_THRESHOLD: "Mode switch threshold",
+    CONF_MODE_HYSTERESIS: "Minimum time between mode switches",
+    CONF_COIL_DRY_MINUTES: "Coil drying time",
+    CONF_CHANGEOVER_HEAT_ABOVE: "Lock out heat when the high is at least",
+    CONF_CHANGEOVER_COOL_BELOW: "Lock out cool when the high is at most",
+    CONF_HEAT_LOCKOUT_FLOOR: "Heat anyway below",
+    CONF_COOL_LOCKOUT_CEILING: "Cool anyway above",
+    CONF_ECO_HEAT_MIN: "Away low limit",
+    CONF_ECO_COOL_MAX: "Away high limit",
+    CONF_CLAMP_MIN: "Lowest setpoint",
+    CONF_CLAMP_MAX: "Highest setpoint",
+}
+_PAIR_ATTENTION = {
+    "eco_band_inverted": "the saved away low limit is above the away high limit",
+    "clamp_inverted": "the saved lowest setpoint is above the highest setpoint",
+    "lockout_inverted": 'the saved "Heat anyway below" is above "Cool anyway above"',
+    "changeover_inverted": (
+        "the saved cool lockout temperature isn't below the heat lockout"
+        " temperature"
+    ),
+}
+
+
+def _attention(
+    hass: HomeAssistant,
+    heads: list[str],
+    conf: dict[str, Any],
+    zones: list[dict[str, Any]],
+) -> str:
+    """Name each stored value a save of its page would now refuse.
+
+    Pages validate only what they show, so a value stored by an older version
+    (or made invalid by a head losing a mode) does not block the other pages.
+    This line is how the user still finds out, and where to fix it. Empty when
+    everything is fine.
+    """
+    items: list[str] = []
+    idle_action = conf.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION)
+    if (problem := head_mode_problem(hass, heads, idle_action)) is not None:
+        placeholders = problem[1]
+        items.append(
+            f"the saved idle action *{placeholders['idle_action']}* isn't"
+            f" supported by {placeholders['unsupported_heads']}."
+            " Open Fan and idle to choose another."
+        )
+    stored = {
+        field: conf[field]
+        for page in _PAGES
+        for field in _page_fields(page)
+        if conf.get(field) is not None
+    }
+    errors = _validate_tunables(stored)
+    reported: set[str] = set()
+    for page in _PAGES:
+        for field in _page_fields(page):
+            error = errors.get(field)
+            if error is None or error in reported:
+                continue
+            if error in _PAIR_ATTENTION:
+                reported.add(error)
+                problem_text = _PAIR_ATTENTION[error]
+            elif error == "must_not_be_negative":
+                problem_text = f'the saved "{_FIELD_LABELS[field]}" is negative'
+            else:
+                problem_text = f'the saved "{_FIELD_LABELS[field]}" isn\'t a number'
+            items.append(f"{problem_text}. Open {_PAGE_NAMES[page]} to fix it.")
+    for index, zone in enumerate(zones):
+        profile = _zone_freshness_profile(zone)
+        if profile and _freshness_error(profile):
+            name = _room_name(zone, index)
+            items.append(
+                f"the saved sensor freshness for {name} doesn't fit together."
+                f" Open Rooms, then {name}, to fix it."
+            )
+    if not items:
+        return ""
+    if len(items) == 1:
+        return f"**Needs attention:** {items[0]}"
+    return "**Needs attention:**\n" + "\n".join(f"- {item}" for item in items)
 
 
 class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -1219,27 +1450,41 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             )
         return zones
 
-    def _default_tunables(self) -> dict[str, Any] | None:
-        """The option set a submit-as-is of the advanced step would produce.
+    def _default_tunables(
+        self, idle_options: tuple[str, ...] | None = None
+    ) -> dict[str, Any] | None:
+        """The option set submitting every advanced page untouched produces.
 
-        Built by validating an EMPTY submission against the very schema that
-        step would have rendered, so skipping advanced and accepting its
+        Built by validating an EMPTY submission against the full tunables
+        schema the pages are cut from, so skipping advanced and accepting its
         defaults are the same values by construction rather than by a second
         hand-written list that could drift. Returns None when the schema cannot
         fill itself — the M12 case where no head advertises the default parking
-        mode, so the choice has to be made explicitly.
+        mode, so the choice has to be made explicitly. With no ``idle_options``
+        the idle field is left out, so that case still has every other default.
         """
         profile = unit_profile(
             self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
         )
         engage_min, engage_max = profile["engage_bounds"]
-        idle_options = supported_idle_actions(self.hass, self._heads)
+        if idle_options is None:
+            idle_options = supported_idle_actions(self.hass, self._heads)
         try:
             return _tunables_schema(
                 profile["defaults"], engage_min, engage_max, idle_options
             )({})
         except vol.Invalid:
             return None
+
+    def _tunables_base(self) -> dict[str, Any]:
+        """The answers an advanced page edits: earlier answers, else defaults.
+
+        In the M12 case the idle choice is simply absent until Fan and idle
+        supplies it; the save sends the user there.
+        """
+        if self._tunables is not None:
+            return self._tunables
+        return self._default_tunables() or self._default_tunables(()) or {}
 
     def _summary(self) -> str:
         """The review screen's body: everything about to be saved, in order."""
@@ -1342,21 +1587,22 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 description_placeholders=placeholders,
             )
         tunables = self._tunables
-        if tunables is None and (tunables := self._default_tunables()) is None:
-            # M12: the stored default parking mode is not advertised by every
-            # head, so advanced is not skippable. Say which choice is missing
-            # instead of saving something a head cannot do.
-            return await self.async_step_tuning()
-        if head_mode_problem(
+        if tunables is None:
+            tunables = self._tunables_base()
+        if problem := head_mode_problem(
             self.hass, self._heads, tunables.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION)
         ):
-            # An advanced answer given earlier is only final if it still fits
-            # the heads being saved: a head can drop the parking mode while the
+            # Two cases land here, and both open Fan and idle with the idle
+            # error on its own field and every other answer kept. M12: no head
+            # advertises the default parking mode, so advanced is not skippable.
+            # And an answer given earlier is only final if it still fits the
+            # heads being saved: a head can drop the parking mode while the
             # review screen is open, and going back can swap the heads out from
-            # under the answer. Re-ask the advanced step with those same answers
-            # so it raises its own idle error, on its own field, and keeps every
-            # answer that is still valid.
-            return await self.async_step_tuning(tunables)
+            # under the answer.
+            error, placeholders = problem
+            return self._show_setup_page(
+                "fan_idle", tunables, {CONF_IDLE_ACTION: error}, placeholders
+            )
         data: dict[str, Any] = {CONF_ZONES: self._zones, **tunables}
         if self._notify:
             data[CONF_NOTIFY_SERVICE] = self._notify
@@ -1369,73 +1615,96 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_tuning(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Advanced: every tunable, pre-filled with unit-appropriate defaults.
+        """Advanced: a menu of the same pages Configure shows, and back.
 
-        Reached only from the review screen, and it returns there — this step
-        no longer creates the entry. Nothing here is required; the same values
-        stay editable later via the integration's Configure dialog.
+        Reached only from the review screen. A page's answers are kept here
+        until Save, never saved by the page; the same values stay editable
+        later via the integration's Configure dialog.
         """
         if problem := head_mode_problem(self.hass, self._heads):
             error, placeholders = problem
             return self._back_to_user(error, placeholders)
-        idle_options = supported_idle_actions(self.hass, self._heads)
-        profile = unit_profile(
-            self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+        return self.async_show_menu(
+            step_id="tuning", menu_options=[*_PAGES, "review"]
         )
-        engage_min, engage_max = profile["engage_bounds"]
-        if user_input is not None:
-            idle_action = user_input.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION)
-            if problem := head_mode_problem(self.hass, self._heads, idle_action):
-                error, placeholders = problem
-                return self.async_show_form(
-                    step_id="tuning",
-                    data_schema=_tunables_schema(
-                        {**profile["defaults"], **user_input},
-                        engage_min,
-                        engage_max,
-                        idle_options,
-                    ),
-                    errors={CONF_IDLE_ACTION: error},
-                    description_placeholders=placeholders,
-                )
-            if tuning_errors := _validate_tunables(user_input):
-                return self.async_show_form(
-                    step_id="tuning",
-                    data_schema=_tunables_schema(
-                        {**profile["defaults"], **user_input},
-                        engage_min,
-                        engage_max,
-                        idle_options,
-                    ),
-                    errors=tuning_errors,
-                )
-            self._tunables = dict(user_input)
-            return await self.async_step_review()
 
-        errors: dict[str, str] = {}
-        placeholders: dict[str, str] | None = None
-        # Arrived here from "Save and finish" when the schema could not fill the
-        # parking mode itself: name the missing choice on the field that needs it.
-        if (
-            self._tunables is None
-            and self._default_tunables() is None
-            and (problem := head_mode_problem(
-                self.hass, self._heads, DEFAULT_IDLE_ACTION
-            ))
-        ):
-            error, placeholders = problem
-            errors[CONF_IDLE_ACTION] = error
+    async def async_step_comfort(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._async_setup_page("comfort", user_input)
+
+    async def async_step_fan_idle(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._async_setup_page("fan_idle", user_input)
+
+    async def async_step_seasons(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._async_setup_page("seasons", user_input)
+
+    async def async_step_limits(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._async_setup_page("limits", user_input)
+
+    async def async_step_standby(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._async_setup_page("standby", user_input)
+
+    def _show_setup_page(
+        self,
+        page: str,
+        values: dict[str, Any],
+        errors: dict[str, str] | None = None,
+        placeholders: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
+        schema, page_errors = _page_form(
+            self.hass,
+            page,
+            values,
+            supported_idle_actions(self.hass, self._heads),
+            errors,
+        )
         return self.async_show_form(
-            step_id="tuning",
-            data_schema=_tunables_schema(
-                {**profile["defaults"], **(self._tunables or {})},
-                engage_min,
-                engage_max,
-                idle_options,
-            ),
-            errors=errors,
+            step_id=page,
+            data_schema=schema,
+            errors=page_errors,
             description_placeholders=placeholders,
         )
+
+    async def _async_setup_page(
+        self, page: str, user_input: dict[str, Any] | None
+    ) -> ConfigFlowResult:
+        """One advanced page: validate what it shows, keep it, back to the menu."""
+        if problem := head_mode_problem(self.hass, self._heads):
+            error, placeholders = problem
+            return self._back_to_user(error, placeholders)
+        base = self._tunables_base()
+        if user_input is None:
+            return self._show_setup_page(page, base)
+        values = _flatten(user_input)
+        shown = {**base, **values}
+        if CONF_IDLE_ACTION in values and (
+            problem := head_mode_problem(
+                self.hass, self._heads, values[CONF_IDLE_ACTION]
+            )
+        ):
+            error, placeholders = problem
+            return self._show_setup_page(
+                page, shown, {CONF_IDLE_ACTION: error}, placeholders
+            )
+        if tuning_errors := _validate_tunables(values):
+            return self._show_setup_page(page, shown, tuning_errors)
+        # The page replaces its own answers whole: a field it shows and the
+        # user emptied (the optional entity pickers) is gone, as it was when
+        # one form replaced them all.
+        self._tunables = {
+            **{k: v for k, v in base.items() if k not in _page_fields(page)},
+            **values,
+        }
+        return await self.async_step_tuning()
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
@@ -1791,172 +2060,269 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class MXZOptionsFlow(OptionsFlow):
-    """Tune the constants that were hardcoded in the YAML package."""
+    """Configure: a menu of pages, each saved on its own.
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    Each page validates and saves only the fields it shows, then closes the
+    dialog with one entry update (one reload). Stored values a page does not
+    show are never touched by it; the menu's Needs attention line names any
+    stored value that the page owning it would now refuse.
+    """
+
+    _room_index = 0
+
+    def _zones_and_heads(self) -> tuple[list[dict[str, Any]], list[str]]:
         zones = _effective_zones(self.config_entry)
         heads = [zone[ZONE_CLIMATE] for zone in zones]
         if not heads:
             heads = sorted(_entry_heads(self.config_entry))
-        current = {
-            **self.config_entry.data,
-            **self.config_entry.options,
-            **(user_input or {}),
-        }
-        celsius = (
-            self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
-        )
-        if problem := head_mode_problem(self.hass, heads):
-            error, placeholders = problem
-            return self.async_show_form(
-                step_id="init",
-                data_schema=_options_schema(current, celsius, zones, ()),
-                errors={"base": error},
-                description_placeholders=placeholders,
-            )
-        idle_options = supported_idle_actions(self.hass, heads)
-        override_keys = _zone_override_keys()
-        freshness_keys = _freshness_profile_keys()
-        if user_input is not None:
-            idle_action = user_input.get(
-                CONF_IDLE_ACTION,
-                {**self.config_entry.data, **self.config_entry.options}.get(
-                    CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION
-                ),
-            )
-            if problem := head_mode_problem(self.hass, heads, idle_action):
-                error, placeholders = problem
-                return self.async_show_form(
-                    step_id="init",
-                    data_schema=_options_schema(
-                        current, celsius, zones, idle_options
-                    ),
-                    errors={CONF_IDLE_ACTION: error},
-                    description_placeholders=placeholders,
-                )
-            if tuning_errors := _validate_tunables(user_input):
-                return self.async_show_form(
-                    step_id="init",
-                    data_schema=_options_schema(
-                        current, celsius, zones, idle_options
-                    ),
-                    errors=tuning_errors,
-                )
-            for i, zone in enumerate(zones):
-                slug = zone_slug(i)
-                profile = {
-                    suffix: user_input.get(f"{slug}_{suffix}")
-                    for suffix, _ in _FRESHNESS_ZONE_FIELDS
-                }
-                if _freshness_error(profile):
-                    return self.async_show_form(
-                        step_id="init",
-                        data_schema=_options_schema(
-                            current, celsius, zones, idle_options
-                        ),
-                        errors={"base": "freshness_profile_invalid"},
-                    )
-            # Per-zone vane + airflow-sensor overrides are flow-input-only: fold
-            # them into the zones list in entry.data, never store them as flat
-            # keys (a stale flat key would shadow the zones list in the
-            # coordinator's {**data, **options} merge).
-            #
-            # Every override field is rendered for every zone (see
-            # _options_schema), and a pre-filled field the user leaves untouched
-            # is submitted with its value. So an ABSENT/empty key means the user
-            # cleared that field -> drop it from the zone. The old behavior
-            # skipped absent keys, so a cleared override could never be removed:
-            # an auto-detected vane/stage stuck forever, even on heads that have
-            # no vane (e.g. a ducted air handler advertising a phantom vane).
-            for i, zone in enumerate(zones):
-                slug = zone_slug(i)
-                for suffix, zkey in (
-                    ("vane_vertical", ZONE_VANE_VERTICAL),
-                    ("vane_horizontal", ZONE_VANE_HORIZONTAL),
-                    ("stage", ZONE_STAGE_SENSOR),
-                ):
-                    if value := user_input.get(f"{slug}_{suffix}"):
-                        zone[zkey] = value
-                    else:
-                        zone.pop(zkey, None)
-                # A complete all-empty profile is an explicit return to
-                # unknown cadence.  Otherwise preserve the submitted values
-                # byte-for-byte under M36's existing zone keys.
-                profile = {
-                    suffix: user_input.get(f"{slug}_{suffix}")
-                    for suffix, _ in _FRESHNESS_ZONE_FIELDS
-                }
-                empty_profile = (
-                    profile["evidence_basis"] in (None, "", "unknown")
-                    and all(
-                        profile[suffix] in (None, "")
-                        for suffix in (
-                            "report_interval",
-                            "max_age",
-                            "startup_grace",
-                            "sample_timestamp_attribute",
-                            "sample_sequence_attribute",
-                        )
-                    )
-                )
-                for suffix, zkey in _FRESHNESS_ZONE_FIELDS:
-                    value = profile[suffix]
-                    if empty_profile or value in (None, ""):
-                        zone.pop(zkey, None)
-                    else:
-                        zone[zkey] = value
-            tunables = {
-                k: v
-                for k, v in user_input.items()
-                if k not in override_keys and k not in freshness_keys
-            }
-            # The standby-hold entity is clearable the same way the zone
-            # overrides are: the field is always rendered, a pre-filled value
-            # the user leaves alone is submitted back, so an absent/empty key
-            # on a real (non-empty) submit means the user cleared it. Write an
-            # explicit None so the resilience merge below doesn't resurrect the
-            # old entity — and note the failure direction is safe: losing this
-            # key means "no standby hold", i.e. normal coordination. A
-            # degenerate empty submit (schema bypass) still wipes nothing.
-            if user_input and not user_input.get(CONF_INHIBIT_ENTITY):
-                tunables[CONF_INHIBIT_ENTITY] = None
-            # Resilience: MERGE onto the existing options (a partial/empty submit
-            # must never wipe the rest) and refuse to persist an empty set. Also
-            # MIRROR the tuned config into entry.data — the coordinator reads
-            # {**data, **options}, so if anything clears options out-of-band the
-            # config self-recovers from the data mirror instead of silently
-            # reverting to defaults. Legacy flat vane keys are scrubbed from
-            # both stores (the zones list is authoritative now).
-            merged = {
-                k: v
-                for k, v in {**self.config_entry.options, **tunables}.items()
-                if k not in override_keys
-            }
-            # If options already owns the effective zones list, update that
-            # mirror too so its old profile cannot shadow this save or clear.
-            if zones and CONF_ZONES in self.config_entry.options:
-                merged[CONF_ZONES] = [dict(zone) for zone in zones]
-            if not merged and not zones:
-                return self.async_abort(reason="empty_options")
-            data = {
-                k: v
-                for k, v in {**self.config_entry.data, **merged}.items()
-                if k not in override_keys
-            }
-            if zones:
-                data[CONF_ZONES] = zones
-            # ONE combined update: writing data and options separately fired
-            # the update listener twice -> two full back-to-back entry reloads
-            # per options save (#14's compute-burst trigger). With options
-            # already set here, the create_entry below is a no-change update
-            # and fires nothing.
-            self.hass.config_entries.async_update_entry(
-                self.config_entry, data=data, options=merged
-            )
-            return self.async_create_entry(title="", data=merged)
+        return zones, heads
+
+    def _blocked(self, error: str, placeholders: dict[str, str]) -> ConfigFlowResult:
+        """The heads cannot be coordinated: say why, offer nothing to save.
+
+        A form with no fields at ``init``: submitting it asks again, and once
+        the heads are fixed the same dialog continues to the menu. The error
+        says everything, so the step's {attention} line stays empty.
+        """
         return self.async_show_form(
             step_id="init",
-            data_schema=_options_schema(current, celsius, zones, idle_options),
+            data_schema=vol.Schema({}),
+            errors={"base": error},
+            description_placeholders={**placeholders, "attention": ""},
         )
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        zones, heads = self._zones_and_heads()
+        if problem := head_mode_problem(self.hass, heads):
+            error, placeholders = problem
+            return self._blocked(error, placeholders)
+        conf = {**self.config_entry.data, **self.config_entry.options}
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=[*_PAGES, *(["rooms"] if zones else [])],
+            description_placeholders={
+                "attention": _attention(self.hass, heads, conf, zones)
+            },
+        )
+
+    async def async_step_comfort(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._async_page("comfort", user_input)
+
+    async def async_step_fan_idle(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._async_page("fan_idle", user_input)
+
+    async def async_step_seasons(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._async_page("seasons", user_input)
+
+    async def async_step_limits(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._async_page("limits", user_input)
+
+    async def async_step_standby(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._async_page("standby", user_input)
+
+    async def _async_page(
+        self, page: str, user_input: dict[str, Any] | None
+    ) -> ConfigFlowResult:
+        zones, heads = self._zones_and_heads()
+        if problem := head_mode_problem(self.hass, heads):
+            error, placeholders = problem
+            return self._blocked(error, placeholders)
+        idle_options = supported_idle_actions(self.hass, heads)
+        conf = {**self.config_entry.data, **self.config_entry.options}
+        values = _flatten(user_input or {})
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] | None = None
+        if user_input is not None:
+            # The idle field is only on Fan and idle, and is always submitted
+            # there; a page that doesn't show it doesn't check it (the menu's
+            # Needs attention line does).
+            if CONF_IDLE_ACTION in values and (
+                problem := head_mode_problem(self.hass, heads, values[CONF_IDLE_ACTION])
+            ):
+                error, placeholders = problem
+                errors = {CONF_IDLE_ACTION: error}
+            else:
+                errors = _validate_tunables(values)
+            if not errors:
+                tunables = dict(values)
+                # The standby-hold entity is clearable: this page always
+                # renders it and a pre-filled value the user leaves alone is
+                # submitted back, so an absent/empty key here means the user
+                # cleared it. Write an explicit None so the merge doesn't
+                # resurrect the old entity — and the failure direction is
+                # safe: losing it means "no standby hold", i.e. normal
+                # coordination. Only on this page: every other page never
+                # shows the field, so its absence there means nothing. A
+                # degenerate empty submit (schema bypass) still wipes nothing.
+                if page == "standby" and values and not values.get(CONF_INHIBIT_ENTITY):
+                    tunables[CONF_INHIBIT_ENTITY] = None
+                return self._save(tunables, zones)
+        schema, page_errors = _page_form(
+            self.hass, page, {**conf, **values}, idle_options, errors
+        )
+        return self.async_show_form(
+            step_id=page,
+            data_schema=schema,
+            errors=page_errors,
+            description_placeholders=placeholders,
+        )
+
+    async def async_step_rooms(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Pick a room. Room names reach the menu as placeholders, which the
+        frontend supports on menu labels on every version this integration
+        runs on (field labels and section names only from 2025.5)."""
+        zones, heads = self._zones_and_heads()
+        if problem := head_mode_problem(self.hass, heads):
+            error, placeholders = problem
+            return self._blocked(error, placeholders)
+        placeholders = {}
+        for index, zone in enumerate(zones):
+            placeholders[f"room_{index + 1}"] = _room_name(zone, index)
+            placeholders[f"head_{index + 1}"] = str(zone.get(ZONE_CLIMATE))
+        return self.async_show_menu(
+            step_id="rooms",
+            menu_options=[f"room_{index + 1}" for index in range(len(zones))]
+            + ["init"],
+            description_placeholders=placeholders,
+        )
+
+    async def _async_open_room(self, index: int) -> ConfigFlowResult:
+        self._room_index = index
+        return await self.async_step_room()
+
+    async def async_step_room_1(self, user_input: Any = None) -> ConfigFlowResult:
+        return await self._async_open_room(0)
+
+    async def async_step_room_2(self, user_input: Any = None) -> ConfigFlowResult:
+        return await self._async_open_room(1)
+
+    async def async_step_room_3(self, user_input: Any = None) -> ConfigFlowResult:
+        return await self._async_open_room(2)
+
+    async def async_step_room_4(self, user_input: Any = None) -> ConfigFlowResult:
+        return await self._async_open_room(3)
+
+    async def async_step_room_5(self, user_input: Any = None) -> ConfigFlowResult:
+        return await self._async_open_room(4)
+
+    async def async_step_room_6(self, user_input: Any = None) -> ConfigFlowResult:
+        return await self._async_open_room(5)
+
+    async def async_step_room_7(self, user_input: Any = None) -> ConfigFlowResult:
+        return await self._async_open_room(6)
+
+    async def async_step_room_8(self, user_input: Any = None) -> ConfigFlowResult:
+        return await self._async_open_room(7)
+
+    async def async_step_room(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """One room's vanes, airflow sensor and sensor freshness.
+
+        These are flow-input only: they fold into this room's record in the
+        zones list, never into flat keys (a stale flat key would shadow the
+        zones list in the coordinator's {**data, **options} merge), and no
+        other room's record is touched.
+        """
+        zones, heads = self._zones_and_heads()
+        if problem := head_mode_problem(self.hass, heads):
+            error, placeholders = problem
+            return self._blocked(error, placeholders)
+        index = self._room_index
+        zone = zones[index]
+        title = {"room": _room_name(zone, index)}
+        if user_input is None:
+            return self.async_show_form(
+                step_id="room",
+                data_schema=_room_schema(_room_view(zone)),
+                description_placeholders=title,
+            )
+        values = _flatten(user_input)
+        profile = {
+            suffix: values.get(suffix) for suffix, _ in _FRESHNESS_ZONE_FIELDS
+        }
+        if _freshness_error(profile):
+            return self.async_show_form(
+                step_id="room",
+                data_schema=_room_schema(values, expanded=True),
+                errors={"base": "freshness_profile_invalid"},
+                description_placeholders=title,
+            )
+        # Every field is rendered and a pre-filled field the user leaves
+        # untouched is submitted with its value, so an ABSENT/empty key means
+        # the user cleared it -> drop it from the room. (Skipping absent keys
+        # made an auto-detected vane/stage impossible to remove, even on heads
+        # that have no vane, e.g. a ducted air handler advertising a phantom.)
+        for key, zone_key in _ROOM_WIRING_FIELDS:
+            if value := values.get(key):
+                zone[zone_key] = value
+            else:
+                zone.pop(zone_key, None)
+        # A complete all-empty profile is an explicit return to unknown
+        # cadence. Otherwise preserve the submitted values byte-for-byte under
+        # M36's existing zone keys.
+        empty_profile = profile["evidence_basis"] in (None, "", "unknown") and all(
+            profile[suffix] in (None, "")
+            for suffix, _ in _FRESHNESS_ZONE_FIELDS
+            if suffix != "evidence_basis"
+        )
+        for suffix, zone_key in _FRESHNESS_ZONE_FIELDS:
+            value = profile[suffix]
+            if empty_profile or value in (None, ""):
+                zone.pop(zone_key, None)
+            else:
+                zone[zone_key] = value
+        return self._save({}, zones)
+
+    def _save(
+        self, tunables: dict[str, Any], zones: list[dict[str, Any]]
+    ) -> ConfigFlowResult:
+        """Store one page: merge onto options, mirror into data, one update.
+
+        Resilience: MERGE onto the existing options (a page must never wipe
+        what it doesn't show) and refuse to persist an empty set. Also MIRROR
+        the tuned config into entry.data — the coordinator reads
+        {**data, **options}, so if anything clears options out-of-band the
+        config self-recovers from the data mirror instead of silently reverting
+        to defaults. Flow-only keys are scrubbed from both stores (the zones
+        list is authoritative).
+        """
+        entry = self.config_entry
+        merged = {
+            k: v
+            for k, v in {**entry.options, **tunables}.items()
+            if k not in _FLOW_ONLY_KEYS
+        }
+        # If options already owns the effective zones list, update that
+        # mirror too so its old copy cannot shadow this save.
+        if zones and CONF_ZONES in entry.options:
+            merged[CONF_ZONES] = [dict(zone) for zone in zones]
+        if not merged and not zones:
+            return self.async_abort(reason="empty_options")
+        data = {
+            k: v
+            for k, v in {**entry.data, **merged}.items()
+            if k not in _FLOW_ONLY_KEYS
+        }
+        if zones:
+            data[CONF_ZONES] = zones
+        # ONE combined update: writing data and options separately fired the
+        # update listener twice -> two full back-to-back entry reloads per
+        # options save (#14's compute-burst trigger). With options already set
+        # here, the create_entry below is a no-change update and fires nothing.
+        self.hass.config_entries.async_update_entry(entry, data=data, options=merged)
+        return self.async_create_entry(title="", data=merged)

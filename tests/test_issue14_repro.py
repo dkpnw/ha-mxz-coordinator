@@ -9,6 +9,7 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 from homeassistant.core import HomeAssistant
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
+from tests.flow_pages import open_options_page, prefilled, save_options, submit
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -112,11 +113,19 @@ async def test_options_save_reloads_the_entry_exactly_once(
     with patch.object(
         hass.config_entries, "async_reload", side_effect=_counting_reload
     ):
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {"demand_threshold": 4.0}
+        result = await save_options(hass, entry, {"demand_threshold": 4.0})
+        await hass.async_block_till_done()
+        assert result["type"].value == "create_entry"
+        assert reloads == 1, f"one Comfort save ran {reloads} reloads"
+
+        # A room page writes the zones list as well: still one update.
+        page = await open_options_page(hass, entry, "room_1")
+        result = await submit(
+            hass.config_entries.options,
+            page,
+            {**prefilled(page), "stage": "sensor.room_1_new_stage"},
         )
         await hass.async_block_till_done()
 
     assert result["type"].value == "create_entry"
-    assert reloads == 1, f"one options save ran {reloads} reloads"
+    assert reloads == 2, f"one room save ran {reloads - 1} reloads"

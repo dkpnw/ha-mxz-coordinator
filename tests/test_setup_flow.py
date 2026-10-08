@@ -52,6 +52,18 @@ from custom_components.mxz_coordinator.const import (
     ZONE_VANE_VERTICAL,
     unit_profile,
 )
+from tests.flow_pages import (
+    GLOBAL_PAGES,
+    PAGE_FIELDS,
+    ROOM_FIELDS,
+    SECTION_FIELDS,
+    fields,
+    nest,
+    open_options_page,
+    press,
+    sections,
+    setup_tuning,
+)
 
 LIVING = "climate.living_room"
 BEDROOM = "climate.bedroom"
@@ -143,6 +155,9 @@ async def _start(hass: HomeAssistant) -> config_entries.ConfigFlowResult:
 async def _submit(
     hass: HomeAssistant, result: config_entries.ConfigFlowResult, data: dict[str, Any]
 ) -> config_entries.ConfigFlowResult:
+    """Submit a form, with any section fields nested as the frontend sends them."""
+    if result.get("data_schema") is not None:
+        data = nest(result, data)
     return await hass.config_entries.flow.async_configure(result["flow_id"], data)
 
 
@@ -192,7 +207,7 @@ def _suggested(result: config_entries.ConfigFlowResult, field: str) -> Any:
 
 
 def _fields(result: config_entries.ConfigFlowResult) -> list[str]:
-    return [marker.schema for marker in result["data_schema"].schema]
+    return fields(result)
 
 
 # ---------- S01-S06: the basic flow ----------------------------------------
@@ -309,6 +324,12 @@ async def test_s06_summary_says_nothing_is_controlled_yet(
     assert all("enable" not in zone for zone in result["data"][CONF_ZONES])
 
 
+async def _press_options(
+    hass: HomeAssistant, result: config_entries.ConfigFlowResult, option: str
+) -> config_entries.ConfigFlowResult:
+    return await press(hass.config_entries.options, result, option)
+
+
 # ---------- S07-S11: advanced tuning behind the gate ------------------------
 
 
@@ -321,9 +342,9 @@ async def _skip_advanced_options(hass: HomeAssistant) -> dict[str, Any]:
 
 async def _submit_advanced_untouched(hass: HomeAssistant) -> dict[str, Any]:
     result = await _to_review(hass)
-    result = await _press(hass, result, "tuning")
-    assert result["step_id"] == "tuning"
-    result = await _submit(hass, result, {})
+    # Every advanced page, opened and submitted as shown.
+    result = await setup_tuning(hass, result, {})
+    assert result["step_id"] == "review"
     result = await _press(hass, result, "finish")
     assert result["type"] is FlowResultType.CREATE_ENTRY
     return dict(result["options"])
@@ -365,13 +386,19 @@ async def test_s07_s08_skipping_advanced_equals_submitting_it_untouched(
 async def test_s09_advanced_is_reachable_and_returns_to_the_summary(
     hass: HomeAssistant,
 ) -> None:
-    """S09 / W8, W8c: the knob screen is one button away and hands back."""
+    """S09 / W8, W8c: the knob pages are one button away and hand back."""
     result = await _to_review(hass)
     result = await _press(hass, result, "tuning")
     assert result["step_id"] == "tuning"
+    assert result["menu_options"] == [*GLOBAL_PAGES, "review"]
+    result = await _press(hass, result, "comfort")
     assert CONF_DEMAND_THRESHOLD in _fields(result)
 
     result = await _submit(hass, result, {CONF_DEMAND_THRESHOLD: 5.0})
+    assert result["type"] is FlowResultType.MENU
+    assert result["step_id"] == "tuning"
+    assert hass.config_entries.async_entries(DOMAIN) == []
+    result = await _press(hass, result, "review")
     assert result["type"] is FlowResultType.MENU
     assert result["step_id"] == "review"
     assert "your choices" in result["description_placeholders"]["summary"]
@@ -387,14 +414,13 @@ async def test_s10_equal_changeover_pair_is_still_rejected(
     """S10 / W8a: accepted M18's key and both field names, unchanged."""
     defaults = dict(unit_profile(celsius=False)["defaults"])
     result = await _to_review(hass)
-    result = await _press(hass, result, "tuning")
-    result = await _submit(
+    result = await setup_tuning(
         hass,
         result,
         {CONF_CHANGEOVER_COOL_BELOW: defaults[CONF_CHANGEOVER_HEAT_ABOVE]},
     )
 
-    assert result["step_id"] == "tuning"
+    assert result["step_id"] == "seasons"
     assert result["errors"] == {
         CONF_CHANGEOVER_COOL_BELOW: "changeover_inverted",
         CONF_CHANGEOVER_HEAT_ABOVE: "changeover_inverted",
@@ -413,8 +439,7 @@ async def test_s10a_equal_lockout_pair_is_still_accepted(
     defaults = dict(unit_profile(celsius=False)["defaults"])
     ceiling = float(defaults[CONF_COOL_LOCKOUT_CEILING])
     result = await _to_review(hass)
-    result = await _press(hass, result, "tuning")
-    result = await _submit(hass, result, {CONF_HEAT_LOCKOUT_FLOOR: ceiling})
+    result = await setup_tuning(hass, result, {CONF_HEAT_LOCKOUT_FLOOR: ceiling})
 
     assert result["type"] is FlowResultType.MENU
     assert result["step_id"] == "review"
@@ -426,10 +451,9 @@ async def test_s10a_equal_lockout_pair_is_still_accepted(
 async def test_s11_non_finite_number_is_still_rejected(hass: HomeAssistant) -> None:
     """S11 / W8b: `not_a_number`, spelled exactly as accepted M18 spells it."""
     result = await _to_review(hass)
-    result = await _press(hass, result, "tuning")
-    result = await _submit(hass, result, {CONF_DEMAND_THRESHOLD: float("nan")})
+    result = await setup_tuning(hass, result, {CONF_DEMAND_THRESHOLD: float("nan")})
 
-    assert result["step_id"] == "tuning"
+    assert result["step_id"] == "comfort"
     assert result["errors"] == {CONF_DEMAND_THRESHOLD: "not_a_number"}
     assert hass.config_entries.async_entries(DOMAIN) == []
 
@@ -448,8 +472,7 @@ async def test_boundary_engage_deadband_is_symmetric_in_both_units(
 
     for value in (low, high):
         result = await _to_review(hass)
-        result = await _press(hass, result, "tuning")
-        result = await _submit(hass, result, {CONF_ENGAGE_DEADBAND: value})
+        result = await setup_tuning(hass, result, {CONF_ENGAGE_DEADBAND: value})
         assert result["type"] is FlowResultType.MENU, (value, result)
         result = await _press(hass, result, "finish")
         assert result["options"][CONF_ENGAGE_DEADBAND] == pytest.approx(value)
@@ -458,7 +481,7 @@ async def test_boundary_engage_deadband_is_symmetric_in_both_units(
         )
 
     result = await _to_review(hass)
-    result = await _press(hass, result, "tuning")
+    result = await _press(hass, await _press(hass, result, "tuning"), "comfort")
     with pytest.raises(Exception):  # noqa: B017 - HA wraps the schema rejection
         await _submit(hass, result, {CONF_ENGAGE_DEADBAND: high * 2})
     assert hass.config_entries.async_entries(DOMAIN) == []
@@ -597,12 +620,13 @@ async def test_s17_unsupported_idle_default_forces_the_advanced_screen(
 
     result = await _press(hass, result, "finish")
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "tuning"
+    assert result["step_id"] == "fan_idle"
     assert result["errors"] == {CONF_IDLE_ACTION: "idle_action_unsupported"}
     assert hass.config_entries.async_entries(DOMAIN) == []
 
     result = await _submit(hass, result, {CONF_IDLE_ACTION: IDLE_ACTION_OFF})
-    result = await _press(hass, result, "finish")
+    assert result["step_id"] == "tuning"
+    result = await _press(hass, await _press(hass, result, "review"), "finish")
     assert result["options"][CONF_IDLE_ACTION] == IDLE_ACTION_OFF
 
 
@@ -758,9 +782,11 @@ async def test_s21_cadence_is_unknown_and_no_cadence_field_exists(
     assert "ago" in summary
 
     result = await _press(hass, result, "tuning")
-    seen += _fields(result)
-    result = await _submit(hass, result, {})
-    result = await _press(hass, result, "finish")
+    for page in GLOBAL_PAGES:
+        result = await _press(hass, result, page)
+        seen += _fields(result)
+        result = await _submit(hass, result, {})
+    result = await _press(hass, await _press(hass, result, "review"), "finish")
 
     forbidden = ("maximum_age", "expected_report_interval", "startup_grace", "evidence_basis")
     assert not [f for f in seen if any(word in str(f) for word in forbidden)]
@@ -952,21 +978,52 @@ async def test_s25_a_v1_flat_entry_still_migrates_exactly_as_before(
     assert "entry_title" not in entry.data
 
 
-async def test_m3_configure_form_is_unchanged_for_an_existing_entry(
+async def test_m3_configure_is_a_menu_of_pages_for_an_existing_entry(
     hass: HomeAssistant,
 ) -> None:
-    """M3: Configure is still one form. Progressive disclosure is setup-only."""
+    """M3, revised for 3.4.1: Configure opens on a menu of short pages.
+
+    Each page shows exactly its own fields, every tunable is on exactly one
+    page, the rarely changed ones start in collapsed sections, and each room
+    has its own page with the same fields, titled by the room's name.
+    """
     entry = _v2_entry(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    manager = hass.config_entries.options
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["type"] is FlowResultType.FORM
+    result = await manager.async_init(entry.entry_id)
+    assert result["type"] is FlowResultType.MENU
     assert result["step_id"] == "init"
-    fields = set(_fields(result))
-    assert _TUNING_KEYS <= fields
-    assert "primary_vane_vertical" in fields
-    assert "review" not in fields
+    assert result["menu_options"] == [*GLOBAL_PAGES, "rooms"]
+    manager.async_abort(result["flow_id"])
+
+    shown: list[str] = []
+    for page in GLOBAL_PAGES:
+        result = await open_options_page(hass, entry, page)
+        assert result["step_id"] == page
+        assert set(_fields(result)) == set(PAGE_FIELDS[page]), page
+        for key, page_section in sections(result).items():
+            assert page_section.options["collapsed"] is True, key
+            inner = [marker.schema for marker in page_section.schema.schema]
+            assert inner == list(SECTION_FIELDS[key]), key
+        shown += _fields(result)
+        manager.async_abort(result["flow_id"])
+    assert sorted(shown) == sorted(
+        _TUNING_KEYS | {"changeover_entity", "inhibit_entity"}
+    )
+
+    result = await manager.async_init(entry.entry_id)
+    result = await _press_options(hass, result, "rooms")
+    assert result["menu_options"] == ["room_1", "room_2", "init"]
+    assert result["description_placeholders"]["room_1"] == "Living Room"
+    assert result["description_placeholders"]["head_2"] == BEDROOM
+    result = await _press_options(hass, result, "room_2")
+    assert result["step_id"] == "room"
+    assert result["description_placeholders"] == {"room": "Bedroom"}
+    assert set(_fields(result)) == set(ROOM_FIELDS)
+    assert sections(result)["freshness"].options["collapsed"] is True
+    manager.async_abort(result["flow_id"])
 
 
 async def test_s27_no_setup_only_input_leaks_into_stored_configuration(
@@ -1162,10 +1219,10 @@ async def test_r8_reconfigure_rejects_another_entrys_head_and_changes_nothing(
 async def test_the_old_three_screen_path_is_gone_for_setup(
     hass: HomeAssistant,
 ) -> None:
-    """The tuning step no longer creates the entry, and is not on the way in.
+    """The tuning pages never create the entry, and are not on the way in.
 
-    The design removes exactly this and nothing else: the OPTIONS flow still
-    submits the same twenty keys in one form (see the M3 test above).
+    Advanced is a menu of the Configure pages; each returns to that menu and
+    only the review screen saves (see the M3 test above for Configure).
     """
     result = await _start(hass)
     result = await _submit(hass, result, {"heads": [LIVING, BEDROOM]})
@@ -1179,8 +1236,7 @@ async def test_the_old_three_screen_path_is_gone_for_setup(
     # The old flow showed the twenty-field form here and created on submit.
     assert result["type"] is not FlowResultType.FORM
 
-    result = await _press(hass, result, "tuning")
-    result = await _submit(hass, result, {})
+    result = await setup_tuning(hass, result, {})
     assert result["type"] is not FlowResultType.CREATE_ENTRY
     assert result["step_id"] == "review"
     assert hass.config_entries.async_entries(DOMAIN) == []

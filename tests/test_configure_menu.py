@@ -504,3 +504,89 @@ def test_page_map_partitions_every_tunable() -> None:
     for key, owned in SECTION_FIELDS.items():
         if key != "freshness":
             assert sum(set(owned) <= set(page) for page in PAGE_FIELDS.values()) == 1
+
+
+# --- the copy each page renders ---------------------------------------------
+
+
+def _strings() -> dict[str, Any]:
+    import json
+    from pathlib import Path
+
+    import custom_components.mxz_coordinator as component
+
+    folder = Path(component.__file__).parent
+    raw = (folder / "strings.json").read_bytes()
+    assert raw == (folder / "translations" / "en.json").read_bytes()
+    return json.loads(raw.decode("utf-8"))
+
+
+def _labels(step: dict[str, Any], result: dict[str, Any]) -> dict[str, str]:
+    """Each rendered field's label, read where the frontend looks for it."""
+    found: dict[str, str] = {}
+    owner = {
+        inner: key
+        for key, page_section in sections(result).items()
+        for inner in [marker.schema for marker in page_section.schema.schema]
+    }
+    for field in fields(result):
+        if field in owner:
+            found[field] = step["sections"][owner[field]]["data"][field]
+        else:
+            found[field] = step["data"][field]
+    return found
+
+
+async def test_every_rendered_field_and_section_has_floor_safe_copy(
+    hass: HomeAssistant,
+) -> None:
+    """Every field and section a page renders has a label, in setup and
+    Configure alike, and none uses a placeholder: field labels and section
+    names take no placeholders before HA 2025.5, and 2024.12 is supported."""
+    strings = _strings()
+    entry = _entry(hass)
+    for page in [*GLOBAL_PAGES, "room_1"]:
+        result = await open_options_page(hass, entry, page)
+        step = strings["options"]["step"][result["step_id"]]
+        labels = _labels(step, result)
+        for key in sections(result):
+            labels[f"section {key}"] = step["sections"][key]["name"]
+        assert all(labels.values()), labels
+        assert not [text for text in labels.values() if "{" in text], labels
+        hass.config_entries.options.async_abort(result["flow_id"])
+        if page in PAGE_FIELDS:
+            assert strings["config"]["step"][page] == step, page
+
+    menus = {
+        ("options", "init"): [*GLOBAL_PAGES, "rooms"],
+        ("options", "rooms"): [*(f"room_{n}" for n in range(1, 9)), "init"],
+        ("config", "tuning"): [*GLOBAL_PAGES, "review"],
+    }
+    for (flow, step_id), options in menus.items():
+        assert list(strings[flow]["step"][step_id]["menu_options"]) == options
+
+
+def test_attention_and_idle_labels_match_the_shipped_copy() -> None:
+    """The code-side names the user reads match the labels they see."""
+    from custom_components.mxz_coordinator.capabilities import IDLE_ACTION_LABELS
+    from custom_components.mxz_coordinator.config_flow import (
+        _FIELD_LABELS,
+        _PAGE_NAMES,
+    )
+
+    strings = _strings()
+    shown: dict[str, str] = {}
+    for page, step in strings["options"]["step"].items():
+        if page in PAGE_FIELDS:
+            shown.update(step["data"])
+            for page_section in step.get("sections", {}).values():
+                shown.update(page_section["data"])
+    for field, label in _FIELD_LABELS.items():
+        assert shown[field] == label, field
+    assert _PAGE_NAMES == {
+        page: strings["options"]["step"]["init"]["menu_options"][page]
+        for page in PAGE_FIELDS
+    }
+    selector = strings["selector"]["idle_action"]["options"]
+    for action, label in IDLE_ACTION_LABELS.items():
+        assert selector[action].removesuffix(" (default)") == label
