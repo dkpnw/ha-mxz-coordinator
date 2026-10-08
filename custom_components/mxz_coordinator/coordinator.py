@@ -102,6 +102,7 @@ from .const import (
     IDLE_ACTION_FAN_ONLY,
     IDLE_ACTION_OFF,
     IDLE_ACTION_OFF_AFTER_DRY,
+    IDLE_SEED_MIN_ENTRY_AGE,
     INHIBIT_ACTION_ECO,
     INHIBIT_ACTION_FAN_ONLY,
     INHIBIT_ACTION_OFF,
@@ -1927,32 +1928,54 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if seeding and observed is not None:
             # Reconcile: restored pre-restart truth beats token guessing.
             restored = self._fan_restore.pop(climate_id, None)
-            if restored is not None:
-                held = restored
-                if held:
-                    # Still held — at the observed token (same token: the hold
-                    # simply survived; different non-auto token: the user moved
-                    # the hold during the outage — theirs either way).
-                    self._fan_latched[climate_id] = True
-                    self._fan_prev[climate_id] = observed
-                    self._fan_cmd[climate_id] = observed
-                    return True
-                # Restored NOT held: boost was driving. An active seed still
-                # goes through the fixed-point check below; a satisfied/eco/off
-                # seed at a token boost could have written is residue of the
-                # interrupted satisfied->auto handback -> don't latch, let the
-                # return-to-auto write proceed (baseline stamped so a slow echo
-                # of the residue token isn't a fresh departure). A token boost
-                # could NEVER have written (outside the ladder / above the
-                # ceiling) appeared by hand during the outage -> hold.
-                if (act not in (MODE_COOL, MODE_HEAT) or self.eco_idle) and (
-                    observed in FAN_LADDER
-                    and FAN_LADDER.index(observed) <= self._fan_max_idx()
-                ):
-                    self._fan_latched[climate_id] = False
-                    self._fan_cmd[climate_id] = observed
-                    self._fan_prev[climate_id] = observed
-                    return False
+            if restored:
+                # Still held — at the observed token (same token: the hold
+                # simply survived; different non-auto token: the user moved
+                # the hold during the outage — theirs either way).
+                self._fan_latched[climate_id] = True
+                self._fan_prev[climate_id] = observed
+                self._fan_cmd[climate_id] = observed
+                return True
+            # Not held: either a restore confirmed it, or — with no restore
+            # data at all, on an ESTABLISHED entry — this cycle's OWN idle
+            # policy already explains it. A head idling under
+            # idle_action="fan_only" is driven to the firmware's own "auto"
+            # every cycle (see _apply_fan), so a token it reports back on a
+            # cold seed is self-inflicted, not a manual pick, restore data
+            # notwithstanding (#25: a restart that catches a zone idling this
+            # way otherwise misreads it as a hold, and — unlike every other
+            # act, which self-corrects on the next real demand cycle — this
+            # one never does, since the head never leaves fan_only). Gated to
+            # an entry older than IDLE_SEED_MIN_ENTRY_AGE so this never
+            # overrides a genuinely first-ever compute (S10: no entry has EVER
+            # existed to restore from, so an owner's pre-install manual pick
+            # is honored exactly as it always was). An active seed still goes
+            # through the fixed-point check below; a satisfied/eco/off seed
+            # at a token boost could have written is residue of the
+            # interrupted satisfied->auto handback -> don't latch, let the
+            # return-to-auto write proceed (baseline stamped so a slow echo
+            # of the residue token isn't a fresh departure). A token boost
+            # could NEVER have written (outside the ladder / above the
+            # ceiling) appeared by hand during the outage -> hold.
+            created = self.config_entry.created_at
+            established = created is not None and dt_util.utcnow() - created >= timedelta(
+                seconds=IDLE_SEED_MIN_ENTRY_AGE
+            )
+            idle_self_parked = (
+                restored is None
+                and act == MODE_FAN_ONLY
+                and self.idle_action == IDLE_ACTION_FAN_ONLY
+                and established
+            )
+            if (restored is False or idle_self_parked) and (
+                (act not in (MODE_COOL, MODE_HEAT) or self.eco_idle)
+                and observed in FAN_LADDER
+                and FAN_LADDER.index(observed) <= self._fan_max_idx()
+            ):
+                self._fan_latched[climate_id] = False
+                self._fan_cmd[climate_id] = observed
+                self._fan_prev[climate_id] = observed
+                return False
             idx = self._seed_matches_boost(climate_id, observed, act, delta)
             if idx is not None:
                 self._adopt_fan_speed(climate_id, observed, idx)

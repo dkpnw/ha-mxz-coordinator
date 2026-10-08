@@ -341,6 +341,11 @@ BAND_DRIFT_DELAY = 20  # head in heat_cool/auto/dry this long -> re-apply
 OFF_WHILE_ENABLED_DELAY = 30  # head off while enabled this long -> re-apply
 STARTUP_RECOVER_DELAY = 40  # after HA start, wait this long then recompute
 
+# An entry younger than this on a cold seed is a first-ever compute (install,
+# or re-add after removal), not a restart of an established one -- see the
+# idle-policy seed carve-out in coordinator._observe_fan_latch (#25).
+IDLE_SEED_MIN_ENTRY_AGE = 600
+
 # Modes a head must never sit in (drift); the coordinator owns these transitions.
 BANNED_MODES = ("heat_cool", "auto", "dry")
 

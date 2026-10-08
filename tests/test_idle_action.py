@@ -587,3 +587,44 @@ async def test_restart_residue_token_with_not_held_restore_is_dropped(
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is False
+
+
+async def test_restart_after_idle_fan_only_self_parked_seeds_clean(
+    hass: HomeAssistant,
+) -> None:
+    """Default idle_action="fan_only" (#25): restarting while idle must not
+    phantom-latch, even with no restore data (first post-upgrade restart, or
+    the switch's stale-restore guard rejecting it) -- on an ESTABLISHED entry
+    (see IDLE_SEED_MIN_ENTRY_AGE; a genuinely first-ever compute keeps the old
+    behavior, S10).
+
+    Unlike idle_action="off", a fan_only idle never hands the fan back to a
+    bare "auto" readback on real hardware -- the head's own fan-auto algorithm
+    can report a concrete, non-"auto" token while idling under OUR policy,
+    indistinguishable by token alone from a manual pick. No gesture happened
+    here at all: the head is driven straight to that token, same technique
+    S14 uses for "a token surviving a restart with no service call behind
+    it" (the mock head only ever echoes exactly what a service call writes,
+    so there's no other way to simulate a real head's own auto-reported
+    token). This must seed clean -- the live defect (#25) is the seed
+    fallback treating any non-"auto" reading as a hold with no idle_action
+    awareness at all, latching three real zones within 9ms of each other on
+    an ordinary HA restart.
+    """
+    entry, head_a, _b = await _setup_idle(hass, idle_action="fan_only")
+    entry.created_at = dt_util.utcnow() - timedelta(days=30)  # established install
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _recompute(hass, entry)
+    a = hass.states.get(head_a)
+    assert a.state == "fan_only"
+    assert a.attributes["fan_mode"] == "auto"  # never touched; nothing to restore from
+
+    hass.states.async_set(head_a, "fan_only", {**a.attributes, "fan_mode": "low"})
+
+    coord = entry.runtime_data
+    _restart(coord)  # no restore injection = stale/absent, same as S9
+    await _recompute(hass, entry)
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["zones"][0]["fan_hold"] is False
