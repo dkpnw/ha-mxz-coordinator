@@ -110,7 +110,7 @@ for case_id in "${cases[@]}"; do
   case "$case_id" in N-*) injection=${case_id#N-} ;; esac
   case "$base" in
     released) commit=3a9863896f8affb6f71cbd1e495df21b17a69ff3; tree=238636de6d067c8e05b59993819cc5187c2bf9df ;;
-    main) commit=f4a919112173c8bf5fe4d232d40cfd4aaa4f81a9; tree=d2b06a63c333e7a5ed8c8353b1a71fd255f5cac0 ;;
+    main) commit=27757b91f47984809d82cc2c16316a0797751772; tree=c42923a50c5f913d9614e7db6f8cac9f55176bcb ;;
     *) refuse base ;;
   esac
   test "$(git rev-parse --verify "$commit^{commit}")" = "$commit" || refuse commit
