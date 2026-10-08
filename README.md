@@ -140,7 +140,7 @@ or use them in HA; avoid exposing a second raw-head control for the same room.
 | Duplicate heads or room names, or an empty room name | Correct the selection/name. Setup keeps you on that step. |
 | Two rooms share a sensor, a sensor has no HA state, or its unit cannot convert | Pick a distinct, existing temperature sensor with a supported unit. Saving is blocked. |
 | A sensor is `unknown`, `unavailable`, non-numeric or non-finite | You may finish setup. The summary warns; that room makes no automatic demand until its reading is valid. |
-| A sensor has no unit | MXZ reads it in HA's system unit. Verify that interpretation. Celsius, Fahrenheit and kelvin convert to the system unit. |
+| A sensor's unit attribute is absent or `null` | MXZ reads it in HA's system unit. Verify that interpretation. Celsius, Fahrenheit and kelvin convert to the system unit. An empty string (`""`), another unsupported string or a non-string unit is invalid and blocks saving. |
 
 The summary's reporting age is information. Setup adds no sensor timeout. Heads,
 ownership, sensors and the chosen idle action are checked again at the final save;
@@ -199,11 +199,33 @@ dwell is in seconds, coil drying and freshness durations are in minutes.
 | Standby hold entity / active state / action | An external signal that holds enabled coordination in `eco`, `off` or `fan_only`. Missing/unknown/unavailable input releases the hold. |
 | Room vane and airflow overrides | Correct detection, select another entity, or clear a field to remove that optional wiring. |
 
-A head with missing capabilities, missing heat/cool or no common parking mode blocks
-the form's save. Restore the head's capabilities or reconfigure compatible heads, then
-retry. An unsupported saved idle action requires an explicit compatible choice.
-Invalid thresholds or a freshness profile reject the whole submission; other settings
-in that submission are not saved either.
+A head with no HA state or unknown `hvac_modes`, a head missing either `heat` or `cool`,
+or heads with no common parking mode block the whole form's save. Restore the head
+integration's capability reports or use Reconfigure to select compatible heads, then
+reopen Configure. An `unavailable` head that still reports the required capabilities
+can pass this check; availability alone does not determine it. An unsupported saved
+idle action requires an explicit compatible choice.
+
+All numeric comfort temperatures, thresholds and durations must be finite numbers:
+`nan` and `±inf` are rejected. Demand threshold S, Re-engage drift, Mode hysteresis
+and Coil-dry minutes cannot be negative. Zero is allowed for demand and the two
+durations; Re-engage drift also has its selector's 0.5–5 °F / 0.25–2.5 °C bounds.
+Negative Celsius temperatures are legitimate in temperature fields. The paired rules are:
+
+| Configure labels (in HA's temperature unit) | Accepted order |
+| --- | --- |
+| Eco heat extreme / Eco cool extreme | Heat ≤ cool; equality is allowed. |
+| Firmware minimum setpoint / Firmware maximum setpoint | Minimum ≤ maximum; equality is allowed. |
+| Heat-lockout safety floor / Cool-lockout safety ceiling | Floor ≤ ceiling; equality is allowed. |
+| Cool-lockout when forecast daily high ≤ / Heat-lockout when forecast daily high ≥ | Cool threshold < heat threshold; equality is rejected to retain a shoulder band. |
+
+Values saved by 3.3.0 are not silently rewritten on upgrade. If they violate these
+rules, submitting Configure, even to change another setting, is refused until you
+repair the highlighted values. For a pair error, inspect both fields and correct
+their order; for “Enter a finite number” or “This value cannot be negative”, replace
+that value. Review the complete form and submit again. A threshold or freshness error
+rejects the whole submission: none of its other edits is saved. Freshness durations
+have their separate positive-minute rules below.
 
 A changed save merges tunables into existing options, mirrors them into entry data,
 and reloads once. It does not replace the options with only the edited field. A save that leaves entry
@@ -256,6 +278,15 @@ global value. Press **Follow global drift** to remove that override. The number 
 immediately; the ordinary debounced recompute can then change demand and head output.
 The button is unavailable until its drift number is loaded and available.
 
+After restart, MXZ can resume an observed `cool`/`heat` run when both Coordinator enable
+and that room's enable restore ON. It waits for usable head evidence and a valid room
+reading that is not stale under an enforced freshness profile. Construction and a live
+enable do not adopt a previous run. Changing a target while the coordinator is OFF
+or the room is disabled clears that run's latch; when
+enabled again, the room starts coasting and uses the ordinary re-engage band. This
+fixes the restart intent that 3.3.0's construction-time compute could spend too early.
+After a room coasts, a follow-up refresh lets it progress without needing a head echo.
+
 **Shared mode** offers `cool` and `heat`. A changed choice stamps the ordinary mode-flip
 dwell; automatic arbitration can change direction again after that dwell. Selecting
 the current direction adds no hold or new dwell. The selector does not enable the
@@ -281,19 +312,29 @@ fan control it offers no fan control. The separate Fan auto switch stays registe
 but is unavailable without exact `auto` support, or after a coordinator update failure.
 If support exists but current speed is missing, intent is retained and fan writes wait
 for a usable report. An explicit ON can remain pending; OFF cancels that handback.
+Manual fan picks on the room thermostat queue behind the current service call to that
+same head; a hung handler can delay the pick. Other heads can progress concurrently.
 
 A stored hold restores as held; stored automatic ownership recognizes supported
 coordinator residue, including the issue 25 idle/delayed-report case. Clean switch
 states and unavailable-state extra restore data are distinct restore channels.
 Neither is a command journal or an arbitrary-crash guarantee. Missing, invalid or
-stale restore records use conservative reported-speed fallback; check `control_reasons`
-and use ON when you want automatic control back. A wall-remote speed change while HA
-was down may be treated as residue if the room was previously automatic. Reselecting
+stale restore records use conservative reported-speed fallback. A fresh install normally
+has no prior fan record: “No prior fan hold record available; using reported speed”
+describes that absence, not a lost historical hold. Distinct stale or malformed-record
+reasons remain visible. Check `control_reasons` and use ON when you want automatic
+control back. With no reported speed, fallback still sends no fan write. A wall-remote
+speed change while HA was down may be treated as residue if the room was previously
+automatic. Reselecting
 a speed already reported can be invisible; use Fan auto OFF to express a hold.
 
 An optional airflow `stage` sensor maps the firmware's reported blower stage to a
 displayed speed while automatic. It is display information, not physical verification
 of a sent command. Without that sensor the tile uses the reported fan token.
+
+The thermostat's fan feature follows the head's reported capabilities. HomeKit/Google
+bridge behavior when those capabilities arrive after accessory creation is untested;
+entity tests do not prove the fan control appears in the bridge without a reload.
 
 ## How a satisfied head idles
 
@@ -391,6 +432,20 @@ core or transport failure. Reload/unload suppresses retired follow-on work, but 
 undo an accepted external call. A vane kick on a parked head briefly wakes it, sends
 the requested vane change and requests parking; software cleanup still needs hardware
 confirmation.
+
+The thermostat, Fan auto switch and plan's `zones` include added diagnostics listed in
+[Entity map](docs/ENTITY-MAP.md#integration-diagnostic-surfaces-340). Delivery changes
+publish immediately, even outside refresh completion. `head_state_updated_at` changes
+on head attribute updates, so a room's thermostat can emit `state_changed` while its
+visible mode/temperature is unchanged. These volatile attributes can increase recorder
+history/storage when the entities are recorded and fire automations with a bare state
+trigger. Use an explicit state transition or selected attribute when that is your
+automation's intent. Exact database rows, bytes and hourly growth have not been measured;
+state-event counts do not establish those quantities. The diagnostic timestamp is retained.
+
+Sensor refreshes already covered by a newer decision are coalesced by generation.
+Pending delivery can prompt a follow-up outside the ordinary debounce; several requests
+can collapse into that follow-up. There is no one-compute-per-sensor-write guarantee.
 
 Heads use their own loops if HA goes down. A head last commanded cooling can continue
 cooling; one last parked stays parked. Their thermistors and firmware safeguards still

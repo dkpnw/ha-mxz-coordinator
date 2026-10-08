@@ -7,7 +7,9 @@ for setup/reconfigure validation, room rename/reorder and registry continuity, o
 sensor freshness, Follow global drift, shared-mode choices, and command delivery with
 manual-intent and restore corrections. The manifest version is 3.4.0; config-entry
 schema version remains 2. The declared HA floor remains 2024.12.0. Final source/version,
-rendered UI, release-artifact and older-release rollback qualification are still pending.
+rendered UI and exact final release-artifact/rollback qualification are still pending.
+Earlier invented-entry checks executed actual older-artifact rollback with the limits below;
+they do not qualify this final candidate's artifact.
 This document is upgrade guidance, not a claim that 3.4.0 has been published.
 
 For an existing integration entry:
@@ -41,6 +43,33 @@ invented entries, migration, unload/re-setup and registry identity checks. That 
 **not** evidence that an older released integration or HA artifact can read the new
 state. No older-artifact rollback is qualified by that result.
 
+Separate checks executed the actual v3.3.0 tag source artifact and a local 3.4.0
+candidate archive in fresh HA processes, using real invented `.storage` files.
+On Python 3.13.16 / HA 2026.2.3, ordinary upgrade, restart/reload and direct old-code
+rollback retained the tested targets, enables, lockouts, active drift override and
+clean on/off fan hold. That does **not** mean v3.3.0 accepts every newer entry unchanged:
+
+- A Fan auto hold saved as `unavailable` with newer extra restore data stayed held
+  under the same 3.4.0 candidate, but became automatic under v3.3.0 on the identical
+  snapshot. Code replacement alone lost that hold.
+- Loading the old artifact with the compatible complete **pre-upgrade** snapshot
+  recovered the earlier hold in that case. Newer changes were absent, as expected.
+- The older artifact removes the new Follow global drift buttons. It can retain
+  unknown freshness keys in entry data without enforcing the new freshness behavior.
+- On Python 3.12.14 / HA 2024.12.0, old code pruned/recreated drift and Fan auto
+  records, losing tested names/areas and a drift record's user-disabled flag. It did
+  this on its own old-version reload too. The three old-FLOOR checks also failed
+  teardown on a lingering debounce timer; their product observations are not blanket
+  passing rollback receipts. A snapshot cannot prevent the old implementation from
+  repeating its registry loss.
+- Returning to 3.3.0 also returns to its older issue 25 behavior; restoring settings
+  cannot preserve the newer control correction in old code.
+
+These bounded checks precede the final diagnostic wording change. They did not test
+HA's backup UI, old HA-core artifact rollback, reordered-room rollback or arbitrary
+crashes. Final exact artifact/version/CI and rollback acceptance still require review
+and release checks; a successful check of known loss is not a preservation success.
+
 The rollback target needs an exact previously installed integration release/artifact,
 its manifest version/hash and a compatible HA version, together with the matching
 pre-upgrade configuration/registry/restore snapshot. Restoring only entry data is
@@ -55,8 +84,8 @@ check identities, mappings, priority, targets, enables, holds and raw-head state
 resuming. Reapply later intentional changes only after checking their compatibility.
 A restored backup loses changes made since it was taken and may affect other HA
 configuration. Heads are external equipment: backup recovery does not roll back
-commands they already received. This procedure still needs a real older-artifact
-upgrade/rollback qualification before a release claim.
+commands they already received. Verify the final release artifact and its specific
+upgrade/rollback outcomes before making a release claim.
 
 ## Moving from the YAML package
 
@@ -335,12 +364,32 @@ It does not identify a reporter's household cause or prove every crash/reboot sh
 An injected handler failure also exercises unavailable-switch persistence while heads
 remain registered; it is not a head-disappearance test.
 
+An in-flight `cool`/`heat` run resumes only when the coordinator and that room both
+restore enabled, the head supplies usable observed mode evidence and the room sensor
+is valid and not stale under an enforced freshness profile. If the head loads late,
+startup intent can wait for that evidence. Construction and live enables adopt no prior
+run. 3.3.0's construction-time compute could consume
+the seed while rooms were still disabled; the newer restored-intent path fixes that.
+Turning a room ON or OFF clears its latch. A target change while the coordinator is
+OFF, the room disabled or startup unresolved also clears the pending run, so the next
+enabled decision starts coasting and uses the ordinary re-engage band. Live retargeting
+of an enabled resolved room retains its head-mode reseeding behavior.
+
 Clean restored switch states use ordinary RestoreEntity state; unavailable states use
 extra restore data for held/not-held intent and echo baselines. Missing, invalid or
 stale records fall back conservatively to the reported speed. Explicit Fan auto ON
 can wait for a usable report, and a later OFF cancels that handback. A recognized hold
 survives; a remote speed change during an HA outage on a previously automatic room
 may be read as residue. Restore data is not a durable command-delivery journal.
+
+No record is normal on a fresh install. The default reason now says **“No prior fan
+hold record available; using reported speed.”** It does not assert that a historical
+hold was lost. A stale record still says it belongs to an older entry; a present but
+unusable record still says it is missing or malformed. Valid hold restoration or
+explicit Fan auto ON clears the restore reason. These are diagnostic wording and
+disclosure changes, not new ownership or restoration rules. A head advertising fan
+control but reporting no current `fan_mode` receives no fan write. ON may be saved as
+`fan_on_pending` until a usable speed report; OFF cancels it.
 
 Head calls are serialized per head. A slow handler leaves newer intent deferred for
 that head while independent room delivery can proceed. After a return, current inputs
@@ -350,6 +399,68 @@ The plan's per-room command status, timestamps and control reasons expose softwa
 observations, not physical receipt. A global update failure can still make coordinator
 entities unavailable. Normal RestoreEntity and Voluptuous remain in use; HA 2026.11
 restore API changes are outside this release's tested scope.
+
+Manual fan picks from the room thermostat use that same head lock and wait behind
+the current call, including a hung call. Peer heads can progress concurrently. A coast
+follow-up refresh lets an echo-less head advance after a park. Sensor-event refreshes
+are coalesced when a newer decision already covered the input; pending delivery can
+request a follow-up outside the ordinary debounce. Multiple requests can coalesce;
+this is not a promise of one compute per sensor write.
+
+### Added diagnostics and state events
+
+Room thermostats and plan `zones[]` add `command_attempted_at`, `command_returned_at`,
+`command_failed_at`, `command_retired_at`, `command_status`, `command_error`,
+`command_ownership_retired`, `command_deferred`, `command_timestamp_basis`,
+`plan_target_basis`, `head_state_updated_at`, `vane_retirement_cleanup` and
+`control_reasons`. Fan auto adds `last_fan_command`, `prior_fan_command`,
+`fan_control_reason` and `fan_on_pending`. See the
+[diagnostic surface map](ENTITY-MAP.md#integration-diagnostic-surfaces-340).
+Last/prior tokens are echo/adopted-observation baselines, not a command receipt log.
+Missing observations say `not yet recorded`; a service return proves only an HA
+handler return. Delivery listeners publish immediately outside decision completion.
+
+These attributes are volatile. A head attribute-only update changes
+`head_state_updated_at` and can emit an extra thermostat `state_changed` event even
+with unchanged visible mode/temperature. Fan-state and command-progress changes can
+also produce events. Recorded entities may therefore add history/storage, and bare
+state-trigger automations may run more often. Select explicit transitions or relevant
+attributes for your automation. A probe counting state events does not measure
+recorder database rows, bytes or one-hour growth; those quantities remain unmeasured.
+No diagnostic timestamp was removed or recording policy changed for this release.
+
+## Configure value validation and older saved values (3.4.0)
+
+Configure and setup's advanced tuning reject non-finite numeric comfort values
+(`nan`, `inf`, `-inf`). This includes Demand threshold S, Re-engage drift, Mode
+hysteresis, Coil-dry minutes, both Eco extremes, both Firmware setpoint limits,
+both Lockout safety limits and both forecast Changeover thresholds. The first four
+are magnitudes/durations and cannot be negative. Demand threshold, Mode hysteresis
+and Coil-dry minutes may be zero. Re-engage drift additionally keeps its selector
+bounds, 0.5–5 °F / 0.25–2.5 °C. Temperature thresholds may be negative, including
+ordinary negative Celsius temperatures; the validation does not ban them.
+
+| Actual Configure labels (temperature fields use HA's unit) | Rule / error key |
+| --- | --- |
+| Eco heat extreme / Eco cool extreme | Heat ≤ cool; `eco_band_inverted` if reversed. |
+| Firmware minimum setpoint / Firmware maximum setpoint | Minimum ≤ maximum; `clamp_inverted` if reversed. |
+| Heat-lockout safety floor / Cool-lockout safety ceiling | Floor ≤ ceiling; `lockout_inverted` if reversed. |
+| Cool-lockout when forecast daily high ≤ / Heat-lockout when forecast daily high ≥ | Cool < heat; `changeover_inverted` for equality or reversal. |
+
+Equality is allowed for eco, clamp and lockout bands. Only changeover requires a
+nonzero shoulder band. Ordering errors mark both fields. Non-finite values show
+“Enter a finite number” (`not_a_number`); negative magnitudes/durations show
+“This value cannot be negative” (`must_not_be_negative`). Selector bounds also apply.
+
+3.3.0 could save combinations now rejected. Upgrade/migration does not silently
+rewrite or newly validate those stored values. The entry continues to use them;
+retention is not evidence they are safe or useful. The next Configure submission
+validates the submitted form, including saved values supplied as defaults, so even
+an unrelated edit can be refused. Repair the indicated numeric values and both
+members of any inverted/equal-changeover pair, review the whole form and resubmit.
+A refused submission saves none of its other settings and does not reload the entry.
+Freshness has separate finite **positive-minute** and whole-profile requirements in
+[Stale room sensors](#stale-room-sensors-340); comfort's zero allowances do not apply there.
 
 ## Head capability validation (3.4.0)
 
@@ -366,11 +477,20 @@ and names the supported alternatives. The options flow applies the same rule whe
 action its current heads do not advertise, Configure lists the compatible alternatives and
 requires you to choose one explicitly.
 
-If a stored head has not loaded, or if the stored heads have no common parking mode,
+If a stored head has no state or unknown/malformed `hvac_modes`
+(`head_capabilities_unavailable`), advertises modes missing either `heat` or `cool`
+(`head_missing_heat_cool`), or the heads have no common parking mode
+(`head_missing_idle_modes`),
 Configure shows a recovery error before it builds the idle selector. It keeps the entry and
 its saved defaults unchanged. Restore the missing capabilities or reconfigure compatible
 heads, then retry. You cannot save other tunables in Configure until the configured heads
 resolve.
+
+This blocks every Configure save, including unrelated comfort or freshness edits.
+An `unavailable` state that retains the required capability attributes can pass;
+the gate reads capabilities rather than requiring a particular availability state.
+Recover the head integration's metadata or select compatible heads in Reconfigure,
+then reopen Configure and review its complete form before saving.
 
 The room thermostat now advertises fan control only when the underlying climate entity has
 Home Assistant's fan-mode feature and a non-empty option list. It passes those option strings
@@ -379,6 +499,10 @@ available only when that exact list contains `auto`. If the head loads late, the
 under the same identity and reconciles its restored held/not-held value. Heads that spell or
 model automatic fan differently retain their own manual fan options but are not presented as
 supporting the coordinator's `auto` handback.
+
+HomeKit/Google bridge timing when a head's fan capabilities arrive after accessory
+creation is untested. Conditional entity-feature tests do not establish that a bridge
+adds its fan control without reloading. No live household or sign-in test is implied.
 
 ## Room records and holds across reload and restart (3.4.0)
 
@@ -406,9 +530,11 @@ number, it parses as `nan` or `±inf`, or it declares a unit that is not `°C`, 
 
 **Interactions.**
 
-- A sensor that declares **no** unit at all is unchanged: it is still read as a value in
-  your Home Assistant system unit, exactly as before. Unitless template sensors that
-  worked on v3.3.0 keep working. Only an explicitly wrong unit (`%`, `W`, …) is rejected.
+- A sensor whose unit attribute is **absent or `null`** is still read in your HA
+  system unit. An empty-string unit (`""`) is an explicit unsupported string, not
+  absence, and is rejected just like `%` or `W`. Other unsupported strings and
+  non-string unit values are also invalid. Setup/reconfigure cannot save these
+  unsupported units; at runtime the room contributes no automatic demand.
 - A sensor whose state carries a different supported unit than the system is converted
   once. Home Assistant already normalizes most temperature sensors to the display unit
   before storing them, so this only bites a per-entity unit override.
@@ -665,8 +791,9 @@ Setup now refuses one temperature sensor shared by two rooms, a sensor Home Assi
 no state for, and a sensor reporting a unit it cannot convert. It does **not** refuse a
 sensor that is merely unavailable or momentarily non-numeric: the summary names that room
 and says it makes no automatic demand until a valid number arrives, which is what the
-coordinator already does at runtime. A sensor with no unit at all is still read as your
-system unit, and kelvin is still accepted.
+coordinator already does at runtime. A sensor with an absent or `null` unit is still
+read as your system unit; empty-string and other unsupported units are rejected.
+Kelvin is still accepted.
 
 The flow shows each sensor's reporting age as information. It stores no maximum age, no
 expected interval and no startup grace, and it times no sensor out.
