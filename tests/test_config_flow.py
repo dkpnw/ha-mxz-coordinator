@@ -2695,3 +2695,313 @@ async def test_reconfigure_unenforced_profile_matches_consumer(
     assert disclosure in primary
     assert "does not time out this sensor" in primary
     assert _entry_snapshot(entry) == before
+
+
+_FLOW_SOURCES = ("config_flow.py", "capabilities.py")
+_FLOW_SECTIONS = (
+    ("config", "abort"),
+    ("config", "error"),
+    ("options", "abort"),
+    ("options", "error"),
+)
+
+
+def _flow_reasons(sources: dict[str, str]) -> dict[tuple[str, str], set[str]]:
+    """Statically collect every abort/error reason each flow class can produce.
+
+    Direct sites inside a ConfigFlow/OptionsFlow class: ``async_abort(reason=)``,
+    ``AbortFlow(...)``, ``_abort_if_unique_id_configured()`` (HA's
+    ``already_configured``), ``errors[...] = "..."`` and ``errors={...}``.
+    Indirect sites: every module-level ``*_problem``/``*_error``/``_validate_*``
+    helper the class names contributes the literals it returns or stores in
+    ``errors`` — including those unpacked from a constant table such as
+    ``_ORDERED_PAIRS``.
+    """
+    import ast
+    import re
+
+    def literal(node: ast.AST | None) -> str | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        return None
+
+    def is_errors_slot(node: ast.AST) -> bool:
+        return (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "errors"
+        )
+
+    constants: dict[str, ast.AST] = {}
+    helpers: dict[str, ast.FunctionDef] = {}
+    classes: list[ast.ClassDef] = []
+    for text in sources.values():
+        for node in ast.parse(text).body:
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        constants[target.id] = node.value
+            elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                if isinstance(node.target, ast.Name):
+                    constants[node.target.id] = node.value
+            elif isinstance(node, ast.FunctionDef) and re.search(
+                r"(_problem|_error)$|^_validate_", node.name
+            ):
+                helpers[node.name] = node
+            elif isinstance(node, ast.ClassDef):
+                classes.append(node)
+
+    def direct(scope: ast.AST) -> tuple[set[str], set[str]]:
+        aborts: set[str] = set()
+        errors: set[str] = set()
+        for node in ast.walk(scope):
+            if isinstance(node, ast.Call):
+                func = node.func
+                name = func.attr if isinstance(func, ast.Attribute) else getattr(
+                    func, "id", None
+                )
+                if name == "async_abort":
+                    aborts.update(
+                        value
+                        for keyword in node.keywords
+                        if keyword.arg == "reason"
+                        and (value := literal(keyword.value))
+                    )
+                elif name == "AbortFlow" and node.args:
+                    if value := literal(node.args[0]):
+                        aborts.add(value)
+                elif name == "_abort_if_unique_id_configured":
+                    aborts.add("already_configured")
+                for keyword in node.keywords:
+                    if keyword.arg == "errors" and isinstance(keyword.value, ast.Dict):
+                        errors.update(
+                            value
+                            for item in keyword.value.values
+                            if (value := literal(item))
+                        )
+            elif isinstance(node, ast.Assign) and any(
+                is_errors_slot(target) for target in node.targets
+            ):
+                if value := literal(node.value):
+                    errors.add(value)
+        return aborts, errors
+
+    def helper_reasons(function: ast.FunctionDef) -> set[str]:
+        found = set(direct(function)[1])
+        for node in ast.walk(function):
+            if isinstance(node, ast.Return) and node.value is not None:
+                value = node.value
+                if isinstance(value, ast.Tuple) and value.elts:
+                    value = value.elts[0]
+                if reason := literal(value):
+                    found.add(reason)
+            elif (
+                isinstance(node, ast.For)
+                and isinstance(node.iter, ast.Name)
+                and isinstance(node.target, ast.Tuple)
+                and isinstance(table := constants.get(node.iter.id), ast.Tuple)
+            ):
+                stored = {
+                    assign.value.id
+                    for assign in ast.walk(node)
+                    if isinstance(assign, ast.Assign)
+                    and isinstance(assign.value, ast.Name)
+                    and any(is_errors_slot(target) for target in assign.targets)
+                }
+                for index, element in enumerate(node.target.elts):
+                    if isinstance(element, ast.Name) and element.id in stored:
+                        for row in table.elts:
+                            if isinstance(row, ast.Tuple) and (
+                                reason := literal(row.elts[index])
+                            ):
+                                found.add(reason)
+        return found
+
+    reasons: dict[tuple[str, str], set[str]] = {key: set() for key in _FLOW_SECTIONS}
+    for flow in classes:
+        bases = {getattr(base, "id", getattr(base, "attr", "")) for base in flow.bases}
+        if any("OptionsFlow" in base for base in bases):
+            section = "options"
+        elif any("ConfigFlow" in base for base in bases):
+            section = "config"
+        else:
+            continue
+        aborts, errors = direct(flow)
+        reasons[section, "abort"] |= aborts
+        reasons[section, "error"] |= errors
+        for name in {
+            node.id
+            for node in ast.walk(flow)
+            if isinstance(node, ast.Name) and node.id in helpers
+        }:
+            reasons[section, "error"] |= helper_reasons(helpers[name])
+    return reasons
+
+
+def _shipped_flow_reasons():
+    from pathlib import Path
+
+    import custom_components.mxz_coordinator as component
+
+    folder = Path(component.__file__).parent
+    sources = {name: (folder / name).read_text(encoding="utf-8") for name in _FLOW_SOURCES}
+    return folder, _flow_reasons(sources)
+
+
+def test_flow_reason_scan_finds_every_kind_of_site() -> None:
+    """Negative oracle for the scan: each site shape lands in its own section."""
+    source = '''
+class Flow(ConfigFlow, domain="x"):
+    async def async_step_a(self, user_input=None):
+        errors = {}
+        errors["base"] = "literal_error"
+        if problem := _thing_problem():
+            errors["base"] = problem[0]
+        self._abort_if_unique_id_configured()
+        if user_input:
+            raise AbortFlow("raised_abort")
+        return self.async_abort(reason="never_translated")
+
+
+class Options(OptionsFlow):
+    async def async_step_init(self, user_input=None):
+        if errors := _validate_input(user_input):
+            return self.async_show_form(step_id="init", errors=errors)
+        return self.async_show_form(step_id="init", errors={"base": "options_literal"})
+
+
+_PAIRS = (("low", "high", "pair_error"),)
+
+
+def _thing_problem():
+    return "tuple_error", {}
+
+
+def _unused_problem():
+    return "never_reachable"
+
+
+def _validate_input(data):
+    errors = {}
+    for low, high, error in _PAIRS:
+        errors[low] = errors[high] = error
+    return errors
+'''
+    reasons = _flow_reasons({"flow.py": source})
+    assert reasons == {
+        ("config", "abort"): {"already_configured", "raised_abort", "never_translated"},
+        ("config", "error"): {"literal_error", "tuple_error"},
+        ("options", "abort"): set(),
+        ("options", "error"): {"options_literal", "pair_error"},
+    }
+    # A strings file that lacks the new reasons is reported, not passed.
+    shipped = {"config": {"abort": {"already_configured": "Already configured."}}}
+    missing = reasons["config", "abort"] - set(shipped["config"]["abort"])
+    assert missing == {"raised_abort", "never_translated"}
+
+
+def test_every_flow_reason_has_a_local_string() -> None:
+    """Every reason a flow can abort or error with has text in every strings file.
+
+    A custom integration has no access to Home Assistant's shared abort strings,
+    so a missing key shows the user the raw reason (``reconfigure_successful``).
+    """
+    import json
+
+    folder, reasons = _shipped_flow_reasons()
+    # The scan must actually reach each section and each indirect path.
+    assert {"already_configured", "reconfigure_successful"} <= reasons["config", "abort"]
+    assert "empty_options" in reasons["options", "abort"]
+    assert {
+        "duplicate_heads",
+        "heads_already_configured",
+        "room_name_empty",
+        "sensor_missing",
+        "head_missing_idle_modes",
+        "not_a_number",
+        "clamp_inverted",
+    } <= reasons["config", "error"]
+    assert {
+        "freshness_profile_invalid",
+        "idle_action_unsupported",
+        "must_not_be_negative",
+        "changeover_inverted",
+    } <= reasons["options", "error"]
+
+    paths = [folder / "strings.json", *sorted((folder / "translations").glob("*.json"))]
+    assert len(paths) > 1
+    for path in paths:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for (section, kind), keys in reasons.items():
+            shipped = data.get(section, {}).get(kind, {})
+            missing = sorted(keys - set(shipped))
+            assert not missing, f"{path.name} {section}.{kind} lacks {missing}"
+            assert all(isinstance(shipped[key], str) and shipped[key] for key in keys)
+            assert not any("[%key:" in shipped[key] for key in keys)
+
+
+def test_translation_files_share_flow_reason_keys() -> None:
+    """Every translation carries exactly the flow abort/error keys strings.json has."""
+    import json
+
+    folder, _ = _shipped_flow_reasons()
+    strings = json.loads((folder / "strings.json").read_text(encoding="utf-8"))
+    paths = sorted((folder / "translations").glob("*.json"))
+    assert paths
+    for path in paths:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for section, kind in _FLOW_SECTIONS:
+            expected = strings[section].get(kind, {})
+            actual = data.get(section, {}).get(kind, {})
+            assert set(actual) == set(expected), f"{path.name} {section}.{kind}"
+            if path.name == "en.json":
+                assert actual == expected
+
+
+async def test_every_flow_reason_resolves_through_home_assistant(
+    hass: HomeAssistant,
+) -> None:
+    """Home Assistant's own translation loader finds text for every reason."""
+    from homeassistant.helpers.translation import async_get_translations
+
+    _, reasons = _shipped_flow_reasons()
+    for (section, kind), keys in reasons.items():
+        translations = await async_get_translations(hass, "en", section, [DOMAIN])
+        for reason in keys:
+            text = translations.get(f"component.{DOMAIN}.{section}.{kind}.{reason}")
+            assert text and text != reason, (section, kind, reason)
+
+
+async def test_reconfigure_success_shows_a_sentence_not_the_reason_key(
+    hass: HomeAssistant,
+) -> None:
+    """The finished reconfigure dialog resolves to the shipped English text."""
+    from homeassistant.helpers.translation import async_get_translations
+
+    current = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_ZONES: _zones("climate.a", "climate.b")},
+        title="Current coordinator",
+        unique_id="climate.a|climate.b",
+        version=2,
+    )
+    current.add_to_hass(hass)
+
+    result = await _start_reconfigure_flow(hass, current)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"heads": ["climate.a", "climate.b"]}
+    )
+    result = await _pass_rooms(hass, result, "reconfigure_rooms")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"sensor_1": "sensor.a_corrected", "sensor_2": "sensor.b_corrected"},
+    )
+    result = await _press(hass, result, "reconfigure_finish")
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    translations = await async_get_translations(hass, "en", "config", [DOMAIN])
+    assert (
+        translations[f"component.{DOMAIN}.config.abort.{result['reason']}"]
+        == "Reconfiguration was successful."
+    )

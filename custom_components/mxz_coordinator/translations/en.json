@@ -214,7 +214,8 @@
       "too_many_heads": "A single MXZ outdoor unit supports at most 8 heads."
     },
     "abort": {
-      "already_configured": "This pair of heads is already configured."
+      "already_configured": "This pair of heads is already configured.",
+      "reconfigure_successful": "Reconfiguration was successful."
     }
   },
   "options": {
