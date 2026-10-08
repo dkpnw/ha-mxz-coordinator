@@ -27,9 +27,10 @@ the legacy YAML mappings below. These existing entities carry the observations:
 | Same Fan auto switch | `fan_control_reason`, `fan_on_pending` | Missing-current-speed explanation (`null` otherwise); `fan_on_pending: true` appears only while an explicit ON awaits a usable speed report. Capability/restore reasons are on the room surfaces above. |
 
 The plan's `zones[]` also exposes `sensor_health` and `sensor_age`; invalid `temp`
-is `null`. A fresh install normally has no prior fan record. Its reason, “No prior fan
-hold record available; using reported speed”, does not imply a historical hold was
-lost. Stale and malformed restore reasons remain distinct. No fan write is sent before
+is `null`. A fresh install normally has no prior fan record. The reason is “Previous fan
+hold unavailable: no prior fan hold record available; using reported speed.” It describes
+the absence of a record, not a lost historical hold. Stale and malformed restore reasons
+remain distinct. No fan write is sent before
 the head reports a usable current speed.
 
 Delivery observations publish immediately, including outside refresh completion.

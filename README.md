@@ -320,8 +320,9 @@ coordinator residue, including the issue 25 idle/delayed-report case. Clean swit
 states and unavailable-state extra restore data are distinct restore channels.
 Neither is a command journal or an arbitrary-crash guarantee. Missing, invalid or
 stale restore records use conservative reported-speed fallback. A fresh install normally
-has no prior fan record: “No prior fan hold record available; using reported speed”
-describes that absence, not a lost historical hold. Distinct stale or malformed-record
+has no prior fan record: “Previous fan hold unavailable: no prior fan hold record
+available; using reported speed.” This describes the absence of a record, not a lost
+historical hold. Distinct stale or malformed-record
 reasons remain visible. Check `control_reasons` and use ON when you want automatic
 control back. With no reported speed, fallback still sends no fan write. A wall-remote
 speed change while HA was down may be treated as residue if the room was previously

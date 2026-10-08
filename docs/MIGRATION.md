@@ -382,8 +382,9 @@ can wait for a usable report, and a later OFF cancels that handback. A recognize
 survives; a remote speed change during an HA outage on a previously automatic room
 may be read as residue. Restore data is not a durable command-delivery journal.
 
-No record is normal on a fresh install. The default reason now says **“No prior fan
-hold record available; using reported speed.”** It does not assert that a historical
+No record is normal on a fresh install. The default reason now says **“Previous fan
+hold unavailable: no prior fan hold record available; using reported speed.”**
+It does not assert that a historical
 hold was lost. A stale record still says it belongs to an older entry; a present but
 unusable record still says it is missing or malformed. Valid hold restoration or
 explicit Fan auto ON clears the restore reason. These are diagnostic wording and
