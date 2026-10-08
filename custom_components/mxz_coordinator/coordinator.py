@@ -484,7 +484,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # observation/intent, not evidence that a service reached hardware.
         self._fan_state_writers: dict[str, Callable[[], None]] = {}
         self._fan_restore_problem = {
-            zone.climate_id: "No prior fan hold record available; using reported speed."
+            zone.climate_id: "Previous fan hold unavailable: no prior fan hold record available; using reported speed."
             for zone in self.zones
         }
 
