@@ -311,7 +311,7 @@ async def test_target_64_cool_writes_once_not_every_cycle(
 
 
 # ---------------------------------------------------------------------------
-# Sweep: every whole-°F target in the house's range, on both head models.
+# Sweep: every whole-°F target in the house's range, on both head models at once.
 # ---------------------------------------------------------------------------
 # Before 3.4.1 a target looped when HA showed any commanded edge 0.5 °F off.
 # The house head snaps only the active edge, i.e. the target itself, so 62-65,
@@ -342,29 +342,44 @@ def test_sweep_classification_matches_the_echo_arithmetic() -> None:
         assert missed == (kind == "affected"), (name, mode, target)
 
 
-@pytest.mark.parametrize(
-    ("name", "mode", "target", "kind"), RANGE_CASES, ids=["-".join(map(str, c)) for c in RANGE_CASES]
-)
+SWEEP = [(mode, t) for mode in ("cool", "heat") for t in TARGETS]
+
+
+def _sweep_id(mode: str, target: int) -> str:
+    kinds = (
+        f"{name}:{'affected' if target in LOOPED[(name, mode)] else 'control'}"
+        for name in HEADS
+    )
+    return "-".join([mode, str(target), *kinds])
+
+
+@pytest.mark.parametrize(("mode", "target"), SWEEP, ids=[_sweep_id(*c) for c in SWEEP])
 async def test_range_head_no_rewrite_after_first(
-    hass: HomeAssistant, name: str, mode: str, target: int, kind: str
+    hass: HomeAssistant, mode: str, target: int
 ) -> None:
-    """After the first write, further cycles issue ZERO set_temperature calls."""
-    head = HEADS[name]
-    heads = [head("a"), head("b")]
-    entry = await _start(hass, heads)
+    """After the first write, further cycles issue ZERO set_temperature calls.
+
+    One setup checks both head models: the house head runs room A and the
+    both-edges head room B, each judged against its own echo.
+    """
+    heads = {name: cls(suffix) for (name, cls), suffix in zip(HEADS.items(), "ab")}
+    entry = await _start(hass, list(heads.values()))
     room = await _engage(hass, entry, mode, target)
 
-    eid = heads[0].entity_id
-    shown = _shown(head, mode, *_edges(mode, target))
-    assert hass.states.get(eid).state == mode
-    assert _band(hass, eid) == shown
-    first = list(heads[0].writes)
-    assert first, "engaging must write the head"
+    shown = {
+        name: _shown(HEADS[name], mode, *_edges(mode, target)) for name in heads
+    }
+    for name, head in heads.items():
+        assert hass.states.get(head.entity_id).state == mode, name
+        assert _band(hass, head.entity_id) == shown[name], name
+    first = {name: len(head.writes) for name, head in heads.items()}
+    assert all(first.values()), f"engaging must write each head: {first}"
 
     await _quiet_cycles(hass, entry, room)
-    assert heads[0].writes == first
-    assert len(heads[1].writes) == len(first)
-    assert _band(hass, eid) == shown  # the house's raw inactive edge held throughout
+    resent = {name: len(head.writes) - first[name] for name, head in heads.items()}
+    assert resent == dict.fromkeys(heads, 0), f"re-sends per head: {resent}"
+    for name, head in heads.items():  # the house's raw inactive edge held throughout
+        assert _band(hass, head.entity_id) == shown[name], name
 
 
 SINGLE_CASES = (
