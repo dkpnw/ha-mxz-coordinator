@@ -44,11 +44,17 @@ def violations(workflow):
     return errors
 
 
-@pytest.fixture
-def workflow():
+@pytest.fixture(scope="module")
+def parsed_workflow():
     path = Path(__file__).parents[1] / ".github/workflows/ci.yml"
     # BaseLoader preserves YAML's literal on/false keys/values as strings.
     return yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+
+
+@pytest.fixture
+def workflow(parsed_workflow):
+    # Parse once per module; each test still gets its own copy to change.
+    return deepcopy(parsed_workflow)
 
 
 def test_declared_ci_boundary(workflow):
@@ -444,15 +450,50 @@ def test_actual_export_retains_entire_four_mib_suite(suite_export, exit_code):
     assert "LOG_EXPORT_COMPLETE result=0" in result.stdout
 
 
-@pytest.mark.parametrize("exit_code", [0, 1])
-@pytest.mark.parametrize("size", [5242880, 5242881], ids=["exact-five-mib", "five-mib-plus-one"])
-def test_actual_export_five_mib_boundary(tmp_path, workflow, exit_code, size):
+EXPORT_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
+              "TZ": "UTC", "PYTHONDONTWRITEBYTECODE": "1"}
+
+
+@pytest.fixture(scope="module")
+def boundary_phases(tmp_path_factory):
+    """Real child pytest output per exit code; both size boundaries reuse it.
+
+    The child loads every installed plugin, as the suite does, which costs seconds per
+    interpreter; the two exit codes run concurrently and only once per module.
+    """
     import sys
 
+    plugin = Path(__file__).parents[1] / "tools/pytest_phases.py"
+    children = {}
+    for exit_code in (0, 1):
+        root = tmp_path_factory.mktemp(f"boundary-child-{exit_code}")
+        (root / "conftest.py").write_bytes(plugin.read_bytes())
+        (root / "test_invented_boundary.py").write_text(
+            f"def test_invented_boundary():\n    assert {exit_code} == 0\n")
+        # Explicit child fixture scope for pytest-asyncio; plain pytest accepts -o
+        # without introducing an unregistered option into an ini configuration file.
+        children[exit_code] = subprocess.Popen(
+            [sys.executable, "-I", "-m", "pytest", "-p", "no:cacheprovider",
+             "-o", "asyncio_default_fixture_loop_scope=function",
+             "-q", "-s", "test_invented_boundary.py"], cwd=root, env=EXPORT_ENV,
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    results = {}
+    try:
+        for exit_code, child in children.items():
+            stdout, stderr = child.communicate(timeout=30)
+            results[exit_code] = subprocess.CompletedProcess(child.args, child.returncode, stdout, stderr)
+    finally:
+        for child in children.values():
+            child.kill()
+    return results
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+@pytest.mark.parametrize("size", [5242880, 5242881], ids=["exact-five-mib", "five-mib-plus-one"])
+def test_actual_export_five_mib_boundary(tmp_path, workflow, boundary_phases, exit_code, size):
     # Real pytest emits the phase records; real Git runs the cleanliness checks.
     # All input data is invented. No endpoint, interpreter or Git stand-ins.
-    env = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
-           "TZ": "UTC", "PYTHONDONTWRITEBYTECODE": "1"}
+    env = dict(EXPORT_ENV)
     repo = tmp_path / "repo"
     repo.mkdir()
     for argv in (["git", "-c", "init.templateDir=", "init", "-q"],
@@ -463,16 +504,7 @@ def test_actual_export_five_mib_boundary(tmp_path, workflow, exit_code, size):
         assert result.returncode == 0, result.stderr
     root = tmp_path / "scratch"
     root.mkdir()
-    plugin = Path(__file__).parents[1] / "tools/pytest_phases.py"
-    (root / "conftest.py").write_bytes(plugin.read_bytes())
-    (root / "test_invented_boundary.py").write_text(
-        f"def test_invented_boundary():\n    assert {exit_code} == 0\n")
-    # Explicit child fixture scope for pytest-asyncio; plain pytest accepts -o
-    # without introducing an unregistered option into an ini configuration file.
-    phases = subprocess.run([sys.executable, "-I", "-m", "pytest", "-p", "no:cacheprovider",
-                             "-o", "asyncio_default_fixture_loop_scope=function",
-                             "-q", "-s", "test_invented_boundary.py"], cwd=root, env=env,
-                            stdin=subprocess.DEVNULL, check=False, capture_output=True, timeout=15)
+    phases = boundary_phases[exit_code]
     assert phases.returncode == exit_code and phases.stderr == b"", phases
     assert b"PHASES_VALID=true\n" in phases.stdout, phases
     payload = b"x" * (size - len(phases.stdout) - 1) + b"\n" + phases.stdout

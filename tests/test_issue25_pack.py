@@ -1,10 +1,13 @@
 """Exercise actual pack gates with invented files and a non-HA Python stand-in."""
 
 import hashlib
+import io
 import json
 import os
+import shlex
 import shutil
 import subprocess
+import tarfile
 import zlib
 from pathlib import Path
 
@@ -398,33 +401,39 @@ sys.exit(code)
     (root / 'tools/issue25/pack.sh').write_text("#!/bin/bash\nexec /usr/bin/python3 - \"$@\" <<'PY_FAKE'\n" + pack_source.split('\n', 1)[1] + '\nPY_FAKE\n')
     product = b'# invented\n'
     tree_line = f'100644 blob {blob(product)}\tcustom_components/mxz_coordinator/__init__.py\n'
-    git_source = '''#!/usr/bin/python3
-import io
-import sys
-import tarfile
-from pathlib import Path
-'''+f'fault={fault!r}\nexports=Path({str(exports)!r})\nline={tree_line!r}\nproduct={product!r}\n'+r'''
-args = sys.argv[1:]
-if args == ['rev-parse', 'HEAD']: print('a' * 40)
-elif args == ['rev-parse', 'HEAD^{tree}']: print('b' * 40)
-elif args == ['rev-parse', 'HEAD:.github/workflows/ci.yml']: print('c' * 40)
-elif args[:2] == ['rev-parse', '--verify']:
-    value = args[2]
-    if value.endswith('^{commit}'): print(value[:-9])
-    else: print({'3a9863896f8affb6f71cbd1e495df21b17a69ff3': '238636de6d067c8e05b59993819cc5187c2bf9df',
-                 'f760f74690103d8fe12a94a3d8806f206f7dc3ee': '8c05b4907f9a4a0066361be57267765336e1153c'}[value[:-7]])
-elif args[0] == 'diff': pass
-elif args[0] == 'ls-tree':
-    print(line.split('\t')[1] if '--name-only' in args else line, end='')
-elif args[0] == 'archive':
-    with exports.open('a') as file: file.write(args[1] + '\n')
-    if fault == 'archive': sys.exit(9)
-    with tarfile.open(fileobj=sys.stdout.buffer, mode='w|') as archive:
+    # The archive stream is built here once; the stand-in only replays it. A Bash
+    # stand-in starts in ~1 ms, an interpreter in ~20 ms, and the parent calls Git
+    # up to 22 times per case.
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode='w|') as stream:
         info = tarfile.TarInfo('custom_components/mxz_coordinator/__init__.py')
         info.size = len(product)
         info.mode = 0o644
-        archive.addfile(info, io.BytesIO(product))
-else: sys.exit(9)
+        stream.addfile(info, io.BytesIO(product))
+    (tmp_path / 'archive.tar').write_bytes(archive.getvalue())
+    git_source = f'''#!/bin/bash
+fault={shlex.quote(fault)}
+exports={shlex.quote(str(exports))}
+tarball={shlex.quote(str(tmp_path / 'archive.tar'))}
+line={shlex.quote(tree_line)}
+''' + r'''tab=$'\t'
+case "$*" in
+  'rev-parse HEAD') echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ;;
+  'rev-parse HEAD^{tree}') echo bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ;;
+  'rev-parse HEAD:.github/workflows/ci.yml') echo cccccccccccccccccccccccccccccccccccccccc ;;
+  'rev-parse --verify '*'^{commit}') printf '%s\n' "${3%"^{commit}"}" ;;
+  'rev-parse --verify 3a9863896f8affb6f71cbd1e495df21b17a69ff3^{tree}') echo 238636de6d067c8e05b59993819cc5187c2bf9df ;;
+  'rev-parse --verify f760f74690103d8fe12a94a3d8806f206f7dc3ee^{tree}') echo 8c05b4907f9a4a0066361be57267765336e1153c ;;
+  'rev-parse --verify '*) exit 1 ;;
+  diff|'diff '*) ;;
+  'ls-tree '*--name-only*) printf '%s' "${line#*"$tab"}" ;;
+  'ls-tree '*) printf '%s' "$line" ;;
+  'archive '*)
+    printf '%s\n' "$2" >> "$exports"
+    if test "$fault" = archive; then exit 9; fi
+    cat "$tarball" ;;
+  *) exit 9 ;;
+esac
 '''
     (bin_dir / 'git').write_text(git_source)
     (bin_dir / 'git').chmod(0o755)
