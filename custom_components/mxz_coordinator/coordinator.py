@@ -2184,8 +2184,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             UnitOfTemperature.FAHRENHEIT,
         ):
             return abs(reported - desired) < self.target_step / 2
-        latched = round(
-            TemperatureConverter.convert(desired, self.temp_unit, unit) / step
+        # Half up, as the CN105 firmware rounds (round() is half to even).
+        latched = math.floor(
+            TemperatureConverter.convert(desired, self.temp_unit, unit) / step + 0.5
         ) * step
         held = TemperatureConverter.convert(reported, self.temp_unit, unit)
         return abs(held - latched) < step / 2
