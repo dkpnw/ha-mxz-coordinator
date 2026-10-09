@@ -1204,8 +1204,9 @@ def _attention(
     idle_action = conf.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION)
     if (problem := head_mode_problem(hass, heads, idle_action)) is not None:
         placeholders = problem[1]
+        origin = "saved" if CONF_IDLE_ACTION in conf else "default"
         items.append(
-            f"the saved idle action *{placeholders['idle_action']}* isn't"
+            f"the {origin} idle action *{placeholders['idle_action']}* isn't"
             f" supported by {placeholders['unsupported_heads']}."
             " Open Fan and idle to choose another."
         )
