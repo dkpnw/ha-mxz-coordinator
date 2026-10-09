@@ -2047,6 +2047,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._wait_deliveries(tasks)
 
     # -- per-head operating band (native-unit safe clamp, #10) --------------
+    def _head_entity(self, climate_id: str) -> Any:
+        """The head's live climate entity object, or None if not reachable."""
+        component = (self.hass.data.get(DATA_INSTANCES) or {}).get("climate")
+        return component.get_entity(climate_id) if component else None
+
     def _head_native_limits(
         self, climate_id: str
     ) -> tuple[float, float, str] | None:
@@ -2059,8 +2064,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         26.0 °C max shows as 79 °F but rejects 79 °F). Best-effort: any missing
         entity / odd unit / inverted band yields None and the caller falls back.
         """
-        component = (self.hass.data.get(DATA_INSTANCES) or {}).get("climate")
-        entity = component.get_entity(climate_id) if component else None
+        entity = self._head_entity(climate_id)
         if entity is None:
             return None
         try:
@@ -2147,6 +2151,45 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return (float(self.clamp_min), float(self.clamp_max))
         return (lo, hi)
 
+    def _head_already_at(
+        self, climate_id: str, reported: float | None, desired: float
+    ) -> bool:
+        """True if sending ``desired`` would leave the head's setpoint unchanged.
+
+        A head can only hold setpoints on its own native grid. A °C-native
+        0.5 °C head (ESPHome CN105) in a °F system latches 18.0 °C for a
+        commanded 64 °F (17.78 °C) and reports it back as 64.4 °F, displayed
+        64.5 °F. That is the closest it can get to 64 °F, so comparing whole °F
+        never matches and every cycle re-sends a value that changes nothing.
+
+        So compare on the head's grid: convert ``desired`` to the native unit
+        and snap it to the native step (the value the head will latch); the
+        head already holds it when ``reported`` converts back to within half a
+        native step. The reported value's display rounding (at most 0.14 °C at
+        0.5 °F precision) and the raw commanded value the head publishes just
+        before its echo (at most 0.22 °C from the grid for a whole °F) both
+        stay inside that half step; a head one native step off does not. With
+        no known native unit/step, fall back to half our own step.
+        """
+        if reported is None:
+            return False
+        entity = self._head_entity(climate_id)
+        try:
+            step = float(entity.target_temperature_step)
+            unit = entity.temperature_unit
+        except (TypeError, ValueError, AttributeError):
+            step, unit = 0.0, None
+        if step <= 0 or unit not in (
+            UnitOfTemperature.CELSIUS,
+            UnitOfTemperature.FAHRENHEIT,
+        ):
+            return abs(reported - desired) < self.target_step / 2
+        latched = round(
+            TemperatureConverter.convert(desired, self.temp_unit, unit) / step
+        ) * step
+        held = TemperatureConverter.convert(reported, self.temp_unit, unit)
+        return abs(held - latched) < step / 2
+
     async def _apply_head(
         self, climate_id: str, act: str, low: float, high: float
     ) -> None:
@@ -2165,7 +2208,6 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # a head-exceeding target from erroring every cycle / degrading the
             # zone (#10) — it lands on the head's real ceiling/floor instead.
             low, high = self._clamp_to_head_band(climate_id, low, high)
-            tol = self.target_step / 2  # half a step = already-set (float noise)
             features = (
                 int(state.attributes.get("supported_features") or 0) if state else 0
             )
@@ -2176,7 +2218,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not features & 2:
                 setpoint = high if act == MODE_COOL else low
                 cur = _as_float(state.attributes.get("temperature")) if state else None
-                if cur_mode == act and cur is not None and abs(cur - setpoint) < tol:
+                if cur_mode == act and self._head_already_at(climate_id, cur, setpoint):
                     return  # idempotent
                 await self.async_head_service(
                     climate_id, "set_temperature",
@@ -2192,10 +2234,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             if (
                 cur_mode == act
-                and cur_low is not None
-                and cur_high is not None
-                and abs(cur_low - low) < tol
-                and abs(cur_high - high) < tol
+                and self._head_already_at(climate_id, cur_low, low)
+                and self._head_already_at(climate_id, cur_high, high)
             ):
                 return  # idempotent
             await self.async_head_service(
