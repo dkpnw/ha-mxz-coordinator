@@ -92,20 +92,23 @@ class Recorder:
 def test_each_evidence_line_is_one_flushed_write(monkeypatch):
     # One write per line leaves no gap for another thread's stderr record inside it.
     stdout = Recorder()
-    monkeypatch.setattr(sys, "stdout", stdout)
     config = SimpleNamespace(option=SimpleNamespace())
     phases.pytest_configure(config)
     item = SimpleNamespace(nodeid="invented::test_case", config=config, path=Path("invented/test_case.py"))
     session = SimpleNamespace(config=config, items=[item], exitstatus=0)
     item.session = session
-    phases.pytest_collection_finish(session)
-    for when in ("setup", "call", "teardown"):
-        report = SimpleNamespace(when=when, outcome="passed", failed=False, skipped=False, duration=0.0)
-        hook = phases.pytest_runtest_makereport(item, SimpleNamespace(when=when, excinfo=None))
-        next(hook)
-        with pytest.raises(StopIteration):
-            hook.send(SimpleNamespace(get_result=lambda report=report: report))
-    phases.pytest_sessionfinish(session, 0)
+    # Restored before this test's own call phase is reported: under CI's -s the real
+    # helper writes that record to whatever sys.stdout is then.
+    with monkeypatch.context() as patch:
+        patch.setattr(sys, "stdout", stdout)
+        phases.pytest_collection_finish(session)
+        for when in ("setup", "call", "teardown"):
+            report = SimpleNamespace(when=when, outcome="passed", failed=False, skipped=False, duration=0.0)
+            hook = phases.pytest_runtest_makereport(item, SimpleNamespace(when=when, excinfo=None))
+            next(hook)
+            with pytest.raises(StopIteration):
+                hook.send(SimpleNamespace(get_result=lambda report=report: report))
+        phases.pytest_sessionfinish(session, 0)
     writes = [call[1] for call in stdout.calls if call[0] == "write"]
     assert [line.split(" ", 1)[0].split("=", 1)[0] for line in writes] == [
         "COLLECTED", "PHASE", "PHASE", "PHASE", "PHASES_COMPLETE", "PHASES_VALID"]
