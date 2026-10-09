@@ -754,7 +754,7 @@ Facts to know before you switch:
   reconciliation and conservative fallback described in
   [Who drives the fan](#who-drives-the-fan).
 - **Vane changes still work.** Changing a louvre on a parked-off head briefly wakes it
-  (the usual [vane kick](#everyday-control)), then parks it again.
+  (the usual [vane kick](#diagnose-a-room-that-is-waiting)), then parks it again.
 - **Standoff losers park the same way.** A room waiting for the other mode idles in
   the same configured action as a satisfied room.
 
