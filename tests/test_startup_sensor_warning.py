@@ -45,6 +45,11 @@ from custom_components.mxz_coordinator.const import (
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
 from tests.test_drive import SENSOR_A, SENSOR_B, _eid, _set_temp, _setup_mock_heads
 
+# The startup timer is armed at the START event and the in-grace steps fire
+# relative to "now". A frozen clock keeps a slow host's real stall between the
+# two from moving the timer due early; only async_fire_time_changed moves time.
+pytestmark = pytest.mark.usefixtures("freezer")
+
 LOGGER = "custom_components.mxz_coordinator"
 WARNING = "has no usable reading"
 HOT = 75.0
