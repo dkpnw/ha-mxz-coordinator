@@ -13,6 +13,7 @@ tests still run on a bare ``pytest`` (and don't spin up Home Assistant needlessl
 from __future__ import annotations
 
 import logging
+import sys
 
 import pytest
 
@@ -28,6 +29,11 @@ def pytest_configure(config: pytest.Config) -> None:
     for handler in logging.getLogger().handlers:
         if type(handler) is logging.StreamHandler:
             handler.setLevel(logging.WARNING)
+    # CI redirects ``-s`` stdout and stderr into one log. Block-buffered stdout keeps
+    # the newline of the 130 KB phase-helper COLLECTED line back while HA logs to
+    # stderr, so the JSON evidence line gains a log record. Flush stdout per line.
+    if config.option.capture == "no":
+        sys.stdout.reconfigure(line_buffering=True)
 
 
 @pytest.fixture(autouse=True)
