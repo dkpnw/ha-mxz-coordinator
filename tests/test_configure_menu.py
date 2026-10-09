@@ -546,6 +546,71 @@ async def test_menu_attention_names_stored_problems_and_their_pages(
     assert entry.options["idle_action"] == "off_after_dry"
 
 
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        (
+            {"eco_heat_min": 80.0, "eco_cool_max": 60.0},
+            "the saved away low limit is above the away high limit."
+            " Open Away and setpoint limits to fix it.",
+        ),
+        (
+            {"clamp_min": 90.0, "clamp_max": 80.0},
+            "the saved lowest setpoint is above the highest setpoint."
+            " Open Away and setpoint limits to fix it.",
+        ),
+        (
+            {"heat_lockout_floor": 75.0, "cool_lockout_ceiling": 70.0},
+            'the saved "Heat anyway below" is above "Cool anyway above".'
+            " Open Seasons to fix it.",
+        ),
+        (
+            {"changeover_cool_below": 70.0, "changeover_heat_above": 60.0},
+            "the saved cool lockout temperature isn't below the heat lockout"
+            " temperature. Open Seasons to fix it.",
+        ),
+        (
+            {"changeover_cool_below": 60.0, "changeover_heat_above": 60.0},
+            "the saved cool lockout temperature isn't below the heat lockout"
+            " temperature. Open Seasons to fix it.",
+        ),
+        (
+            {"coil_dry_minutes": -5.0},
+            'the saved "Coil drying time" is negative. Open Fan and idle to fix it.',
+        ),
+        (
+            {"demand_threshold": float("nan")},
+            'the saved "Mode switch threshold" isn\'t a number. Open Comfort to fix it.',
+        ),
+        (
+            {"engage_deadband": "warm"},
+            'the saved "Allowed drift" isn\'t a number. Open Comfort to fix it.',
+        ),
+    ],
+    ids=[
+        "eco",
+        "clamp",
+        "lockout",
+        "changeover",
+        "changeover-equal",
+        "negative",
+        "nan",
+        "not-a-number",
+    ],
+)
+async def test_menu_attention_names_each_bad_stored_value_and_its_page(
+    hass: HomeAssistant, stored: dict[str, Any], expected: str
+) -> None:
+    """Every validation the pages run is also run on the stored values, and
+    the line names the page that shows the field."""
+    entry = _entry(hass, options=stored)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] is FlowResultType.MENU
+    assert result["description_placeholders"]["attention"] == (
+        f"**Needs attention:** {expected}"
+    )
+
+
 async def test_menu_attention_is_empty_when_nothing_is_wrong(hass: HomeAssistant) -> None:
     entry = _entry(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
