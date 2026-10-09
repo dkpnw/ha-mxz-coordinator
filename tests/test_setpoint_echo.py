@@ -50,7 +50,11 @@ from custom_components.mxz_coordinator.const import (
 from .test_drive import MockHead, _eid, _set_temp
 
 SENSORS = ("sensor.room_a_temp", "sensor.room_b_temp")
-CYCLES = 12  # ~2 minutes of coordinator cycles at the observed ~10 s cadence
+# _apply_head decides skip-or-send from the head's current state on every
+# refresh; nothing delays a re-send, so a write loop re-sends on the first quiet
+# cycle (the pre-3.4.1 code fails the same cases at 1, 2 or 12 cycles). Two
+# cycles cover both sensor readings: the running one and a tenth off it.
+CYCLES = 2
 
 
 def _cn105_snap(celsius: float, step: float = 0.5) -> float:
@@ -238,7 +242,7 @@ async def _engage(
 
 
 async def _quiet_cycles(hass: HomeAssistant, entry: MockConfigEntry, room: float) -> None:
-    """~2 minutes of cycles with a sensor that jitters by a tenth, as real ones do."""
+    """Quiet cycles with a sensor that jitters by a tenth, as real ones do."""
     for i in range(CYCLES):
         await _cycle(hass, entry, room + (0.1 if i % 2 else 0.0))
 
@@ -282,7 +286,7 @@ HEADS = {"house": HouseCN105Head, "both-edges": CN105Head}
 async def test_target_64_cool_writes_once_not_every_cycle(
     hass: HomeAssistant, head: type, shown: tuple[float, float]
 ) -> None:
-    """°F system, CN105 head, target 64, room 65, shared cool: ONE write, not ~12.
+    """°F system, CN105 head, target 64, room 65, shared cool: ONE write, not one per cycle.
 
     The head echoes target_temp_high 64.5 (18.0 °C) for the 64 it was sent;
     that is the only value a 0.5 °C head can hold for 64 °F, so re-sending 64
