@@ -523,7 +523,7 @@ def phase_log_errors(raw, exit_text):
     collected, complete, valid, reports = [], [], [], {}
     try:
         for line in raw.splitlines():
-            # pytest progress marks share the teardown line with the unchanged helper.
+            # pytest progress marks share the teardown line with the phase helper.
             line = re.sub(r"^[.FEsxX]+(?=PHASE )", "", line)
             if line.startswith("COLLECTED "):
                 collected.append(json.loads(line[10:]))

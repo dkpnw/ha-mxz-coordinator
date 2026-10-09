@@ -1,8 +1,15 @@
 """Print ordinary pytest phases; incomplete or skipped evidence cannot pass CI."""
 
 import json
+import sys
 
 import pytest
+
+
+def emit(line):
+    """One write per evidence line, then flush: stderr cannot land inside or before it."""
+    sys.stdout.write(line + "\n")
+    sys.stdout.flush()
 
 
 def phase_errors(expected, reports):
@@ -32,7 +39,7 @@ def pytest_configure(config):
 
 def pytest_collection_finish(session):
     session.config._ordinary_collected = [i.nodeid for i in session.items]
-    print("COLLECTED " + json.dumps(session.config._ordinary_collected))
+    emit("COLLECTED " + json.dumps(session.config._ordinary_collected))
 
 
 def pytest_deselected(items):
@@ -56,9 +63,9 @@ def pytest_runtest_makereport(item, call):
         config._ordinary_classes.setdefault(item.nodeid, []).append(category)
     if category == "unknown" and item.path.parent.name == "issue25":
         item.session.shouldstop = "UNKNOWN diagnostic prerequisite/phase; retain missing cells"
-    print("PHASE " + json.dumps({"node": item.nodeid, "phase": report.when,
-                                "outcome": report.outcome, "category": category,
-                                "seconds": report.duration}))
+    emit("PHASE " + json.dumps({"node": item.nodeid, "phase": report.when,
+                               "outcome": report.outcome, "category": category,
+                               "seconds": report.duration}))
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -68,7 +75,7 @@ def pytest_sessionfinish(session, exitstatus):
     # Collection errors and abnormal exits also remain failures, never issue-red.
     if errors and session.exitstatus == 0:
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
-    print("PHASES_COMPLETE " + json.dumps({"exit": int(session.exitstatus),
-                                         "errors": errors,
-                                         "classes": config._ordinary_classes}, sort_keys=True))
-    print("PHASES_VALID=" + ("false" if errors else "true"))
+    emit("PHASES_COMPLETE " + json.dumps({"exit": int(session.exitstatus),
+                                        "errors": errors,
+                                        "classes": config._ordinary_classes}, sort_keys=True))
+    emit("PHASES_VALID=" + ("false" if errors else "true"))

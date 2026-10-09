@@ -350,10 +350,12 @@ def test_diagnostic_phase_line_boundary(tmp_path, monkeypatch, when, outcome, pr
             output.write(progress)
             returned = manager.hook.pytest_runtest_makereport(item=item, call=call)
             assert returned is report
-            # The boundary flush must reach the real file even while the phase
-            # plugin's subsequent print is still buffered.
-            expected_prefix = (progress + '\n').encode() if separator else b''
-            assert path.read_bytes() == expected_prefix
+            # The phase plugin flushes its whole line before the hook returns; only
+            # the boundary flush puts a newline between progress and that line.
+            expected_prefix = progress + '\n' if separator else progress
+            written = path.read_text()
+            assert written.startswith(expected_prefix + 'PHASE {') and written.endswith('}\n')
+            assert written.count('\n') == expected_prefix.count('\n') + 1
         lines = path.read_text().splitlines()
         phases = [json.loads(line.removeprefix('PHASE ')) for line in lines if line.startswith('PHASE ')]
         expected = {'node': node, 'phase': when, 'outcome': outcome,
