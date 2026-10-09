@@ -311,7 +311,7 @@ second raw-head control for the same room.
 <td>The heads belong to another entry. The error names them, and the heads step stays open.</td>
 </tr>
 <tr>
-<td><img src="images/mxz-3.4.0-setup-heads-error-reserved-c1007a.png" alt="Heads step error: climate.studio_head is selected in another unfinished MXZ Coordinator flow."></td>
+<td><img src="images/mxz-3.4.0-setup-heads-error-reserved-c1007a.png" alt="Heads step error: climate.studio_head is selected in another open MXZ Coordinator dialog."></td>
 <td><img src="images/mxz-3.4.0-setup-rooms-error-duplicate-c1007a.png" alt="Rooms step error: two rooms have the same name, Studio."></td>
 </tr>
 <tr>
@@ -361,11 +361,11 @@ and finish** to apply it. Comfort and sensor-freshness settings stay in
 </tr>
 <tr>
 <td><img src="images/mxz-3.4.0-reconfigure-sensors-c1007a.png" alt="Reconfigure sensors step: Loft and Studio keep their sensors and readings; Nook temperature picked for the new room."></td>
-<td><img src="images/mxz-3.4.0-reconfigure-summary-c1007a.png" alt="Reconfigure summary noting Studio moved from priority 1 with its settings, climate.den_head removed with its entities, and one reload on save."></td>
+<td><img src="images/mxz-3.4.0-reconfigure-summary-c1007a.png" alt="Reconfigure summary noting Studio moved from priority 1 with its settings, climate.den_head removed with its entities, and that comfort settings live in Configure."></td>
 </tr>
 <tr>
 <td>Sensors: kept rooms show their current sensors; Nook temperature is picked for the new room.</td>
-<td>Summary: Studio's move, its saved freshness profile, Den's removal and the reload note. Only <b>Save and finish</b> and <b>Go back to heads and rooms</b> are offered.</td>
+<td>Summary: Studio's move with its settings, Den's removal and a pointer to Configure for comfort settings. Only <b>Save and finish</b> and <b>Go back to heads and rooms</b> are offered.</td>
 </tr>
 </table>
 
