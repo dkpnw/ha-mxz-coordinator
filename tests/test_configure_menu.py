@@ -43,6 +43,7 @@ HEADS = ("climate.rec_room", "climate.bedroom", "climate.office")
 SENSORS = ("sensor.rec_room_temp", "sensor.bedroom_temp", "sensor.office_temp")
 ALL_MODES = ["off", "cool", "heat", "fan_only"]
 HOLD = "binary_sensor.grid_down"
+WEATHER = "weather.home"
 
 # Stored zone keys, written out independently of const.py.
 _ZONE_KEYS = frozenset(
@@ -204,6 +205,84 @@ async def test_standby_page_still_clears_the_hold_entity(hass: HomeAssistant) ->
     assert result["type"] is FlowResultType.CREATE_ENTRY, result
     assert entry.options["inhibit_entity"] is None
     assert entry.data["inhibit_entity"] is None
+
+
+# The weather source follows the same rule on Seasons, the page that shows it.
+
+
+@pytest.mark.parametrize("page", [*[p for p in GLOBAL_PAGES if p != "seasons"], "room_1"])
+async def test_saving_a_page_without_the_weather_field_keeps_the_weather_source(
+    hass: HomeAssistant, page: str
+) -> None:
+    entry = _entry(hass, options={"changeover_entity": WEATHER})
+    result = await open_options_page(hass, entry, page)
+    assert "changeover_entity" not in fields(result)
+
+    result = await submit(hass.config_entries.options, result, prefilled(result))
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY, result
+    assert entry.options["changeover_entity"] == WEATHER
+    assert entry.data["changeover_entity"] == WEATHER
+
+
+async def test_untouched_seasons_save_keeps_the_weather_source(hass: HomeAssistant) -> None:
+    entry = _entry(hass, options={"changeover_entity": WEATHER})
+    result = await open_options_page(hass, entry, "seasons")
+    assert prefilled(result)["changeover_entity"] == WEATHER
+
+    result = await submit(hass.config_entries.options, result, prefilled(result))
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY, result
+    assert entry.options["changeover_entity"] == WEATHER
+    assert entry.data["changeover_entity"] == WEATHER
+
+
+async def test_seasons_page_clears_the_weather_source(hass: HomeAssistant) -> None:
+    """Clearing Weather source on Seasons clears it in both stores, and the
+    coordinator then runs without forecast lockouts. The hold entity, which
+    Seasons does not show, is kept."""
+    from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+
+    entry = _entry(hass, options={"changeover_entity": WEATHER})
+    result = await open_options_page(hass, entry, "seasons")
+    submission = prefilled(result)
+    assert submission.pop("changeover_entity") == WEATHER
+    submission["changeover_heat_above"] = 72.0
+
+    result = await submit(hass.config_entries.options, result, submission)
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY, result
+    assert entry.options["changeover_entity"] is None
+    assert entry.data["changeover_entity"] is None
+    assert entry.options["changeover_heat_above"] == 72.0
+    assert entry.options["inhibit_entity"] == HOLD
+    assert MXZCoordinator(hass, entry).changeover_entity is None
+
+    result = await open_options_page(hass, entry, "seasons")
+    assert "changeover_entity" not in prefilled(result)
+
+
+async def test_setup_seasons_page_clears_a_weather_source_entered_earlier(
+    hass: HomeAssistant,
+) -> None:
+    """Setup keeps page answers until Save; emptying the picker on a second
+    visit leaves no weather source in the created entry."""
+    manager = hass.config_entries.flow
+    result = await press(manager, await _setup_review(hass), "tuning")
+    result = await press(manager, result, "seasons")
+    result = await submit(manager, result, {**prefilled(result), "changeover_entity": WEATHER})
+    assert result["step_id"] == "tuning", result
+    result = await press(manager, result, "seasons")
+    submission = prefilled(result)
+    assert submission.pop("changeover_entity") == WEATHER
+    result = await submit(manager, result, submission)
+    assert result["step_id"] == "tuning", result
+
+    result = await press(manager, await press(manager, result, "review"), "finish")
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY, result
+    assert not result["options"].get("changeover_entity")
+    assert not result["result"].data.get("changeover_entity")
 
 
 # --- §6 item 2: one room's save leaves every other room alone ---------------
