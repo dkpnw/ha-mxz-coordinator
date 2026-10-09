@@ -551,28 +551,38 @@ async def test_menu_attention_names_stored_problems_and_their_pages(
     [
         (
             {"eco_heat_min": 80.0, "eco_cool_max": 60.0},
-            "the saved away low limit is above the away high limit."
-            " Open Away and setpoint limits to fix it.",
+            (
+                "the saved away low limit is above the away high limit."
+                " Open Away and setpoint limits to fix it."
+            ),
         ),
         (
             {"clamp_min": 90.0, "clamp_max": 80.0},
-            "the saved lowest setpoint is above the highest setpoint."
-            " Open Away and setpoint limits to fix it.",
+            (
+                "the saved lowest setpoint is above the highest setpoint."
+                " Open Away and setpoint limits to fix it."
+            ),
         ),
         (
             {"heat_lockout_floor": 75.0, "cool_lockout_ceiling": 70.0},
-            'the saved "Heat anyway below" is above "Cool anyway above".'
-            " Open Seasons to fix it.",
+            (
+                'the saved "Heat anyway below" is above "Cool anyway above".'
+                " Open Seasons to fix it."
+            ),
         ),
         (
             {"changeover_cool_below": 70.0, "changeover_heat_above": 60.0},
-            "the saved cool lockout temperature isn't below the heat lockout"
-            " temperature. Open Seasons to fix it.",
+            (
+                "the saved cool lockout temperature isn't below the heat lockout"
+                " temperature. Open Seasons to fix it."
+            ),
         ),
         (
             {"changeover_cool_below": 60.0, "changeover_heat_above": 60.0},
-            "the saved cool lockout temperature isn't below the heat lockout"
-            " temperature. Open Seasons to fix it.",
+            (
+                "the saved cool lockout temperature isn't below the heat lockout"
+                " temperature. Open Seasons to fix it."
+            ),
         ),
         (
             {"coil_dry_minutes": -5.0},
