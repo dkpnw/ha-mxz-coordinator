@@ -20,10 +20,38 @@
   <a href="https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator"><img src="https://my.home-assistant.io/badges/config_flow_start.svg" alt="Start setting up MXZ Coordinator."></a>
 </p>
 
-Several indoor heads share one MXZ outdoor unit. When rooms disagree, stock AUTO can
-leave one waiting in standby. MXZ Coordinator uses your room sensors, targets and
-priority order to choose an explicit shared mode. A satisfied room steps aside. It
-cannot heat one room and cool another at the same time.
+### Tesla-style Auto for your Mitsubishi multi-split
+
+**Set a temperature in each room and forget it.** Like a Tesla's cabin climate in Auto,
+MXZ Coordinator decides heat or cool, runs the fan hard when a room is far off and eases
+it down as the room gets close, and has a room that's done step aside so the others get
+served. One outdoor unit still means one mode at a time; MXZ just makes that call for you,
+and makes it well.
+
+- **No more stranded rooms.** Stock AUTO can leave a head waiting in standby for an hour
+  while the other one runs. MXZ picks one mode for the whole system, and a room that has
+  reached its target idles so the room that needs it gets served.
+- **Heat or cool, chosen for you.** Stock heads each decide from their own reading, and
+  they can disagree. With MXZ you only set temperatures. When rooms want opposite modes,
+  the room you ranked first wins, and the mode won't flip back and forth.
+- **A fan that works like a Tesla's.** The further a room is from target, the faster the
+  fan runs, up to the top speed you allow, and it slows step by step as the room closes
+  in. Pick a speed yourself and it stays put until you hand it back.
+- **Reads the room, not the ceiling.** Each room runs on the temperature sensor you choose,
+  not the thermistor inside a head mounted up near the ceiling.
+- **Knows the season and when you're away.** Optional weather lockouts stop it heating on
+  a day forecast to be warm, or cooling on a cold one. Away limits keep an empty house from
+  getting too hot or cold, and an optional hold signal (say, from your utility) can pause it.
+- **One clean thermostat per room.** Each room gets a single thermostat for Home Assistant
+  dashboards, Apple Home or Google Home, and everything is set up in the UI with no YAML.
+
+| | Stock AUTO | MXZ Coordinator |
+| --- | --- | --- |
+| Heat or cool | Each head decides alone; one can sit in standby | One mode for the system, chosen by your room priority |
+| A room that's done | Stays in its own mode, which can block the other | Steps aside: fan only, off, or dry the coil then off |
+| Fan | The head's own fan setting | Speeds up when far off, eases down near target |
+| Temperature it uses | Thermistor in the head | The room sensor you pick |
+| Seasons and away | Manual | Weather lockouts, away limits, standby hold |
 
 ![Two rooms as single-target Auto dials beside the coordinator's decision state.](images/dashboard.png)
 
