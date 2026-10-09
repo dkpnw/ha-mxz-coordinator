@@ -1,9 +1,9 @@
-<h1 align="center">
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="custom_components/mxz_coordinator/brand/dark_logo@2x.png">
     <img src="custom_components/mxz_coordinator/brand/logo@2x.png" width="460" alt="MXZ Coordinator wordmark: a dial running cool blue on the left to warm orange on the right, two wall heads on the ring, outdoor unit at the hub.">
   </picture>
-</h1>
+</p>
 
 <p align="center"><b>Set one temperature per room. The coordinator chooses one shared heating or cooling mode.</b></p>
 
