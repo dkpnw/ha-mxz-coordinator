@@ -549,6 +549,36 @@ async def test_menu_attention_names_stored_problems_and_their_pages(
 @pytest.mark.parametrize(
     ("stored", "expected"),
     [
+        (True, "the saved idle action"),
+        (False, "the default idle action"),
+    ],
+    ids=["stored", "default"],
+)
+async def test_menu_attention_says_saved_only_for_a_stored_idle_action(
+    hass: HomeAssistant, stored: bool, expected: str
+) -> None:
+    """With no idle action stored the coordinator uses the default, so the
+    line names the default; it was never saved."""
+    _head(hass, HEADS[2], ["off", "cool", "heat"])
+    entry = _entry(hass)
+    if not stored:
+        options = {k: v for k, v in entry.options.items() if k != "idle_action"}
+        data = {k: v for k, v in entry.data.items() if k != "idle_action"}
+        hass.config_entries.async_update_entry(entry, data=data, options=options)
+    assert ("idle_action" in {**entry.data, **entry.options}) is stored
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    assert result["type"] is FlowResultType.MENU
+    assert result["description_placeholders"]["attention"] == (
+        f"**Needs attention:** {expected} *Fan only* isn't supported by Office."
+        " Open Fan and idle to choose another."
+    )
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
         (
             {"eco_heat_min": 80.0, "eco_cool_max": 60.0},
             (
