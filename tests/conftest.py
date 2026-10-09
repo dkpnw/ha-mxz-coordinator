@@ -12,6 +12,8 @@ tests still run on a bare ``pytest`` (and don't spin up Home Assistant needlessl
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 
@@ -19,6 +21,13 @@ def pytest_configure(config: pytest.Config) -> None:
     """Run async tests/fixtures without per-test markers (pytest-asyncio auto-mode)."""
     if hasattr(config.option, "asyncio_mode"):
         config.option.asyncio_mode = "auto"
+    # pytest-homeassistant-custom-component calls ``logging.basicConfig(level=INFO)``, so
+    # under CI's ``-s`` every integration setup writes ~4 KB of HA INFO to the suite log.
+    # Only that stderr stream moves to WARNING; logger levels stay, so caplog and the
+    # "Captured log" section of a failure report still get INFO.
+    for handler in logging.getLogger().handlers:
+        if type(handler) is logging.StreamHandler:
+            handler.setLevel(logging.WARNING)
 
 
 @pytest.fixture(autouse=True)

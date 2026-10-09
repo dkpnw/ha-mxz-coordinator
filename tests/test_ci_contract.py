@@ -1,5 +1,7 @@
 """Static CI boundaries; live repository/token receipts are required separately."""
 
+import io
+import logging
 import re
 import subprocess
 from copy import deepcopy
@@ -404,6 +406,24 @@ def test_actual_export_rejects_invalid_or_incomplete_evidence(suite_export, faul
         assert f"MISSING_LOG={fault.removeprefix('missing-')}" in result.stdout
     elif fault not in invalid_exits:
         assert "INCOMPLETE_SUITE_PHASES" in result.stdout
+
+
+def test_suite_log_stream_keeps_warnings_while_tests_keep_info(caplog):
+    """CI runs ``-s``: Home Assistant's per-setup INFO stays out of suite.log, not out of tests."""
+    streams = [h for h in logging.getLogger().handlers if type(h) is logging.StreamHandler]
+    assert streams, "pytest-homeassistant-custom-component's stderr handler is missing"
+    logger = logging.getLogger("homeassistant.setup")
+    sink = io.StringIO()
+    old = [h.setStream(sink) for h in streams]
+    try:
+        logger.info("info for tests only")
+        logger.warning("warning for the log too")
+    finally:
+        for handler, stream in zip(streams, old):
+            handler.setStream(stream)
+    assert "info for tests only" not in sink.getvalue()
+    assert "warning for the log too" in sink.getvalue()
+    assert [r.getMessage() for r in caplog.records] == ["info for tests only", "warning for the log too"]
 
 
 @pytest.mark.parametrize("exit_code", [0, 1])
