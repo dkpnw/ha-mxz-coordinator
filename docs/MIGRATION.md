@@ -445,6 +445,8 @@ or error key changed, and nothing is migrated.
 - Submitting a page saves that page only, with one reload. A page never changes a
   setting it doesn't show: saving Comfort keeps the standby hold entity, and saving one
   room keeps every other room's vanes, airflow sensor and freshness profile.
+- Clearing **Weather source** on Seasons now removes it, as clearing **Hold signal** on
+  Standby hold removes the hold. In 3.4.0 a cleared weather source was kept.
 - Validation is per page. A value saved by an older version that its page would now
   refuse no longer blocks unrelated edits. The menu's **Needs attention** line names it
   and the page that fixes it.

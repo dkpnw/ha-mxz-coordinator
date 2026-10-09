@@ -402,8 +402,9 @@ the named page, correct the value and save.
 The data mirror can recover tuned values when options are empty, but does not prove
 how they became empty. Review and save Configure if that warning appears. On a room
 page, a cleared vane or airflow field removes that wiring from that room only. On the
-Standby hold page, a cleared Hold signal explicitly removes the hold; no other page
-can clear it. Do not infer that every optional field has the same clearing behavior.
+Standby hold page, a cleared Hold signal explicitly removes the hold. On the Seasons
+page, a cleared Weather source stops the lockouts following the forecast. No other page
+can clear either. Do not infer that every optional field has the same clearing behavior.
 
 ### Choose a sensor freshness contract
 

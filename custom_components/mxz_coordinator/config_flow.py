@@ -604,6 +604,11 @@ _PAGE_NAMES = {
     "limits": "Away and setpoint limits",
     "standby": "Standby hold",
 }
+# The optional entity picker each page shows; emptying it there clears it.
+_CLEARABLE_ENTITY = {
+    "seasons": CONF_CHANGEOVER_ENTITY,
+    "standby": CONF_INHIBIT_ENTITY,
+}
 
 
 def _page_fields(page: str) -> tuple[str, ...]:
@@ -2159,17 +2164,19 @@ class MXZOptionsFlow(OptionsFlow):
                 errors = _validate_tunables(values)
             if not errors:
                 tunables = dict(values)
-                # The standby-hold entity is clearable: this page always
-                # renders it and a pre-filled value the user leaves alone is
-                # submitted back, so an absent/empty key here means the user
-                # cleared it. Write an explicit None so the merge doesn't
-                # resurrect the old entity — and the failure direction is
-                # safe: losing it means "no standby hold", i.e. normal
-                # coordination. Only on this page: every other page never
+                # The standby-hold and weather-source entities are clearable:
+                # their page always renders the picker and a pre-filled value
+                # the user leaves alone is submitted back, so an absent/empty
+                # key there means the user cleared it. Write an explicit None
+                # so the merge doesn't resurrect the old entity — and the
+                # failure direction is safe: losing one means "no standby
+                # hold" or "no forecast lockouts", i.e. normal coordination.
+                # Only on the page that shows it: every other page never
                 # shows the field, so its absence there means nothing. A
                 # degenerate empty submit (schema bypass) still wipes nothing.
-                if page == "standby" and values and not values.get(CONF_INHIBIT_ENTITY):
-                    tunables[CONF_INHIBIT_ENTITY] = None
+                clearable = _CLEARABLE_ENTITY.get(page)
+                if clearable and values and not values.get(clearable):
+                    tunables[clearable] = None
                 return self._save(tunables, zones)
         schema, page_errors = _page_form(
             self.hass, page, {**conf, **values}, idle_options, errors
