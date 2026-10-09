@@ -159,6 +159,12 @@ class HalfCelsiusHead(RecordingHead):
     _attr_precision = PRECISION_TENTHS
 
 
+class WholeCelsiusHead(CN105Head):
+    """The same firmware on a 1 °C grid (still rounds half up)."""
+
+    _attr_target_temperature_step = 1.0
+
+
 async def _start(hass: HomeAssistant, heads: list, units=US_CUSTOMARY_SYSTEM) -> MockConfigEntry:
     """Two zones on ``heads``, coordinator and both rooms enabled."""
     hass.config.units = units
@@ -493,6 +499,30 @@ async def test_celsius_system_half_degree_drift_is_resent(hass: HomeAssistant) -
         assert len(heads[0].writes) == 1, moved
         a = hass.states.get(eid)
         assert (a.attributes["target_temp_low"], a.attributes["target_temp_high"]) == (20.0, 21.0)
+
+
+async def test_whole_celsius_head_latches_half_up(hass: HomeAssistant) -> None:
+    """°C system, 1 °C head, target 20.5 °C: the head latches 21 °C (half up).
+
+    Round-half-to-even would expect 20 °C, see the head one step off and
+    re-send every cycle. A real one-step move is still re-sent.
+    """
+    heads = [WholeCelsiusHead("a"), WholeCelsiusHead("b")]
+    entry = await _start(hass, heads, METRIC_SYSTEM)
+    room = await _engage(hass, entry, "cool", 20.5, off=0.5)
+    eid = heads[0].entity_id
+    assert _band(hass, eid) == (20.0, 21.0)  # sent (19.5, 20.5)
+    first = list(heads[0].writes)
+    assert first
+
+    await _quiet_cycles(hass, entry, room)
+    assert heads[0].writes == first
+
+    await _wall_set(hass, eid, target_temp_low=20.0, target_temp_high=22.0)
+    heads[0].writes.clear()
+    await _cycle(hass, entry, room)
+    assert len(heads[0].writes) == 1
+    assert _band(hass, eid) == (20.0, 21.0)
 
 
 @pytest.mark.parametrize("cls", [RecordingHead, WholeFahrenheitHead])
