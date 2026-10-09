@@ -8,9 +8,12 @@ MXZ commands a whole-°F edge (64 °F = 17.78 °C); the head latches the nearest
 matched, so MXZ re-sent set_temperature on every coordinator cycle (~10 s) for
 as long as the room ran: 120–196 writes/h observed at target 62, 145/h at 64.
 
-The mock head below models that firmware end to end through HA's real climate
+The mock heads below model that firmware end to end through HA's real climate
 service: HA converts the °F command into °C, the head publishes the commanded
 value, then its 0.5 °C-snapped echo, and HA displays it in °F at 0.5 °F.
+``HouseCN105Head`` is the house as observed: only the active edge is snapped,
+the other edge keeps the raw commanded value. ``CN105Head`` snaps both edges,
+a stricter head the fix must also settle.
 """
 
 from __future__ import annotations
@@ -50,9 +53,9 @@ SENSORS = ("sensor.room_a_temp", "sensor.room_b_temp")
 CYCLES = 12  # ~2 minutes of coordinator cycles at the observed ~10 s cadence
 
 
-def _cn105_snap(celsius: float) -> float:
-    """The setpoint a CN105 head latches: the nearest 0.5 °C (half up)."""
-    return math.floor(celsius * 2 + 0.5) / 2
+def _cn105_snap(celsius: float, step: float = 0.5) -> float:
+    """The setpoint a CN105 head latches: the nearest ``step`` °C (half up)."""
+    return math.floor(celsius / step + 0.5) * step
 
 
 class CN105Head(MockHead):
@@ -60,7 +63,8 @@ class CN105Head(MockHead):
 
     Records every set_temperature it receives (already converted to °C by HA's
     climate service), publishes the commanded value first and then the value
-    the head actually latched, exactly as ESPHome does ~0.1–1 s apart.
+    the head actually latched, exactly as ESPHome does ~0.1–1 s apart. This
+    model latches BOTH range edges; see ``HouseCN105Head`` for the real one.
     """
 
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
@@ -77,8 +81,11 @@ class CN105Head(MockHead):
         self.writes.append(dict(kwargs))
         self._take(kwargs, lambda value: value)  # the commanded value ...
         self.async_write_ha_state()
-        self._take(kwargs, _cn105_snap)  # ... then the head's snapped echo
+        self._take(kwargs, self._latch)  # ... then the head's snapped echo
         self.async_write_ha_state()
+
+    def _latch(self, celsius: float) -> float:
+        return _cn105_snap(celsius, self._attr_target_temperature_step)
 
     def _take(self, kwargs: dict[str, Any], latch) -> None:
         if (mode := kwargs.get("hvac_mode")) is not None:
@@ -90,6 +97,25 @@ class CN105Head(MockHead):
         ):
             if (value := kwargs.get(key)) is not None:
                 setattr(self, attr, latch(value))
+
+
+class HouseCN105Head(CN105Head):
+    """The CN105 head as the house shows it: only the ACTIVE edge is snapped.
+
+    Oct 7 snapshot, Rec room cool 64: target_temp_high 64.5 (snapped) and
+    target_temp_low 62.0 (raw, as commanded). The head latches the edge it runs
+    on (high in cool, low in heat) and keeps the other exactly as sent, which is
+    up to 0.22 °C off its 0.5 °C grid for a whole °F.
+    """
+
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        self.writes.append(dict(kwargs))
+        self._take(kwargs, lambda value: value)
+        self.async_write_ha_state()
+        mode = kwargs.get("hvac_mode") or self._attr_hvac_mode
+        active = "target_temp_high" if mode == "cool" else "target_temp_low"
+        self._take({active: kwargs.get(active)}, self._latch)
+        self.async_write_ha_state()
 
 
 class CN105SingleHead(CN105Head):
@@ -224,81 +250,111 @@ def _echo(fahrenheit: float) -> float:
     return round((latched * 9 / 5 + 32) * 2) / 2
 
 
+def _shown(head: type, mode: str, low: float, high: float) -> tuple[float, float]:
+    """The (low, high) HA shows after the °F band (low, high) is sent to ``head``."""
+    if head is HouseCN105Head:  # the inactive edge stays raw
+        return (low, _echo(high)) if mode == "cool" else (_echo(low), high)
+    return (_echo(low), _echo(high))
+
+
+def _band(hass: HomeAssistant, entity_id: str) -> tuple[float, float]:
+    a = hass.states.get(entity_id).attributes
+    return (a["target_temp_low"], a["target_temp_high"])
+
+
+HEADS = {"house": HouseCN105Head, "both-edges": CN105Head}
+
+
 # ---------------------------------------------------------------------------
 # Headline: the exact observed scenario.
 # ---------------------------------------------------------------------------
-async def test_target_64_cool_writes_once_not_every_cycle(hass: HomeAssistant) -> None:
+@pytest.mark.parametrize(
+    ("head", "shown"),
+    [(HouseCN105Head, (62.0, 64.5)), (CN105Head, (61.5, 64.5))],
+    ids=["house", "both-edges"],
+)
+async def test_target_64_cool_writes_once_not_every_cycle(
+    hass: HomeAssistant, head: type, shown: tuple[float, float]
+) -> None:
     """°F system, CN105 head, target 64, room 65, shared cool: ONE write, not ~12.
 
     The head echoes target_temp_high 64.5 (18.0 °C) for the 64 it was sent;
     that is the only value a 0.5 °C head can hold for 64 °F, so re-sending 64
-    can never change anything on the head.
+    can never change anything on the head. The house head shows (62.0, 64.5),
+    exactly the Oct 7 snapshot; the both-edges head also snaps 62 to 61.5.
     """
-    heads = [CN105Head("a"), CN105Head("b")]
+    heads = [head("a"), head("b")]
     entry = await _start(hass, heads)
     room = await _engage(hass, entry, "cool", 64)
 
-    a = hass.states.get(heads[0].entity_id)
-    assert a.state == "cool"
-    assert a.attributes["target_temp_high"] == 64.5  # the real echo
-    assert a.attributes["target_temp_low"] == 61.5  # 62 -> 16.5 °C -> 61.7
-    engaged = [len(head.writes) for head in heads]
+    eid = heads[0].entity_id
+    assert hass.states.get(eid).state == "cool"
+    assert _band(hass, eid) == shown
+    engaged = [len(h.writes) for h in heads]
     assert all(engaged)
 
     await _quiet_cycles(hass, entry, room)
-    resent = [len(head.writes) - n for head, n in zip(heads, engaged)]
+    resent = [len(h.writes) - n for h, n in zip(heads, engaged)]
     assert resent == [0, 0], f"{resent} set_temperature re-sends in {CYCLES} cycles"
-    assert [len(head.writes) for head in heads] == [1, 1]
+    assert [len(h.writes) for h in heads] == [1, 1]
+    assert _band(hass, eid) == shown
 
 
 # ---------------------------------------------------------------------------
-# Sweep: every whole-°F target whose band edge lands off a 0.5 °F display mark.
+# Sweep: every whole-°F target in the house's range, on both head models.
 # ---------------------------------------------------------------------------
-# Affected = at least one commanded edge echoes 0.5 °F away. The brief's list
-# (62-65, 71, 72) loops in both modes; the 2 °F band also makes cool 66/67 loop
-# through their LOW edge (64/65) and heat 60/61/69/70 through their HIGH edge.
-AFFECTED_COOL = [62, 63, 64, 65, 66, 67, 71, 72]
-AFFECTED_HEAT = [60, 61, 62, 63, 64, 65, 69, 70, 71, 72]
-CONTROL_COOL = [60, 68, 69, 70]  # both edges echo exactly
-CONTROL_HEAT = [59, 66, 67, 68]
-RANGE_CASES = (
-    [("cool", t, "affected") for t in AFFECTED_COOL]
-    + [("heat", t, "affected") for t in AFFECTED_HEAT]
-    + [("cool", t, "control") for t in CONTROL_COOL]
-    + [("heat", t, "control") for t in CONTROL_HEAT]
-)
+# Before 3.4.1 a target looped when HA showed any commanded edge 0.5 °F off.
+# The house head snaps only the active edge, i.e. the target itself, so 62-65,
+# 71 and 72 loop in both modes and 59-61, 66-70 do not: exactly what the house
+# showed. The both-edges head over-predicts: its snapped inactive edge also
+# makes cool 66/67 loop (low edge 64/65) and heat 60/61/69/70 (high edge
+# 62/63/71/72). The house's raw inactive edge is up to 0.22 °C off the 0.5 °C
+# grid and must still read as already set.
+TARGETS = range(59, 73)
+LOOPED = {
+    ("house", "cool"): [62, 63, 64, 65, 71, 72],
+    ("house", "heat"): [62, 63, 64, 65, 71, 72],
+    ("both-edges", "cool"): [62, 63, 64, 65, 66, 67, 71, 72],
+    ("both-edges", "heat"): [60, 61, 62, 63, 64, 65, 69, 70, 71, 72],
+}
+RANGE_CASES = [
+    (name, mode, t, "affected" if t in looped else "control")
+    for (name, mode), looped in LOOPED.items()
+    for t in TARGETS
+]
 
 
 def test_sweep_classification_matches_the_echo_arithmetic() -> None:
-    """The affected/control split above is what the head arithmetic says."""
-    for mode, target, kind in RANGE_CASES:
-        missed = [e for e in _edges(mode, target) if _echo(e) != e]
-        assert bool(missed) == (kind == "affected"), (mode, target, missed)
+    """The looped lists above are what each head model's arithmetic says."""
+    for name, mode, target, kind in RANGE_CASES:
+        sent = _edges(mode, target)
+        missed = _shown(HEADS[name], mode, *sent) != sent
+        assert missed == (kind == "affected"), (name, mode, target)
 
 
 @pytest.mark.parametrize(
-    ("mode", "target", "kind"), RANGE_CASES, ids=[f"{m}-{t}-{k}" for m, t, k in RANGE_CASES]
+    ("name", "mode", "target", "kind"), RANGE_CASES, ids=["-".join(map(str, c)) for c in RANGE_CASES]
 )
 async def test_range_head_no_rewrite_after_first(
-    hass: HomeAssistant, mode: str, target: int, kind: str
+    hass: HomeAssistant, name: str, mode: str, target: int, kind: str
 ) -> None:
     """After the first write, further cycles issue ZERO set_temperature calls."""
-    heads = [CN105Head("a"), CN105Head("b")]
+    head = HEADS[name]
+    heads = [head("a"), head("b")]
     entry = await _start(hass, heads)
     room = await _engage(hass, entry, mode, target)
 
-    a = hass.states.get(heads[0].entity_id)
-    low, high = _edges(mode, target)
-    assert a.state == mode
-    assert (a.attributes["target_temp_low"], a.attributes["target_temp_high"]) == (
-        _echo(low), _echo(high),
-    )
+    eid = heads[0].entity_id
+    shown = _shown(head, mode, *_edges(mode, target))
+    assert hass.states.get(eid).state == mode
+    assert _band(hass, eid) == shown
     first = list(heads[0].writes)
     assert first, "engaging must write the head"
 
     await _quiet_cycles(hass, entry, room)
     assert heads[0].writes == first
     assert len(heads[1].writes) == len(first)
+    assert _band(hass, eid) == shown  # the house's raw inactive edge held throughout
 
 
 SINGLE_CASES = (
@@ -341,6 +397,7 @@ async def _wall_set(hass: HomeAssistant, entity_id: str, **data: Any) -> None:
     await hass.async_block_till_done()
 
 
+@pytest.mark.parametrize("name", list(HEADS))
 @pytest.mark.parametrize(
     ("mode", "target", "edge", "moved_to"),
     [
@@ -353,10 +410,15 @@ async def _wall_set(hass: HomeAssistant, entity_id: str, **data: Any) -> None:
     ],
 )
 async def test_range_head_changed_by_someone_is_resent(
-    hass: HomeAssistant, mode: str, target: int, edge: str, moved_to: float
+    hass: HomeAssistant, name: str, mode: str, target: int, edge: str, moved_to: float
 ) -> None:
-    """°F system, CN105: a setpoint moved by >= 1 °F is re-sent on the next cycle."""
-    heads = [CN105Head("a"), CN105Head("b")]
+    """°F system, CN105: a setpoint moved by >= 1 °F is re-sent on the next cycle.
+
+    On the house head the inactive edge (cool low, heat high) is shown raw, so a
+    raw edge 1 °F off must still be told apart from the raw edge MXZ sent.
+    """
+    head = HEADS[name]
+    heads = [head("a"), head("b")]
     entry = await _start(hass, heads)
     room = await _engage(hass, entry, mode, target)
     low, high = _edges(mode, target)
@@ -364,15 +426,12 @@ async def test_range_head_changed_by_someone_is_resent(
 
     moved = {"target_temp_low": low, "target_temp_high": high, edge: moved_to}
     await _wall_set(hass, eid, **moved)
-    assert hass.states.get(eid).attributes[edge] == _echo(moved_to)
+    assert _band(hass, eid) == _shown(head, mode, *moved.values())
     heads[0].writes.clear()
 
     await _cycle(hass, entry, room)
     assert len(heads[0].writes) == 1
-    a = hass.states.get(eid)
-    assert (a.attributes["target_temp_low"], a.attributes["target_temp_high"]) == (
-        _echo(low), _echo(high),
-    )
+    assert _band(hass, eid) == _shown(head, mode, low, high)
     await _quiet_cycles(hass, entry, room)
     assert len(heads[0].writes) == 1
 
