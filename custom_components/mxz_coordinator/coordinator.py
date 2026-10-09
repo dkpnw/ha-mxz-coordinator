@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfTemperature
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.core import CoreState, Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_component import DATA_INSTANCES
@@ -575,6 +575,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._grace_until: dict[str, float] = {}
         self._fresh_deadline: dict[str, float] = {}
         self._unhealthy_logged: set[str] = set()
+        # Set up before HA is running, a room sensor can be missing, unavailable
+        # or unknown only because its integration is still loading. The room is
+        # out of demand at once, as always; only its "no usable reading"
+        # WARNING waits for the post-start recompute (_on_startup_timer), which
+        # logs it then if it still applies. A reload while running warns at once.
+        self._startup_quiet = hass.state is not CoreState.running
+        self._quiet_unusable: set[str] = set()
         self._fresh_timer: Any | None = None
         self._fresh_retired = False
         self._arm_freshness(self._started_ts)
@@ -1225,7 +1232,17 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         age is the one that lies.
         """
         opened = zone.slug in self._unhealthy_logged
-        if health in HEALTH_UNHEALTHY and not opened:
+        if health == HEALTH_INVALID and not opened and self._startup_quiet:
+            if zone.slug not in self._quiet_unusable:
+                self._quiet_unusable.add(zone.slug)
+                _LOGGER.debug(
+                    "MXZ: %s sensor %s has no usable reading yet while Home "
+                    "Assistant starts; the room is out of automatic demand. "
+                    "Logged as a warning if it persists after startup",
+                    zone.name,
+                    zone.sensor_id,
+                )
+        elif health in HEALTH_UNHEALTHY and not opened:
             self._unhealthy_logged.add(zone.slug)
             if health == HEALTH_STALE and evidence_age is not None:
                 _LOGGER.warning(
@@ -3016,6 +3033,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @callback
     def _on_startup_timer(self, _now: Any) -> None:
+        # Startup has settled: this recompute logs any room still unusable.
+        self._startup_quiet = False
         self.hass.async_create_task(self.async_request_refresh())
 
     # -- self-heal A (band drift) -------------------------------------------
