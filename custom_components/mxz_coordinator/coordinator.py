@@ -2170,6 +2170,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         before its echo (at most 0.22 °C from the grid for a whole °F) both
         stay inside that half step; a head one native step off does not. With
         no known native unit/step, fall back to half our own step.
+
+        Known limits: this assumes the head rounds to the nearest step, as the
+        CN105 does; a head that truncated to its grid would still re-send. It
+        also assumes the entity displays at 0.5 °F or finer; at whole-°F
+        display precision a one-step move on a 0.5 °C head can read as already
+        there (the old whole-°F check had the same blind spot).
         """
         if reported is None:
             return False
