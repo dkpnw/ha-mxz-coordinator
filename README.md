@@ -43,18 +43,22 @@ Use [Reconfigure](#reconfigure-heads-rooms-and-sensors) to change the room list 
   and an optional standby hold signal limit what it commands.
 - **Set up in the UI.** Setup, Reconfigure and Configure are Home Assistant dialogs.
 
-## What's new in 3.4.1
+## What's new in 3.4.2
 
-- **Configure is a menu.** Six pages: Comfort, Fan and idle, Seasons, Away and
-  setpoint limits, Standby hold, and Rooms (one page per room). Each page saves on
-  its own and never changes a setting it doesn't show. A **Needs attention** line
-  names any older saved value a page would now refuse, and the page that fixes it.
-  See [Configure is a menu of pages](docs/MIGRATION.md#configure-is-a-menu-of-pages-341).
-- **No more setpoint re-sends.** A head that only holds 0.5 °C steps (ESPHome CN105)
-  reports some whole-°F targets 0.5 °F off. MXZ used to re-send `set_temperature`
-  about every 10 seconds at those targets; it now compares setpoints on the head's own
-  grid and sends once. See
-  [Setpoints on °C-native heads](docs/MIGRATION.md#setpoints-on-c-native-heads-in-a-f-system-341).
+- **No startup warning for a sensor that is still loading.** On a restart, MXZ no
+  longer logs a "no usable reading" WARNING for a room sensor whose integration hasn't
+  loaded yet. It waits until its usual recompute 40 seconds after start and warns once
+  only if the sensor is still unusable then. The room is out of demand and parked
+  meanwhile, as before. See
+  [Startup warning for a sensor that is still loading](docs/MIGRATION.md#startup-warning-for-a-sensor-that-is-still-loading-342).
+
+From 3.4.1:
+
+- **Configure is a menu.** Six pages, each saving only what it shows; a **Needs
+  attention** line names any older saved value a page would now refuse. See
+  [Configure is a menu of pages](docs/MIGRATION.md#configure-is-a-menu-of-pages-341).
+- **No more setpoint re-sends** to heads that only hold 0.5 °C steps (ESPHome CN105).
+  See [Setpoints on °C-native heads](docs/MIGRATION.md#setpoints-on-c-native-heads-in-a-f-system-341).
 - **A new logo and icon**: the dial above, shipped in the integration's `brand/` folder.
 
 **3.4.0** changed setup, sensor handling, the room lifecycle and command delivery; read

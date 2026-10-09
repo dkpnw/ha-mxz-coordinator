@@ -434,6 +434,22 @@ the plan carries it as of its last update and the head entity shows its own live
 Recorder database rows, bytes and one-hour growth remain unmeasured. No recording
 policy changed for this release.
 
+## Startup warning for a sensor that is still loading (3.4.2)
+
+While Home Assistant starts, a room sensor whose integration has not loaded yet is
+missing, `unavailable` or `unknown` for a while. Up to 3.4.1 MXZ logged a "has no usable
+reading" WARNING for it on every restart. From 3.4.2, when the entry is set up before
+Home Assistant is running, that WARNING waits for the recompute MXZ already schedules
+40 seconds after Home Assistant's start event (`STARTUP_RECOVER_DELAY`). Until then each
+such room logs one DEBUG line. If the sensor still has no usable reading at that
+recompute, the WARNING is logged once, and the usual "reporting again" line follows when
+it recovers. A sensor that loads in time logs neither.
+
+- Only the log changes. From the first compute the room makes no automatic demand, its
+  head parks by the idle action and `sensors_ok` is false, as in 3.4.1.
+- Only startup waits. Reloading the entry or adding one while Home Assistant is running
+  warns at once, and a stale sensor (freshness check) is never deferred.
+
 ## Configure is a menu of pages (3.4.1)
 
 Configure no longer opens one long form. It opens a menu: Comfort, Fan and idle,
