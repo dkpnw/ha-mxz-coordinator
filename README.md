@@ -1,13 +1,24 @@
-<p align="center">
+<h1 align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="custom_components/mxz_coordinator/brand/dark_logo.png">
-    <img src="custom_components/mxz_coordinator/brand/logo.png" alt="MXZ Coordinator logo: a dial running from cool blue to warm orange, with two heads on one unit." width="420">
+    <source media="(prefers-color-scheme: dark)" srcset="custom_components/mxz_coordinator/brand/dark_logo@2x.png">
+    <img src="custom_components/mxz_coordinator/brand/logo@2x.png" width="460" alt="MXZ Coordinator wordmark: a dial running cool blue on the left to warm orange on the right, two wall heads on the ring, outdoor unit at the hub.">
   </picture>
+</h1>
+
+<p align="center"><b>Set one temperature per room. The coordinator chooses one shared heating or cooling mode.</b></p>
+
+<p align="center">
+  <a href="https://github.com/dkpnw/ha-mxz-coordinator/releases/latest"><img src="https://img.shields.io/github/v/release/dkpnw/ha-mxz-coordinator" alt="Latest release"></a>
+  <a href="https://hacs.xyz"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5" alt="HACS: Custom repository"></a>
+  <a href="#before-you-install"><img src="https://img.shields.io/badge/Home%20Assistant-2024.12%2B-41BDF5" alt="Home Assistant 2024.12 or newer"></a>
+  <a href="https://github.com/dkpnw/ha-mxz-coordinator/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/dkpnw/ha-mxz-coordinator/ci.yml?branch=main&label=CI" alt="CI status on main"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/dkpnw/ha-mxz-coordinator" alt="License: MIT"></a>
 </p>
 
-# MXZ Coordinator
-
-**Set one temperature per room. The coordinator chooses one shared heating or cooling mode.**
+<p align="center">
+  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration"><img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open this repository in HACS."></a>
+  <a href="https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator"><img src="https://my.home-assistant.io/badges/config_flow_start.svg" alt="Start setting up MXZ Coordinator."></a>
+</p>
 
 Several indoor heads share one MXZ outdoor unit. When rooms disagree, stock AUTO can
 leave one waiting in standby. MXZ Coordinator uses your room sensors, targets and
@@ -16,16 +27,40 @@ cannot heat one room and cool another at the same time.
 
 ![Two rooms as single-target Auto dials beside the coordinator's decision state.](images/dashboard.png)
 
-[![Open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration)
-[![Start setting up MXZ Coordinator.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator)
-
 **Start here:** [Install](#install), then [set up your outdoor unit](#set-up-your-outdoor-unit).
 Use [Reconfigure](#reconfigure-heads-rooms-and-sensors) to change the room list and
 [Configure](#configure-comfort-and-sensor-settings) to tune it. No YAML is required.
 
-**3.4.0** changes setup, sensor handling, the room lifecycle and command delivery; read
-[Migration](docs/MIGRATION.md#upgrading-to-340) before upgrading. The setup, Reconfigure
-and Configure screenshots below are 3.4.0 captures from Home Assistant 2026.10.0 with
+## What it does
+
+- **One target per room.** Each room gets its own thermostat, read from the
+  temperature sensor you pick for that room.
+- **One explicit shared mode.** MXZ requests `cool` or `heat` for the rooms that need
+  it, never hardware AUTO, and resolves a heat-versus-cool standoff by room priority.
+- **A satisfied room steps aside.** By default its head idles in `fan_only`; `off`
+  and a cooling-only coil-dry option are available.
+- **Bounded by your settings.** Mode dwell, seasonal heat/cool lockouts, away limits
+  and an optional standby hold signal limit what it commands.
+- **Set up in the UI.** Setup, Reconfigure and Configure are Home Assistant dialogs.
+
+## What's new in 3.4.1
+
+- **Configure is a menu.** Six pages: Comfort, Fan and idle, Seasons, Away and
+  setpoint limits, Standby hold, and Rooms (one page per room). Each page saves on
+  its own and never changes a setting it doesn't show. A **Needs attention** line
+  names any older saved value a page would now refuse, and the page that fixes it.
+  See [Configure is a menu of pages](docs/MIGRATION.md#configure-is-a-menu-of-pages-341).
+- **No more setpoint re-sends.** A head that only holds 0.5 °C steps (ESPHome CN105)
+  reports some whole-°F targets 0.5 °F off. MXZ used to re-send `set_temperature`
+  about every 10 seconds at those targets; it now compares setpoints on the head's own
+  grid and sends once. See
+  [Setpoints on °C-native heads](docs/MIGRATION.md#setpoints-on-c-native-heads-in-a-f-system-341).
+- **A new logo and icon**: the dial above, shipped in the integration's `brand/` folder.
+
+**3.4.0** changed setup, sensor handling, the room lifecycle and command delivery; read
+[Migration](docs/MIGRATION.md#upgrading-to-340) before upgrading from 3.3.0 or earlier.
+The Configure menu screenshots below show 3.4.1; the setup, Reconfigure and Configure
+error screenshots are 3.4.0 captures. All come from Home Assistant 2026.10.0 with
 invented heads and sensors. The dashboard image shows an earlier release.
 
 > Shared as-is; support is best-effort. Automated checks use invented heads and sensors.
@@ -304,6 +339,25 @@ switch time is in seconds, and coil drying and freshness durations are in minute
 save merges the page's values into the existing options, mirrors them into entry data
 and reloads once. It never touches a setting on another page. A save that leaves entry
 data and options unchanged needs no reload.
+
+<table>
+<tr>
+<td width="50%"><img src="images/mxz-3.4.1-configure-menu.png" alt="Configure's Settings menu listing six pages with subtitles: Comfort, Fan and idle, Seasons, Away and setpoint limits, Standby hold, and Rooms."></td>
+<td width="50%"><img src="images/mxz-3.4.1-configure-comfort.png" alt="Comfort page with Allowed drift 1 °F, Mode switch threshold 3 °F and Resting mode Last used (default), and the Advanced section open showing Minimum time between mode switches 600 s, then Submit."></td>
+</tr>
+<tr>
+<td>The menu: one page per group of settings.</td>
+<td>Comfort, with its <b>Advanced</b> section opened.</td>
+</tr>
+<tr>
+<td><img src="images/mxz-3.4.1-configure-needs-attention.png" alt="Settings menu headed by a Needs attention line: the saved lowest setpoint is above the highest setpoint; open Away and setpoint limits to fix it."></td>
+<td><img src="images/mxz-3.4.1-configure-room-studio.png" alt="Room page titled Studio with empty Airflow sensor, Vertical vane and Horizontal vane pickers, a collapsed Sensor freshness section, and Submit."></td>
+</tr>
+<tr>
+<td><b>Needs attention</b> names an older saved value and the page that fixes it.</td>
+<td>A room page, titled by the room's name.</td>
+</tr>
+</table>
 
 <details>
 <summary>Screenshots of the 3.4.0 single form (the menu replaced it)</summary>
@@ -631,6 +685,8 @@ before interpreting an idle report as a fault or an energy measurement.
 Example presets: [day/night/away](examples/presets.yaml). The
 `mxz_coordinator.recompute` service requests refreshes for loaded entries; the
 `mxz_recompute` event is also honored. Neither bypasses safety gates or proves delivery.
+
+<a id="removing"></a>
 
 ## Remove the integration
 
