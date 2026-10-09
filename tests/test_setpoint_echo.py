@@ -495,8 +495,8 @@ async def test_eco_edges_are_written_and_released(hass: HomeAssistant) -> None:
     eid = heads[0].entity_id
     eco = _eid(hass, entry, "_eco_idle")
 
+    heads[0].writes.clear()  # the toggle's own refresh may write: count it
     await hass.services.async_call("switch", "turn_on", {"entity_id": eco}, blocking=True)
-    heads[0].writes.clear()
     await _cycle(hass, entry, 80)  # above the 78 °F eco ceiling -> eco cooling
     a = hass.states.get(eid)
     assert a.state == "cool"
@@ -505,8 +505,8 @@ async def test_eco_edges_are_written_and_released(hass: HomeAssistant) -> None:
     await _quiet_cycles(hass, entry, 80)
     assert len(heads[0].writes) == 1
 
+    heads[0].writes.clear()  # the toggle's own refresh may write: count it
     await hass.services.async_call("switch", "turn_off", {"entity_id": eco}, blocking=True)
-    heads[0].writes.clear()
     await _cycle(hass, entry, 65)
     a = hass.states.get(eid)
     assert (a.attributes["target_temp_low"], a.attributes["target_temp_high"]) == (61.5, 64.5)
