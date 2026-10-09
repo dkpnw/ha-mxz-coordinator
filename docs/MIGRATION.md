@@ -456,6 +456,13 @@ or error key changed, and nothing is migrated.
   [Configure](../README.md#configure-comfort-and-sensor-settings) section has the new
   ones and the page for each pair.
 
+## Setpoints on °C-native heads in a °F system (3.4.1)
+
+A head that only holds 0.5 °C steps (ESPHome CN105) reports some whole-°F setpoints
+0.5 °F off, such as 64.5 for 64. Up to 3.4.0 MXZ re-sent `set_temperature` about every
+10 seconds while such a room ran. From 3.4.1 MXZ compares setpoints in the head's own
+unit and step, so it sends once and still corrects a setpoint someone else changed.
+
 ## Configure value validation and older saved values (3.4.0)
 
 Configure and setup's advanced tuning reject non-finite numeric comfort values
