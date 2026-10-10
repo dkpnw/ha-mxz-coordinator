@@ -47,7 +47,7 @@ and makes it well.
 
 | | Stock AUTO | MXZ Coordinator |
 | --- | --- | --- |
-| Heat or cool | Each head decides alone; one can sit in standby | One mode for the system, chosen by your room priority |
+| Heat or cool | Each head decides alone; the head selected last waits in standby. Some outdoor units have an installer switch that lets the lowest-address head decide for all ([sources](#the-problem-stock-auto-starves-rooms)) | One mode for the system, chosen by your room priority |
 | A room that's done | Stays in its own mode, which can block the other | Steps aside: fan only, off, or dry the coil then off |
 | Fan | The head's own fan setting | Speeds up when far off, eases down near target |
 | Temperature it uses | Thermistor in the head | The room sensor you pick |
@@ -106,12 +106,21 @@ In brief:
 **What the manual says.** For the cited
 [MSZ-FH25VE/FH35VE/FH50VE indoor units, PDF page 7](https://library.mitsubishielectric.co.uk/pdf/download_full/56),
 COOL/DRY/FAN and HEAT cannot run at the same time when several indoor units share one
-outdoor unit. AUTO selects from that indoor unit's room temperature and setpoint, and
-changes mode only after a sustained difference. The manual warns that a unit may be
-unable to switch between COOL and HEAT and enter standby.
+outdoor unit: "the unit selected last goes into standby mode." AUTO selects from that
+indoor unit's room temperature and setpoint, and changes mode only after a sustained
+difference. The manual does not recommend AUTO on an MXZ outdoor unit and warns that a
+unit may be unable to switch between COOL and HEAT and enter standby.
 
-That is a model-specific changeover conflict. It is not one room governing every
-system, and not a mode-master wiring rule.
+By default that is first come, first served, not one room governing the system. Some
+outdoor units can be set up otherwise. For the MXZ-4C36NAHZ to 8C60NA families in
+[OCH573E, PDF page 127](https://www.mitsubishitechinfo.ca/sites/default/files/SH_MXZ-%284%29%285%29%288%29C%2836%29%2842%29%2848%29%2860%29NA%28HZ%29_PAC-MKA%2830%29%2831%29%2850%29%2851%29BC_OCH573E_1.pdf),
+outdoor switch SW9-1 (off by default, set before power-on) "enables the indoor unit with
+the minimum address to select AUTO mode, and switches the operation mode of the other
+indoor units to the same mode." The same manual's
+[page 108](https://www.mitsubishitechinfo.ca/sites/default/files/SH_MXZ-%284%29%285%29%288%29C%2836%29%2842%29%2848%29%2860%29NA%28HZ%29_PAC-MKA%2830%29%2831%29%2850%29%2851%29BC_OCH573E_1.pdf)
+shows a CN3N external input that sets heating or cooling through an adapter
+(PAC-SC36NA-E). Whether either is set on your system is an installer question; the
+manuals do not say how other models behave.
 
 **What I saw at home.** A room 6 °F past its cooling target drew **~26 W for over an
 hour** while the other head was satisfied. After I turned that head off, the room
