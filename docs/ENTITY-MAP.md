@@ -81,7 +81,7 @@ where they appear:
 | Constant | Default | Meaning |
 |---|---|---|
 | demand threshold `S` | `3.0 °F` | how far off-target before the **shared mode** may flip |
-| engage deadband `D` | `1.0 °F` | how far off-target before a head **actively runs** (else `fan_only`) |
+| engage deadband `D` | `1.0 °F` | how far off-target before a head **actively runs** (else it parks by the idle action) |
 | mode hysteresis | `600 s` | minimum dwell before a heat↔cool flip |
 | eco extremes | `cool > 78 / heat < 50 °F` | away/eco protection band |
 | firmware clamp | `[59, 88] °F` | your heads' min/max setpoint (a low `< 59` made `climate.set_temperature` throw **HTTP 500** on our units) |

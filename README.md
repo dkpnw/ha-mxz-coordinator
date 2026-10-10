@@ -86,8 +86,9 @@ In brief:
   temperature sensor you pick for that room.
 - **One explicit shared mode.** MXZ requests `cool` or `heat` for the rooms that need
   conditioning, using room temperatures and targets. It never requests hardware AUTO.
-- **A satisfied room steps aside.** By default its head idles in `fan_only`; `off`
-  and a cooling-only coil-dry option are available. These are software commands;
+- **A satisfied room steps aside.** By default its head dries the coil after cooling,
+  then turns off (`off_after_dry`); `fan_only` and `off` are available. These are
+  software commands;
   [How a satisfied head idles](#how-a-satisfied-head-idles) explains their hardware
   boundary.
 - **Priority settles a standoff.** Among rooms voting for opposing modes (heat versus
@@ -257,9 +258,9 @@ a change while the summary is open can send you back to correct it.
   and setpoint limits and Standby hold pages, pre-filled with those defaults.
 - Submitting a page keeps its answers and returns to that menu. Nothing is saved until
   **Save and finish**.
-- If the selected heads cannot all use the usual Fan only idle action, **Save and
-  finish** opens Fan and idle so you can choose a supported alternative. It does not
-  silently replace that default.
+- If the selected heads cannot all use the default Off after drying idle action (it
+  needs both `fan_only` and `off`), **Save and finish** opens Fan and idle so you can
+  choose a supported alternative. It does not silently replace that default.
 
 <details>
 <summary>Setup's advanced step as it looked in 3.4.0 (one form)</summary>
@@ -737,9 +738,14 @@ parks:
 
 | Setting | Requested idle action |
 | --- | --- |
-| `Fan only` (default) | circulates in `fan_only`. Unchanged from earlier versions. |
+| `Fan only` | circulates in `fan_only`. The default through 3.4.2. |
 | `Off` | sends `off`, asking the head to stop. |
-| `Off after drying` | requests `fan_only` for a dwell after **cooling** (default 10 min), then `off`. After heating it requests `off` immediately. |
+| `Off after drying` (default) | requests `fan_only` for a dwell after **cooling** (default 10 min), then `off`. After heating it requests `off` immediately. |
+
+**Upgrading keeps what you had.** An entry that never chose an idle action was running
+`Fan only`; the upgrade stores `Fan only` for it, so it idles exactly as before. A
+choice you saved is kept. Only new setups start on `Off after drying`. See
+[Idle action default](docs/MIGRATION.md#idle-action-default-unreleased).
 
 Facts to know before you switch:
 

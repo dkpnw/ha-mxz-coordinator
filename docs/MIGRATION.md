@@ -1,5 +1,25 @@
 # Upgrading and migrating MXZ Coordinator
 
+## Idle action default (unreleased)
+
+New setups default **When a room reaches target** (`idle_action`) to `off_after_dry`
+instead of `fan_only`: after cooling, a satisfied head runs its fan for the coil-dry
+time, then is asked to turn off; after heating it is asked to turn off at once.
+
+**Existing entries keep their behavior.** The config-entry version moves from 2.1 to
+2.2. Entries created on 3.3.0 or later already store an idle action, and any stored
+choice is left unchanged. An entry created before 3.3.0 that never saved Fan and idle
+stores none and was running `fan_only`; the migration stores `fan_only` for it. The
+value goes into the entry's data mirror, and into options only when options already
+holds the settings, so an entry running from the data mirror still says so. A v2.2
+entry with no stored idle action is not rewritten and uses the new default.
+
+To adopt the new default on an existing entry, choose **Off after drying** in
+Configure → Fan and idle. On a rollback to 3.4.2 or earlier, that release's migration
+accepts a v2.2 entry unchanged (it only converts v1 entries) and reads the stored
+`fan_only` like any saved choice. That rollback was checked by reading the code; it was
+not run.
+
 ## Upgrading to 3.4.0
 
 3.4.0 is a minor release after 3.3.0. It changes setup/reconfigure validation, room
@@ -324,7 +344,7 @@ down (a head the hold parked is not "drift"). The plan sensor gains a top-level
 
 **Purely additive, opt-in — nothing to do on upgrade.** A new **Idle action** option
 (Configure → options, `idle_action`) picks how a satisfied head (or a standoff loser)
-parks: `fan_only` (default), `off` (requests power-off), or `off_after_dry` (fan_only for a coil-dry period after active cooling —
+parks: `fan_only` (default until [the change above](#idle-action-default-unreleased)), `off` (requests power-off), or `off_after_dry` (fan_only for a coil-dry period after active cooling —
 `coil_dry_minutes`, default 10 — then off; heating parks off at once). The `off` choices
 request that the indoor fan stop. They do not establish the cause of a smell or the
 position of a refrigerant valve. Parked-head refrigerant behavior depends on model and
@@ -519,13 +539,13 @@ Freshness has separate finite **positive-minute** and whole-profile requirements
 New setup requires each selected climate entity to advertise both `heat` and `cool`. Its
 advanced tuning step lists only parking choices supported by every selected head:
 `fan_only` requires `fan_only`, `off` requires `off`, and `off_after_dry` requires both.
-When the backward-compatible `fan_only` default is unavailable, setup requires an explicit
+When the default (then `fan_only`; now `off_after_dry`) is unavailable, setup requires an explicit
 supported choice instead of silently storing a different default.
 
 Reconfigure validates new head selections against the entry's saved idle action. An
 incompatible submission leaves the entry, options, identity, and head ownership unchanged
 and names the supported alternatives. The options flow applies the same rule when you change
-**Idle action**. Existing entries are not migrated or rewritten; if an older entry stores an
+**Idle action**. 3.4.0 did not migrate or rewrite existing entries; if an older entry stores an
 action its current heads do not advertise, Configure lists the compatible alternatives and
 requires you to choose one explicitly.
 
@@ -594,7 +614,8 @@ number, it parses as `nan` or `±inf`, or it declares a unit that is not `°C`, 
 - No plausibility range was added: a finite supported-unit temperature passes the
   reading check. Age is a separate, opt-in freshness check described below. Without
   that contract, a stale-but-valid number is still eligible.
-- An invalid room parks by the configured idle action (`fan_only` by default), or `off`
+- An invalid room parks by the configured idle action (`fan_only` was the default then;
+  see [Idle action default](#idle-action-default-unreleased)), or `off`
   when eco/away is holding it. Other rooms are untouched: the shared mode is decided by
   the healthy rooms alone, and the plan's `sensors_ok` attribute goes false.
 - The room's `temp` in the plan sensor's `zones` list is now `null` while the reading is
@@ -662,8 +683,8 @@ from the entry's data or options.
   non-numeric, non-finite or wrong-unit value is rejected immediately, whatever its age.
   Age is only ever asked about a reading that is otherwise valid.
 - A stale room leaves automatic demand, drops its engagement latch, and its head parks
-  through the same idle path a satisfied room uses — `fan_only` by default, `off` (after
-  the usual fan handback) or `off_after_dry` if you chose those, and `off` while eco or
+  through the same idle path a satisfied room uses — `fan_only` (the default then), `off`
+  (after the usual fan handback) or `off_after_dry`, and `off` while eco or
   away is holding the room. A standby hold still parks every head its own way. Healthy
   rooms are unaffected: the shared mode is decided by the rooms that still vote.
 - A recognized manual fan hold is not touched by any of this. The room's automatic demand
