@@ -8,11 +8,13 @@ time, then is asked to turn off; after heating it is asked to turn off at once.
 
 **Existing entries keep their behavior.** The config-entry version moves from 2.1 to
 2.2. Entries created on 3.3.0 or later already store an idle action, and any stored
-choice is left unchanged. An entry created before 3.3.0 that never saved Fan and idle
-stores none and was running `fan_only`; the migration stores `fan_only` for it. The
-value goes into the entry's data mirror, and into options only when options already
-holds the settings, so an entry running from the data mirror still says so. A v2.2
-entry with no stored idle action is not rewritten and uses the new default.
+choice is left unchanged. An entry created before 3.3.0 stores one only if Configure
+was saved later: the single Configure form in 3.3.0 and 3.4.0 stored it on any save
+(in 3.4.0, when the heads offered an idle mode), and from 3.4.1 only the Fan and idle
+page does. An entry with none was running `fan_only`; the migration stores `fan_only`
+for it. The value goes into the entry's data mirror, and into options only when options
+already holds the settings, so an entry running from the data mirror still says so. A
+v2.2 entry with no stored idle action is not rewritten and uses the new default.
 
 To adopt the new default on an existing entry, choose **Off after drying** in
 Configure → Fan and idle. On a rollback to 3.4.2 or earlier, that release's migration
@@ -354,8 +356,8 @@ hardware settings. See the README's "How a satisfied head idles".
 
 - The off-drift self-heal is now **plan-aware**: a head the plan parked off never arms
   it, while a head someone turned off during an active call (or mid coil-dry dwell)
-  still heals. With the default `fan_only`, a head intentionally parked in that mode is not
-  treated as off drift.
+  still heals. With `fan_only` (the default at the time), a head intentionally parked in
+  that mode is not treated as off drift.
 - On the way into an `off` park the coordinator first returns a boost-driven fan to
   `auto`, while the head is still awake. Missing/delayed reports still need restore
   reconciliation; the request alone proves no delivery. A genuine hold is not given
