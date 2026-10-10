@@ -22,11 +22,13 @@ from pytest_homeassistant_custom_component.common import (
 
 from custom_components.mxz_coordinator.const import (
     CONF_ECO_COOL_MAX,
+    CONF_IDLE_ACTION,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
     DOMAIN,
+    IDLE_ACTION_FAN_ONLY,
 )
 from custom_components.mxz_coordinator.coordinator import _read_temp, read_room_temp
 from tests.test_drive import (
@@ -80,6 +82,7 @@ async def test_custom_eco_invalid_priority_zone_does_not_outvote_healthy_neighbo
         domain=DOMAIN,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,
@@ -158,7 +161,8 @@ async def test_custom_eco_invalid_priority_zone_does_not_outvote_healthy_neighbo
     assert hass.states.get(head_a).state == "cool"
     # The recovered primary wins the standoff; the cold secondary is a standoff
     # LOSER (engage heat, denied), not eco-satisfied, so head_action parks it at
-    # the idle action — fan_only by default. Only eco-satisfied heads go off.
+    # the idle action — fan_only, as this entry stores. Only eco-satisfied
+    # heads go off.
     assert hass.states.get(head_b).state == "fan_only"
 
 
@@ -174,6 +178,7 @@ async def test_preexisting_invalid_observation_parks_by_ordinary_idle_rules(
         domain=DOMAIN,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,
@@ -380,6 +385,7 @@ async def _setup_two_zones(
         domain=DOMAIN,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,

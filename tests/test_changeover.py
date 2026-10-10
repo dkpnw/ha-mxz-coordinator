@@ -42,11 +42,13 @@ from pytest_homeassistant_custom_component.common import (
 
 from custom_components.mxz_coordinator.const import (
     CONF_CHANGEOVER_ENTITY,
+    CONF_IDLE_ACTION,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
     DOMAIN,
+    IDLE_ACTION_FAN_ONLY,
 )
 
 SENSOR_A = "sensor.room_a_temp"
@@ -160,6 +162,7 @@ async def _mxz_entry(hass: HomeAssistant, head_a, head_b, changeover) -> MockCon
         domain=DOMAIN,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,

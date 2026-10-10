@@ -32,6 +32,7 @@ from custom_components.mxz_coordinator.const import (
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
     DOMAIN,
+    IDLE_ACTION_FAN_ONLY,
 )
 from tests.test_drive import SENSOR_A, SENSOR_B, MockHead, _eid, _setup_mock_heads
 from tests.test_idle_action import _settle_requested_refreshes
@@ -185,6 +186,7 @@ async def delivery(hass, request, monkeypatch):
         r.sensor(70, 70)
         hass.states.async_set(STANDBY, "off")
         r.entry = MockConfigEntry(domain=DOMAIN, title="Invented delivery rooms", data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: a, CONF_SECONDARY_CLIMATE: b,
             CONF_PRIMARY_SENSOR: SENSOR_A, CONF_SECONDARY_SENSOR: SENSOR_B,
             CONF_MODE_HYSTERESIS: 0, CONF_FAN_BOOST_ENABLE: False,

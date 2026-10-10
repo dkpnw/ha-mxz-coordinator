@@ -30,6 +30,7 @@ from pytest_homeassistant_custom_component.common import (
 
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
+    CONF_IDLE_ACTION,
     CONF_MODE_HYSTERESIS,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
@@ -38,6 +39,7 @@ from custom_components.mxz_coordinator.const import (
     DOMAIN,
     HEALTH_CADENCE_UNKNOWN,
     HEALTH_INVALID,
+    IDLE_ACTION_FAN_ONLY,
     MODE_COOL,
     MODE_FAN_ONLY,
     STARTUP_RECOVER_DELAY,
@@ -90,6 +92,7 @@ async def _setup(hass: HomeAssistant, *, running: bool) -> tuple[MockConfigEntry
         domain=DOMAIN,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,

@@ -22,7 +22,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
 from custom_components.mxz_coordinator.const import (
+    CONF_IDLE_ACTION,
     FAN_LADDER,
+    IDLE_ACTION_FAN_ONLY,
     INHIBIT_ACTION_OFF,
 )
 from tests.test_drive import (
@@ -404,6 +406,7 @@ async def test_switch_restore_path_end_to_end(hass: HomeAssistant) -> None:
         domain=DOMAIN,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,

@@ -28,11 +28,13 @@ from pytest_homeassistant_custom_component.common import (
 
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
+    CONF_IDLE_ACTION,
     CONF_INHIBIT_ACTION,
     CONF_INHIBIT_ACTIVE_STATE,
     CONF_INHIBIT_ENTITY,
     CONF_ZONES,
     DOMAIN,
+    IDLE_ACTION_FAN_ONLY,
     INHIBIT_ACTION_OFF,
     ZONE_CLIMATE,
     ZONE_NAME,
@@ -97,6 +99,7 @@ async def _setup(
         version=2,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             **(extra_data or {}),
             CONF_ZONES: [
                 {

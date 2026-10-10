@@ -62,6 +62,7 @@ from custom_components.mxz_coordinator.const import (
     HEALTH_HEALTHY,
     HEALTH_INVALID,
     HEALTH_STALE,
+    IDLE_ACTION_FAN_ONLY,
     IDLE_ACTION_OFF,
     INHIBIT_ACTION_FAN_ONLY,
     MODE_COOL,
@@ -314,6 +315,7 @@ async def _setup_fresh(
         domain=DOMAIN,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,

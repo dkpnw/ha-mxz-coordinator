@@ -112,6 +112,7 @@ async def _setup(hass: HomeAssistant, **extra: Any) -> tuple[MockConfigEntry, st
         domain=DOMAIN,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,
@@ -735,7 +736,7 @@ async def test_token_changed_by_hand_during_outage(
 ) -> None:
     """A hand on the fan while HA was down, on a room that was not held.
 
-    The room idles in fan_only under the default idle action, so any ladder
+    The room idles in fan_only (the idle action _setup stores), so any ladder
     speed the boost could have set is read as the room's own idle (issue 25:
     the head reports such speeds by itself, and a hold there never clears).
     The documented edge: a pick of such a speed during the outage —
@@ -957,6 +958,7 @@ async def _setup_four(hass: HomeAssistant) -> tuple[MockConfigEntry, list[str], 
     entry = MockConfigEntry(
         domain=DOMAIN, version=2, title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_ZONES: [
                 {ZONE_NAME: f"Room {i + 1}", ZONE_CLIMATE: head.entity_id, ZONE_SENSOR: sensor}
                 for i, (head, sensor) in enumerate(zip(heads, sensors, strict=True))
@@ -1227,8 +1229,8 @@ async def test_older_store_cannot_prove_a_later_rung_is_owned(
     This models an older surviving periodic record, not the timing/frequency of
     a real crash. In a room still cooling it intentionally documents a
     conservative false hold; the fresh manual outside-memory control forbids
-    silently broadening adoption there. A room idling in fan_only under the
-    default idle action needs no proof: the boost's rung is read as its own
+    silently broadening adoption there. A room idling in fan_only (the idle
+    action _setup stores) needs no proof: the boost's rung is read as its own
     idle (issue 25), so the older record cannot cause a hold.
     """
     entry, head_a, _head_b = await _setup(hass, **{CONF_FAN_BOOST_ENABLE: True})

@@ -36,6 +36,7 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.mxz_coordinator import coordinator as coordinator_module
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
+    CONF_IDLE_ACTION,
     CONF_INHIBIT_ACTION,
     CONF_INHIBIT_ENTITY,
     CONF_MODE_HYSTERESIS,
@@ -47,6 +48,7 @@ from custom_components.mxz_coordinator.const import (
     DEFAULT_MODE_HYSTERESIS,
     DEMAND_NEUTRAL,
     DOMAIN,
+    IDLE_ACTION_FAN_ONLY,
     INHIBIT_ACTION_OFF,
     MODE_COOL,
     MODE_HEAT,
@@ -100,6 +102,7 @@ async def _setup_dwell(
         domain=DOMAIN,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,

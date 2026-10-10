@@ -21,6 +21,7 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.mxz_coordinator.const import (
     CONF_CHANGEOVER_ENTITY,
     CONF_DEMAND_THRESHOLD,
+    CONF_IDLE_ACTION,
     CONF_MODE_HYSTERESIS,
     CONF_NOTIFY_SERVICE,
     CONF_PRIMARY_CLIMATE,
@@ -34,6 +35,7 @@ from custom_components.mxz_coordinator.const import (
     CONF_SECONDARY_VANE_VERTICAL,
     CONF_ZONES,
     DOMAIN,
+    IDLE_ACTION_FAN_ONLY,
     ZONE_CLIMATE,
     ZONE_NAME,
     ZONE_SENSOR,
@@ -188,6 +190,7 @@ async def test_six_zone_drive(hass: HomeAssistant) -> None:
         version=2,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_ZONES: [
                 {
                     ZONE_NAME: f"Zone {i + 1}",

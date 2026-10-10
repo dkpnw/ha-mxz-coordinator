@@ -43,6 +43,7 @@ from custom_components.mxz_coordinator.const import (
     CONF_ENGAGE_DEADBAND,
     CONF_FAN_BOOST_ENABLE,
     CONF_FAN_BOOST_MAX,
+    CONF_IDLE_ACTION,
     CONF_INHIBIT_ACTION,
     CONF_INHIBIT_ACTIVE_STATE,
     CONF_INHIBIT_ENTITY,
@@ -53,6 +54,7 @@ from custom_components.mxz_coordinator.const import (
     CONF_SECONDARY_SENSOR,
     DOMAIN,
     FAN_LADDER,
+    IDLE_ACTION_FAN_ONLY,
     INHIBIT_ACTION_ECO,
     INHIBIT_ACTION_FAN_ONLY,
     INHIBIT_ACTION_OFF,
@@ -169,6 +171,7 @@ async def test_coordinator_drives_heads(hass: HomeAssistant) -> None:
         domain=DOMAIN,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,
@@ -267,6 +270,7 @@ async def test_heat_lockout_suppresses_then_floors(hass: HomeAssistant) -> None:
         domain=DOMAIN,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,
@@ -312,6 +316,7 @@ async def test_cool_lockout_suppresses_then_ceilings(hass: HomeAssistant) -> Non
         domain=DOMAIN,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,
@@ -358,6 +363,7 @@ async def _setup_fan_boost(
 ) -> MockConfigEntry:
     """Fan-boost entry, coordinator + both rooms enabled, primary target 62."""
     data = {
+        CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
         CONF_PRIMARY_CLIMATE: head_a,
         CONF_SECONDARY_CLIMATE: head_b,
         CONF_PRIMARY_SENSOR: SENSOR_A,
@@ -1396,6 +1402,7 @@ async def test_fan_boost_drives_speed(hass: HomeAssistant) -> None:
         domain=DOMAIN,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,
@@ -1512,6 +1519,7 @@ async def test_coordinator_drives_heads_metric(hass: HomeAssistant) -> None:
         domain=DOMAIN,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,
@@ -1575,6 +1583,7 @@ async def test_engage_latch_runs_to_target_then_coasts(hass: HomeAssistant) -> N
         domain=DOMAIN,
         title="MXZ Coordinator",
         data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
             CONF_SECONDARY_CLIMATE: head_b,
             CONF_PRIMARY_SENSOR: SENSOR_A,

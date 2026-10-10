@@ -29,6 +29,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
+from custom_components.mxz_coordinator.config_flow import MXZConfigFlow
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
     CONF_FAN_BOOST_MAX,
@@ -38,9 +39,13 @@ from custom_components.mxz_coordinator.const import (
     CONF_PRIMARY_SENSOR,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
+    CONF_ZONES,
     DOMAIN,
     IDLE_ACTION_OFF,
     OFF_WHILE_ENABLED_DELAY,
+    ZONE_CLIMATE,
+    ZONE_NAME,
+    ZONE_SENSOR,
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
 from tests.test_drive import (
@@ -57,26 +62,41 @@ from tests.test_fan_hold_restore import _restart
 
 
 async def _setup_idle(
-    hass: HomeAssistant, idle_action: str = IDLE_ACTION_OFF, **extra: Any
+    hass: HomeAssistant, idle_action: str | None = IDLE_ACTION_OFF, **extra: Any
 ) -> tuple[MockConfigEntry, str, str]:
-    """Heads + an idle_action entry; coordinator and both rooms enabled."""
+    """Heads + an idle_action entry; coordinator and both rooms enabled.
+
+    ``idle_action=None`` stores no choice on a current-version entry, so the
+    coordinator runs the current default. (An older entry with no choice is
+    migrated to fan_only, so it would not test the default.)
+    """
     hass.config.units = US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(hass)
     await _set_temp(hass, SENSOR_A, 70)
     await _set_temp(hass, SENSOR_B, 70)
+    data: dict[str, Any] = {
+        CONF_PRIMARY_CLIMATE: head_a,
+        CONF_SECONDARY_CLIMATE: head_b,
+        CONF_PRIMARY_SENSOR: SENSOR_A,
+        CONF_SECONDARY_SENSOR: SENSOR_B,
+        CONF_FAN_BOOST_ENABLE: True,
+        CONF_IDLE_ACTION: idle_action,
+        CONF_MODE_HYSTERESIS: 0,
+        **extra,
+    }
+    versions: dict[str, int] = {}
+    if idle_action is None:
+        del data[CONF_IDLE_ACTION]
+        data[CONF_ZONES] = [
+            {ZONE_NAME: "Primary", ZONE_CLIMATE: head_a, ZONE_SENSOR: SENSOR_A},
+            {ZONE_NAME: "Secondary", ZONE_CLIMATE: head_b, ZONE_SENSOR: SENSOR_B},
+        ]
+        versions = {
+            "version": MXZConfigFlow.VERSION,
+            "minor_version": MXZConfigFlow.MINOR_VERSION,
+        }
     entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="MXZ Coordinator",
-        data={
-            CONF_PRIMARY_CLIMATE: head_a,
-            CONF_SECONDARY_CLIMATE: head_b,
-            CONF_PRIMARY_SENSOR: SENSOR_A,
-            CONF_SECONDARY_SENSOR: SENSOR_B,
-            CONF_FAN_BOOST_ENABLE: True,
-            CONF_IDLE_ACTION: idle_action,
-            CONF_MODE_HYSTERESIS: 0,
-            **extra,
-        },
+        domain=DOMAIN, title="MXZ Coordinator", data=data, **versions
     )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -463,9 +483,10 @@ async def test_unload_cancels_pending_off_heal_callback(hass: HomeAssistant) -> 
     assert _head_calls(calls, head_a) == []
 
 
-async def test_default_config_wall_off_still_arms_heal(hass: HomeAssistant) -> None:
-    """Regression guard for the plan-aware term: with the DEFAULT idle_action a
-    satisfied head's planned act is fan_only, so a wall-remote off still arms."""
+async def test_fan_only_idle_wall_off_still_arms_heal(hass: HomeAssistant) -> None:
+    """Regression guard for the plan-aware term: with idle_action fan_only (the
+    default through 3.4.2) a satisfied head's planned act is fan_only, so a
+    wall-remote off still arms."""
     entry, head_a, _b = await _setup_idle(hass, idle_action="fan_only")
     await _set_temp(hass, SENSOR_A, 75)
     await _recompute(hass, entry)
@@ -479,6 +500,30 @@ async def test_default_config_wall_off_still_arms_heal(hass: HomeAssistant) -> N
     )
     await hass.async_block_till_done()
     coord = entry.runtime_data
+    assert any(kind == "off" for (_, kind) in coord._heal_timers)
+
+
+async def test_default_config_wall_off_while_drying_still_arms_heal(
+    hass: HomeAssistant,
+) -> None:
+    """The same guard on the current default: an entry that stores no idle
+    action dries the coil in fan_only after cooling, and a wall-remote off
+    during that dwell still arms (the plan has not parked the head off yet)."""
+    entry, head_a, _b = await _setup_idle(hass, idle_action=None)
+    coord = entry.runtime_data
+    assert coord.idle_action == "off_after_dry"
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_a).state == "fan_only"
+    assert head_a in coord._dry_timers
+
+    await hass.services.async_call(
+        "climate", "set_hvac_mode",
+        {"entity_id": head_a, "hvac_mode": "off"}, blocking=True,
+    )
+    await hass.async_block_till_done()
     assert any(kind == "off" for (_, kind) in coord._heal_timers)
 
 
@@ -594,9 +639,10 @@ async def test_restart_residue_token_with_not_held_restore_is_dropped(
 async def test_restart_after_idle_fan_only_self_parked_seeds_clean(
     hass: HomeAssistant,
 ) -> None:
-    """Default idle_action="fan_only" (#25): restarting while idle must not
-    phantom-latch, even with no restore data (first post-upgrade restart, or
-    the switch's stale-restore guard rejecting it) -- on an ESTABLISHED entry
+    """idle_action="fan_only" (the default through 3.4.2, #25): restarting
+    while idle must not phantom-latch, even with no restore data (first
+    post-upgrade restart, or the switch's stale-restore guard rejecting it) --
+    on an ESTABLISHED entry
     (see IDLE_SEED_MIN_ENTRY_AGE; a genuinely first-ever compute keeps the old
     behavior, S10).
 
