@@ -438,8 +438,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             CONF_INHIBIT_ACTION, DEFAULT_INHIBIT_ACTION
         )
         self.inhibited: bool = False
-        # How a satisfied (or standoff-parked) head idles: fan_only (default),
-        # off, or off after a coil-dry fan run following active cooling. Airflow
+        # How a satisfied (or standoff-parked) head idles: fan_only, off, or
+        # (default) off after a coil-dry fan run following active cooling. Airflow
         # only — the refrigerant valve position is the same either way.
         self.idle_action: str = conf.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION)
         self.coil_dry_seconds: float = 60.0 * float(

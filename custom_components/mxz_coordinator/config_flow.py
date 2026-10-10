@@ -1250,6 +1250,9 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the initial config (household entity IDs)."""
 
     VERSION = 2
+    # 2: an entry that never stored an idle action is pinned to fan_only, the
+    # default it was running under (see async_migrate_entry).
+    MINOR_VERSION = 2
 
     def __init__(self) -> None:
         self._heads: list[str] = []

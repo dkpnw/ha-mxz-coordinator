@@ -44,6 +44,7 @@ from custom_components.mxz_coordinator.const import (
     DOMAIN,
     IDLE_ACTION_FAN_ONLY,
     IDLE_ACTION_OFF,
+    IDLE_ACTION_OFF_AFTER_DRY,
     ZONE_CLIMATE,
     ZONE_NAME,
     ZONE_SENSOR,
@@ -842,7 +843,7 @@ async def test_s23_summary_is_complete_and_nothing_is_written_until_confirmed(
         "Priority 2  Bedroom",
         f"  Head:   {BEDROOM}",
         BEDROOM_SENSOR,
-        "Comfort settings: defaults for °F (18 values). Idle: fan_only.",
+        "Comfort settings: defaults for °F (18 values). Idle: off_after_dry.",
     ):
         assert expected in summary, (expected, summary)
     assert hass.config_entries.async_entries(DOMAIN) == []
@@ -948,7 +949,11 @@ async def test_s25_an_existing_v2_entry_is_untouched_by_the_new_code(
 async def test_s25_a_v1_flat_entry_still_migrates_exactly_as_before(
     hass: HomeAssistant,
 ) -> None:
-    """S25 / M2: the v1 -> v2 conversion is the pinned one, not a new one."""
+    """S25 / M2: the v1 -> v2 conversion is the pinned one, not a new one.
+
+    The v2.2 step then stores the fan_only idle action the entry was running
+    under; nothing else in options moves.
+    """
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -967,9 +972,13 @@ async def test_s25_a_v1_flat_entry_still_migrates_exactly_as_before(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.version == 2
+    assert (entry.version, entry.minor_version) == (2, 2)
     assert entry.unique_id == f"{LIVING}|{BEDROOM}"
-    assert dict(entry.options) == options_before
+    assert dict(entry.options) == {
+        **options_before,
+        CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
+    }
+    assert entry.data[CONF_IDLE_ACTION] == IDLE_ACTION_FAN_ONLY
     zones = entry.data[CONF_ZONES]
     assert [zone[ZONE_CLIMATE] for zone in zones] == [LIVING, BEDROOM]
     assert [zone[ZONE_SENSOR] for zone in zones] == [LIVING_SENSOR, BEDROOM_SENSOR]
@@ -1062,7 +1071,7 @@ async def test_s28_no_safety_default_moves(
     options = await _skip_advanced_options(hass)
     profile = dict(unit_profile(celsius)["defaults"])
 
-    assert options[CONF_IDLE_ACTION] == IDLE_ACTION_FAN_ONLY
+    assert options[CONF_IDLE_ACTION] == IDLE_ACTION_OFF_AFTER_DRY
     assert options[CONF_MODE_HYSTERESIS] == 600
     assert options[CONF_FAN_BOOST_ENABLE] is True
     assert options[CONF_INHIBIT_ACTION] == "eco"

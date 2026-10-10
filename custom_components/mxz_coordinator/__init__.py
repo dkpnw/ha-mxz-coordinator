@@ -21,6 +21,7 @@ from homeassistant.helpers import entity_registry as er
 
 from .const import (
     CONF_DEMAND_THRESHOLD,
+    CONF_IDLE_ACTION,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
     CONF_PRIMARY_STAGE,
@@ -33,6 +34,7 @@ from .const import (
     CONF_SECONDARY_VANE_VERTICAL,
     CONF_ZONES,
     DOMAIN,
+    IDLE_ACTION_FAN_ONLY,
     PLATFORMS,
     SERVICE_RECOMPUTE,
     ZONE_CLIMATE,
@@ -52,10 +54,15 @@ MXZConfigEntry = ConfigEntry[MXZCoordinator]
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
-    """Migrate a v1 (flat primary/secondary) entry to the v2 zones-list shape.
+    """Migrate older entries to the current v2.2 shape.
 
-    Zones 0/1 keep the primary/secondary slugs, so no entity unique_id changes —
+    v1 -> v2: the flat primary/secondary entry becomes the zones list. Zones
+    0/1 keep the primary/secondary slugs, so no entity unique_id changes —
     existing installs migrate with zero registry churn.
+
+    v2.1 -> v2.2: the idle-action default changed from fan_only to
+    off_after_dry. An entry that never stored a choice was running fan_only, so
+    it is pinned there explicitly; a stored choice is left alone.
     """
     if entry.version > 2:
         return False  # downgrade from a future version: bail
@@ -82,6 +89,24 @@ async def async_migrate_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> boo
             ]
         hass.config_entries.async_update_entry(entry, data=data, version=2)
         _LOGGER.info("Migrated MXZ Coordinator entry to the v2 zones format")
+    if entry.minor_version < 2:
+        data = dict(entry.data)
+        options = dict(entry.options)
+        if CONF_IDLE_ACTION not in {**data, **options}:
+            # Mirror into data as an options save would; write options only
+            # when it already holds the config, so an empty-options entry still
+            # discloses that it is running from the data mirror.
+            data[CONF_IDLE_ACTION] = IDLE_ACTION_FAN_ONLY
+            if options:
+                options[CONF_IDLE_ACTION] = IDLE_ACTION_FAN_ONLY
+            _LOGGER.info(
+                "MXZ Coordinator entry had no stored idle action; keeping the "
+                "fan_only it was running under (new setups default to "
+                "off_after_dry)"
+            )
+        hass.config_entries.async_update_entry(
+            entry, data=data, options=options, minor_version=2
+        )
     return True
 
 

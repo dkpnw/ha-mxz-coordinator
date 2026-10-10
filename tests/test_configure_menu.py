@@ -24,7 +24,11 @@ from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.mxz_coordinator.const import DOMAIN, unit_profile
+from custom_components.mxz_coordinator.const import (
+    DEFAULT_IDLE_ACTION,
+    DOMAIN,
+    unit_profile,
+)
 from tests.flow_pages import (
     FLOW_ONLY_KEYS,
     GLOBAL_PAGES,
@@ -549,8 +553,8 @@ async def test_menu_attention_names_stored_problems_and_their_pages(
 @pytest.mark.parametrize(
     ("stored", "expected"),
     [
-        (True, "the saved idle action"),
-        (False, "the default idle action"),
+        (True, "the saved idle action *Fan only*"),
+        (False, "the default idle action *Off after drying*"),
     ],
     ids=["stored", "default"],
 )
@@ -571,7 +575,7 @@ async def test_menu_attention_says_saved_only_for_a_stored_idle_action(
 
     assert result["type"] is FlowResultType.MENU
     assert result["description_placeholders"]["attention"] == (
-        f"**Needs attention:** {expected} *Fan only* isn't supported by Office."
+        f"**Needs attention:** {expected} isn't supported by Office."
         " Open Fan and idle to choose another."
     )
 
@@ -819,3 +823,7 @@ def test_attention_and_idle_labels_match_the_shipped_copy() -> None:
     selector = strings["selector"]["idle_action"]["options"]
     for action, label in IDLE_ACTION_LABELS.items():
         assert selector[action].removesuffix(" (default)") == label
+    # The "(default)" mark names the default a new setup actually stores.
+    assert [a for a, text in selector.items() if text.endswith(" (default)")] == [
+        DEFAULT_IDLE_ACTION
+    ]

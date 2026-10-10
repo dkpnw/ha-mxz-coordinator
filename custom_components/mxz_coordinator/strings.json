@@ -505,9 +505,9 @@
     },
     "idle_action": {
       "options": {
-        "fan_only": "Fan only (default)",
+        "fan_only": "Fan only",
         "off": "Off",
-        "off_after_dry": "Off after drying"
+        "off_after_dry": "Off after drying (default)"
       }
     },
     "fan_speed": {

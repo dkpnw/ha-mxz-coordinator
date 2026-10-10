@@ -2521,7 +2521,9 @@ async def test_migration_does_not_revalidate_stored_tuning(hass: HomeAssistant) 
     assert await async_migrate_entry(hass, entry)
 
     assert entry.version == 2
-    assert dict(entry.options) == stored
+    # The tuning is untouched; the only addition is the idle action this
+    # pre-3.3 entry was running under, now stored (v2.2).
+    assert dict(entry.options) == {**stored, CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY}
     assert entry.data[CONF_ZONES][0][ZONE_CLIMATE] == _VALID[CONF_PRIMARY_CLIMATE]
     # The same combination IS rejected when a human resubmits it.
     assert _validate_tunables(stored) == {
