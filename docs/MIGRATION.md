@@ -1,6 +1,6 @@
 # Upgrading and migrating MXZ Coordinator
 
-## Idle action default (unreleased)
+## Idle action default (3.5.0)
 
 New setups default **When a room reaches target** (`idle_action`) to `off_after_dry`
 instead of `fan_only`: after cooling, a satisfied head runs its fan for the coil-dry
@@ -346,7 +346,7 @@ down (a head the hold parked is not "drift"). The plan sensor gains a top-level
 
 **Purely additive, opt-in — nothing to do on upgrade.** A new **Idle action** option
 (Configure → options, `idle_action`) picks how a satisfied head (or a standoff loser)
-parks: `fan_only` (default until [the change above](#idle-action-default-unreleased)), `off` (requests power-off), or `off_after_dry` (fan_only for a coil-dry period after active cooling —
+parks: `fan_only` (default until [the change above](#idle-action-default-350)), `off` (requests power-off), or `off_after_dry` (fan_only for a coil-dry period after active cooling —
 `coil_dry_minutes`, default 10 — then off; heating parks off at once). The `off` choices
 request that the indoor fan stop. They do not establish the cause of a smell or the
 position of a refrigerant valve. Parked-head refrigerant behavior depends on model and
@@ -617,7 +617,7 @@ number, it parses as `nan` or `±inf`, or it declares a unit that is not `°C`, 
   reading check. Age is a separate, opt-in freshness check described below. Without
   that contract, a stale-but-valid number is still eligible.
 - An invalid room parks by the configured idle action (`fan_only` was the default then;
-  see [Idle action default](#idle-action-default-unreleased)), or `off`
+  see [Idle action default](#idle-action-default-350)), or `off`
   when eco/away is holding it. Other rooms are untouched: the shared mode is decided by
   the healthy rooms alone, and the plan's `sensors_ok` attribute goes false.
 - The room's `temp` in the plan sensor's `zones` list is now `null` while the reading is

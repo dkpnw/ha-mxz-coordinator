@@ -63,7 +63,7 @@ Use [Reconfigure](#reconfigure-heads-rooms-and-sensors) to change the room list 
 
 - [What it does](#what-it-does), and
   [the problem it solves](#the-problem-stock-auto-starves-rooms)
-- [What's new in 3.4.2](#whats-new-in-342)
+- [What's new in 3.5.0](#whats-new-in-350)
 - [Before you install](#before-you-install) · [Install](#install)
 - [Set up your outdoor unit](#set-up-your-outdoor-unit) ·
   [If setup stops or warns](#if-setup-stops-or-warns)
@@ -149,17 +149,29 @@ supported hardware and setup apply. It is not tested for parity with this integr
 
 </details>
 
-## What's new in 3.4.2
+## What's new in 3.5.0
 
-- **No startup warning for a sensor that is still loading.** On a restart, MXZ no
-  longer logs a "no usable reading" WARNING for a room sensor whose integration hasn't
-  loaded yet. It waits until its usual recompute 40 seconds after start, and warns once
-  only if the sensor is still unusable then. Meanwhile the room is out of demand and
-  parked, as before. See
+- **New setups dry the coil, then turn off.** **When a room reaches target** now
+  defaults to `off_after_dry`: after cooling, a satisfied head runs its fan for the
+  coil-dry time and is then asked to turn off; after heating it is asked to turn off at
+  once. See [How a satisfied head idles](#how-a-satisfied-head-idles).
+- **Upgrading changes nothing.** An existing entry that never chose an idle action was
+  running `fan_only`; the upgrade stores `fan_only` for it, and a saved choice is kept.
+  To switch, choose **Off after drying** in Configure → Fan and idle. See
+  [Idle action default](docs/MIGRATION.md#idle-action-default-350).
+- **FAQ and troubleshooting.** Short answers to things people have asked about or
+  tripped over, each linked to its detail. See
+  [FAQ and troubleshooting](#faq-and-troubleshooting).
+- **Stock AUTO, as the Mitsubishi manuals describe it.** When heads want opposite
+  modes, the head selected last waits in standby. On some outdoor units an installer
+  switch, off by default, lets the lowest-address head choose the mode for all. See
+  [the problem it solves](#the-problem-stock-auto-starves-rooms).
+
+From 3.4.1 and 3.4.2:
+
+- **No startup warning for a sensor that is still loading**; MXZ warns once if it is
+  still unusable 40 seconds after start. See
   [Startup warning for a sensor that is still loading](docs/MIGRATION.md#startup-warning-for-a-sensor-that-is-still-loading-342).
-
-From 3.4.1:
-
 - **Configure is a menu.** Six pages, each saving only what it shows. A **Needs
   attention** line names any older saved value a page would now refuse. See
   [Configure is a menu of pages](docs/MIGRATION.md#configure-is-a-menu-of-pages-341).
@@ -755,7 +767,7 @@ parks:
 **Upgrading keeps what you had.** An entry that never chose an idle action was running
 `Fan only`; the upgrade stores `Fan only` for it, so it keeps idling that way. A
 choice you saved is kept. Only new setups start on `Off after drying`. See
-[Idle action default](docs/MIGRATION.md#idle-action-default-unreleased).
+[Idle action default](docs/MIGRATION.md#idle-action-default-350).
 
 Facts to know before you switch:
 
