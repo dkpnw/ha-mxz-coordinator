@@ -707,25 +707,35 @@ async def test_setup_defaults_are_the_union_of_the_page_defaults(
     assert skipped["demand_threshold"] == unit_profile(celsius)["defaults"]["demand_threshold"]
 
 
-async def test_setup_forced_idle_choice_lands_on_fan_and_idle(hass: HomeAssistant) -> None:
-    """M12: no head supports the default idle, so Save opens Fan and idle."""
+@pytest.mark.parametrize(
+    ("hvac_modes", "offered"),
+    [(["off", "cool", "heat"], "off"), (["fan_only", "cool", "heat"], "fan_only")],
+    ids=["no-fan_only", "no-off"],
+)
+async def test_setup_forced_idle_choice_lands_on_fan_and_idle(
+    hass: HomeAssistant, hvac_modes: list[str], offered: str
+) -> None:
+    """M12: off_after_dry needs both fan_only and off; heads missing either
+    cannot take the default, so Save opens Fan and idle offering what they can do."""
     for head in HEADS:
-        _head(hass, head, ["off", "cool", "heat"])
+        _head(hass, head, hvac_modes)
     manager = hass.config_entries.flow
-    result = await press(manager, await _setup_review(hass), "finish")
+    review = await _setup_review(hass)
+    assert "needs your choice" in review["description_placeholders"]["summary"]
+    result = await press(manager, review, "finish")
 
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "fan_idle"
     assert result["errors"] == {"idle_action": "idle_action_unsupported"}
     _, idle_selector = marker_of(result, "idle_action")
-    assert list(idle_selector.config["options"]) == ["off"]
+    assert list(idle_selector.config["options"]) == [offered]
     assert hass.config_entries.async_entries(DOMAIN) == []
 
-    result = await submit(manager, result, {"idle_action": "off"})
+    result = await submit(manager, result, {"idle_action": offered})
     assert result["step_id"] == "tuning"
     result = await press(manager, await press(manager, result, "review"), "finish")
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["options"]["idle_action"] == "off"
+    assert result["options"]["idle_action"] == offered
     assert set(result["options"]) == _TUNABLE_KEYS - {"changeover_entity", "inhibit_entity"}
 
 
