@@ -73,7 +73,8 @@ Use [Reconfigure](#reconfigure-heads-rooms-and-sensors) to change the room list 
 - [Everyday control](#everyday-control) · [Who drives the fan](#who-drives-the-fan) ·
   [How a satisfied head idles](#how-a-satisfied-head-idles)
 - [Best practice: give the firmware your room sensor too](#best-practice-give-the-firmware-your-room-sensor-too)
-- [Diagnose a room that is waiting](#diagnose-a-room-that-is-waiting)
+- [Diagnose a room that is waiting](#diagnose-a-room-that-is-waiting) ·
+  [FAQ and troubleshooting](#faq-and-troubleshooting)
 - [Remove the integration](#remove-the-integration)
 - [Developer setup and tested support](#developer-setup-and-tested-support)
 - [Credits & prior art](#credits--prior-art) · [License](#license)
@@ -894,6 +895,149 @@ can collapse into that follow-up. There is no one-compute-per-sensor-write guara
 **Presets and manual refresh.** Example presets: [day/night/away](examples/presets.yaml).
 The `mxz_coordinator.recompute` service requests refreshes for loaded entries; the
 `mxz_recompute` event is also honored. Neither bypasses safety gates or proves delivery.
+
+## FAQ and troubleshooting
+
+Short answers to things people have asked about or tripped over. Each one links to the
+section with the detail. For anything else, start with
+[Diagnose a room that is waiting](#diagnose-a-room-that-is-waiting).
+
+<details>
+<summary><b>My head looks off and its vanes are closed, but the coordinator says it is on / the room is enabled</b></summary>
+
+That is a satisfied room parked by its idle action. It is not a fault, and the room has
+not been dropped.
+
+- With **Off after drying** (the default for new setups) or **Off**, a room that reaches
+  its target asks its head to turn off, so the fan stops and the head closes its vanes.
+  After cooling, **Off after drying** first runs the fan for the coil drying time
+  (default 10 min). After heating it asks for `off` straight away.
+- The coordinator stays in control. The room thermostat stays `heat_cool` and its
+  action reads *Idle*. On `sensor.*_plan` the room's `engage` reads `satisfied`, and the
+  top-level `idle_action` shows the setting.
+- When the room drifts past its re-engage band (default 1 °F / 0.5 °C), the coordinator
+  wakes the head in the shared mode. A room that needs the other mode has to win it
+  first; see [A room needs heating or cooling but its head waits](#faq-waiting) below.
+- A head the plan parked off is not treated as drift, so the coordinator leaves it
+  alone. A head someone turns off while the plan wants it running is turned back on
+  after about 30 seconds.
+- A room waiting for the other mode parks the same way. While eco/away is on, a
+  satisfied room parks off at once, with no drying run.
+
+Want air moving instead? Choose **Fan only** in Configure → Fan and idle. See
+[How a satisfied head idles](#how-a-satisfied-head-idles).
+
+</details>
+
+<details>
+<summary><b>The fan is running but the room is not heating or cooling</b></summary>
+
+Check the head's own mode first.
+
+- **The head reads `fan_only`.** MXZ is idling it:
+  - **Off after drying**: after cooling, the fan runs for the coil drying time (default
+    10 min) to dry the coil, then the head is asked to turn off.
+  - **Fan only**: a satisfied or waiting room keeps its fan moving until it needs
+    conditioning again. Installs that never chose an idle action before Off after
+    drying became the default keep Fan only.
+  - **Standby hold** with *During a hold* set to Fan only parks every head this way
+    while the hold signal is active.
+  - **A vane change** on a head parked off runs it briefly in `fan_only` so the louvre
+    moves, then parks it again.
+- **The head reads `cool` or `heat`.** MXZ has asked for conditioning; the outdoor unit
+  decides when the compressor runs, and short pauses are normal (a ~2.5 min
+  anti-short-cycle pause in [my logs](#the-problem-stock-auto-starves-rooms)). If the
+  head never took the requested mode, read `command_status` in
+  [Diagnose](#diagnose-a-room-that-is-waiting).
+
+</details>
+
+<a id="faq-waiting"></a>
+
+<details>
+<summary><b>A room needs heating or cooling but its head waits</b></summary>
+
+One outdoor unit runs one direction at a time, so a room that needs the other direction
+waits. Its thermostat reads *Idle* and its head parks by the idle action. What decides
+when it gets its turn:
+
+| Plan sensor shows | Why the room waits |
+| --- | --- |
+| `standoff: true` | Rooms want opposite modes; the higher-priority room wins. Change the order in [Reconfigure](#reconfigure-heads-rooms-and-sensors). |
+| room `demand: neutral` | A room votes to flip the shared mode only once it is past the mode switch threshold (default 3 °F / 1.5 °C), or its own drift if that is wider. Closer than that, it waits. |
+| `mode_change_allowed: false` | The last flip was less than the minimum time between mode switches ago (default 600 s); see `seconds_since_mode_change`. |
+| `inhibited`, lockouts, eco, `sensor_health` | A standby hold, a seasonal lockout, away limits or an invalid or stale room sensor is keeping the room out. |
+
+[Diagnose a room that is waiting](#diagnose-a-room-that-is-waiting) has the full list.
+Mitsubishi's own standby lamp means something else: a head set, by its remote or stock
+AUTO, to the mode the system is not running. Under MXZ a waiting head is parked by
+command instead.
+
+</details>
+
+<details>
+<summary><b>The room reached its target, drifted away, and the head did not start again</b></summary>
+
+Rooms run to target, then coast until they drift past the re-engage band (default 1 °F /
+0.5 °C). Each room's drift number widens or tightens
+that band; **Follow global drift** hands it back to the global value. See
+[Everyday control](#everyday-control).
+
+</details>
+
+<details>
+<summary><b>The setpoint on the head is not the room's target</b></summary>
+
+Usually expected:
+
+- **Range heads** (`target_temp_low`/`high`) get a band: target − 2 °F to the target
+  when cooling, the target to target + 2 °F when heating (a 1 °C band on a °C system).
+  **Single-setpoint heads**, common on MXZ indoor units, get the target itself.
+- Setpoints are rounded to 1 °F or 0.5 °C and kept within Configure's Lowest/Highest
+  setpoint and the head's own limits.
+- A head that only holds 0.5 °C steps (ESPHome CN105) in a °F system shows some whole-°F
+  setpoints 0.5 °F off, such as 64.5 for 64. Since 3.4.1 MXZ compares on the head's own
+  steps and does not re-send. See
+  [Setpoints on °C-native heads](docs/MIGRATION.md#setpoints-on-c-native-heads-in-a-f-system-341).
+- While eco/away is on, heads get fixed eco setpoints instead of the room target.
+- A parked head (`fan_only` or `off`) is sent a mode only, so it keeps its last setpoint.
+
+The head also reads its own thermistor, which can differ from your room sensor; see
+[Best practice: give the firmware your room sensor too](#best-practice-give-the-firmware-your-room-sensor-too).
+
+</details>
+
+<details>
+<summary><b>The fan is stuck on one speed</b></summary>
+
+Picking a speed makes it a hold, and a hold has no timeout. Changing targets or drift
+does not release it. Turn **Fan auto** on, or set the head's fan to `auto`. The room's
+`fan_hold` on the plan sensor shows whether a hold is set. If Fan auto is unavailable,
+the head may not advertise an exact `auto` fan mode. See
+[Who drives the fan](#who-drives-the-fan).
+
+</details>
+
+<details>
+<summary><b>I changed a head with its remote or app and it changed back</b></summary>
+
+While the coordinator is enabled it is the head's writer. A head switched to `auto`,
+`heat_cool` or `dry` is put back after about 20 seconds; a head turned off while the
+plan wants it running, after about 30 seconds. If you set up drift alerts, you get one.
+Other changes, such as a setpoint, are corrected on a later update. A fan speed you pick
+is kept as a hold. To run the heads by hand, turn **Coordinator enable** off; MXZ then
+leaves them alone. See [Everyday control](#everyday-control).
+
+</details>
+
+<details>
+<summary><b>I set it up and nothing happens</b></summary>
+
+A new entry starts with **Coordinator enable** and every room's enable switch off, so it
+commands nothing. Turn on Coordinator enable, then each room (its enable switch, or set
+its thermostat to `heat_cool`).
+
+</details>
 
 <a id="removing"></a>
 
