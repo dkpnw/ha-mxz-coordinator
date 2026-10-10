@@ -753,7 +753,7 @@ parks:
 | `Off after drying` (default) | requests `fan_only` for a dwell after **cooling** (default 10 min), then `off`. After heating it requests `off` immediately. |
 
 **Upgrading keeps what you had.** An entry that never chose an idle action was running
-`Fan only`; the upgrade stores `Fan only` for it, so it idles exactly as before. A
+`Fan only`; the upgrade stores `Fan only` for it, so it keeps idling that way. A
 choice you saved is kept. Only new setups start on `Off after drying`. See
 [Idle action default](docs/MIGRATION.md#idle-action-default-unreleased).
 
