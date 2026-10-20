@@ -500,6 +500,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # run awaiting a usable sensor. Keep that observation across our own
         # sensor-failure park, without changing the ordinary dropout policy.
         self._startup_resume: dict[str, str | None] = {}
+        # Disabling parks a head off ONCE, not every cycle (#hands-off) --
+        # slugs in here have already been parked for the current
+        # disablement episode. Cleared on re-enable (MXZZoneEnableSwitch),
+        # so a fresh disablement parks again; absent at startup even when
+        # restored disabled, so a reboot still parks once (matches
+        # test_restored_disabled_room_does_not_resume).
+        self._disabled_parked: set[str] = set()
 
         # Vane-kick bookkeeping: heads mid-kick are skipped by _apply so the
         # plan doesn't turn them back off while the louvre is still traveling.
@@ -1609,6 +1616,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         tasks = []
         for zone, engage in zip(self.zones, engages):
+            if not zone.enable:
+                # Park off ONCE per disablement, then hands off -- a human
+                # may be driving this head afterward (see _disabled_parked).
+                if zone.slug not in self._disabled_parked:
+                    self._disabled_parked.add(zone.slug)
+                    task = self._queue_delivery(zone.climate_id, MODE_OFF, 0.0, 0.0)
+                    if task is not None:
+                        tasks.append(task)
+                continue
             if zone.climate_id in self._vane_kicks:
                 continue  # mid vane-kick: leave the head alone until it finishes
             if zone.slug in self._startup_resume:

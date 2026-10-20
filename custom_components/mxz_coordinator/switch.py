@@ -212,6 +212,12 @@ class MXZZoneEnableSwitch(MXZBaseSwitch):
     def _seed(self, *, restored: bool = False) -> None:
         was_enabled = self._zone.enable
         self._zone.enable = self._attr_is_on
+        if self._attr_is_on:
+            # Enabled (live or restored): the next disablement, whenever it
+            # comes, parks fresh. Left untouched while staying/becoming
+            # disabled, so a restart that restores already-disabled still
+            # parks once (it's never been added here).
+            self.coordinator._disabled_parked.discard(self._zone.slug)
         if restored and self._attr_is_on:
             self.coordinator._startup_resume[self._zone.slug] = None
         elif restored or not was_enabled or not self._attr_is_on:

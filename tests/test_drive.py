@@ -258,6 +258,68 @@ async def test_coordinator_drives_heads(hass: HomeAssistant) -> None:
     print("S4 (kill-switch off) primary stayed heat -> coordinator did not write")
 
 
+async def test_disabled_head_parks_once_then_hands_off(hass: HomeAssistant) -> None:
+    """Disabling parks the head off ONCE, then leaves it alone for good."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MXZ Coordinator",
+        data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
+            CONF_PRIMARY_CLIMATE: head_a,
+            CONF_SECONDARY_CLIMATE: head_b,
+            CONF_PRIMARY_SENSOR: SENSOR_A,
+            CONF_SECONDARY_SENSOR: SENSOR_B,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Secondary stays disabled throughout (default OFF) -- a human is
+    # running it by remote the whole time.
+    for suffix in ("_primary_enable", "_coordinator_enable"):
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": _eid(hass, entry, suffix)}, blocking=True
+        )
+    await hass.async_block_till_done()
+    await hass.services.async_call(
+        "climate", "set_hvac_mode",
+        {"entity_id": head_b, "hvac_mode": "heat"}, blocking=True
+    )
+
+    # First disabled recompute: parked off once, as test_turn_off_disables_
+    # room already covers for the live-transition case.
+    await _recompute(hass, entry)
+    assert hass.states.get(head_b).state == "off"
+
+    # A human now picks the remote back up -- this is the case the one-shot
+    # exists for. A second disabled recompute must NOT re-park it.
+    await hass.services.async_call(
+        "climate", "set_hvac_mode",
+        {"entity_id": head_b, "hvac_mode": "heat"}, blocking=True
+    )
+    await _recompute(hass, entry)
+    assert hass.states.get(head_b).state == "heat"  # untouched -- hands off
+
+    # Re-enabling and disabling again starts a fresh episode -- parks again.
+    await hass.services.async_call(
+        "switch", "turn_on",
+        {"entity_id": _eid(hass, entry, "_secondary_enable")}, blocking=True
+    )
+    await hass.services.async_call(
+        "switch", "turn_off",
+        {"entity_id": _eid(hass, entry, "_secondary_enable")}, blocking=True
+    )
+    await _recompute(hass, entry)
+    assert hass.states.get(head_b).state == "off"
+
+
 async def test_heat_lockout_suppresses_then_floors(hass: HomeAssistant) -> None:
     """heat_lockout: a below-target room idles (fan_only) unless below the safety floor."""
     hass.config.units = US_CUSTOMARY_SYSTEM
