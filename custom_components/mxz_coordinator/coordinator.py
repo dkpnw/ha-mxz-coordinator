@@ -871,6 +871,17 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 neutral=DEMAND_NEUTRAL,
                 **common,
             )
+            if not zone.enable:
+                # A disabled head still votes with its actual demand -- its
+                # target isn't trustworthy once a human's on the remote
+                # (test_manual_room_hold_survives_the_dwell_expiring). This
+                # only changes the vote; a disabled head is still parked off
+                # by the engage/command path below (see
+                # test_turn_off_disables_room) -- true hands-off is a
+                # separate, unbuilt feature.
+                head = self.hass.states.get(zone.climate_id)
+                if head is not None and head.state in (MODE_COOL, MODE_HEAT):
+                    demand = head.state
             if zone.slug in self._startup_resume:
                 if not (
                     zone.enable and self.coordinator_enable and self._restored_coordinator_on

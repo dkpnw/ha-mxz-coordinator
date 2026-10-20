@@ -258,6 +258,62 @@ async def test_coordinator_drives_heads(hass: HomeAssistant) -> None:
     print("S4 (kill-switch off) primary stayed heat -> coordinator did not write")
 
 
+async def test_disabled_head_votes_with_observed_state_in_standoff(
+    hass: HomeAssistant,
+) -> None:
+    """A disabled head still votes with what it's actually running -- never commanded."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+
+    head_a, head_b = await _setup_mock_heads(hass)
+    await _set_temp(hass, SENSOR_A, 70)
+    await _set_temp(hass, SENSOR_B, 70)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="MXZ Coordinator",
+        data={
+            CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
+            CONF_PRIMARY_CLIMATE: head_a,
+            CONF_SECONDARY_CLIMATE: head_b,
+            CONF_PRIMARY_SENSOR: SENSOR_A,
+            CONF_SECONDARY_SENSOR: SENSOR_B,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Primary + coordinator enabled; secondary left disabled (default OFF) --
+    # a human is running it by remote.
+    for suffix in ("_primary_enable", "_coordinator_enable"):
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": _eid(hass, entry, suffix)}, blocking=True
+        )
+    await hass.async_block_till_done()
+
+    # Secondary's own target is wildly stale (never touched since disabled) --
+    # the vote must come from its real observed mode, not this.
+    await _set_target(hass, _eid(hass, entry, "_secondary_target"), 70)
+    await hass.services.async_call(
+        "climate", "set_hvac_mode",
+        {"entity_id": head_b, "hvac_mode": "heat"}, blocking=True
+    )
+    await hass.async_block_till_done()
+
+    # Primary wants COOL (75 vs target 70); secondary is disabled but
+    # physically running HEAT by remote.
+    await _set_temp(hass, SENSOR_A, 75)
+    await _recompute(hass, entry)
+
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["secondary_demand"] == "heat"  # disabled, still votes
+    assert plan.attributes["standoff"] is True
+    assert plan.state == "cool"  # primary (index 0) wins the standoff
+    # Whether a disabled head gets parked afterward is a separate concern
+    # (today it does, deliberately -- see test_turn_off_disables_room) --
+    # this test only covers the vote itself.
+
+
 async def test_heat_lockout_suppresses_then_floors(hass: HomeAssistant) -> None:
     """heat_lockout: a below-target room idles (fan_only) unless below the safety floor."""
     hass.config.units = US_CUSTOMARY_SYSTEM
