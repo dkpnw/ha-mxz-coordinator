@@ -8,13 +8,15 @@ the model) that carries NO decision: it asks for a recompute of the inputs as
 they are when it fires, so a manual choice made in between wins.
 
 Time idiom, as in ``test_idle_dry``: firing HA's time machinery does not move
-``dt_util.utcnow``, so the dwell clock is aged by rewinding the coordinator's
+``time.monotonic`` (the dwell clock, deliberately not wall-clock — see
+coordinator.py), so the dwell clock is aged by rewinding the coordinator's
 own stamp and the timer is then fired for real.
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any
@@ -559,9 +561,7 @@ async def test_heat_lockout_leaves_nothing_for_the_wakeup(
 
 def _dwell_left(coord: MXZCoordinator, seconds: float) -> None:
     """Leave ``seconds`` of dwell on the clock (the suite's stamp rewind)."""
-    coord._last_mode_change_ts = (
-        dt_util.utcnow().timestamp() - coord.hysteresis + seconds
-    )
+    coord._last_mode_change_ts = time.monotonic() - coord.hysteresis + seconds
 
 
 def _defer_a_flip_without_a_pending_refresh(coord: MXZCoordinator) -> None:

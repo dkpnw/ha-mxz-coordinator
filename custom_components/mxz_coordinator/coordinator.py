@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -551,7 +552,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Hysteresis is armed from startup: a mode flip must wait out the dwell
         # even right after setup/restart (#6 — 0.0 made the first flip always
         # allowed and the plan sensor report a ~56,000-year dwell).
-        self._last_mode_change_ts: float = dt_util.utcnow().timestamp()
+        # Monotonic, not wall-clock: an NTP step correction must not be able to
+        # transiently defeat or prematurely satisfy the dwell gate.
+        self._last_mode_change_ts: float = time.monotonic()
         # One-shot wakeup at dwell expiry, armed only while the dwell is
         # holding a flip back (see _sync_dwell_timer). Retirement is one-way
         # for this incarnation: a reload builds a new coordinator.
@@ -953,7 +956,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self._coasted = coasted
         current = self._arbitration_mode()
-        elapsed = now - self._last_mode_change_ts
+        # Monotonic delta, not derived from `now` above (wall-clock, used for
+        # display/freshness elsewhere) — an NTP step must not perturb dwell.
+        elapsed = time.monotonic() - self._last_mode_change_ts
         allowed = elapsed >= self.hysteresis
         state, by_votes = shared_mode_with_votes(
             demands=demands,
@@ -1501,9 +1506,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elapsed, so its own re-sync takes the ordinary path and this cannot
         chain.
         """
-        remaining = self.hysteresis - (
-            dt_util.utcnow().timestamp() - self._last_mode_change_ts
-        )
+        remaining = self.hysteresis - (time.monotonic() - self._last_mode_change_ts)
         if (
             self._dwell_retired
             or not self.coordinator_enable
@@ -1707,13 +1710,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 bool(plan.get("mode_by_hands_off")) and state != self._resting_bias()
             )
             if not plan.get("mode_by_hands_off"):
-                self._last_mode_change_ts = dt_util.utcnow().timestamp()
+                self._last_mode_change_ts = time.monotonic()
             self.async_update_listeners()  # let the shared-mode select re-render
         elif self._mode_by_votes and state in (
             *engages, *(plan[f"{zone.slug}_demand"] for zone in self.zones)
         ):
             self._mode_by_votes = False
-            self._last_mode_change_ts = dt_util.utcnow().timestamp()
+            self._last_mode_change_ts = time.monotonic()
 
     def _queue_delivery(
         self, climate_id: str, act: str, low: float, high: float,
@@ -3340,7 +3343,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if mode != self.current_shared_mode:
             self.current_shared_mode = mode
             self._mode_by_votes = False
-            self._last_mode_change_ts = dt_util.utcnow().timestamp()
+            self._last_mode_change_ts = time.monotonic()
         await self.async_request_refresh()
 
     # -- seasonal changeover (optional, from local weather) -----------------
