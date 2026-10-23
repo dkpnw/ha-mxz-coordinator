@@ -276,6 +276,24 @@ not an enabled room, set the shared mode on that update (or the mode went back a
 the vote ended), with no enabled room calling; such a change starts no mode-change
 wait. On an install with no room opted in it is always false.
 
+**A head that goes unavailable (not in a release yet).** Up to 3.10.0 an opted-in
+room's vote dropped the moment its head went `unavailable`, and an enabled room kept
+its demand in the heat-versus-cool decision for as long as its head was gone. Now a
+lost head (`unavailable`, or missing from Home Assistant) keeps the vote it last showed,
+stale, for **Keep a lost head's vote for** (Configure → Comfort → Advanced), and then
+the vote expires: an opted-in room's heat or cool stops counting, and an enabled room
+stops holding the shared mode. A head seen again counts at once. An enabled room whose
+Safety priority sensor is `on` keeps its want, and floors and ceilings are unchanged.
+The setting is stored as `lost_vote_ttl`, in minutes, only when set; blank is 30
+minutes. There is no config-entry version change and no migration, and a room whose
+head never goes unavailable behaves exactly as before. Each room in the plan's `zones`
+list gains `vote_status` (`live`, `stale`, `expired`, or `unknown`) and `lost_since`.
+None of it is saved: after a restart or reload each head is `unknown` until it is seen,
+and an enabled room's demand then counts for the time limit from that start. On a
+rollback to 3.10.0 the `lost_vote_ttl` key is ignored; that was checked by reading the
+older code, not run. See
+[When a head goes unavailable](../README.md#when-a-head-goes-unavailable).
+
 See [Run one room from its own remote](../README.md#run-one-room-from-its-own-remote).
 
 ## Idle action default (3.5.0)

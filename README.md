@@ -94,7 +94,9 @@ In brief:
   boundary.
 - **Priority settles a standoff.** Among rooms voting for opposing modes (heat versus
   cool), the higher-priority room wins, subject to mode dwell and lockouts. The other
-  waits.
+  waits. A room whose head has been unavailable for longer than a time limit stops
+  holding the mode (see
+  [When a head goes unavailable](#when-a-head-goes-unavailable)).
 - **Bounded by your settings.** Mode dwell, seasonal heat/cool lockouts, away limits,
   and an optional standby hold signal limit what it commands.
 - **Set up in the UI.** Setup, Reconfigure, and Configure are Home Assistant dialogs.
@@ -574,7 +576,7 @@ on a menu of six pages. Some settings sit in a collapsed section on their page.
 
 | Page | Settings | What they're for |
 | --- | --- | --- |
-| **Comfort** | Allowed drift, Mode switch threshold, Resting mode. Collapsed **Advanced**: Minimum time between mode switches, Let it get cooler by, Let it get warmer by | **Mode switch threshold / Allowed drift**: shared-mode voting, and how far a satisfied room drifts before calling again. Per-room drift numbers can override the global drift. **Resting mode**: Last used, Cool, or Heat when no room is calling. **Minimum time between mode switches**: minimum dwell between shared heat/cool changes; default 600 seconds. **Let it get cooler by / warmer by**: optional; see [Uneven drift](#uneven-drift). |
+| **Comfort** | Allowed drift, Mode switch threshold, Resting mode. Collapsed **Advanced**: Minimum time between mode switches, Let it get cooler by, Let it get warmer by, Keep a lost head's vote for | **Mode switch threshold / Allowed drift**: shared-mode voting, and how far a satisfied room drifts before calling again. Per-room drift numbers can override the global drift. **Resting mode**: Last used, Cool, or Heat when no room is calling. **Minimum time between mode switches**: minimum dwell between shared heat/cool changes; default 600 seconds. **Let it get cooler by / warmer by**: optional; see [Uneven drift](#uneven-drift). **Keep a lost head's vote for**: optional, 1 to 240 minutes, blank for 30; see [When a head goes unavailable](#when-a-head-goes-unavailable). |
 | **Fan and idle** | Fan boost, Fan boost top speed, When a room reaches target, Coil drying time | **Fan boost / Fan boost top speed**: the automatic fan ladder and its ceiling. A manual hold takes precedence. **When a room reaches target / Coil drying time**: Fan only, Off, or Off after drying (fan only after cooling for a dwell, then off). Choices depend on common head support. |
 | **Seasons** | Weather source, Lock out heat when the high is at least, Lock out cool when the high is at most. Collapsed **Safety overrides**: Heat anyway below, Cool anyway above | Weather/outdoor-temperature input and seasonal heat/cool lockouts, with the heat-anyway and cool-anyway limits. |
 | **Away and setpoint limits** | Away low limit, Away high limit. Collapsed **Head setpoint range**: Lowest setpoint, Highest setpoint | **Away low / high limit**: protection thresholds used by eco and the default standby hold. Keep the equipment's own safeguards. **Lowest / Highest setpoint**: the head's allowed range. Commands are also bounded by usable head limits. |
@@ -1064,6 +1066,9 @@ With it on, when you disable that room (its switch, or its tile set to `off`):
   mode** set to Cool or Heat it stays true while the vote holds the mode away from
   rest; on Last used it is true only on the update that makes the change. With no room
   opted in it is always false.
+- If the head goes unavailable, its last heat or cool keeps counting for **Keep a lost
+  head's vote for** (30 minutes by default), then stops. See
+  [When a head goes unavailable](#when-a-head-goes-unavailable).
 - A standby hold still holds this head too: at the hold's park mode, or `off` under
   an `eco` hold, for as long as the hold lasts. Afterwards the head is left alone
   again. MXZ does not "heal" this head out of `dry` or `auto`.
@@ -1115,6 +1120,40 @@ What the sensor should mean:
 For a disabled room that must not freeze or overheat, use
 [Freeze floor and overheat ceiling](#freeze-floor-and-overheat-ceiling) instead: that
 does start heat or cool.
+
+### When a head goes unavailable
+
+A head that drops off the network reads `unavailable` in Home Assistant, or disappears
+from it. MXZ can neither see what that head is doing nor send it anything, but it may
+still be running on the shared outdoor unit. So MXZ keeps counting what it last saw for
+a while, then lets go:
+
+- **For a time limit, its last vote still counts (`stale`).** A room run from its own
+  remote keeps the heat or cool its head last showed. An enabled room keeps its demand
+  and its run to target in the heat-versus-cool decision, as before.
+- **Then it expires (`expired`).** After **Keep a lost head's vote for** (Configure →
+  Comfort → Advanced: 1 to 240 minutes, or blank for 30), the vote stops counting. A
+  room run from its own remote no longer sets the direction, and an enabled room stops
+  holding the shared mode, so a room waiting for the other mode can be served. MXZ
+  keeps sending an enabled room's lost head its usual commands; an unavailable head
+  doesn't take them.
+- **A head that comes back counts again at once (`live`).** Any reversal that follows
+  waits out the mode-change wait as usual.
+- **Kept as before:** an enabled room whose Safety priority sensor is `on` keeps its
+  want after the limit, and a tripped freeze floor or overheat ceiling is never dropped
+  by it. A floor whose own head is unavailable already casts no want, as before.
+- **Only a lost head counts.** `unknown` means the head is there without a mode: it is
+  in sight, and it has no vote, as before. A head that only reports nothing new is in
+  sight too.
+- **Nothing about it survives a restart or reload.** Each head starts `unknown` until
+  it is seen. A room run from its own remote then has no last vote, so it holds
+  nothing. An enabled room's demand counts for the same time limit from the start
+  (heads are briefly unavailable while Home Assistant starts), then expires.
+
+`sensor.*_plan` shows each room's `vote_status` (`live`, `stale`, `expired`, or
+`unknown`) and `lost_since`. Before this, a room run from its own remote lost its vote
+the moment its head went unavailable, and an enabled room held the shared mode for as
+long as its head was gone.
 
 ### Freeze floor and overheat ceiling
 
@@ -1474,6 +1513,7 @@ refer to priority slots, not permanent room identities.
 | room `drift_heat`, `drift_cool` | How far below (heat) and above (cool) target the room may get before a run starts: per side, the room's own Let it get cooler by or Let it get warmer by, else the room's drift number once set, else the global Let it get cooler by or Let it get warmer by, else Allowed drift. The room's drift number still shows one value, with these two as its attributes. See [Uneven drift](#uneven-drift). |
 | room `heat_start`, `cool_start`, `heat_demand_below`, `cool_demand_above` | Where the room starts a run (heats below `heat_start`, cools above `cool_start`) and where it asks the whole system to switch (below `heat_demand_below`, above `cool_demand_above`), as MXZ uses them now. `start_points_mode` is `comfort` or `eco`, `start_points_lockouts` lists a heat or cool lockout in use, and `drift_source`, `drift_heat_from`, and `drift_cool_from` say where the drift came from. For a disabled room, the four edges and `start_points_mode` are `null`, and `start_points_lockouts` is `[]`. The edges are shown rounded to six decimal places; MXZ compares the unrounded values. Also on the room's thermostat. See [Uneven drift](#uneven-drift). |
 | `mode_by_hands_off`, room `hands_off_vote` | True when a disabled room run from its own remote set the shared mode, with no enabled room calling or still running to its target, or the mode went back after its vote ended; that change starts no mode-change wait. Always false with no room opted in. See [Run one room from its own remote](#run-one-room-from-its-own-remote). |
+| room `vote_status`, `lost_since` | `stale` or `expired` means MXZ has lost sight of the room's head (`unavailable` or missing) since `lost_since`. While `stale` its last vote still counts; once `expired` it no longer holds the shared mode. `unknown` means not seen since MXZ started. Check the head's integration and network. See [When a head goes unavailable](#when-a-head-goes-unavailable). |
 | `mode_by_safety`, room `safety_priority` | True while a room marked Safety priority is asserting and its want is the shared mode, or a tripped freeze floor or overheat ceiling's is. Taking the mode from an enabled room that is calling or still running to its target starts the mode-change wait like any real reversal; deciding while no enabled room is calling or running does not. Always false with no sensor wired and no floor tripped. See [Safety priority](#safety-priority). |
 | `mode_by_floor`, room `floor_state`, `floor_reason`, `floor_want`, `floor_low`, `floor_high` | `mode_by_floor` is true while a tripped freeze floor or overheat ceiling's direction is the shared mode. Each room's `floor_state` is `none`, `enabled`, `armed`, `heat`/`cool` (running), `held` (waiting, or the head rejecting the command), `blind` (cannot protect: no reading, head unavailable, stalled), or `yielded`, and `floor_reason` says why. Always false and `none` with no floor set. See [Freeze floor and overheat ceiling](#freeze-floor-and-overheat-ceiling). |
 | `inhibited`, room enable, lockouts, eco | A configured gate may be parking the room. Check the controlling switch/input. |
@@ -1837,7 +1877,7 @@ MXZ Coordinator got this good because people ran it on their own systems, found 
 - [@helicopterrun](https://github.com/helicopterrun) validated it on 3-zone hardware and did relentless, root-caused QA through the v3 beta ([#4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4), [#5](https://github.com/dkpnw/ha-mxz-coordinator/issues/5), [#6](https://github.com/dkpnw/ha-mxz-coordinator/issues/6), [#7](https://github.com/dkpnw/ha-mxz-coordinator/issues/7)). Those reports led to the removal docs, single-setpoint head support, and entry-scoped restore.
 - [@oliverbrandmueller](https://github.com/oliverbrandmueller) asked for metric units ([#2](https://github.com/dkpnw/ha-mxz-coordinator/issues/2)). Since 2.8.0 the coordinator runs in your Home Assistant temperature unit from end to end.
 - **mw1029** on the [Home Assistant forum](https://community.home-assistant.io/t/1018382) tried MXZ with the cloud-based `comfort_HA` integration and posted both entity dumps, which showed exactly where the two don't line up. Support for it is in progress.
-- [@csingley](https://github.com/csingley) (Chris Singley) noticed that a room left to its own remote is invisible to the heat-versus-cool standoff, even while it is really heating or cooling on the shared outdoor unit, and sent a fix with a test ([#27](https://github.com/dkpnw/ha-mxz-coordinator/pull/27)). He followed it with [#28](https://github.com/dkpnw/ha-mxz-coordinator/pull/28), which lets a disabled room's head stay under its own remote. The per-room **Let its own remote run it while disabled** setting is built from both, with him as co-author, and he tested it on his own 4-zone MXZ-4C36NA2 before release. It shipped in 3.6.0. He then designed and wrote the safety-priority arbitration ([#31](https://github.com/dkpnw/ha-mxz-coordinator/pull/31)): every room's heat or cool want ranked in one priority order, with an optional per-room **Safety priority** sensor that lifts a room's own want above every other room's. It shipped in 3.7.0, not yet tested on hardware. The 3.7.0 freeze floor and overheat ceiling build on his safety tier: a tripped floor or ceiling is one more want in that same priority order, with the freeze floor ranked first. He also wrote [#32](https://github.com/dkpnw/ha-mxz-coordinator/pull/32), which times the mode-change wait with a monotonic clock so a wall-clock jump (an NTP correction, a clock set by hand) can't shorten or stretch it. It shipped in 3.7.1. His native dual-setpoint proposal ([#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35)) was declined at first to keep one target, but the discussion led to **Let it get cooler by** and **Let it get warmer by**, which give heat and cool different tolerances around that one target. They shipped in 3.8.0. [#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35) is also the origin of the opt-in per-room **dual setpoint** (separate Heat to and Cool to): it carries forward his idea and Home Assistant's range contract (the range feature, `heat_cool`, and writes through the room's own numbers), rebuilt as an opt-in on the room's page. It shipped in 3.10.0, with only the heat side tested on hardware so far.
+- [@csingley](https://github.com/csingley) (Chris Singley) noticed that a room left to its own remote is invisible to the heat-versus-cool standoff, even while it is really heating or cooling on the shared outdoor unit, and sent a fix with a test ([#27](https://github.com/dkpnw/ha-mxz-coordinator/pull/27)). He followed it with [#28](https://github.com/dkpnw/ha-mxz-coordinator/pull/28), which lets a disabled room's head stay under its own remote. The per-room **Let its own remote run it while disabled** setting is built from both, with him as co-author, and he tested it on his own 4-zone MXZ-4C36NA2 before release. It shipped in 3.6.0. He then designed and wrote the safety-priority arbitration ([#31](https://github.com/dkpnw/ha-mxz-coordinator/pull/31)): every room's heat or cool want ranked in one priority order, with an optional per-room **Safety priority** sensor that lifts a room's own want above every other room's. It shipped in 3.7.0, not yet tested on hardware. The 3.7.0 freeze floor and overheat ceiling build on his safety tier: a tripped floor or ceiling is one more want in that same priority order, with the freeze floor ranked first. He also wrote [#32](https://github.com/dkpnw/ha-mxz-coordinator/pull/32), which times the mode-change wait with a monotonic clock so a wall-clock jump (an NTP correction, a clock set by hand) can't shorten or stretch it. It shipped in 3.7.1. His native dual-setpoint proposal ([#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35)) was declined at first to keep one target, but the discussion led to **Let it get cooler by** and **Let it get warmer by**, which give heat and cool different tolerances around that one target. They shipped in 3.8.0. [#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35) is also the origin of the opt-in per-room **dual setpoint** (separate Heat to and Cool to): it carries forward his idea and Home Assistant's range contract (the range feature, `heat_cool`, and writes through the room's own numbers), rebuilt as an opt-in on the room's page. It shipped in 3.10.0, with only the heat side tested on hardware so far. The stale, then expired, vote of a head that goes unavailable (see [When a head goes unavailable](#when-a-head-goes-unavailable)) adapts the observed-vote model from his [ha-climate-zone-sequencer](https://github.com/csingley/ha-climate-zone-sequencer) (MIT License; see [NOTICE](NOTICE)). It isn't in a release yet and hasn't been tested on hardware.
 
 **Prior art and references**
 

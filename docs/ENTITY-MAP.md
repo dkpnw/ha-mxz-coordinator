@@ -71,6 +71,23 @@ Every other room keeps exactly the entities and attributes above.
 | `sensor.*_plan` → `zones[]` | `target_low`, `target_high` | Heat to and cool to; `target` is their midpoint. A single-target row has neither key. |
 | Same room surfaces | `heat_start`, `cool_start`, `heat_demand_below`, `cool_demand_above` | Worked out from heat to (heat side) and cool to (cool side). |
 
+## Integration lost-head vote
+
+Every room's row in the plan, whatever its settings. A head is out of sight while it
+reads `unavailable` or is missing from Home Assistant. Any other state, `unknown`
+included, is in sight, and a head that only reports nothing new stays in sight.
+
+| Entity surface | Fields | Meaning |
+| --- | --- | --- |
+| `sensor.*_plan` → `zones[]` | `vote_status` | `live`: the head is in sight. `stale`: out of sight, and the heat or cool it last showed still counts (a room run from its own remote), as does an enabled room's demand and run. `expired`: out of sight for longer than **Keep a lost head's vote for** (30 minutes by default), so neither counts any more, unless the room's Safety priority sensor is `on`. `unknown`: not seen since MXZ started (or reloaded), so there is no last vote to keep; an enabled room's demand counts for the same time limit from that start, then the row reads `expired`. |
+| Same row | `lost_since` | When MXZ lost sight of the head (for an `unknown` head, when MXZ started), as an ISO time. `null` while the head is in sight. Display only: the time limit runs on a clock a wall-clock change can't move. |
+
+An enabled room's `demand` and `engage` keep showing its own call; `vote_status` says
+whether that still counts. A room run from its own remote shows the vote that counts in
+`hands_off_vote`: its last heat or cool while `stale`, and `null` once `expired`. These
+two fields are not on the room thermostat. Nothing about them is saved: after a restart
+or reload every head starts `unknown` until it is seen.
+
 ## Required — replace these
 
 | Placeholder in the package | What it is | Example of yours |
