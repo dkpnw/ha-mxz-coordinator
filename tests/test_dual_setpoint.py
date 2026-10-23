@@ -607,6 +607,18 @@ async def test_a_restored_pair_that_no_longer_fits_is_re_centered_once(hass: Hom
     assert not any("re-centered" in r["reason"] for r in entry.runtime_data._control_reasons(_zone(entry, 0)))
 
 
+async def test_a_restored_celsius_pair_is_re_centered_at_one_degree(hass: HomeAssistant) -> None:
+    entry, _ = await _setup(
+        hass, "C", temps=(21, 21), restore=[
+            ("primary_target", 30.0, None),
+            ("primary_target_low", 30.5, None), ("primary_target_high", 35.0, None),
+        ], dual=(0,),
+    )
+    # Clamped to 30.5-31, half a degree apart: re-centered at 1 °C inside 15-31.
+    assert _pair(entry) == (30.0, 31.0)
+    assert _value(hass, entry, "primary_target") == 30.5
+
+
 async def test_a_restored_pair_that_fits_is_kept_exactly(hass: HomeAssistant) -> None:
     entry, _ = await _setup(
         hass, dual=(0,), restore=[
