@@ -417,6 +417,54 @@ async def test_a_rooms_first_switch_is_in_place_with_empty_wiring_stored(
     log.stop()
 
 
+async def test_a_room_set_up_through_the_config_flow_switches_in_place_first_time(
+    hass: HomeAssistant,
+) -> None:
+    """The entry the setup flow creates (no vane or stage sensor detected on
+    the mock heads, so those keys are stored as None), then the first room's
+    first save with only the toggle changed."""
+    from homeassistant import config_entries
+    from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+
+    from tests.flow_pages import press
+    from tests.test_drive import MockHead, _setup_mock_heads
+    from tests.test_dual_setpoint import SENSOR_A, SENSOR_B, _temps
+
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    heads = await _setup_mock_heads(hass, cls=MockHead)
+    await _temps(hass, 70, 70)
+    manager = hass.config_entries.flow
+    result = await manager.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await manager.async_configure(result["flow_id"], {"heads": list(heads)})
+    result = await manager.async_configure(result["flow_id"], {})
+    result = await manager.async_configure(
+        result["flow_id"], {"sensor_1": SENSOR_A, "sensor_2": SENSOR_B}
+    )
+    result = await press(manager, result, "finish")
+    await hass.async_block_till_done()
+    assert result["type"] == "create_entry", result
+    entry = result["result"]
+    stored = entry.data[CONF_ZONES][0]
+    assert (stored[ZONE_VANE_VERTICAL], stored[ZONE_VANE_HORIZONTAL], stored[ZONE_STAGE_SENSOR]) == (
+        None, None, None
+    )
+    coordinator = entry.runtime_data
+    tile_id = _eid(hass, entry, "primary_thermostat")
+    tile = _entity(hass, tile_id)
+    log = StateLog(hass, [tile_id])
+
+    await _room_page(hass, entry, 1, dual_setpoint=True)
+
+    assert entry.data[CONF_ZONES][0][ZONE_DUAL_SETPOINT] is True
+    assert entry.runtime_data is coordinator
+    assert _entity(hass, tile_id) is tile
+    assert not log.went_away(tile_id)
+    (old, new), = log.feature_changes(tile_id)
+    assert (old.attributes["supported_features"], new.attributes["supported_features"]) == (SINGLE, RANGE)
+    assert log.homekit_rebuilds(tile_id) == 1
+    log.stop()
+
+
 @pytest.mark.parametrize("switch", [False, True])
 @pytest.mark.parametrize(
     ("field", "key", "wired"),
