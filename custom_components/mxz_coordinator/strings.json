@@ -528,7 +528,7 @@
               "dual_setpoint": "Use separate heat and cool setpoints"
             },
             "data_description": {
-              "dual_setpoint": "Adds this room's heat to and cool to numbers, and its thermostat shows a range. Its target number stays and shows the middle of the range; writing it moves the whole range. Voice assistants that set one number, such as Assist, can't set a range; use the target number instead."
+              "dual_setpoint": "Adds this room's heat to and cool to numbers, and its thermostat shows a range. Its target number stays and shows the middle of the range; writing it moves the whole range. Voice assistants that set one number, such as Assist, can't set a range; use the target number instead. Save this change on its own and the HomeKit bridge picks it up at once; saved with other changes on this page, it reloads the integration, so reload the HomeKit bridge afterwards."
             }
           }
         }

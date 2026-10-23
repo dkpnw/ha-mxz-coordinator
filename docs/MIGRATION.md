@@ -11,8 +11,8 @@ without the key, which is every room saved before this setting existed, behaves 
 as before: the same entities, attributes, plan rows, stored settings, and head
 commands.
 
-**Turning it on.** Save the room's page with the toggle on. The entry reloads, the room
-gets its **heat to** and **cool to** numbers, and the range starts around the room's
+**Turning it on.** Save the room's page with the toggle on. The room gets its **heat
+to** and **cool to** numbers, and the range starts around the room's
 current target at the minimum gap of 2 °F (1 °C): a 70 °F target becomes 69–71 °F, and
 21 °C becomes 20.5–21.5 °C. It always starts from the current target, never from a
 range an earlier opt-in left behind. The room's thermostat shows the range in place of
@@ -24,8 +24,19 @@ With the integration loaded, the target becomes the middle of the range, rounded
 step (exact halves round to the even step, as the tile does: 68–73 °F becomes 70). If it
 isn't loaded when you save (for example, it failed to start), the target keeps the
 middle it last showed, which can be a half degree such as 68.5 °F. The heat to and cool
-to numbers are removed from the entity registry on the reload, and the thermostat shows
-one target again.
+to numbers are removed from the entity registry, and the thermostat shows one target
+again.
+
+**No reload when that's all you changed.** A save that only turns the toggle on or off
+is applied in place: the room's thermostat and target number stay the same entities and
+stay available, and the thermostat's features (`supported_features`), range, and target
+change in one state write. Home Assistant's HomeKit bridge rebuilds an accessory on a
+feature change only when the entity stays available, so Apple Home shows the range (or
+the single target again) without a bridge reload. A save that also changes something
+else, such as the room's uneven drift on the same page, reloads the integration as
+before, with the same result for the room; the thermostat is briefly unavailable, so
+reload the HomeKit bridge (Settings → Devices & services → HomeKit Bridge → Reload) or
+restart Home Assistant afterwards. Not yet checked in the Apple Home app.
 
 Either way, the room's run starts fresh, as it does after a target change. Drift,
 uneven drift, fan, and vane settings are untouched. Automations that write the room's

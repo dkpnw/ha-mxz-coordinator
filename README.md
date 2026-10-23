@@ -549,6 +549,9 @@ on a menu of six pages. Some settings sit in a collapsed section on their page.
 - A save merges the page's values into the existing options, mirrors them into entry
   data, and reloads once. It never touches a setting on another page.
 - A save that leaves entry data and options unchanged needs no reload.
+- A room page saved with only **Dual setpoint** turned on or off is applied without a
+  reload; see
+  [Give a room separate heat and cool setpoints](#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint).
 - Units are shown in each number box: temperatures use your HA unit, the mode switch
   time is in seconds, and coil drying and freshness durations are in minutes.
 
@@ -940,11 +943,25 @@ range. If a restored range no longer fits the head's limits with the gap, it's
 re-centered at the gap, and the room's `control_reasons` say so until you next change
 it.
 
+A save that only turns the option on or off is applied in place, with no reload: the
+room's thermostat stays available, and its features, range, and target change in one
+step. That's what lets Apple Home pick up the change (see below), and the rest of the
+system isn't disturbed: the other rooms keep their runs, and the mode-change wait isn't
+restarted. A save that also changes something else (for example, the room's uneven
+drift on the same page) reloads the integration, as every other save does, with the
+same result for the room. After such a save, reload the HomeKit bridge (Settings →
+Devices & services → HomeKit Bridge → Reload) or restart Home Assistant so Apple Home
+shows the change. To avoid that, save the toggle on its own.
+
 **Voice and other apps.** These follow Home Assistant's own bridges:
 
-- **Apple Home** shows the room in Auto with a heating and a cooling threshold. It sends
-  a threshold change as a pair with the other one unchanged, so the push rule applies.
-  When you drag one threshold past the other, though, Home Assistant's HomeKit bridge
+- **Apple Home** shows the room in Auto with a heating and a cooling threshold. Home
+  Assistant's HomeKit bridge rebuilds a thermostat when its features change while it
+  stays available, so a toggle saved on its own reaches Apple Home without reloading the
+  bridge; one saved with other changes needs a bridge reload or a restart (see above).
+  This is read from the bridge's code and tested against a copy of its rule, not checked
+  on an iPhone yet. Apple Home sends a threshold change as a pair with the other one
+  unchanged, so the push rule applies. When you drag one threshold past the other, though, Home Assistant's HomeKit bridge
   pushes first: it sets the other one 5 °C (9 °F) away, within the room's limits, so
   you see that wider push rather than MXZ's 2 °F (1 °C).
 - **Google Home** shows the low and high setpoints in heat-cool, and setting the range
@@ -955,6 +972,11 @@ it.
 - **Alexa** shows a lower and an upper setpoint in Auto, and "make it two degrees
   warmer" moves both. A single target from Alexa is refused by Home Assistant after
   Alexa has already answered, so Alexa may say OK while nothing changes.
+- **Turning it on or off, for Google and Alexa.** Through Home Assistant Cloud, the
+  thermostat's changed features make Google sync and Alexa rediscover it on their own,
+  with or without a reload. A manually set up Google Assistant or Alexa skill isn't told,
+  so ask it to sync or discover devices, as for any new device. Neither app was checked
+  on a phone.
 - **Assist** (Home Assistant's own voice) can't set a range: its set-temperature intent
   only matches thermostats with one target. `climate.set_temperature` with only
   `temperature` is refused for a range room too; send `target_temp_low` and

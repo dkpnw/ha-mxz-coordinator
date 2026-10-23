@@ -64,10 +64,10 @@ Every other room keeps exactly the entities and attributes above.
 
 | Entity surface | Fields | Meaning |
 | --- | --- | --- |
-| Room `number.*_heat_to` (unique ID ends `_target_low`) | value | Heat to: heat runs start below it by the heat drift and end at it. Same limits and step as the target number. Restores across a restart. Removed when the room is switched back to one target. |
+| Room `number.*_heat_to` (unique ID ends `_target_low`) | value | Heat to: heat runs start below it by the heat drift and end at it. Same limits and step as the target number. Restores across a restart. Added and removed without a reload when only the option changes; removed from the entity registry when the room is switched back to one target. |
 | Room `number.*_cool_to` (unique ID ends `_target_high`) | value | Cool to: cool runs start above it by the cool drift and end at it. At least 2 °F (1 °C) above heat to. |
 | Room `number.*_target` | value | The middle of the range (can be a half step). Writing it moves the whole range, keeping its width. |
-| Room `climate.*_thermostat` | `target_temp_low`, `target_temp_high`, `supported_features` | Heat to and cool to, with the range feature in place of the single target (no `temperature`). Modes stay `off` and `heat_cool`. |
+| Room `climate.*_thermostat` | `target_temp_low`, `target_temp_high`, `supported_features` | Heat to and cool to, with the range feature in place of the single target (no `temperature`). Modes stay `off` and `heat_cool`. A save that only turns the option on or off switches the same entity in place: it stays available, and `supported_features` changes in one state write (for example 393 to 394, and back), which HomeKit's bridge rebuilds its accessory on. |
 | `sensor.*_plan` → `zones[]` | `target_low`, `target_high` | Heat to and cool to; `target` is their midpoint. A single-target row has neither key. |
 | Same room surfaces | `heat_start`, `cool_start`, `heat_demand_below`, `cool_demand_above` | Worked out from heat to (heat side) and cool to (cool side). |
 
