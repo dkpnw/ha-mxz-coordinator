@@ -1,6 +1,6 @@
 # Upgrading and migrating MXZ Coordinator
 
-## Dual setpoint, opt-in per room
+## Dual setpoint (3.10.0)
 
 Each room's page in Configure → Rooms gains an optional, collapsed **Dual setpoint**
 section with one toggle, **Use separate heat and cool setpoints**. It's stored in that
@@ -36,7 +36,9 @@ the single target again) without a bridge reload. A save that also changes somet
 else, such as the room's uneven drift on the same page, reloads the integration as
 before, with the same result for the room; the thermostat is briefly unavailable, so
 reload the HomeKit bridge (Settings → Devices & services → HomeKit Bridge → Reload) or
-restart Home Assistant afterwards. Not yet checked in the Apple Home app.
+restart Home Assistant afterwards. On our house, the HomeKit bridge's store was
+rewritten with the heating and cooling thresholds after a toggle saved on its own; it
+hasn't been checked in the Apple Home app yet.
 
 Either way, the room's run starts fresh, as it does after a target change. Drift,
 uneven drift, fan, and vane settings are untouched. Automations that write the room's
@@ -468,7 +470,7 @@ one `climate.*_<zone>_thermostat` per zone.
 
 Each is a clean one-number "Auto" tile (`off` / `heat_cool`, a single setpoint — never a
 dual heat/cool threshold) that binds directly to HomeKit/Google. (A room you switch to
-the opt-in [dual setpoint](#dual-setpoint-opt-in-per-room) shows a range instead.) It's a thin facade over
+the opt-in [dual setpoint](#dual-setpoint-3100) shows a range instead.) It's a thin facade over
 the room's `number.*_target` and `switch.*_enable` entities: setting the temperature drives
 the target, turning it off disables the room, and the coordinator stays the sole writer to
 your real heads. **Expose only these `climate.*` thermostats** to HomeKit/Google — not
