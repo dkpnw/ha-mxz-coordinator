@@ -56,7 +56,7 @@ def test_pin_record_covers_the_scenario() -> None:
         names = [s["step"] for s in steps]
         for needed in (
             "boot", "room_pages", "heat", "heat_run", "restart_mid_heat", "cool",
-            "idle", "standoff", "fan_auto_off", "fan_auto_on", "eco",
+            "cool_run", "idle", "standoff", "fan_auto_off", "fan_auto_on", "eco",
             "heat_lockout_held", "heat_lockout_floor", "cool_lockout_held",
             "cool_lockout_ceiling", "freeze_floor", "hands_off_release",
             "hands_off_vote", "target_write",
@@ -71,6 +71,12 @@ def test_pin_record_covers_the_scenario() -> None:
         assert ("set_temperature", "heat") in services or ("set_hvac_mode", "heat") in services
         assert ("set_temperature", "cool") in services or ("set_hvac_mode", "cool") in services
         assert any(c["service"] == "set_fan_mode" for s in steps for c in s["calls"])
+        # A cool run a few tenths above the target, whose fan step reached the
+        # head: a small cool-side boost distance is pinned, not only big ones.
+        row = by["cool_run"]["entities"]["plan"]["attributes"]["zones"][0]
+        assert row["engage"] == "cool"
+        assert 0 < row["temp"] - row["target"] < 0.5, row
+        assert any(c["service"] == "set_fan_mode" for c in by["cool_run"]["calls"])
         plan = by["standoff"]["entities"]["plan"]["attributes"]
         assert plan["standoff"] is True
         assert by["eco"]["entities"]["plan"]["attributes"]["zones"][0]["start_points_mode"] == "eco"

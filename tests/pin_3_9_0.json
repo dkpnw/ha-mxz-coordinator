@@ -3840,6 +3840,485 @@
   {
    "calls": [
     {
+     "service": "set_fan_mode",
+     "service_data": {
+      "entity_id": "climate.mock_head_a",
+      "fan_mode": "quiet"
+     }
+    }
+   ],
+   "data": {
+    "fan_boost_enable": true,
+    "idle_action": "fan_only",
+    "mode_hysteresis": 0,
+    "zones": [
+     {
+      "climate": "climate.mock_head_a",
+      "hands_off": true,
+      "name": "Living",
+      "sensor": "sensor.room_a_temp"
+     },
+     {
+      "climate": "climate.mock_head_b",
+      "floor_low": 10.0,
+      "name": "Bedroom",
+      "sensor": "sensor.room_b_temp"
+     }
+    ]
+   },
+   "entities": {
+    "cool_lockout": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Cool lockout",
+      "icon": "mdi:snowflake-off"
+     },
+     "entity_id": "switch.mxz_coordinator_cool_lockout",
+     "state": "off"
+    },
+    "coordinator_enable": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Coordinator enable",
+      "icon": "mdi:hvac"
+     },
+     "entity_id": "switch.mxz_coordinator_coordinator_enable",
+     "state": "on"
+    },
+    "eco_idle": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Eco idle",
+      "icon": "mdi:leaf"
+     },
+     "entity_id": "switch.mxz_coordinator_eco_idle",
+     "state": "off"
+    },
+    "heat_lockout": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Heat lockout",
+      "icon": "mdi:fire-off"
+     },
+     "entity_id": "switch.mxz_coordinator_heat_lockout",
+     "state": "off"
+    },
+    "plan": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Plan",
+      "icon": "mdi:head-cog",
+      "idle_action": "fan_only",
+      "inhibited": false,
+      "mode_by_floor": false,
+      "mode_by_hands_off": false,
+      "mode_by_safety": false,
+      "mode_change_allowed": true,
+      "primary_demand": "neutral",
+      "primary_engage": "cool",
+      "secondary_demand": "neutral",
+      "secondary_engage": "satisfied",
+      "seconds_since_mode_change": "<seconds>",
+      "sensors_ok": true,
+      "standoff": false,
+      "zones": [
+       {
+        "command_attempted_at": "<time>",
+        "command_deferred": false,
+        "command_error": null,
+        "command_failed_at": "not yet recorded",
+        "command_ownership_retired": false,
+        "command_retired_at": "not yet recorded",
+        "command_returned_at": "<time>",
+        "command_status": "returned",
+        "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+        "control_reasons": [
+         {
+          "next_step": "The stored entry does not establish whether defaults were intended; review Configure.",
+          "reason": "Default fan settings used for: maximum fan speed."
+         }
+        ],
+        "cool_demand_above": 21.5,
+        "cool_start": 20.5,
+        "demand": "neutral",
+        "drift": 0.5,
+        "drift_cool": 0.5,
+        "drift_cool_from": "allowed_drift",
+        "drift_heat": 0.5,
+        "drift_heat_from": "allowed_drift",
+        "drift_source": "global",
+        "enabled": true,
+        "engage": "cool",
+        "fan_hold": false,
+        "floor_high": null,
+        "floor_low": null,
+        "floor_reason": null,
+        "floor_state": "none",
+        "floor_want": null,
+        "hands_off": null,
+        "hands_off_vote": null,
+        "head_state_updated_at": "<time>",
+        "heat_demand_below": 18.5,
+        "heat_start": 19.5,
+        "name": "Living",
+        "plan_target_basis": "computed intent; command return does not prove physical application",
+        "safety_priority": false,
+        "sensor_age": "<seconds>",
+        "sensor_health": "cadence_unknown",
+        "start_points_lockouts": [],
+        "start_points_mode": "comfort",
+        "target": 20.0,
+        "temp": 20.2,
+        "vane_retirement_cleanup": {}
+       },
+       {
+        "command_attempted_at": "<time>",
+        "command_deferred": false,
+        "command_error": null,
+        "command_failed_at": "not yet recorded",
+        "command_ownership_retired": false,
+        "command_retired_at": "not yet recorded",
+        "command_returned_at": "<time>",
+        "command_status": "returned",
+        "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+        "control_reasons": [
+         {
+          "next_step": "The stored entry does not establish whether defaults were intended; review Configure.",
+          "reason": "Default fan settings used for: maximum fan speed."
+         }
+        ],
+        "cool_demand_above": 22.5,
+        "cool_start": 21.5,
+        "demand": "neutral",
+        "drift": 0.5,
+        "drift_cool": 0.5,
+        "drift_cool_from": "allowed_drift",
+        "drift_heat": 0.5,
+        "drift_heat_from": "allowed_drift",
+        "drift_source": "global",
+        "enabled": true,
+        "engage": "satisfied",
+        "fan_hold": false,
+        "floor_high": null,
+        "floor_low": 10.0,
+        "floor_reason": null,
+        "floor_state": "enabled",
+        "floor_want": null,
+        "hands_off": null,
+        "hands_off_vote": null,
+        "head_state_updated_at": "<time>",
+        "heat_demand_below": 19.5,
+        "heat_start": 20.5,
+        "name": "Bedroom",
+        "plan_target_basis": "computed intent; command return does not prove physical application",
+        "safety_priority": false,
+        "sensor_age": "<seconds>",
+        "sensor_health": "cadence_unknown",
+        "start_points_lockouts": [],
+        "start_points_mode": "comfort",
+        "target": 21.0,
+        "temp": 21.0,
+        "vane_retirement_cleanup": {}
+       }
+      ]
+     },
+     "entity_id": "sensor.mxz_coordinator_plan",
+     "state": "cool"
+    },
+    "primary_drift": {
+     "attributes": {
+      "drift_cool": 0.5,
+      "drift_heat": 0.5,
+      "friendly_name": "MXZ Coordinator Living drift",
+      "icon": "mdi:arrow-expand-vertical",
+      "max": 2.5,
+      "min": 0.25,
+      "mode": "box",
+      "override": false,
+      "step": 0.125,
+      "unit_of_measurement": "\u00b0C"
+     },
+     "entity_id": "number.mxz_coordinator_living_drift",
+     "state": "0.5"
+    },
+    "primary_drift_follow_global": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Living follow global drift",
+      "icon": "mdi:backup-restore"
+     },
+     "entity_id": "button.mxz_coordinator_living_follow_global_drift",
+     "state": "unknown"
+    },
+    "primary_enable": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Living enable",
+      "icon": "mdi:bed"
+     },
+     "entity_id": "switch.primary_enable",
+     "state": "on"
+    },
+    "primary_fan_auto": {
+     "attributes": {
+      "fan_control_reason": null,
+      "friendly_name": "MXZ Coordinator Living fan auto",
+      "icon": "mdi:fan-auto",
+      "last_fan_command": "quiet",
+      "prior_fan_command": "high"
+     },
+     "entity_id": "switch.mxz_coordinator_living_fan_auto",
+     "state": "on"
+    },
+    "primary_target": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Living target",
+      "icon": "mdi:thermostat",
+      "max": 31.0,
+      "min": 15.0,
+      "mode": "box",
+      "step": 0.5,
+      "unit_of_measurement": "\u00b0C"
+     },
+     "entity_id": "number.primary_target",
+     "state": "20.0"
+    },
+    "primary_thermostat": {
+     "attributes": {
+      "command_attempted_at": "<time>",
+      "command_deferred": false,
+      "command_error": null,
+      "command_failed_at": "not yet recorded",
+      "command_ownership_retired": false,
+      "command_retired_at": "not yet recorded",
+      "command_returned_at": "<time>",
+      "command_status": "returned",
+      "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+      "control_reasons": [
+       {
+        "next_step": "The stored entry does not establish whether defaults were intended; review Configure.",
+        "reason": "Default fan settings used for: maximum fan speed."
+       }
+      ],
+      "cool_demand_above": 21.5,
+      "cool_start": 20.5,
+      "current_temperature": 20.2,
+      "drift_cool_from": "allowed_drift",
+      "drift_heat_from": "allowed_drift",
+      "drift_source": "global",
+      "fan_mode": "quiet",
+      "fan_modes": [
+       "auto",
+       "low",
+       "medium",
+       "middle",
+       "high",
+       "quiet"
+      ],
+      "friendly_name": "MXZ Coordinator Living thermostat",
+      "heat_demand_below": 18.5,
+      "heat_start": 19.5,
+      "hvac_action": "cooling",
+      "hvac_modes": [
+       "off",
+       "heat_cool"
+      ],
+      "icon": "mdi:home-thermometer",
+      "max_temp": 31.0,
+      "min_temp": 15.0,
+      "plan_target_basis": "computed intent; command return does not prove physical application",
+      "start_points_lockouts": [],
+      "start_points_mode": "comfort",
+      "supported_features": 393,
+      "target_temp_step": 0.5,
+      "temperature": 20.0,
+      "vane_retirement_cleanup": {}
+     },
+     "entity_id": "climate.mxz_coordinator_living_thermostat",
+     "state": "heat_cool"
+    },
+    "secondary_drift": {
+     "attributes": {
+      "drift_cool": 0.5,
+      "drift_heat": 0.5,
+      "friendly_name": "MXZ Coordinator Bedroom drift",
+      "icon": "mdi:arrow-expand-vertical",
+      "max": 2.5,
+      "min": 0.25,
+      "mode": "box",
+      "override": false,
+      "step": 0.125,
+      "unit_of_measurement": "\u00b0C"
+     },
+     "entity_id": "number.mxz_coordinator_bedroom_drift",
+     "state": "0.5"
+    },
+    "secondary_drift_follow_global": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Bedroom follow global drift",
+      "icon": "mdi:backup-restore"
+     },
+     "entity_id": "button.mxz_coordinator_bedroom_follow_global_drift",
+     "state": "unknown"
+    },
+    "secondary_enable": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Bedroom enable",
+      "icon": "mdi:sofa"
+     },
+     "entity_id": "switch.secondary_enable",
+     "state": "on"
+    },
+    "secondary_fan_auto": {
+     "attributes": {
+      "fan_control_reason": null,
+      "friendly_name": "MXZ Coordinator Bedroom fan auto",
+      "icon": "mdi:fan-auto",
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto"
+     },
+     "entity_id": "switch.mxz_coordinator_bedroom_fan_auto",
+     "state": "on"
+    },
+    "secondary_target": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Bedroom target",
+      "icon": "mdi:thermostat",
+      "max": 31.0,
+      "min": 15.0,
+      "mode": "box",
+      "step": 0.5,
+      "unit_of_measurement": "\u00b0C"
+     },
+     "entity_id": "number.secondary_target",
+     "state": "21.0"
+    },
+    "secondary_thermostat": {
+     "attributes": {
+      "command_attempted_at": "<time>",
+      "command_deferred": false,
+      "command_error": null,
+      "command_failed_at": "not yet recorded",
+      "command_ownership_retired": false,
+      "command_retired_at": "not yet recorded",
+      "command_returned_at": "<time>",
+      "command_status": "returned",
+      "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+      "control_reasons": [
+       {
+        "next_step": "The stored entry does not establish whether defaults were intended; review Configure.",
+        "reason": "Default fan settings used for: maximum fan speed."
+       }
+      ],
+      "cool_demand_above": 22.5,
+      "cool_start": 21.5,
+      "current_temperature": 21.0,
+      "drift_cool_from": "allowed_drift",
+      "drift_heat_from": "allowed_drift",
+      "drift_source": "global",
+      "fan_mode": "auto",
+      "fan_modes": [
+       "auto",
+       "low",
+       "medium",
+       "middle",
+       "high",
+       "quiet"
+      ],
+      "friendly_name": "MXZ Coordinator Bedroom thermostat",
+      "heat_demand_below": 19.5,
+      "heat_start": 20.5,
+      "hvac_action": "idle",
+      "hvac_modes": [
+       "off",
+       "heat_cool"
+      ],
+      "icon": "mdi:home-thermometer",
+      "max_temp": 31.0,
+      "min_temp": 15.0,
+      "plan_target_basis": "computed intent; command return does not prove physical application",
+      "start_points_lockouts": [],
+      "start_points_mode": "comfort",
+      "supported_features": 393,
+      "target_temp_step": 0.5,
+      "temperature": 21.0,
+      "vane_retirement_cleanup": {}
+     },
+     "entity_id": "climate.mxz_coordinator_bedroom_thermostat",
+     "state": "heat_cool"
+    },
+    "shared_mode": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Shared mode",
+      "icon": "mdi:swap-horizontal",
+      "options": [
+       "cool",
+       "heat"
+      ]
+     },
+     "entity_id": "select.mxz_coordinator_shared_mode",
+     "state": "cool"
+    }
+   },
+   "heads": {
+    "climate.mock_head_a": {
+     "attributes": {
+      "current_temperature": null,
+      "fan_mode": "quiet",
+      "fan_modes": [
+       "auto",
+       "low",
+       "medium",
+       "middle",
+       "high",
+       "quiet"
+      ],
+      "friendly_name": "Mock Head a",
+      "hvac_modes": [
+       "off",
+       "cool",
+       "heat",
+       "fan_only"
+      ],
+      "max_temp": 35,
+      "min_temp": 7,
+      "supported_features": 394,
+      "target_temp_high": 20.0,
+      "target_temp_low": 19.0
+     },
+     "state": "cool"
+    },
+    "climate.mock_head_b": {
+     "attributes": {
+      "current_temperature": null,
+      "fan_mode": "auto",
+      "fan_modes": [
+       "auto",
+       "low",
+       "medium",
+       "middle",
+       "high",
+       "quiet"
+      ],
+      "friendly_name": "Mock Head b",
+      "hvac_modes": [
+       "off",
+       "cool",
+       "heat",
+       "fan_only"
+      ],
+      "max_temp": 35,
+      "min_temp": 7,
+      "supported_features": 394,
+      "target_temp_high": null,
+      "target_temp_low": null
+     },
+     "state": "fan_only"
+    }
+   },
+   "options": {
+    "fan_boost_enable": true,
+    "idle_action": "fan_only",
+    "mode_hysteresis": 0
+   },
+   "step": "cool_run"
+  },
+  {
+   "calls": [
+    {
      "service": "set_hvac_mode",
      "service_data": {
       "entity_id": "climate.mock_head_a",
@@ -4065,7 +4544,7 @@
       "friendly_name": "MXZ Coordinator Living fan auto",
       "icon": "mdi:fan-auto",
       "last_fan_command": "auto",
-      "prior_fan_command": "high"
+      "prior_fan_command": "quiet"
      },
      "entity_id": "switch.mxz_coordinator_living_fan_auto",
      "state": "on"
@@ -17356,6 +17835,485 @@
   {
    "calls": [
     {
+     "service": "set_fan_mode",
+     "service_data": {
+      "entity_id": "climate.mock_head_a",
+      "fan_mode": "quiet"
+     }
+    }
+   ],
+   "data": {
+    "fan_boost_enable": true,
+    "idle_action": "fan_only",
+    "mode_hysteresis": 0,
+    "zones": [
+     {
+      "climate": "climate.mock_head_a",
+      "hands_off": true,
+      "name": "Living",
+      "sensor": "sensor.room_a_temp"
+     },
+     {
+      "climate": "climate.mock_head_b",
+      "floor_low": 50.0,
+      "name": "Bedroom",
+      "sensor": "sensor.room_b_temp"
+     }
+    ]
+   },
+   "entities": {
+    "cool_lockout": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Cool lockout",
+      "icon": "mdi:snowflake-off"
+     },
+     "entity_id": "switch.mxz_coordinator_cool_lockout",
+     "state": "off"
+    },
+    "coordinator_enable": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Coordinator enable",
+      "icon": "mdi:hvac"
+     },
+     "entity_id": "switch.mxz_coordinator_coordinator_enable",
+     "state": "on"
+    },
+    "eco_idle": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Eco idle",
+      "icon": "mdi:leaf"
+     },
+     "entity_id": "switch.mxz_coordinator_eco_idle",
+     "state": "off"
+    },
+    "heat_lockout": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Heat lockout",
+      "icon": "mdi:fire-off"
+     },
+     "entity_id": "switch.mxz_coordinator_heat_lockout",
+     "state": "off"
+    },
+    "plan": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Plan",
+      "icon": "mdi:head-cog",
+      "idle_action": "fan_only",
+      "inhibited": false,
+      "mode_by_floor": false,
+      "mode_by_hands_off": false,
+      "mode_by_safety": false,
+      "mode_change_allowed": true,
+      "primary_demand": "neutral",
+      "primary_engage": "cool",
+      "secondary_demand": "neutral",
+      "secondary_engage": "satisfied",
+      "seconds_since_mode_change": "<seconds>",
+      "sensors_ok": true,
+      "standoff": false,
+      "zones": [
+       {
+        "command_attempted_at": "<time>",
+        "command_deferred": false,
+        "command_error": null,
+        "command_failed_at": "not yet recorded",
+        "command_ownership_retired": false,
+        "command_retired_at": "not yet recorded",
+        "command_returned_at": "<time>",
+        "command_status": "returned",
+        "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+        "control_reasons": [
+         {
+          "next_step": "The stored entry does not establish whether defaults were intended; review Configure.",
+          "reason": "Default fan settings used for: maximum fan speed."
+         }
+        ],
+        "cool_demand_above": 71.0,
+        "cool_start": 69.0,
+        "demand": "neutral",
+        "drift": 1.0,
+        "drift_cool": 1.0,
+        "drift_cool_from": "allowed_drift",
+        "drift_heat": 1.0,
+        "drift_heat_from": "allowed_drift",
+        "drift_source": "global",
+        "enabled": true,
+        "engage": "cool",
+        "fan_hold": false,
+        "floor_high": null,
+        "floor_low": null,
+        "floor_reason": null,
+        "floor_state": "none",
+        "floor_want": null,
+        "hands_off": null,
+        "hands_off_vote": null,
+        "head_state_updated_at": "<time>",
+        "heat_demand_below": 65.0,
+        "heat_start": 67.0,
+        "name": "Living",
+        "plan_target_basis": "computed intent; command return does not prove physical application",
+        "safety_priority": false,
+        "sensor_age": "<seconds>",
+        "sensor_health": "cadence_unknown",
+        "start_points_lockouts": [],
+        "start_points_mode": "comfort",
+        "target": 68.0,
+        "temp": 68.3,
+        "vane_retirement_cleanup": {}
+       },
+       {
+        "command_attempted_at": "<time>",
+        "command_deferred": false,
+        "command_error": null,
+        "command_failed_at": "not yet recorded",
+        "command_ownership_retired": false,
+        "command_retired_at": "not yet recorded",
+        "command_returned_at": "<time>",
+        "command_status": "returned",
+        "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+        "control_reasons": [
+         {
+          "next_step": "The stored entry does not establish whether defaults were intended; review Configure.",
+          "reason": "Default fan settings used for: maximum fan speed."
+         }
+        ],
+        "cool_demand_above": 73.0,
+        "cool_start": 71.0,
+        "demand": "neutral",
+        "drift": 1.0,
+        "drift_cool": 1.0,
+        "drift_cool_from": "allowed_drift",
+        "drift_heat": 1.0,
+        "drift_heat_from": "allowed_drift",
+        "drift_source": "global",
+        "enabled": true,
+        "engage": "satisfied",
+        "fan_hold": false,
+        "floor_high": null,
+        "floor_low": 50.0,
+        "floor_reason": null,
+        "floor_state": "enabled",
+        "floor_want": null,
+        "hands_off": null,
+        "hands_off_vote": null,
+        "head_state_updated_at": "<time>",
+        "heat_demand_below": 67.0,
+        "heat_start": 69.0,
+        "name": "Bedroom",
+        "plan_target_basis": "computed intent; command return does not prove physical application",
+        "safety_priority": false,
+        "sensor_age": "<seconds>",
+        "sensor_health": "cadence_unknown",
+        "start_points_lockouts": [],
+        "start_points_mode": "comfort",
+        "target": 70.0,
+        "temp": 70.0,
+        "vane_retirement_cleanup": {}
+       }
+      ]
+     },
+     "entity_id": "sensor.mxz_coordinator_plan",
+     "state": "cool"
+    },
+    "primary_drift": {
+     "attributes": {
+      "drift_cool": 1.0,
+      "drift_heat": 1.0,
+      "friendly_name": "MXZ Coordinator Living drift",
+      "icon": "mdi:arrow-expand-vertical",
+      "max": 5.0,
+      "min": 0.5,
+      "mode": "box",
+      "override": false,
+      "step": 0.25,
+      "unit_of_measurement": "\u00b0F"
+     },
+     "entity_id": "number.mxz_coordinator_living_drift",
+     "state": "1.0"
+    },
+    "primary_drift_follow_global": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Living follow global drift",
+      "icon": "mdi:backup-restore"
+     },
+     "entity_id": "button.mxz_coordinator_living_follow_global_drift",
+     "state": "unknown"
+    },
+    "primary_enable": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Living enable",
+      "icon": "mdi:bed"
+     },
+     "entity_id": "switch.primary_enable",
+     "state": "on"
+    },
+    "primary_fan_auto": {
+     "attributes": {
+      "fan_control_reason": null,
+      "friendly_name": "MXZ Coordinator Living fan auto",
+      "icon": "mdi:fan-auto",
+      "last_fan_command": "quiet",
+      "prior_fan_command": "high"
+     },
+     "entity_id": "switch.mxz_coordinator_living_fan_auto",
+     "state": "on"
+    },
+    "primary_target": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Living target",
+      "icon": "mdi:thermostat",
+      "max": 88.0,
+      "min": 59.0,
+      "mode": "box",
+      "step": 1.0,
+      "unit_of_measurement": "\u00b0F"
+     },
+     "entity_id": "number.primary_target",
+     "state": "68.0"
+    },
+    "primary_thermostat": {
+     "attributes": {
+      "command_attempted_at": "<time>",
+      "command_deferred": false,
+      "command_error": null,
+      "command_failed_at": "not yet recorded",
+      "command_ownership_retired": false,
+      "command_retired_at": "not yet recorded",
+      "command_returned_at": "<time>",
+      "command_status": "returned",
+      "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+      "control_reasons": [
+       {
+        "next_step": "The stored entry does not establish whether defaults were intended; review Configure.",
+        "reason": "Default fan settings used for: maximum fan speed."
+       }
+      ],
+      "cool_demand_above": 71.0,
+      "cool_start": 69.0,
+      "current_temperature": 68,
+      "drift_cool_from": "allowed_drift",
+      "drift_heat_from": "allowed_drift",
+      "drift_source": "global",
+      "fan_mode": "quiet",
+      "fan_modes": [
+       "auto",
+       "low",
+       "medium",
+       "middle",
+       "high",
+       "quiet"
+      ],
+      "friendly_name": "MXZ Coordinator Living thermostat",
+      "heat_demand_below": 65.0,
+      "heat_start": 67.0,
+      "hvac_action": "cooling",
+      "hvac_modes": [
+       "off",
+       "heat_cool"
+      ],
+      "icon": "mdi:home-thermometer",
+      "max_temp": 88,
+      "min_temp": 59,
+      "plan_target_basis": "computed intent; command return does not prove physical application",
+      "start_points_lockouts": [],
+      "start_points_mode": "comfort",
+      "supported_features": 393,
+      "target_temp_step": 1.0,
+      "temperature": 68,
+      "vane_retirement_cleanup": {}
+     },
+     "entity_id": "climate.mxz_coordinator_living_thermostat",
+     "state": "heat_cool"
+    },
+    "secondary_drift": {
+     "attributes": {
+      "drift_cool": 1.0,
+      "drift_heat": 1.0,
+      "friendly_name": "MXZ Coordinator Bedroom drift",
+      "icon": "mdi:arrow-expand-vertical",
+      "max": 5.0,
+      "min": 0.5,
+      "mode": "box",
+      "override": false,
+      "step": 0.25,
+      "unit_of_measurement": "\u00b0F"
+     },
+     "entity_id": "number.mxz_coordinator_bedroom_drift",
+     "state": "1.0"
+    },
+    "secondary_drift_follow_global": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Bedroom follow global drift",
+      "icon": "mdi:backup-restore"
+     },
+     "entity_id": "button.mxz_coordinator_bedroom_follow_global_drift",
+     "state": "unknown"
+    },
+    "secondary_enable": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Bedroom enable",
+      "icon": "mdi:sofa"
+     },
+     "entity_id": "switch.secondary_enable",
+     "state": "on"
+    },
+    "secondary_fan_auto": {
+     "attributes": {
+      "fan_control_reason": null,
+      "friendly_name": "MXZ Coordinator Bedroom fan auto",
+      "icon": "mdi:fan-auto",
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto"
+     },
+     "entity_id": "switch.mxz_coordinator_bedroom_fan_auto",
+     "state": "on"
+    },
+    "secondary_target": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Bedroom target",
+      "icon": "mdi:thermostat",
+      "max": 88.0,
+      "min": 59.0,
+      "mode": "box",
+      "step": 1.0,
+      "unit_of_measurement": "\u00b0F"
+     },
+     "entity_id": "number.secondary_target",
+     "state": "70.0"
+    },
+    "secondary_thermostat": {
+     "attributes": {
+      "command_attempted_at": "<time>",
+      "command_deferred": false,
+      "command_error": null,
+      "command_failed_at": "not yet recorded",
+      "command_ownership_retired": false,
+      "command_retired_at": "not yet recorded",
+      "command_returned_at": "<time>",
+      "command_status": "returned",
+      "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+      "control_reasons": [
+       {
+        "next_step": "The stored entry does not establish whether defaults were intended; review Configure.",
+        "reason": "Default fan settings used for: maximum fan speed."
+       }
+      ],
+      "cool_demand_above": 73.0,
+      "cool_start": 71.0,
+      "current_temperature": 70,
+      "drift_cool_from": "allowed_drift",
+      "drift_heat_from": "allowed_drift",
+      "drift_source": "global",
+      "fan_mode": "auto",
+      "fan_modes": [
+       "auto",
+       "low",
+       "medium",
+       "middle",
+       "high",
+       "quiet"
+      ],
+      "friendly_name": "MXZ Coordinator Bedroom thermostat",
+      "heat_demand_below": 67.0,
+      "heat_start": 69.0,
+      "hvac_action": "idle",
+      "hvac_modes": [
+       "off",
+       "heat_cool"
+      ],
+      "icon": "mdi:home-thermometer",
+      "max_temp": 88,
+      "min_temp": 59,
+      "plan_target_basis": "computed intent; command return does not prove physical application",
+      "start_points_lockouts": [],
+      "start_points_mode": "comfort",
+      "supported_features": 393,
+      "target_temp_step": 1.0,
+      "temperature": 70,
+      "vane_retirement_cleanup": {}
+     },
+     "entity_id": "climate.mxz_coordinator_bedroom_thermostat",
+     "state": "heat_cool"
+    },
+    "shared_mode": {
+     "attributes": {
+      "friendly_name": "MXZ Coordinator Shared mode",
+      "icon": "mdi:swap-horizontal",
+      "options": [
+       "cool",
+       "heat"
+      ]
+     },
+     "entity_id": "select.mxz_coordinator_shared_mode",
+     "state": "cool"
+    }
+   },
+   "heads": {
+    "climate.mock_head_a": {
+     "attributes": {
+      "current_temperature": null,
+      "fan_mode": "quiet",
+      "fan_modes": [
+       "auto",
+       "low",
+       "medium",
+       "middle",
+       "high",
+       "quiet"
+      ],
+      "friendly_name": "Mock Head a",
+      "hvac_modes": [
+       "off",
+       "cool",
+       "heat",
+       "fan_only"
+      ],
+      "max_temp": 95,
+      "min_temp": 45,
+      "supported_features": 394,
+      "target_temp_high": 68,
+      "target_temp_low": 66
+     },
+     "state": "cool"
+    },
+    "climate.mock_head_b": {
+     "attributes": {
+      "current_temperature": null,
+      "fan_mode": "auto",
+      "fan_modes": [
+       "auto",
+       "low",
+       "medium",
+       "middle",
+       "high",
+       "quiet"
+      ],
+      "friendly_name": "Mock Head b",
+      "hvac_modes": [
+       "off",
+       "cool",
+       "heat",
+       "fan_only"
+      ],
+      "max_temp": 95,
+      "min_temp": 45,
+      "supported_features": 394,
+      "target_temp_high": null,
+      "target_temp_low": null
+     },
+     "state": "fan_only"
+    }
+   },
+   "options": {
+    "fan_boost_enable": true,
+    "idle_action": "fan_only",
+    "mode_hysteresis": 0
+   },
+   "step": "cool_run"
+  },
+  {
+   "calls": [
+    {
      "service": "set_hvac_mode",
      "service_data": {
       "entity_id": "climate.mock_head_a",
@@ -17581,7 +18539,7 @@
       "friendly_name": "MXZ Coordinator Living fan auto",
       "icon": "mdi:fan-auto",
       "last_fan_command": "auto",
-      "prior_fan_command": "high"
+      "prior_fan_command": "quiet"
      },
      "entity_id": "switch.mxz_coordinator_living_fan_auto",
      "state": "on"

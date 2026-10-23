@@ -1,8 +1,9 @@
 """A scripted 3.9.0 scenario whose every output is recorded (the off-means-3.9.0 pin).
 
-``run_scenario`` drives one install through heat, cool, idle, a restart with
-restore, a two-room standoff, fan auto, eco, both lockouts, the freeze floor,
-hands-off and a target write, in °F or °C, using only what a person or an
+``run_scenario`` drives one install through heat, cool (including a cool run
+a few tenths above the target), idle, a restart with restore, a two-room
+standoff, fan auto, eco, both lockouts, the freeze floor, hands-off and a
+target write, in °F or °C, using only what a person or an
 automation can reach: services, the options flow and sensor reports. After
 every step it records every entity the entry owns (state and full attribute
 dict), the entity registry's unique IDs, the stored entry data and options,
@@ -76,6 +77,7 @@ UNITS: dict[str, dict[str, Any]] = {
             "heat_run": (67.5, 70),
             "heat_done": (68, 70),
             "cool": (74, 70),
+            "cool_run": (68.3, 70),
             "idle": (68, 70),
             "standoff": (63, 80),
             "heat_lockout_held": (63, 70),
@@ -98,6 +100,7 @@ UNITS: dict[str, dict[str, Any]] = {
             "heat_run": (19.7, 21),
             "heat_done": (20, 21),
             "cool": (22, 21),
+            "cool_run": (20.2, 21),
             "idle": (20, 21),
             "standoff": (18, 27),
             "heat_lockout_held": (18, 21),
@@ -329,6 +332,9 @@ async def run_scenario(
 
     await step("heat_done")
     await step("cool")
+    # Still cooling a few tenths above the target: a small cool-side fan
+    # boost distance, where an off-by-a-half would change the fan speed.
+    await step("cool_run")
     await step("idle")
     await step("standoff")
 
