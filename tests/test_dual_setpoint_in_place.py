@@ -353,7 +353,7 @@ async def test_the_thermostat_shows_the_range_before_the_numbers_appear(hass: Ho
     ).entity_id
     log = StateLog(hass, [tile_id, low_id])
     await _room_page(hass, entry, 1, dual_setpoint=True)
-    (old, new), = log.feature_changes(tile_id)
+    (_, new), = log.feature_changes(tile_id)
     order = [(entity_id, new_state) for entity_id, _, new_state in log.events]
     assert order.index((tile_id, new)) < [entity_id for entity_id, _ in order].index(low_id), order
     log.stop()
