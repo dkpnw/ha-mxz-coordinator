@@ -237,6 +237,8 @@ async def test_toggle_on_seeds_the_range_at_the_minimum_gap(
     assert _value(hass, entry, "primary_target_low") == seeded[0]
     assert _value(hass, entry, "primary_target_high") == seeded[1]
     assert _value(hass, entry, "primary_target") == target  # the midpoint
+    assert _eid(hass, entry, "primary_target_low") == "number.mxz_coordinator_living_heat_to"
+    assert _eid(hass, entry, "primary_target_high") == "number.mxz_coordinator_living_cool_to"
     assert _state(hass, entry, "primary_target_low").name == "MXZ Coordinator Living heat to"
     assert _state(hass, entry, "primary_target_high").name == "MXZ Coordinator Living cool to"
     for suffix in ("primary_target_low", "primary_target_high"):

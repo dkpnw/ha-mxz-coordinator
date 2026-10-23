@@ -1,5 +1,36 @@
 # Upgrading and migrating MXZ Coordinator
 
+## Dual setpoint, opt-in per room
+
+Each room's page in Configure → Rooms gains an optional, collapsed **Dual setpoint**
+section with one toggle, **Use separate heat and cool setpoints**. It's stored in that
+room's record as `dual_setpoint: true` only while it's on.
+
+**Nothing to do on upgrade.** No config-entry version change and no migration. A room
+without the key, which is every room saved before this setting existed, behaves exactly
+as before: the same entities, attributes, plan rows, stored settings, and head
+commands.
+
+**Turning it on.** Save the room's page with the toggle on. The entry reloads, the room
+gets its **heat to** and **cool to** numbers, and the range starts around the room's
+current target at the minimum gap of 2 °F (1 °C): a 70 °F target becomes 69–71 °F, and
+21 °C becomes 20.5–21.5 °C. It always starts from the current target, never from a
+range an earlier opt-in left behind. The room's thermostat shows the range in place of
+the single target, and its target number shows the range's middle.
+
+**Turning it off.** Save the room's page with the toggle off. The key is removed (it's
+never stored as false), so the room's record is exactly what it was before it opted in.
+The target becomes the middle of the range, rounded to the step (exact halves round to
+the even step, as the tile does: 68–73 °F becomes 70). The heat to and cool to numbers
+are removed from the entity registry on the reload, and the thermostat shows one target
+again.
+
+Either way, the room's run starts fresh, as it does after a target change. Drift,
+uneven drift, fan, and vane settings are untouched. Automations that write the room's
+target number keep working while it's on: the write moves the whole range. Assist
+can't set a range; see
+[Give a room separate heat and cool setpoints](../README.md#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint).
+
 ## Per-room uneven drift (3.9.0)
 
 Each room's page in Configure → Rooms gains an optional, collapsed **Uneven drift**
@@ -423,7 +454,8 @@ The integration now ships a **native single-target thermostat per room** —
 one `climate.*_<zone>_thermostat` per zone.
 
 Each is a clean one-number "Auto" tile (`off` / `heat_cool`, a single setpoint — never a
-dual heat/cool threshold) that binds directly to HomeKit/Google. It's a thin facade over
+dual heat/cool threshold) that binds directly to HomeKit/Google. (A room you switch to
+the opt-in [dual setpoint](#dual-setpoint-opt-in-per-room) shows a range instead.) It's a thin facade over
 the room's `number.*_target` and `switch.*_enable` entities: setting the temperature drives
 the target, turning it off disables the room, and the coordinator stays the sole writer to
 your real heads. **Expose only these `climate.*` thermostats** to HomeKit/Google — not
