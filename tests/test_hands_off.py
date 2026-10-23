@@ -971,7 +971,9 @@ async def test_vote_never_breaks_an_engaged_run(hass: HomeAssistant) -> None:
 
 
 async def test_only_heat_and_cool_vote(hass: HomeAssistant) -> None:
-    """fan_only/dry/auto/heat_cool/off/unavailable carry no vote."""
+    """fan_only/dry/auto/heat_cool/off carry no vote. An unavailable head
+    keeps the vote it last showed, stale (see tests/test_lost_vote.py): here
+    that is the off just before it, so still no vote."""
     entry, _a, head_b = await _setup(
         hass, hands_off=(False, True), enable=("_primary_enable", "_coordinator_enable"),
         hysteresis=None, **{CONF_RESTING_MODE_BIAS: "cool"},
@@ -991,6 +993,9 @@ async def test_only_heat_and_cool_vote(hass: HomeAssistant) -> None:
         plan = _plan(hass, entry)
         assert plan.state == "cool", mode
         assert plan.attributes["zones"][1]["hands_off_vote"] is None, mode
+        assert plan.attributes["zones"][1]["vote_status"] == (
+            "stale" if mode == "unavailable" else "live"
+        ), mode
 
 
 async def test_no_vote_before_the_park_lands(hass: HomeAssistant) -> None:

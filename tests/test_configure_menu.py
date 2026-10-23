@@ -742,6 +742,7 @@ async def test_setup_forced_idle_choice_lands_on_fan_and_idle(
         "inhibit_entity",
         "drift_cooler_by",
         "drift_warmer_by",
+        "lost_vote_ttl",
     }
 
 
@@ -749,7 +750,7 @@ def test_page_map_partitions_every_tunable() -> None:
     """The oracle itself: every tunable sits on exactly one page, and every
     section field on the page that owns its section."""
     seen = [key for page in PAGE_FIELDS.values() for key in page]
-    assert len(seen) == len(set(seen)) == 22
+    assert len(seen) == len(set(seen)) == 23
     for key, owned in SECTION_FIELDS.items():
         if key != "freshness":
             assert sum(set(owned) <= set(page) for page in PAGE_FIELDS.values()) == 1

@@ -24,7 +24,7 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.core import HomeAssistant
 
-from tests.pin_scenario import dumps, run_scenario
+from tests.pin_scenario import dumps, run_scenario, take_vote_rows
 
 PIN = Path(__file__).with_name("pin_3_9_0.json")
 CAPTURE = os.environ.get("MXZ_PIN_CAPTURE") == "1"
@@ -46,6 +46,9 @@ async def test_all_single_install_is_3_9_0(hass: HomeAssistant, unit: str) -> No
     pinned = _pinned(unit)
     assert [s["step"] for s in steps] == [s["step"] for s in pinned]
     for seen, want in zip(steps, pinned, strict=True):
+        # No head is ever lost in this scenario: both rows are live every step.
+        seen, votes = take_vote_rows(seen)
+        assert votes == [("live", None), ("live", None)], seen["step"]
         assert seen == want, seen["step"]
 
 
