@@ -34,12 +34,13 @@ import voluptuous as vol
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
 import custom_components.mxz_coordinator as component
+from custom_components.mxz_coordinator import coordinator as coordinator_module
 from custom_components.mxz_coordinator.const import (
     CONF_RESTING_MODE_BIAS,
     MODE_COOL,
@@ -461,21 +462,52 @@ async def test_a_wall_clock_step_neither_shortens_nor_stretches_the_limit(
 # --- the expiry wakeup --------------------------------------------------------
 
 
-async def test_the_expiry_wakes_a_recompute_by_itself(hass: HomeAssistant) -> None:
+def _count_lost_wakeups(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Record each lost-vote wakeup that actually runs (its delay), from here on.
+
+    Counted at the wakeup itself, not as refresh requests: on HA 2024.12 the
+    refresh guard queues its own follow-up request when the recompute's head
+    commands echo back, which says nothing about this wakeup.
+    """
+    fired: list[float] = []
+    real = coordinator_module.async_call_later
+
+    def arming(hass: HomeAssistant, delay: float, action: Any) -> Any:
+        if "_sync_lost_timer" in getattr(action, "__qualname__", ""):
+            inner = action
+
+            @callback
+            def action(now: Any) -> None:
+                fired.append(delay)
+                inner(now)
+
+        return real(hass, delay, action)
+
+    monkeypatch.setattr(coordinator_module, "async_call_later", arming)
+    return fired
+
+
+async def test_the_expiry_wakes_a_recompute_by_itself(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """No unrelated event needed: one wakeup at the limit (a one-minute limit
     here, so neither the heartbeat nor anything else is due)."""
     entry, head_a, head_b = await _standoff(hass, hysteresis=0, **{TTL: 1})
     coord = entry.runtime_data
     assert coord.lost_vote_ttl == 60
+    fired = _count_lost_wakeups(monkeypatch)
     await _lose(hass, head_a)
     await _recompute(hass, entry)
     await _quiesce(hass, coord)
     assert coord._lost_timer is not None
+    assert fired == []
     age_lost_vote(coord, head_a, 60)
     assert _row(hass, entry, 0)["vote_status"] == "stale"  # nothing recomputed
     with _count_refresh_requests(coord) as requests:
         await _fire_due(hass, 61)
-    assert requests == ["request"]
+    assert len(fired) == 1  # one wakeup ran, not two
+    assert 0 < fired[0] <= 60
+    assert requests[0] == "request"  # and it asked for the recompute
     assert _row(hass, entry, 0)["vote_status"] == "expired"
     assert _plan(hass, entry).state == MODE_HEAT
     assert _s(hass, head_b) == MODE_HEAT
