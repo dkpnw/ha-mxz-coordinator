@@ -34,6 +34,7 @@ from .const import (
     CONF_SECONDARY_VANE_VERTICAL,
     CONF_ZONES,
     DOMAIN,
+    DUAL_ZONE_ENTITY_SUFFIXES,
     IDLE_ACTION_FAN_ONLY,
     PLATFORMS,
     SERVICE_RECOMPUTE,
@@ -154,7 +155,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: MXZConfigEntry) -> None:
-    """Reload the entry when its options (tunable constants) change."""
+    """Reload the entry when its options (tunable constants) change.
+
+    A save that only switches rooms to or from a dual setpoint is applied in
+    place instead, so each room thermostat stays available while its features
+    change (HomeKit rebuilds an accessory on a feature change only then). A
+    save that mixes that switch with anything else reloads, as every other
+    change does.
+    """
+    if await entry.runtime_data.async_switch_dual_in_place():
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -169,7 +179,11 @@ def _other_entries_loaded(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
 def _async_prune_stale_entities(
     hass: HomeAssistant, entry: MXZConfigEntry, coordinator: MXZCoordinator
 ) -> None:
-    """Remove registry entities this entry no longer provides (dropped zones)."""
+    """Remove registry entities this entry no longer provides.
+
+    A dropped room's, and a dual-setpoint room's heat-to and cool-to numbers
+    once that room is switched back to one target.
+    """
     valid = {f"{entry.entry_id}_{key}" for key in (
         "coordinator_enable", "eco_idle", "heat_lockout", "cool_lockout",
         "shared_mode", "plan",
@@ -179,12 +193,15 @@ def _async_prune_stale_entities(
     # belongs to a room this entry no longer has — a dropped room, or one
     # parked by the reorder move in the config flow.
     for zone in coordinator.zones:
-        for suffix in ZONE_ENTITY_SUFFIXES:
+        # getattr: the prune needs only a zone's slug, and is also called with
+        # bare stand-ins that carry nothing else (tests/test_fan_auto.py).
+        dual = getattr(zone, "dual", False) is True
+        for suffix in (*ZONE_ENTITY_SUFFIXES, *(DUAL_ZONE_ENTITY_SUFFIXES if dual else ())):
             valid.add(f"{entry.entry_id}_{zone.slug}_{suffix}")
     registry = er.async_get(hass)
     for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
         if entity.unique_id not in valid:
-            _LOGGER.info("Pruning stale entity %s (dropped room)", entity.entity_id)
+            _LOGGER.info("Pruning stale entity %s (no longer provided)", entity.entity_id)
             registry.async_remove(entity.entity_id)
 
 

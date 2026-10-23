@@ -60,6 +60,7 @@ SECTION_FIELDS: dict[str, tuple[str, ...]] = {
 ROOM_SECTION_FIELDS: dict[str, tuple[str, ...]] = {
     "drift": ("room_cooler_by", "room_warmer_by"),
     "floor": ("floor_low", "floor_high"),
+    "dual": ("dual_setpoint",),
 }
 ROOM_FIELDS: tuple[str, ...] = (
     "stage",
@@ -70,6 +71,7 @@ ROOM_FIELDS: tuple[str, ...] = (
     *ROOM_SECTION_FIELDS["drift"],
     *SECTION_FIELDS["freshness"],
     *ROOM_SECTION_FIELDS["floor"],
+    *ROOM_SECTION_FIELDS["dual"],
 )
 GLOBAL_PAGES = tuple(PAGE_FIELDS)
 # Every key that exists only as flow input and must never be stored flat.

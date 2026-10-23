@@ -5,11 +5,30 @@ from __future__ import annotations
 from homeassistant.components.number import NumberMode, RestoreNumber
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .const import DOMAIN
 from .coordinator import MXZCoordinator, Zone
 from .entity import MXZEntity
+from .logic import RangeError, resolve_range, shift_range
+
+
+def range_error(coordinator: MXZCoordinator, zone: Zone, err: RangeError) -> ServiceValidationError:
+    """A refused dual-setpoint write as a translated ServiceValidationError."""
+    lo, hi = coordinator.head_target_bounds(zone.climate_id)
+    unit = coordinator.temp_unit
+    return ServiceValidationError(
+        translation_domain=DOMAIN,
+        translation_key=err.reason,
+        translation_placeholders={
+            "zone": zone.name,
+            "min": f"{lo:g}{unit}",
+            "max": f"{hi:g}{unit}",
+            "gap": f"{coordinator.dual_min_gap:g}{unit}",
+        },
+    )
 
 
 async def async_setup_entry(
@@ -17,15 +36,33 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up one target number and one drift number per zone."""
+    """Set up one target number and one drift number per zone.
+
+    A dual-setpoint room also gets its heat-to and cool-to numbers, added
+    after every target (entities without update_before_add are added in list
+    order), so a range seeded from the target reads the restored target. A
+    room switched to a dual setpoint later gets them through
+    ``coordinator.add_range_numbers``, without a reload.
+    """
     coordinator: MXZCoordinator = entry.runtime_data
     entities: list[RestoreNumber] = [
-        MXZTargetNumber(coordinator, zone) for zone in coordinator.zones
+        MXZRangeTargetNumber(coordinator, zone) for zone in coordinator.zones
     ]
     entities.extend(
         MXZDriftNumber(coordinator, zone) for zone in coordinator.zones
     )
+    entities.extend(
+        MXZRangeNumber(coordinator, zone, low)
+        for zone in coordinator.zones if zone.dual
+        for low in (True, False)
+    )
     async_add_entities(entities)
+
+    @callback
+    def add_range_numbers(zone: Zone) -> None:
+        async_add_entities(MXZRangeNumber(coordinator, zone, low) for low in (True, False))
+
+    coordinator.add_range_numbers = add_range_numbers
 
 
 class MXZTargetNumber(MXZEntity, RestoreNumber):
@@ -71,10 +108,15 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
         head's current setpoint instead of a hard default, so enabling the
         coordinator never plans against a temperature nobody chose (#6 —
         a 70 °F default vs a 66 °F room planned heat in July).
+
+        A room just switched back from a dual setpoint takes the options
+        flow's handoff instead: the range's snapped midpoint.
         """
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if (
+        if (handoff := self._zone.handoff) is not None and "target" in handoff:
+            self._attr_native_value = handoff["target"]
+        elif (
             not self._restored_state_is_stale(last_state)
             and (last := await self.async_get_last_number_data())
             and last.native_value is not None
@@ -236,5 +278,166 @@ class MXZDriftNumber(MXZEntity, RestoreNumber):
         """
         self._zone.drift = value
         self._last_published_state = self._state_signature()
+        self.async_write_ha_state()
+        await self.coordinator.async_user_changed()
+
+
+class MXZRangeTargetNumber(MXZTargetNumber):
+    """A room's target number, which moves the range while the room is opted in.
+
+    While the room isn't opted in to a dual setpoint, it is exactly
+    :class:`MXZTargetNumber`. While it is, it's kept so presence automations
+    and scripts that write a room's target still work: it shows the range's
+    midpoint (which can be a half step, the center the range is built
+    around), and writing it moves the whole range there, keeping its width
+    and sliding back inside the bounds. It restores like any target; the
+    range numbers then restore and set the midpoint from the pair. Turning
+    the option on or off switches this same entity in place.
+    """
+
+    @property
+    def native_value(self) -> float | None:
+        return self._zone.target if self._zone.dual else super().native_value
+
+    # True while this number shows a range's midpoint, until its first redraw
+    # after the room is switched back to one target.
+    _showing_midpoint = False
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._showing_midpoint = self._zone.dual
+        self.async_on_remove(self.coordinator.async_add_listener(self._sync))
+
+    @callback
+    def _sync(self) -> None:
+        """Redraw the midpoint when the range moved under it.
+
+        In a single-target room the target is only ever written here, so
+        nothing moves under it, except when the room was just switched back
+        to one target: the coordinator has set the range's snapped midpoint,
+        which this number then holds and restores.
+        """
+        zone = self._zone
+        if not zone.dual:
+            if not self._showing_midpoint:
+                return
+            self._attr_native_value = zone.target
+        self._showing_midpoint = zone.dual
+        current = self.hass.states.get(self.entity_id)
+        if current is None or current.state != str(self.state):
+            self.async_write_ha_state()
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Move the range so it's centered on ``value``, keeping its width."""
+        zone = self._zone
+        if not zone.dual:
+            await super().async_set_native_value(value)
+            return
+        if zone.target_low is None or zone.target_high is None:
+            return  # not restored yet (never reachable once added)
+        try:
+            low, high = shift_range(
+                width=zone.target_high - zone.target_low, center=value,
+                bounds=self.coordinator.head_target_bounds(zone.climate_id),
+                step=self.coordinator.target_step,
+            )
+        except RangeError as err:
+            raise range_error(self.coordinator, zone, err) from err
+        self._attr_native_value = (low + high) / 2
+        self.coordinator.set_zone_range(zone, low, high)
+        self.async_write_ha_state()
+        await self.coordinator.async_user_changed()
+
+
+class MXZRangeNumber(MXZEntity, RestoreNumber):
+    """A dual-setpoint room's Heat to (``low``) or Cool to, restorable.
+
+    The restore layer and automation handle for one edge of the range, as the
+    target number is for a single target. Writes follow the range rules
+    (:func:`logic.resolve_range`): snapped to the unit's step, inside the
+    room's bounds, at least the minimum gap apart, pushing the other edge
+    when this one moves too close, and refused, never clamped, otherwise.
+    """
+
+    _attr_mode = NumberMode.BOX
+
+    def __init__(self, coordinator: MXZCoordinator, zone: Zone, low: bool) -> None:
+        super().__init__(coordinator, f"{zone.slug}_target_{'low' if low else 'high'}")
+        self._zone = zone
+        self._low = low
+        self._attr_translation_key = "zone_heat_to" if low else "zone_cool_to"
+        self._attr_translation_placeholders = {"zone": zone.name}
+        self._attr_icon = "mdi:fire" if low else "mdi:snowflake"
+        self._attr_native_unit_of_measurement = coordinator.temp_unit
+        self._attr_native_step = coordinator.target_step
+
+    @property
+    def native_min_value(self) -> float:
+        return self.coordinator.head_target_bounds(self._zone.climate_id)[0]
+
+    @property
+    def native_max_value(self) -> float:
+        return self.coordinator.head_target_bounds(self._zone.climate_id)[1]
+
+    @property
+    def native_value(self) -> float | None:
+        return self._zone.target_low if self._low else self._zone.target_high
+
+    async def async_added_to_hass(self) -> None:
+        """Restore this edge; the second edge to restore settles the pair.
+
+        A room just switched on takes the options flow's handoff (the range
+        seeded around its target). Otherwise a restore that isn't stale is
+        offered as it was saved; with none, the pair is seeded around the
+        target at the minimum gap. The coordinator then re-checks the pair
+        against the current bounds (``finish_range_restore``). A number added
+        when the room is switched on in place finds the range already seeded
+        and restores nothing.
+        """
+        await super().async_added_to_hass()
+        zone = self._zone
+        if zone.target_low is None or zone.target_high is None:
+            restored: float | None = None
+            last_state = await self.async_get_last_state()
+            if (
+                not self._restored_state_is_stale(last_state)
+                and (last := await self.async_get_last_number_data())
+                and last.native_value is not None
+            ):
+                restored = float(last.native_value)
+            self.coordinator.offer_range_restore(zone, self._low, restored)
+        self.async_on_remove(self.coordinator.async_add_listener(self._sync))
+
+    @callback
+    def _sync(self) -> None:
+        """Redraw when the range moved under this edge (a push, a shift, a restore).
+
+        Not once the room is switched back to one target: this number is
+        then being removed, and has no edge to show.
+        """
+        if not self._zone.dual:
+            return
+        current = self.hass.states.get(self.entity_id)
+        if current is None or current.state != str(self.state):
+            self.async_write_ha_state()
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Write this edge -> validate the resulting pair, store it, recompute."""
+        zone = self._zone
+        low, high = zone.target_low, zone.target_high
+        if low is None or high is None:
+            return  # not restored yet (never reachable once added)
+        try:
+            new = resolve_range(
+                low=low, high=high,
+                new_low=value if self._low else low,
+                new_high=high if self._low else value,
+                gap=self.coordinator.dual_min_gap,
+                bounds=self.coordinator.head_target_bounds(zone.climate_id),
+                step=self.coordinator.target_step,
+            )
+        except RangeError as err:
+            raise range_error(self.coordinator, zone, err) from err
+        self.coordinator.set_zone_range(zone, *new)
         self.async_write_ha_state()
         await self.coordinator.async_user_changed()

@@ -63,7 +63,7 @@ Use [Reconfigure](#reconfigure-heads-rooms-and-sensors) to change the room list 
 
 - [What it does](#what-it-does), and
   [the problem it solves](#the-problem-stock-auto-starves-rooms)
-- [What's new in 3.9.0](#whats-new-in-390)
+- [What's new in 3.10.0](#whats-new-in-3100)
 - [Before you install](#before-you-install) · [Install](#install)
 - [Set up your outdoor unit](#set-up-your-outdoor-unit) ·
   [If setup stops or warns](#if-setup-stops-or-warns)
@@ -149,9 +149,62 @@ supported hardware and setup apply. It is not tested for parity with this integr
 
 </details>
 
-## What's new in 3.9.0
+## What's new in 3.10.0
 
-Released October 22, 2026.
+Released October 23, 2026.
+
+- **Opt-in dual setpoint, per room.** For power users who'd rather give a room a range,
+  the way an ecobee or a Nest does: each room's page in Configure → Rooms → (room) has
+  a new, collapsed **Dual setpoint** section with **Use separate heat and cool
+  setpoints**. It's off by default, so nothing changes unless you turn it on, and a room
+  that never turns it on is exactly as before. Turned on, the room gets **Heat to** and
+  **Cool to** numbers, and its thermostat shows a range instead of one target (still
+  `heat_cool`, with MXZ choosing heat or cool for the shared outdoor unit). It heats
+  when it falls below Heat to by its drift and runs back up to Heat to, and it cools
+  when it rises above Cool to by its drift and runs back down to Cool to. The two stay
+  at least 2 °F (1 °C) apart, and moving one too close pushes the other. The room's
+  target number stays: it shows the middle of the range, and writing it slides the
+  whole range, keeping its width, so presence automations keep working. Assist can't
+  set a range; write the room's target number instead. The idea comes from
+  [@csingley](https://github.com/csingley)'s dual-setpoint proposal
+  ([#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35)). See
+  [Give a room separate heat and cool setpoints](#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint)
+  and [Dual setpoint (3.10.0)](docs/MIGRATION.md#dual-setpoint-3100).
+- **Switching it on or off applies in place.** A room page saved with only the toggle
+  changed is applied without a reload: the room's thermostat stays available, the other
+  rooms keep their runs, and Apple Home picks up the range (or the single target again)
+  without a reload of the HomeKit bridge. A save that mixes it with other changes, such
+  as the room's uneven drift on the same page, reloads the integration as every other
+  save does. After such a save, reload the HomeKit bridge (Settings → Devices &
+  services → HomeKit Bridge → Reload) or restart Home Assistant so Apple Home shows the
+  change.
+- **One target stays the default.** [CONTRIBUTING.md](CONTRIBUTING.md) now says a dual
+  setpoint is supported as a per-room opt-in, in place of 3.9.0's stance that MXZ
+  wouldn't add one. MXZ won't make it the default, and won't add simultaneous heat and
+  cool or the heads' hardware Auto.
+- **Hardware test: the heat side.** On our two-head MXZ (Home Assistant 2026.10.2),
+  running an earlier build of this release with one room, the bedroom, switched on:
+  turning it on started the room's 65 °F target as 64–66 °F, with its Heat to and Cool
+  to numbers, and left the other room as it was. With eco off, the bedroom at
+  62.2–62.4 °F, and the outdoor unit already heating, a 62–64 °F range stayed idle
+  (heat starts below 61.5), and a 63–65 °F range started heating it at once, with the
+  head set to 63–65 °F. At 64–66 °F the room also asked the outdoor unit for heat, and
+  the head got 64–66 °F. The minimum gap, the push, and the refusals worked as
+  described; writing the target number slid the range and kept its width; eco ignored
+  the range and showed the eco band, 50 and 78; and turning it off set the target to 65
+  and removed the two numbers. That run also found that the HomeKit bridge didn't
+  rebuild its accessory with the range: the reload after the save left the thermostat
+  briefly unavailable, and the bridge's store wasn't rewritten. That's why a switch
+  saved on its own now applies in place. A recheck of the release code on the house kept the thermostat available
+  through the switch on and off, and the HomeKit bridge's store was rewritten with the
+  heating and cooling thresholds, with no bridge reload and no restart. **The cool side
+  isn't hardware-tested yet**: the room was at 62 °F in October, so no cooling run and
+  no switch between heating and cooling were tried (tests cover those). Apple Home was
+  checked from the HomeKit bridge's store, not on an iPhone, and Google Home and Alexa
+  weren't checked in their apps. °C and two dual-setpoint rooms at once weren't tested
+  on hardware.
+
+From 3.9.0:
 
 - **Per-room uneven drift.** Each room's page in Configure → Rooms → (room) has a new,
   collapsed **Uneven drift** section with that room's own **Let it get cooler by** and
@@ -172,15 +225,16 @@ Released October 22, 2026.
   `heat_demand_below` and `cool_demand_above` (where it asks the whole system to switch
   to heating or cooling), and `drift_source`, `drift_heat_from`, and `drift_cool_from`
   (where its drift comes from). They are read-only: the tile, Apple Home, Google Home,
-  and Alexa still see one target. They show the numbers MXZ is using now, so in eco
-  they show the eco band, Away low limit and Away high limit (for example 50 and 78),
-  not the comfort band around the target. See [Uneven drift](#uneven-drift) and
+  and Alexa still see one target (from 3.10.0, a room you switch to a dual setpoint
+  shows a range). They show the numbers MXZ is using now, so in eco they show the eco
+  band, Away low limit and Away high limit (for example 50 and 78), not the comfort band
+  around the target. See [Uneven drift](#uneven-drift) and
   [Start points (3.9.0)](docs/MIGRATION.md#start-points-390).
-- **One target per room, stated plainly.** [CONTRIBUTING.md](CONTRIBUTING.md) now says
-  MXZ won't add a dual setpoint or a heat/cool range, even as an option: drift and
-  uneven drift already give each room an adjustable band around its one target. It also
-  names the power-user options and asks that a new tuning option be blank by default
-  and change nothing when unset.
+- **One target per room, stated plainly.** [CONTRIBUTING.md](CONTRIBUTING.md) said MXZ
+  wouldn't add a dual setpoint or a heat/cool range, even as an option (3.10.0 replaces
+  that with a per-room opt-in, and one target stays the default). It also names the
+  power-user options and asks that a new tuning option be blank by default and change
+  nothing when unset.
 - **Oxford commas.** The remaining docs and the setup and Configure screen text now use
   the Oxford comma.
 - **Hardware test: a room's own Let it get cooler by.** On our two-head MXZ (Home
@@ -198,31 +252,16 @@ Released October 22, 2026.
 
 From 3.8.0:
 
-- **Let it get cooler by and Let it get warmer by.** Two optional settings in
-  Configure → Comfort → Advanced let a room drift further one way than the other before
-  a head starts: how far below target before heating starts, and how far above target
-  before cooling starts. Each takes 0.5–5 °F / 0.25–2.5 °C. Both are blank by default,
-  and a blank side uses Allowed drift, so nothing changes unless you set one. A room's
-  own drift number overrides both for that room (from 3.9.0, a room can also set either
-  side itself). A run still goes back to the target. There is no migration and no new
-  entity; the plan sensor's `zones` list gains `drift_heat` and `drift_cool`. The idea
-  grew out of [@csingley](https://github.com/csingley)'s dual-setpoint proposal
-  ([#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35)). See
+- **Let it get cooler by and Let it get warmer by** in Configure → Comfort → Advanced:
+  how far below target before heating starts, and how far above target before cooling
+  starts, blank by default (from 3.9.0, a room can also set either side itself). The
+  idea grew out of [@csingley](https://github.com/csingley)'s dual-setpoint proposal
+  ([#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35)). At release, only the
+  heat side's start decision had been tested on hardware. See
   [Uneven drift](#uneven-drift) and
   [Uneven drift (3.8.0)](docs/MIGRATION.md#uneven-drift-380).
-- **Hardware test: the start decision on the heat side.** On our two-head MXZ (Home
-  Assistant 2026.10.2), a bedroom at 62.8–63.0 °F with a 65 °F target stayed idle with
-  Let it get cooler by set to 3 (heat starts below 62.0), and MXZ started heating it at
-  once when it was set to 2 (heat starts below 63.0). The other room, which has its own
-  drift number, didn't change, and clearing both settings put everything back as it
-  was. We didn't test Let it get warmer by, the cool side, or a full run back to target
-  on hardware; tests cover those.
-- **CONTRIBUTING.md** explains MXZ's design principles (one target per room, no mode
-  selection, and defaults that just work) and what to do before opening a pull request.
-- **Docs.** The README and CONTRIBUTING use the Oxford comma throughout, the README
-  explains how a room's drift number reads beside the new settings, and
-  [Diagnose a room that is waiting](#diagnose-a-room-that-is-waiting) has a row for
-  `drift_heat` and `drift_cool`.
+- **CONTRIBUTING.md** explains MXZ's design principles and what to do before opening a
+  pull request.
 
 From 3.7.1:
 
@@ -549,6 +588,9 @@ on a menu of six pages. Some settings sit in a collapsed section on their page.
 - A save merges the page's values into the existing options, mirrors them into entry
   data, and reloads once. It never touches a setting on another page.
 - A save that leaves entry data and options unchanged needs no reload.
+- A room page saved with only **Dual setpoint** turned on or off is applied without a
+  reload; see
+  [Give a room separate heat and cool setpoints](#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint).
 - Units are shown in each number box: temperatures use your HA unit, the mode switch
   time is in seconds, and coil drying and freshness durations are in minutes.
 
@@ -737,7 +779,8 @@ edges.
 ## Everyday control
 
 **Your room thermostat.** Use each room's thermostat for one target and
-`heat_cool`/`off`.
+`heat_cool`/`off`. A room you switch to a dual setpoint shows a range instead; see
+[Give a room separate heat and cool setpoints](#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint).
 
 - `heat_cool` means the coordinator chooses a shared direction. It does not send
   hardware AUTO or heat/cool simultaneously.
@@ -876,6 +919,110 @@ sensor's, show the drift in use on each side. `drift_heat_from` and `drift_cool_
 read `room_cooler_by` or `room_warmer_by` for a side that comes from this page, and
 `room` for one that comes from the room's drift number. `drift_source` is `room` when
 either side comes from the room, else `global`.
+
+### Give a room separate heat and cool setpoints (dual setpoint)
+
+For power users. One target is the default, and most rooms never need more. If you'd
+rather give a room a range, the way an ecobee or a Nest does, open Configure → Rooms →
+(room), expand the collapsed **Dual setpoint** section, and turn on **Use separate heat
+and cool setpoints**. It's off by default and set per room, so the other rooms keep one
+target.
+
+**What the room gets.** Two numbers, the room's **heat to** and **cool to** (for example
+`number.mxz_coordinator_bedroom_heat_to` and `number.mxz_coordinator_bedroom_cool_to`),
+and its thermostat shows a range: two handles on the Home Assistant tile,
+`target_temp_low` (heat to) and `target_temp_high` (cool to), and no single
+`temperature`. The thermostat still offers only `heat_cool` and `off`, and MXZ still
+picks heat or cool for the shared outdoor unit; there's no heat or cool mode to choose,
+and nothing runs both at once. The plan sensor's `zones` row for the room gains
+`target_low` and `target_high`.
+
+**How it runs.** The room heats when it falls below heat to by its drift, and runs back
+up to heat to. It cools when it rises above cool to by its drift, and runs back down to
+cool to. In between, it rests. With the default drift of 1 °F, a 68–74 °F room heats
+below 67 and stops at 68, and cools above 75 and stops at 74. That's the one difference
+from a single target, where every run goes back to the target. Everything else works
+the same way, per side:
+
+- Drift, uneven drift, per-room uneven drift, and the room's drift number set how far
+  past each edge the room can get before a run starts.
+- The room asks the outdoor unit to switch between heating and cooling only past the
+  mode switch threshold (or that side's drift, if it's wider), measured from heat to on
+  the heat side and from cool to on the cool side.
+- The heads get setpoints built from heat to while heating and from cool to while
+  cooling.
+- Fan boost speeds up by how far the room is outside the range (0 inside it).
+- `heat_start`, `cool_start`, `heat_demand_below`, and `cool_demand_above` are worked
+  out from heat to and cool to, and they're the numbers MXZ uses.
+- Eco ignores heat to and cool to and uses **Away low limit** and **Away high limit**,
+  as it always has. A heat lockout moves the heat side out to **Heat anyway below**, and
+  a cool lockout moves the cool side out to **Cool anyway above**. The freeze floor,
+  the overheat ceiling, priority, and hands-off are unchanged.
+
+**The rules for heat to and cool to.** Both move in steps of 1 °F (0.5 °C) and stay
+inside the room's limits (its thermostat's `min_temp` and `max_temp`). They stay at
+least 2 °F (1 °C) apart. Move one too close to the other, or past it, and the other one
+is pushed along to keep the gap, the way an ecobee or a Nest does. If pushing it would
+take it past a limit, the change is refused. Setting both at once closer than the gap,
+or crossed, is refused too. A refused change shows an error and changes nothing;
+nothing is ever clamped quietly.
+
+**The room's target number stays.** It shows the middle of the range, which can be a
+half degree (for example 71.5 °F). Writing it moves the whole range so it's centered on
+the new value, keeping its width, and slides it back inside the limits if needed. So a
+presence automation that sets the guest room to 66 when nobody's home keeps working
+after you switch that room to a range.
+
+**Turning it on and off.** Turning it on starts the range around the room's target at
+the minimum gap: a 70 °F target becomes 69–71 °F, and 21 °C becomes 20.5–21.5 °C.
+Turning it off while the integration is loaded sets the target to the middle of the
+range, rounded to the step (exact halves round to the even step, as the tile does:
+68–73 °F becomes 70), and removes the heat to and cool to numbers. A restart keeps the
+range. If a restored range no longer fits the head's limits with the gap, it's
+re-centered at the gap, and the room's `control_reasons` say so until you next change
+it.
+
+A save that only turns the option on or off is applied in place, with no reload: the
+room's thermostat stays available, and its features, range, and target change in one
+step. That's what lets Apple Home pick up the change (see below), and the rest of the
+system isn't disturbed: the other rooms keep their runs, and the mode-change wait isn't
+restarted. A save that also changes something else (for example, the room's uneven
+drift on the same page) reloads the integration, as every other save does, with the
+same result for the room. After such a save, reload the HomeKit bridge (Settings →
+Devices & services → HomeKit Bridge → Reload) or restart Home Assistant so Apple Home
+shows the change. To avoid that, save the toggle on its own.
+
+**Voice and other apps.** These follow Home Assistant's own bridges:
+
+- **Apple Home** shows the room in Auto with a heating and a cooling threshold. Home
+  Assistant's HomeKit bridge rebuilds a thermostat when its features change while it
+  stays available, so a toggle saved on its own reaches Apple Home without reloading the
+  bridge; one saved with other changes needs a bridge reload or a restart (see above).
+  This is read from the bridge's code and tested against a copy of its rule. On our
+  house, the bridge's store was rewritten with the two thresholds after a toggle saved
+  on its own, with no bridge reload; it hasn't been checked on an iPhone yet. Apple
+  Home sends a threshold change as a pair with the other one unchanged, so the push
+  rule applies. When you drag one threshold past the other, though, Home Assistant's HomeKit bridge
+  pushes first: it sets the other one 5 °C (9 °F) away, within the room's limits, so
+  you see that wider push rather than MXZ's 2 °F (1 °C).
+- **Google Home** shows the low and high setpoints in heat-cool, and setting the range
+  sets both. A single number for the room ("set the living room to 70") reaches it as
+  one temperature, which Home Assistant refuses for a range, so nothing changes. Google
+  hears about the refusal only when Report state is off; with it on, Home Assistant
+  answers Google before the refusal.
+- **Alexa** shows a lower and an upper setpoint in Auto, and "make it two degrees
+  warmer" moves both. A single target from Alexa is refused by Home Assistant after
+  Alexa has already answered, so Alexa may say OK while nothing changes.
+- **Turning it on or off, for Google and Alexa.** Through Home Assistant Cloud, the
+  thermostat's changed features make Google sync and Alexa rediscover it on their own,
+  with or without a reload. A manually set up Google Assistant or Alexa skill isn't told,
+  so ask it to sync or discover devices, as for any new device. Neither app was checked
+  on a phone.
+- **Assist** (Home Assistant's own voice) can't set a range: its set-temperature intent
+  only matches thermostats with one target. `climate.set_temperature` with only
+  `temperature` is refused for a range room too; send `target_temp_low` and
+  `target_temp_high`. For one number in an automation or a script, write the room's
+  target number, which moves the range.
 
 ### Run one room from its own remote
 
@@ -1690,7 +1837,7 @@ MXZ Coordinator got this good because people ran it on their own systems, found 
 - [@helicopterrun](https://github.com/helicopterrun) validated it on 3-zone hardware and did relentless, root-caused QA through the v3 beta ([#4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4), [#5](https://github.com/dkpnw/ha-mxz-coordinator/issues/5), [#6](https://github.com/dkpnw/ha-mxz-coordinator/issues/6), [#7](https://github.com/dkpnw/ha-mxz-coordinator/issues/7)). Those reports led to the removal docs, single-setpoint head support, and entry-scoped restore.
 - [@oliverbrandmueller](https://github.com/oliverbrandmueller) asked for metric units ([#2](https://github.com/dkpnw/ha-mxz-coordinator/issues/2)). Since 2.8.0 the coordinator runs in your Home Assistant temperature unit from end to end.
 - **mw1029** on the [Home Assistant forum](https://community.home-assistant.io/t/1018382) tried MXZ with the cloud-based `comfort_HA` integration and posted both entity dumps, which showed exactly where the two don't line up. Support for it is in progress.
-- [@csingley](https://github.com/csingley) (Chris Singley) noticed that a room left to its own remote is invisible to the heat-versus-cool standoff, even while it is really heating or cooling on the shared outdoor unit, and sent a fix with a test ([#27](https://github.com/dkpnw/ha-mxz-coordinator/pull/27)). He followed it with [#28](https://github.com/dkpnw/ha-mxz-coordinator/pull/28), which lets a disabled room's head stay under its own remote. The per-room **Let its own remote run it while disabled** setting is built from both, with him as co-author, and he tested it on his own 4-zone MXZ-4C36NA2 before release. It shipped in 3.6.0. He then designed and wrote the safety-priority arbitration ([#31](https://github.com/dkpnw/ha-mxz-coordinator/pull/31)): every room's heat or cool want ranked in one priority order, with an optional per-room **Safety priority** sensor that lifts a room's own want above every other room's. It shipped in 3.7.0, not yet tested on hardware. The 3.7.0 freeze floor and overheat ceiling build on his safety tier: a tripped floor or ceiling is one more want in that same priority order, with the freeze floor ranked first. He also wrote [#32](https://github.com/dkpnw/ha-mxz-coordinator/pull/32), which times the mode-change wait with a monotonic clock so a wall-clock jump (an NTP correction, a clock set by hand) can't shorten or stretch it. It shipped in 3.7.1. His native dual-setpoint proposal ([#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35)) was declined to keep one target, but the discussion led to **Let it get cooler by** and **Let it get warmer by**, which give heat and cool different tolerances around that one target. They shipped in 3.8.0.
+- [@csingley](https://github.com/csingley) (Chris Singley) noticed that a room left to its own remote is invisible to the heat-versus-cool standoff, even while it is really heating or cooling on the shared outdoor unit, and sent a fix with a test ([#27](https://github.com/dkpnw/ha-mxz-coordinator/pull/27)). He followed it with [#28](https://github.com/dkpnw/ha-mxz-coordinator/pull/28), which lets a disabled room's head stay under its own remote. The per-room **Let its own remote run it while disabled** setting is built from both, with him as co-author, and he tested it on his own 4-zone MXZ-4C36NA2 before release. It shipped in 3.6.0. He then designed and wrote the safety-priority arbitration ([#31](https://github.com/dkpnw/ha-mxz-coordinator/pull/31)): every room's heat or cool want ranked in one priority order, with an optional per-room **Safety priority** sensor that lifts a room's own want above every other room's. It shipped in 3.7.0, not yet tested on hardware. The 3.7.0 freeze floor and overheat ceiling build on his safety tier: a tripped floor or ceiling is one more want in that same priority order, with the freeze floor ranked first. He also wrote [#32](https://github.com/dkpnw/ha-mxz-coordinator/pull/32), which times the mode-change wait with a monotonic clock so a wall-clock jump (an NTP correction, a clock set by hand) can't shorten or stretch it. It shipped in 3.7.1. His native dual-setpoint proposal ([#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35)) was declined at first to keep one target, but the discussion led to **Let it get cooler by** and **Let it get warmer by**, which give heat and cool different tolerances around that one target. They shipped in 3.8.0. [#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35) is also the origin of the opt-in per-room **dual setpoint** (separate Heat to and Cool to): it carries forward his idea and Home Assistant's range contract (the range feature, `heat_cool`, and writes through the room's own numbers), rebuilt as an opt-in on the room's page. It shipped in 3.10.0, with only the heat side tested on hardware so far.
 
 **Prior art and references**
 

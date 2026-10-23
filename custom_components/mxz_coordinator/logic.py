@@ -50,6 +50,8 @@ def room_call(
     cool_lockout_ceiling: float = 200.0,
     heat_band: float | None = None,
     cool_band: float | None = None,
+    heat_target: float | None = None,
+    cool_target: float | None = None,
 ) -> str:
     """Per-room call for one band (demand uses S/'neutral', engage uses D/'satisfied').
 
@@ -58,6 +60,11 @@ def room_call(
     ``band`` is how far the room may sit off target either way. ``heat_band``
     (below target) and ``cool_band`` (above target) replace it for one side
     each; a side left None uses ``band``. Every side needs a value.
+
+    ``heat_target`` / ``cool_target`` are a dual-setpoint room's Heat to and
+    Cool to: the heat side measures from the first and the cool side from the
+    second. Either left None uses ``target``, so a single-target room is the
+    case where both equal ``target``.
 
     ``heat_lockout`` holds off the heat call (the room idles instead of heating — e.g.
     to let passive solar warm it in summer) UNLESS the room has dropped below
@@ -78,6 +85,7 @@ def room_call(
     # displayed start points and the decision cannot disagree.
     heat_below, cool_above = call_edges(
         target=target, heat_band=heat_band, cool_band=cool_band, eco=eco,
+        heat_target=heat_target, cool_target=cool_target,
         eco_cool_max=eco_cool_max, eco_heat_min=eco_heat_min,
         heat_lockout=heat_lockout, heat_lockout_floor=heat_lockout_floor,
         cool_lockout=cool_lockout, cool_lockout_ceiling=cool_lockout_ceiling,
@@ -101,6 +109,8 @@ def call_edges(
     heat_lockout_floor: float,
     cool_lockout: bool,
     cool_lockout_ceiling: float,
+    heat_target: float | None = None,
+    cool_target: float | None = None,
 ) -> tuple[float, float]:
     """The two edges :func:`room_call` compares a reading to: (heat_below, cool_above).
 
@@ -109,7 +119,9 @@ def call_edges(
     both the call and the start points the plan shows, so they can't drift.
 
     * Eco: the eco extremes, whatever the target, bands, or lockouts.
-    * Otherwise ``target - heat_band`` / ``target + cool_band``.
+    * Otherwise ``heat_target - heat_band`` / ``cool_target + cool_band``,
+      where each per-side target left None is ``target`` (a single-target
+      room; a dual-setpoint room passes its Heat to and Cool to).
     * A lockout moves its side's edge out to the safety line: cool is held off
       while ``temp <= cool_lockout_ceiling`` and heat while
       ``temp >= heat_lockout_floor``, and with strict comparisons "past the
@@ -118,21 +130,27 @@ def call_edges(
       side resolves as the original two comparisons did.
 
     Holding cool off can only leave a reading in the heat region if the two
-    regions overlap, i.e. a negative ``heat_band + cool_band``. The old
+    regions overlap, i.e. ``heat_band + cool_band`` below
+    ``heat_target - cool_target`` (below 0 for a single target). The old
     cool-first order answered "hold" there, which no pair of strict edges can
     express, so that one combination is refused rather than answered
     differently. No caller passes it: drift is clamped positive, the demand
-    band is at least the drift, and the latch passes 0.
+    band is at least the drift, the latch passes 0, and a dual-setpoint
+    room's Heat to is always below its Cool to.
     """
     if eco:
         return eco_heat_min, eco_cool_max
-    heat_below = target - heat_band
-    cool_above = target + cool_band
+    heat_from = target if heat_target is None else heat_target
+    cool_from = target if cool_target is None else cool_target
+    heat_below = heat_from - heat_band
+    cool_above = cool_from + cool_band
     if heat_lockout:
         heat_below = min(heat_below, heat_lockout_floor)
     if cool_lockout:
-        if heat_band + cool_band < 0:
-            raise ValueError("a cool lockout needs heat_band + cool_band >= 0")
+        if heat_band + cool_band < heat_from - cool_from:
+            raise ValueError(
+                "a cool lockout needs heat_band + cool_band >= heat_target - cool_target"
+            )
         cool_above = max(cool_above, cool_lockout_ceiling)
     return heat_below, cool_above
 
@@ -169,6 +187,10 @@ def engage_with_latch(
     ``heat_band`` / ``cool_band`` split ``band`` by side exactly as in
     :func:`room_call`. They only move where a run STARTS: every run still ends
     at the target, whichever side's drift started it.
+
+    A dual-setpoint room passes ``heat_target`` / ``cool_target`` through
+    ``call_kwargs``: a heat run then ends at Heat to and a cool run at Cool
+    to (band 0 measured from each side's own target), then the room coasts.
     """
     if prior in (MODE_COOL, MODE_HEAT) and not call_kwargs.get("eco"):
         # Engaged phase: band 0 on both sides — the room runs exactly TO its
@@ -654,6 +676,8 @@ def setpoints(
     step: float = 1.0,
     eco_cool: tuple[float, float] = (float(ECO_COOL_LOW), float(ECO_COOL_HIGH)),
     eco_heat: tuple[float, float] = (float(ECO_HEAT_LOW), float(ECO_HEAT_HIGH)),
+    heat_target: float | None = None,
+    cool_target: float | None = None,
 ) -> tuple[float, float]:
     """Return (low, high) setpoint edges, clamped. Mirrors the actuator's edge math.
 
@@ -661,15 +685,128 @@ def setpoints(
     defaults reproduce the original °F behavior (2° band, whole-degree steps,
     76/78 & 59/61 eco edges); a °C caller passes a 1° band, 0.5° step, and metric
     eco edges. Edges are rounded to ``step`` and clamped to [clamp_min, clamp_max].
+
+    A dual-setpoint room builds them from ``cool_target`` (Cool to) while the
+    mode is cool and from ``heat_target`` (Heat to) otherwise; either left
+    None uses ``target``.
     """
     if eco:
         return eco_cool if mode == MODE_COOL else eco_heat
-    tc = max(min(target, clamp_max), clamp_min)
+    side = cool_target if mode == MODE_COOL else heat_target
+    tc = max(min(target if side is None else side, clamp_max), clamp_min)
     if mode == MODE_COOL:
         low, high = max(tc - band, clamp_min), tc
     else:
         low, high = tc, min(tc + band, clamp_max)
     return (_round_to(low, step), _round_to(high, step))
+
+
+def range_delta(*, temp: float, low: float, high: float) -> float:
+    """How far ``temp`` sits outside ``[low, high]``: the fan boost's distance.
+
+    ``low - temp`` below the range, ``temp - high`` above it, 0 inside. A
+    single target is ``low == high == target``, where this is
+    ``abs(temp - target)`` exactly (IEEE subtraction is antisymmetric).
+    """
+    if temp < low:
+        return low - temp
+    if temp > high:
+        return temp - high
+    return 0.0
+
+
+class RangeError(ValueError):
+    """A dual-setpoint write that is refused; ``reason`` is its translation key."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+# RangeError reasons (each is an exception translation key in strings.json).
+RANGE_OUT_OF_BOUNDS = "range_out_of_bounds"
+RANGE_TOO_NARROW = "range_too_narrow"
+RANGE_PUSH_OUT_OF_BOUNDS = "range_push_out_of_bounds"
+RANGE_TOO_WIDE = "range_too_wide"
+
+
+def resolve_range(
+    *,
+    low: float,
+    high: float,
+    new_low: float,
+    new_high: float,
+    gap: float,
+    bounds: tuple[float, float],
+    step: float,
+) -> tuple[float, float]:
+    """The (Heat to, Cool to) a dual-setpoint write lands on, or RangeError.
+
+    ``low``/``high`` are the current pair and ``new_low``/``new_high`` the
+    asked-for one (pass the current value for an edge that isn't written).
+    Writes are refused, never silently clamped:
+
+    * each edge snaps to ``step`` (the climate tile's snap) and must sit
+      inside ``bounds``;
+    * a pair at least ``gap`` wide is taken as it is;
+    * when only ONE edge moved and the pair got too narrow (or crossed), the
+      other edge is pushed to keep exactly ``gap``, the way ecobee and Nest
+      behave; a push past ``bounds`` is refused;
+    * when BOTH moved and the pair is too narrow or inverted, it's refused.
+    """
+    lo, hi = bounds
+    nl, nh = _round_to(new_low, step), _round_to(new_high, step)
+    if not (lo <= nl <= hi and lo <= nh <= hi):
+        raise RangeError(RANGE_OUT_OF_BOUNDS)
+    if nh - nl >= gap - 1e-9:
+        return nl, nh
+    low_moved, high_moved = nl != low, nh != high
+    if low_moved and not high_moved:
+        nh = nl + gap
+        if nh > hi:
+            raise RangeError(RANGE_PUSH_OUT_OF_BOUNDS)
+        return nl, nh
+    if high_moved and not low_moved:
+        nl = nh - gap
+        if nl < lo:
+            raise RangeError(RANGE_PUSH_OUT_OF_BOUNDS)
+        return nl, nh
+    raise RangeError(RANGE_TOO_NARROW)
+
+
+def shift_range(
+    *,
+    width: float,
+    center: float,
+    bounds: tuple[float, float],
+    step: float,
+) -> tuple[float, float]:
+    """A ``width``-wide (Heat to, Cool to) centered on ``center``, inside ``bounds``.
+
+    What writing a dual-setpoint room's target does, and how a range is
+    seeded and re-centered. Heat to snaps to ``step`` (halves round up, so a
+    range whose width is an odd number of steps sits half a step above
+    ``center`` rather than flipping with Python's half-to-even rounding);
+    Cool to is Heat to plus ``width`` exactly. A range that would cross a
+    bound slides back inside, still ``width`` wide; one wider than the
+    bounds is refused.
+    """
+    lo, hi = bounds
+    if width > hi - lo + 1e-9:
+        raise RangeError(RANGE_TOO_WIDE)
+    low = center - width / 2
+    if step > 0:
+        low = math.floor(low / step + 0.5) * step
+    low = min(max(low, lo), hi - width)
+    return low, low + width
+
+
+def snapped_midpoint(*, low: float, high: float, step: float) -> float:
+    """The target a dual-setpoint room returns to: its midpoint, on ``step``.
+
+    The climate tile's own snap (``round(x / step) * step``).
+    """
+    return _round_to((low + high) / 2, step)
 
 
 def _round_to(value: float, step: float) -> float:

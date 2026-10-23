@@ -95,6 +95,14 @@ ZONE_FLOOR_HIGH = "floor_high"
 # field stores no key. Clamped on load into the profile's engage_bounds.
 ZONE_DRIFT_COOLER_BY = "drift_cooler_by"
 ZONE_DRIFT_WARMER_BY = "drift_warmer_by"
+# Opt-in per room: separate Heat to and Cool to instead of one target. Stored
+# only while on (True); turning it off removes the key, so a room that never
+# opted in, or opted out again, stores exactly what it stored before.
+ZONE_DUAL_SETPOINT = "dual_setpoint"
+# hass.data key of the options flow's one-shot handoff to the reload it
+# triggers (unless that save is applied in place, which drops it):
+# {(entry_id, head): {"seed_range": True} | {"target": t}}.
+DUAL_HANDOFF_KEY = "mxz_coordinator_dual_handoff"
 # The values the room page accepts, per unit system: (low min, low max, high
 # min, high max). A floor outside these is rejected, never clamped.
 FLOOR_RANGE_F = (35.0, 65.0, 75.0, 100.0)
@@ -329,6 +337,7 @@ _UNIT_PROFILE_FAHRENHEIT = {
     "fan_up_at": FAN_BOOST_UP_AT,  # (1, 2, 3, 4) °F off-target
     "fan_down_at": FAN_BOOST_DOWN_AT,  # (0.5, 1.5, 2.5, 3.5) °F hysteresis
     "engage_bounds": (0.5, 5.0),  # UI + load clamp for the re-engage drift
+    "dual_min_gap": 2.0,  # a dual-setpoint room's least Cool to - Heat to
     "defaults": {
         CONF_DEMAND_THRESHOLD: DEFAULT_DEMAND_THRESHOLD,
         CONF_ENGAGE_DEADBAND: DEFAULT_ENGAGE_DEADBAND,
@@ -351,6 +360,7 @@ _UNIT_PROFILE_CELSIUS = {
     "fan_up_at": (0.5, 1.0, 1.5, 2.0),  # °C off-target
     "fan_down_at": (0.25, 0.75, 1.25, 1.75),  # °C hysteresis
     "engage_bounds": (0.25, 2.5),  # UI + load clamp for the re-engage drift
+    "dual_min_gap": 1.0,  # a dual-setpoint room's least Cool to - Heat to
     "defaults": {
         CONF_DEMAND_THRESHOLD: 1.5,
         CONF_ENGAGE_DEADBAND: 0.5,
@@ -419,6 +429,12 @@ ENGAGE_SATISFIED = "satisfied"
 ZONE_ENTITY_SUFFIXES = (
     "target", "drift", "drift_follow_global", "enable", "thermostat", "fan_auto",
 )
+# The per-zone suffixes only a dual-setpoint room registers (its Heat to and
+# Cool to numbers). Kept apart so a room that isn't opted in provides, and
+# keeps, exactly the set above: the setup prune adds these to a room's valid
+# set only while it's opted in (so turning it off removes them), and the
+# reorder move carries them with every room that has them.
+DUAL_ZONE_ENTITY_SUFFIXES = ("target_low", "target_high")
 
 # Global helper entity keys (used for unique_id suffixes and translation keys).
 # Per-zone entities build theirs from zone_slug() instead, and translate through
