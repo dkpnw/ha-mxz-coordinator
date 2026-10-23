@@ -2571,8 +2571,9 @@ class MXZOptionsFlow(OptionsFlow):
 
         A save that does nothing but switch the room is applied in place
         instead (the coordinator's ``async_switch_dual_in_place``), which
-        reaches the same outcome and drops this note. Switched on: the new heat-to and cool-to numbers seed a range around
-        the room's current target at the minimum gap, whatever an earlier
+        reaches the same outcome and drops this note. Switched on: the new
+        heat-to and cool-to numbers seed a range around the room's current
+        target at the minimum gap, whatever an earlier
         opt-in left in the restore data. Switched off: the target number takes
         the range's midpoint, snapped to the unit's step. A room the running
         coordinator doesn't know yet (the entry isn't loaded) gets no target
