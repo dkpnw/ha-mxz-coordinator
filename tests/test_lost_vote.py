@@ -102,6 +102,24 @@ async def _back(hass: HomeAssistant, head: str) -> None:
     assert hass.states.get(head).state != "unavailable"
 
 
+def _climate_calls(hass: HomeAssistant, head: str) -> list[tuple[str, dict[str, Any]]]:
+    """Record every climate service call aimed at ``head``, from here on."""
+    seen: list[tuple[str, dict[str, Any]]] = []
+
+    @callback
+    def listen(event: Any) -> None:
+        data = event.data
+        if data.get("domain") != "climate":
+            return
+        ids = data.get("service_data", {}).get("entity_id")
+        ids = [ids] if isinstance(ids, str) else list(ids or [])
+        if head in ids:
+            seen.append((data["service"], dict(data["service_data"])))
+
+    hass.bus.async_listen("call_service", listen)
+    return seen
+
+
 def _since(value: str) -> datetime:
     parsed = datetime.fromisoformat(value)
     assert parsed.tzinfo is not None
@@ -200,6 +218,7 @@ async def test_probe1_a_hands_off_heat_vote_goes_stale_then_expires(
     is kept, stale, for the time limit, and only then expires."""
     entry, head_a, head_b = await _hands_off_heat(hass)
     coord = entry.runtime_data
+    calls = _climate_calls(hass, head_b)
     before = dt_util.utcnow()
     hass.states.async_set(head_b, "unavailable")  # exactly as the probe did
     await hass.async_block_till_done()
@@ -226,7 +245,13 @@ async def test_probe1_a_hands_off_heat_vote_goes_stale_then_expires(
     assert _vote(hass, entry, 1) == (None, "expired", since)
     assert plan.attributes["standoff"] is False
     assert _s(hass, head_a) == "fan_only"
-    assert _s(hass, head_b) == "unavailable"  # nothing was sent to it
+    assert _s(hass, head_b) == "unavailable"
+    assert calls == []  # a released head run from its remote is sent nothing
+    # Control: the same recorder hears a call to that head.
+    await hass.services.async_call(
+        "climate", "set_hvac_mode", {"entity_id": head_b, "hvac_mode": "off"}, blocking=True
+    )
+    assert calls == [("set_hvac_mode", {"entity_id": head_b, "hvac_mode": "off"})]
 
 
 async def test_the_last_vote_is_what_the_head_showed_just_before_it_was_lost(
@@ -347,6 +372,8 @@ async def test_probe2_an_enabled_room_with_a_long_lost_head_lets_its_sibling_run
     assert plan.attributes["primary_demand"] == MODE_COOL
     assert _row(hass, entry, 1)["vote_status"] == "live"
     assert _s(hass, head_b) == MODE_HEAT
+    # Still unavailable. This does not say nothing was sent: whatever MXZ
+    # sends it, Home Assistant drops calls to an unavailable entity.
     assert _s(hass, head_a) == "unavailable"
 
     # Back: live at once, its demand counts again (the dwell then decides).
@@ -887,10 +914,13 @@ async def test_an_untouched_options_pass_changes_no_stored_option(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     data, options = _stores(entry)
     assert TTL not in data and TTL not in options
-    for key, value in before[1].items():
-        assert options[key] == value, key
-    for key, value in before[0].items():
-        assert data[key] == value, key
+    # Whole stores, so no other key can appear, change, or go. A Comfort pass
+    # on 3.10.0 already stores the page's shown fields at their defaults (the
+    # reviewer's 521daac capture): exactly these, and nothing for the new box.
+    shown = {"engage_deadband": 1.0, "mode_hysteresis": 600.0, "resting_mode_bias": "last"}
+    assert not shown.keys() & before[0].keys() and not shown.keys() & before[1].keys()
+    assert data == {**before[0], **shown}
+    assert options == {**before[1], **shown}
 
 
 async def test_a_custom_value_is_stored_and_used(hass: HomeAssistant, house) -> None:
