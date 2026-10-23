@@ -16,7 +16,10 @@ load (it is only used to resize snapshots). Where ``turbojpeg`` is not
 installed, an empty stand-in module is registered for that one import and
 removed again, so the bridges' thermostat code can be imported; nothing here
 touches a camera. Where an import still fails, the test is skipped with the
-reason, never passed.
+reason, never passed, and ``tools.pytest_phases`` fails the run on that skip.
+
+HA 2024.12 has no ``HassClimateSetTemperature`` intent; there the Assist test
+checks that the intent is unknown, rather than skipping.
 
 Requires pytest-homeassistant-custom-component (Python 3.12+).
 """
@@ -247,10 +250,18 @@ async def test_alexa_lone_target_setpoint_on_a_range_room_changes_nothing(
 # --- Assist (HA voice) -----------------------------------------------------------
 async def test_assist_set_temperature_matches_only_single_target_rooms(hass: HomeAssistant) -> None:
     climate_intent = importlib.import_module("homeassistant.components.climate.intent")
-    if not hasattr(climate_intent, "SetTemperatureIntent"):
-        pytest.skip("this HA has no HassClimateSetTemperature intent (added after 2024.12)")
     entry, _ = await _setup(hass, dual=(0,))
     await climate_intent.async_setup_intents(hass)
+    if not hasattr(climate_intent, "SetTemperatureIntent"):
+        # HA 2024.12 has no set-temperature intent at all: Assist sets no
+        # room's temperature there, a range room's included.
+        with pytest.raises(intent.UnknownIntent):
+            await intent.async_handle(
+                hass, "test", "HassClimateSetTemperature",
+                {"name": {"value": "Living"}, "temperature": {"value": 72}},
+            )
+        assert _pair(entry) == (69.0, 71.0)
+        return
     living = _state(hass, entry, "primary_thermostat").name
     bedroom = _state(hass, entry, "secondary_thermostat").name
     with pytest.raises(intent.MatchFailedError):
