@@ -100,7 +100,8 @@ ZONE_DRIFT_WARMER_BY = "drift_warmer_by"
 # opted in, or opted out again, stores exactly what it stored before.
 ZONE_DUAL_SETPOINT = "dual_setpoint"
 # hass.data key of the options flow's one-shot handoff to the reload it
-# triggers: {(entry_id, head): {"range": (low, high)} | {"target": t}}.
+# triggers (unless that save is applied in place, which drops it):
+# {(entry_id, head): {"seed_range": True} | {"target": t}}.
 DUAL_HANDOFF_KEY = "mxz_coordinator_dual_handoff"
 # The values the room page accepts, per unit system: (low min, low max, high
 # min, high max). A floor outside these is rejected, never clamped.

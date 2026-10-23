@@ -155,7 +155,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: MXZConfigEntry) -> None:
-    """Reload the entry when its options (tunable constants) change."""
+    """Reload the entry when its options (tunable constants) change.
+
+    A save that only switches rooms to or from a dual setpoint is applied in
+    place instead, so each room thermostat stays available while its features
+    change (HomeKit rebuilds an accessory on a feature change only then). A
+    save that mixes that switch with anything else reloads, as every other
+    change does.
+    """
+    if await entry.runtime_data.async_switch_dual_in_place():
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 

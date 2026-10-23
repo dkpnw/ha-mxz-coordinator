@@ -15,6 +15,7 @@ can be unit-tested directly against the package's validated truth table.
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import math
 import time
@@ -94,6 +95,7 @@ from .const import (
     DEMAND_NEUTRAL,
     DOMAIN,
     DUAL_HANDOFF_KEY,
+    DUAL_ZONE_ENTITY_SUFFIXES,
     ENGAGE_SATISFIED,
     EVENT_RECOMPUTE,
     EVIDENCE_HA_WRITE,
@@ -174,6 +176,7 @@ from .logic import (
     sensor_health,
     setpoints,
     shift_range,
+    snapped_midpoint,
 )
 
 if TYPE_CHECKING:
@@ -334,6 +337,20 @@ class Zone:
     range_note: str | None = None
 
 
+def _without_dual(conf: dict[str, Any]) -> dict[str, Any]:
+    """The config with each room's dual setpoint key left out (for comparing saves)."""
+    raw = conf.get(CONF_ZONES)
+    if not isinstance(raw, list):
+        return conf
+    return {
+        **conf,
+        CONF_ZONES: [
+            {k: v for k, v in z.items() if k != ZONE_DUAL_SETPOINT} if isinstance(z, dict) else z
+            for z in raw
+        ],
+    }
+
+
 def _parse_zones(
     conf: dict[str, Any],
     target_default: float,
@@ -464,6 +481,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # A dual room's restored edges until both have arrived (see
         # offer_range_restore): {slug: {is_low: value or None}}.
         self._range_offers: dict[str, dict[bool, float | None]] = {}
+        # The config this coordinator was built from, so a save that only
+        # switches rooms to or from a dual setpoint can be told apart from
+        # every other change (see async_switch_dual_in_place).
+        self._built_conf: dict[str, Any] = copy.deepcopy(conf)
+        # Adds a room's heat-to and cool-to numbers after setup (set by the
+        # number platform).
+        self.add_range_numbers: Callable[[Zone], None] | None = None
         self.notify_service: str | None = conf.get(CONF_NOTIFY_SERVICE) or None
 
         # Unit-dependent tunables fall back to the system-unit profile default;
@@ -4312,6 +4336,85 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.reset_engage_latch(zone.slug)
         self.async_update_listeners()
 
+    def dual_switches(self) -> list[Zone] | None:
+        """The rooms an options save switched to or from a dual setpoint, if that's all it did.
+
+        Compares the entry's config now with the config this coordinator was
+        built from, leaving out each room's dual setpoint key. If anything
+        else differs, or no room was switched, it returns None.
+        """
+        entry = self.config_entry
+        new = {**entry.data, **entry.options}
+        if _without_dual(new) != _without_dual(self._built_conf):
+            return None
+        raw = new.get(CONF_ZONES)
+        if not isinstance(raw, list) or len(raw) != len(self.zones):
+            return None
+        switched = [
+            zone for zone, z in zip(self.zones, raw, strict=True)
+            if zone.dual != (z.get(ZONE_DUAL_SETPOINT) is True)
+        ]
+        return switched or None
+
+    async def async_switch_dual_in_place(self) -> bool:
+        """Apply an options save that only switched rooms to or from a dual setpoint.
+
+        The room's entities stay in place and available, so its thermostat's
+        features change on one state write (HomeKit rebuilds its accessory
+        only then; a reload passes through unavailable, and it doesn't). The
+        outcome is the reload's: switched on, a range seeded around the target
+        at the minimum gap and new heat-to and cool-to numbers; switched off,
+        the target at the range's snapped midpoint and those numbers removed
+        from the registry. Both give the room a fresh engage decision, and the
+        plan is recomputed at once. Returns False, changing nothing, for any other
+        save; the caller then reloads the entry exactly as before.
+        """
+        switched = self.dual_switches()
+        if switched is None or self.add_range_numbers is None:
+            return False
+        entry = self.config_entry
+        # The options flow's one-shot note is for a reload; this replaces it.
+        handoffs = self.hass.data.get(DUAL_HANDOFF_KEY, {})
+        for zone in switched:
+            handoffs.pop((entry.entry_id, zone.climate_id), None)
+            if zone.dual:
+                if zone.target_low is not None and zone.target_high is not None:
+                    zone.target = snapped_midpoint(
+                        low=zone.target_low, high=zone.target_high, step=self.target_step
+                    )
+                zone.dual = False
+                zone.target_low = zone.target_high = None
+                zone.range_note = None
+            else:
+                zone.dual = True
+                zone.target_low, zone.target_high = self._seeded_range(zone)
+                self.finish_range_restore(zone)
+            _LOGGER.info(
+                "%s switched %s a dual setpoint in place",
+                zone.name, "to" if zone.dual else "from",
+            )
+            # A fresh decision, never a run resumed from the head's mode:
+            # what the reload's latch reset left (it ran while the room was
+            # still resuming from startup).
+            self._startup_resume.pop(zone.slug, None)
+            self._engage_latch[zone.slug] = ""
+        self._built_conf = copy.deepcopy({**entry.data, **entry.options})
+        # One state write per entity: the thermostat's new features, range,
+        # and target together.
+        self.async_update_listeners()
+        registry = er.async_get(self.hass)
+        for zone in switched:
+            if zone.dual:
+                self.add_range_numbers(zone)
+                continue
+            for suffix in DUAL_ZONE_ENTITY_SUFFIXES:
+                if entity_id := registry.async_get_entity_id(
+                    "number", DOMAIN, f"{entry.entry_id}_{zone.slug}_{suffix}"
+                ):
+                    registry.async_remove(entity_id)
+        await self.async_user_changed(at_once=True)
+        return True
+
     def offer_range_restore(
         self, zone: Zone, is_low: bool, restored: float | None
     ) -> None:
@@ -4333,21 +4436,25 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _settle_range(self, zone: Zone) -> None:
         """Decide a dual room's pair from the edges offered so far (see above)."""
         offers = self._range_offers.pop(zone.slug, {})
-        bounds = self.head_target_bounds(zone.climate_id)
         fresh = zone.handoff is not None and zone.handoff.get("seed_range") is True
         if not fresh and offers.get(True) is not None and offers.get(False) is not None:
             low, high = offers[True], offers[False]
         else:
-            try:
-                low, high = shift_range(
-                    width=self.dual_min_gap, center=zone.target,
-                    bounds=bounds, step=self.target_step,
-                )
-            except RangeError:
-                low, high = bounds  # a head band narrower than the gap
+            low, high = self._seeded_range(zone)
         zone.target_low, zone.target_high = float(low), float(high)
         self.finish_range_restore(zone)
         self.async_update_listeners()
+
+    def _seeded_range(self, zone: Zone) -> tuple[float, float]:
+        """A new range: centered on the room's target at the minimum gap, inside its bounds."""
+        bounds = self.head_target_bounds(zone.climate_id)
+        try:
+            return shift_range(
+                width=self.dual_min_gap, center=zone.target,
+                bounds=bounds, step=self.target_step,
+            )
+        except RangeError:
+            return bounds  # a head band narrower than the gap
 
     def finish_range_restore(self, zone: Zone) -> None:
         """Re-check a dual room's range once both of its numbers have restored.
@@ -4395,12 +4502,19 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             self._engage_latch.pop(slug, None)
 
-    async def async_user_changed(self) -> None:
-        """A helper entity changed by the user -> recompute + act."""
+    async def async_user_changed(self, *, at_once: bool = False) -> None:
+        """A helper entity changed by the user -> recompute + act.
+
+        ``at_once`` skips the request debounce (a room switched to or from a
+        dual setpoint in place is recomputed at once, as a reload would be).
+        """
         if not self.coordinator_enable:
             self._retire_deliveries()
             await self._async_retire_vane_kicks()
-        await self.async_request_refresh()
+        if at_once:
+            await self.async_refresh()
+        else:
+            await self.async_request_refresh()
 
     async def async_select_shared_mode(self, mode: str) -> None:
         """A person asked for a shared direction (stamps the hysteresis clock).

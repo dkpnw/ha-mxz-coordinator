@@ -2567,9 +2567,11 @@ class MXZOptionsFlow(OptionsFlow):
         return self._save({}, zones)
 
     def _hand_off_dual(self, zone: dict[str, Any], *, now_dual: bool) -> None:
-        """Leave the reload this save triggers a one-shot note for this room.
+        """Leave the reload this save may trigger a one-shot note for this room.
 
-        Switched on: the new heat-to and cool-to numbers seed a range around
+        A save that does nothing but switch the room is applied in place
+        instead (the coordinator's ``async_switch_dual_in_place``), which
+        reaches the same outcome and drops this note. Switched on: the new heat-to and cool-to numbers seed a range around
         the room's current target at the minimum gap, whatever an earlier
         opt-in left in the restore data. Switched off: the target number takes
         the range's midpoint, snapped to the unit's step. A room the running

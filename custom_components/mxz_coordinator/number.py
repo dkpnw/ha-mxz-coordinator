@@ -40,12 +40,13 @@ async def async_setup_entry(
 
     A dual-setpoint room also gets its heat-to and cool-to numbers, added
     after every target (entities without update_before_add are added in list
-    order), so a range seeded from the target reads the restored target.
+    order), so a range seeded from the target reads the restored target. A
+    room switched to a dual setpoint later gets them through
+    ``coordinator.add_range_numbers``, without a reload.
     """
     coordinator: MXZCoordinator = entry.runtime_data
     entities: list[RestoreNumber] = [
-        (MXZRangeTargetNumber if zone.dual else MXZTargetNumber)(coordinator, zone)
-        for zone in coordinator.zones
+        MXZRangeTargetNumber(coordinator, zone) for zone in coordinator.zones
     ]
     entities.extend(
         MXZDriftNumber(coordinator, zone) for zone in coordinator.zones
@@ -56,6 +57,12 @@ async def async_setup_entry(
         for low in (True, False)
     )
     async_add_entities(entities)
+
+    @callback
+    def add_range_numbers(zone: Zone) -> None:
+        async_add_entities(MXZRangeNumber(coordinator, zone, low) for low in (True, False))
+
+    coordinator.add_range_numbers = add_range_numbers
 
 
 class MXZTargetNumber(MXZEntity, RestoreNumber):
@@ -276,27 +283,46 @@ class MXZDriftNumber(MXZEntity, RestoreNumber):
 
 
 class MXZRangeTargetNumber(MXZTargetNumber):
-    """A dual-setpoint room's target number: the range's midpoint, and its mover.
+    """A room's target number, which moves the range while the room is opted in.
 
-    Kept so presence automations and scripts that write a room's target still
-    work after the room switches to a range. It shows the midpoint (which can
-    be a half step, the center the range is built around), and writing it
-    moves the whole range there, keeping its width and sliding back inside
-    the bounds. It restores like any target; the range numbers then restore
-    and set the midpoint from the pair.
+    While the room isn't opted in to a dual setpoint, it is exactly
+    :class:`MXZTargetNumber`. While it is, it's kept so presence automations
+    and scripts that write a room's target still work: it shows the range's
+    midpoint (which can be a half step, the center the range is built
+    around), and writing it moves the whole range there, keeping its width
+    and sliding back inside the bounds. It restores like any target; the
+    range numbers then restore and set the midpoint from the pair. Turning
+    the option on or off switches this same entity in place.
     """
 
     @property
     def native_value(self) -> float | None:
-        return self._zone.target
+        return self._zone.target if self._zone.dual else super().native_value
+
+    # True while this number shows a range's midpoint, until its first redraw
+    # after the room is switched back to one target.
+    _showing_midpoint = False
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+        self._showing_midpoint = self._zone.dual
         self.async_on_remove(self.coordinator.async_add_listener(self._sync))
 
     @callback
     def _sync(self) -> None:
-        """Redraw the midpoint when the range moved under it."""
+        """Redraw the midpoint when the range moved under it.
+
+        In a single-target room the target is only ever written here, so
+        nothing moves under it, except when the room was just switched back
+        to one target: the coordinator has set the range's snapped midpoint,
+        which this number then holds and restores.
+        """
+        zone = self._zone
+        if not zone.dual:
+            if not self._showing_midpoint:
+                return
+            self._attr_native_value = zone.target
+        self._showing_midpoint = zone.dual
         current = self.hass.states.get(self.entity_id)
         if current is None or current.state != str(self.state):
             self.async_write_ha_state()
@@ -304,6 +330,9 @@ class MXZRangeTargetNumber(MXZTargetNumber):
     async def async_set_native_value(self, value: float) -> None:
         """Move the range so it's centered on ``value``, keeping its width."""
         zone = self._zone
+        if not zone.dual:
+            await super().async_set_native_value(value)
+            return
         if zone.target_low is None or zone.target_high is None:
             return  # not restored yet (never reachable once added)
         try:
@@ -361,24 +390,33 @@ class MXZRangeNumber(MXZEntity, RestoreNumber):
         seeded around its target). Otherwise a restore that isn't stale is
         offered as it was saved; with none, the pair is seeded around the
         target at the minimum gap. The coordinator then re-checks the pair
-        against the current bounds (``finish_range_restore``).
+        against the current bounds (``finish_range_restore``). A number added
+        when the room is switched on in place finds the range already seeded
+        and restores nothing.
         """
         await super().async_added_to_hass()
         zone = self._zone
-        restored: float | None = None
-        last_state = await self.async_get_last_state()
-        if (
-            not self._restored_state_is_stale(last_state)
-            and (last := await self.async_get_last_number_data())
-            and last.native_value is not None
-        ):
-            restored = float(last.native_value)
-        self.coordinator.offer_range_restore(zone, self._low, restored)
+        if zone.target_low is None or zone.target_high is None:
+            restored: float | None = None
+            last_state = await self.async_get_last_state()
+            if (
+                not self._restored_state_is_stale(last_state)
+                and (last := await self.async_get_last_number_data())
+                and last.native_value is not None
+            ):
+                restored = float(last.native_value)
+            self.coordinator.offer_range_restore(zone, self._low, restored)
         self.async_on_remove(self.coordinator.async_add_listener(self._sync))
 
     @callback
     def _sync(self) -> None:
-        """Redraw when the range moved under this edge (a push, a shift, a restore)."""
+        """Redraw when the range moved under this edge (a push, a shift, a restore).
+
+        Not once the room is switched back to one target: this number is
+        then being removed, and has no edge to show.
+        """
+        if not self._zone.dual:
+            return
         current = self.hass.states.get(self.entity_id)
         if current is None or current.state != str(self.state):
             self.async_write_ha_state()
