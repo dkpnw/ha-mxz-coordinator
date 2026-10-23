@@ -862,6 +862,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Wire up listeners and run the first compute/apply."""
         self._floor_live = True  # the switches have restored by now
         for zone in self.zones:
+            if zone.dual and zone.target_low is None:
+                # An edge that never restored (its number disabled in the
+                # registry, say): settle the pair now, seeded, so the room
+                # never advertises a range it doesn't have.
+                self._settle_range(zone)
             if zone.handoff is not None:
                 # Just switched to or from a dual setpoint: a fresh decision,
                 # exactly as a target write makes one (the switches have
@@ -4322,12 +4327,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         offers = self._range_offers.setdefault(zone.slug, {})
         offers[is_low] = restored
-        if len(offers) < 2:
-            return
-        del self._range_offers[zone.slug]
+        if len(offers) == 2:
+            self._settle_range(zone)
+
+    def _settle_range(self, zone: Zone) -> None:
+        """Decide a dual room's pair from the edges offered so far (see above)."""
+        offers = self._range_offers.pop(zone.slug, {})
         bounds = self.head_target_bounds(zone.climate_id)
         fresh = zone.handoff is not None and zone.handoff.get("seed_range") is True
-        if not fresh and offers[True] is not None and offers[False] is not None:
+        if not fresh and offers.get(True) is not None and offers.get(False) is not None:
             low, high = offers[True], offers[False]
         else:
             try:

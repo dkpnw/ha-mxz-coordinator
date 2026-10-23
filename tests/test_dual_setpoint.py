@@ -567,6 +567,20 @@ async def test_one_missing_edge_reseeds_the_pair(hass: HomeAssistant) -> None:
     assert _pair(entry) == (71.0, 73.0)  # never 60 with a seeded high
 
 
+async def test_a_disabled_edge_number_still_leaves_a_whole_range(hass: HomeAssistant) -> None:
+    entry, _ = await _setup(hass, dual=(0,))
+    await _range(hass, entry, "primary", 64, 76)
+    registry = er.async_get(hass)
+    registry.async_update_entity(
+        _eid(hass, entry, "primary_target_high"), disabled_by=er.RegistryEntryDisabler.USER
+    )
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert _pair(entry) == (69.0, 71.0)  # seeded around the target, never half restored
+    tile = _state(hass, entry, "primary_thermostat").attributes
+    assert (tile["target_temp_low"], tile["target_temp_high"]) == (69.0, 71.0)
+
+
 async def test_a_restored_pair_that_no_longer_fits_is_re_centered_once(hass: HomeAssistant) -> None:
     entry, _ = await _setup(
         hass, dual=(0,), restore=[
