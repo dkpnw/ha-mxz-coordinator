@@ -1020,5 +1020,13 @@ def test_the_label_and_help_are_plain_and_mirrored() -> None:
     for flow in ("config", "options"):
         advanced = strings[flow]["step"]["comfort"]["sections"]["advanced"]
         assert advanced["data"][TTL] == "Keep a lost head's vote for"
-        assert "Leave blank for 30 minutes." in advanced["data_description"][TTL]
+        help_text = advanced["data_description"][TTL]
+        assert "Leave blank for 30 minutes." in help_text
+        # What expiry keeps, as built: only an enabled room's Safety priority
+        # (a remote-run room's safety vote still expires), and never a floor
+        # or ceiling. The old sentence claimed both kinds kept their call.
+        assert "An enabled room with Safety priority on keeps its call." in help_text
+        assert "A room run from its own remote still lets go, Safety priority or not." in help_text
+        assert "A freeze floor or overheat ceiling is never dropped by this." in help_text
+        assert "keep their call" not in help_text
         assert advanced == english[flow]["step"]["comfort"]["sections"]["advanced"]

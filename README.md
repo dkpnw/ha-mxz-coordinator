@@ -94,7 +94,7 @@ In brief:
   boundary.
 - **Priority settles a standoff.** Among rooms voting for opposing modes (heat versus
   cool), the higher-priority room wins, subject to mode dwell and lockouts. The other
-  waits. A room whose head has been unavailable for longer than a time limit stops
+  waits. A room whose head stays unavailable until a time limit runs out stops
   holding the mode (see
   [When a head goes unavailable](#when-a-head-goes-unavailable)).
 - **Bounded by your settings.** Mode dwell, seasonal heat/cool lockouts, away limits,
@@ -1130,13 +1130,18 @@ a while, then lets go:
 
 - **For a time limit, its last vote still counts (`stale`).** A room run from its own
   remote keeps the heat or cool its head last showed. An enabled room keeps its demand
-  and its run to target in the heat-versus-cool decision, as before.
+  and its run to target in the heat-versus-cool decision, as before. If a room run
+  from its own remote has its Safety priority sensor `on`, its last heat or cool keeps
+  its safety rank while stale, so for up to the limit it can take the mode from an
+  enabled room that is calling.
 - **Then it expires (`expired`).** After **Keep a lost head's vote for** (Configure →
   Comfort → Advanced: 1 to 240 minutes, or blank for 30), the vote stops counting. A
   room run from its own remote no longer sets the direction, and an enabled room stops
   holding the shared mode, so a room waiting for the other mode can be served. MXZ
   keeps sending an enabled room's lost head its usual commands; an unavailable head
-  doesn't take them.
+  doesn't take them. The lost head may still be running its last mode while MXZ runs
+  another room the other way, and the outdoor unit then settles that conflict its own
+  way, as it would without MXZ.
 - **A head that comes back counts again at once (`live`).** Any reversal that follows
   waits out the mode-change wait as usual.
 - **Kept as before:** an enabled room whose Safety priority sensor is `on` keeps its

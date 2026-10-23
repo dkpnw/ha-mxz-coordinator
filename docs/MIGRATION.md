@@ -284,6 +284,9 @@ stale, for **Keep a lost head's vote for** (Configure → Comfort → Advanced),
 the vote expires: an opted-in room's heat or cool stops counting, and an enabled room
 stops holding the shared mode. A head seen again counts at once. An enabled room whose
 Safety priority sensor is `on` keeps its want, and floors and ceilings are unchanged.
+The trade-off: after the limit, MXZ may run another room the other way while the lost
+head is still running its last mode, and the outdoor unit then settles that conflict
+its own way.
 The setting is stored as `lost_vote_ttl`, in minutes, only when set; blank is 30
 minutes. There is no config-entry version change and no migration, and a room whose
 head never goes unavailable behaves exactly as before. Each room in the plan's `zones`
