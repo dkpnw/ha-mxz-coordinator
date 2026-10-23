@@ -42,6 +42,9 @@ from custom_components.mxz_coordinator.const import (
     DUAL_HANDOFF_KEY,
     ZONE_DRIFT_COOLER_BY,
     ZONE_DUAL_SETPOINT,
+    ZONE_STAGE_SENSOR,
+    ZONE_VANE_HORIZONTAL,
+    ZONE_VANE_VERTICAL,
 )
 from tests.flow_pages import open_options_page, prefilled, submit
 from tests.pin_scenario import room_page_pass
@@ -338,6 +341,74 @@ async def test_a_switch_is_recomputed_at_once(hass: HomeAssistant) -> None:
     row = _row(entry, 0)
     assert (row["target_low"], row["target_high"]) == (65.0, 67.0)
     assert (row["heat_start"], row["cool_start"]) == (64.0, 68.0)
+
+
+# --- a room whose stored wiring is empty -----------------------------------------------
+# The config flow stores a vane or stage key as None when it detects none
+# (config_flow._build_zones), and the room page drops an empty key on save. So
+# a room's first save drops it, which is no change to the room.
+@pytest.mark.parametrize("stored", [None, ""])
+@pytest.mark.parametrize("key", [ZONE_VANE_VERTICAL, ZONE_VANE_HORIZONTAL, ZONE_STAGE_SENSOR])
+async def test_a_rooms_first_switch_is_in_place_with_empty_wiring_stored(
+    hass: HomeAssistant, key: str, stored: str | None,
+) -> None:
+    entry, _ = await _setup(hass, zone_keys={key: stored})
+    await _set(hass, entry, "primary_target", 70)
+    coordinator = entry.runtime_data
+    tiles = [_eid(hass, entry, s) for s in ("primary_thermostat", "secondary_thermostat")]
+    objs = [_entity(hass, t) for t in tiles]
+    log = StateLog(hass, tiles)
+
+    await _room_page(hass, entry, 1, dual_setpoint=True)
+
+    assert key not in entry.data[CONF_ZONES][0]  # the save dropped it
+    assert entry.data[CONF_ZONES][1][key] == stored  # the other room's is untouched
+    assert entry.runtime_data is coordinator
+    assert _entity(hass, tiles[0]) is objs[0]
+    assert not log.went_away(tiles[0])
+    (old, new), = log.feature_changes(tiles[0])
+    assert (old.attributes["supported_features"], new.attributes["supported_features"]) == (SINGLE, RANGE)
+    assert log.homekit_rebuilds(tiles[0]) == 1
+    assert _pair(entry) == (69.0, 71.0)
+
+    # The other room's first save drops its key too, and is in place as well.
+    await _room_page(hass, entry, 2, dual_setpoint=True)
+    assert key not in entry.data[CONF_ZONES][1]
+    assert entry.runtime_data is coordinator
+    assert _entity(hass, tiles[1]) is objs[1]
+    assert not log.went_away(tiles[1])
+    assert log.homekit_rebuilds(tiles[1]) == 1
+    log.stop()
+
+
+@pytest.mark.parametrize("switch", [False, True])
+@pytest.mark.parametrize(
+    ("field", "key", "wired"),
+    [
+        ("vane_vertical", ZONE_VANE_VERTICAL, "select.living_vane_vertical"),
+        ("vane_horizontal", ZONE_VANE_HORIZONTAL, "select.living_vane_horizontal"),
+        ("stage", ZONE_STAGE_SENSOR, "sensor.living_stage"),
+    ],
+)
+async def test_wiring_a_room_with_empty_wiring_stored_still_reloads(
+    hass: HomeAssistant, field: str, key: str, wired: str, switch: bool,
+) -> None:
+    """Only an empty value is the same as no key: wiring one in is a real
+    change, so the save reloads, with or without the switch."""
+    entry, _ = await _setup(hass, zone_keys={key: None})
+    coordinator = entry.runtime_data
+    tile_id = _eid(hass, entry, "primary_thermostat")
+    log = StateLog(hass, [tile_id])
+    await _room_page(hass, entry, 1, dual_setpoint=switch, **{field: wired})
+    assert entry.data[CONF_ZONES][0][key] == wired
+    assert entry.runtime_data is not coordinator
+    assert log.went_away(tile_id)
+    assert log.homekit_rebuilds(tile_id) == 0
+    assert _zone(entry, 0).dual is switch
+    if switch:
+        assert _pair(entry) == (69.0, 71.0)  # the reload's handoff seeds it
+    assert not hass.data.get(DUAL_HANDOFF_KEY)
+    log.stop()
 
 
 # --- (4) every other change still reloads ---------------------------------------------

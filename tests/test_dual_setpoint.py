@@ -65,7 +65,7 @@ UNITS = {
 # --- helpers ------------------------------------------------------------------
 async def _setup(
     hass: HomeAssistant, unit: str = "F", *, dual: tuple[int, ...] = (), temps=(70, 70),
-    restore: list | None = None,
+    restore: list | None = None, zone_keys: dict | None = None,
 ) -> tuple[MockConfigEntry, tuple[str, str]]:
     system, head_cls = UNITS[unit]
     hass.config.units = system
@@ -80,6 +80,7 @@ async def _setup(
             CONF_ZONES: [
                 {
                     ZONE_NAME: name, ZONE_CLIMATE: head, ZONE_SENSOR: sensor,
+                    **(zone_keys or {}),
                     **({ZONE_DUAL_SETPOINT: True} if index in dual else {}),
                 }
                 for index, (name, head, sensor) in enumerate(
