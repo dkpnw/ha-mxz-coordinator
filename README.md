@@ -933,16 +933,20 @@ after you switch that room to a range.
 
 **Turning it on and off.** Turning it on starts the range around the room's target at
 the minimum gap: a 70 °F target becomes 69–71 °F, and 21 °C becomes 20.5–21.5 °C.
-Turning it off sets the target to the middle of the range, rounded to the step (exact
-halves round to the even step, as the tile does: 68–73 °F becomes 70), and removes the
-heat to and cool to numbers. A restart keeps the range. If a restored range no longer
-fits the head's limits with the gap, it's re-centered at the gap, and the room's
-`control_reasons` say so until you next change it.
+Turning it off while the integration is loaded sets the target to the middle of the
+range, rounded to the step (exact halves round to the even step, as the tile does:
+68–73 °F becomes 70), and removes the heat to and cool to numbers. A restart keeps the
+range. If a restored range no longer fits the head's limits with the gap, it's
+re-centered at the gap, and the room's `control_reasons` say so until you next change
+it.
 
 **Voice and other apps.** These follow Home Assistant's own bridges:
 
 - **Apple Home** shows the room in Auto with a heating and a cooling threshold. It sends
   a threshold change as a pair with the other one unchanged, so the push rule applies.
+  When you drag one threshold past the other, though, Home Assistant's HomeKit bridge
+  pushes first: it sets the other one 5 °C (9 °F) away, within the room's limits, so
+  you see that wider push rather than MXZ's 2 °F (1 °C).
 - **Google Home** shows the low and high setpoints in heat-cool, and setting the range
   sets both. A single number for the room ("set the living room to 70") reaches it as
   one temperature, which Home Assistant refuses for a range, so nothing changes. Google

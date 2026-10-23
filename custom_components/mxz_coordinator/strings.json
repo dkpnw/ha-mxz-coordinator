@@ -523,7 +523,7 @@
           },
           "dual": {
             "name": "Dual setpoint",
-            "description": "Optional, off by default. On, this room has two numbers instead of one target: Heat to and Cool to. It heats when it falls below Heat to by its drift and runs back up to Heat to, and it cools when it rises above Cool to by its drift and runs back down to Cool to. In between, it rests. MXZ still picks heat or cool for the shared outdoor unit, and eco, the lockouts, and the freeze floor work as before. The two stay at least 2 °F (1 °C) apart: moving one too close pushes the other. Turning this on starts the range around the room's target, 1 °F (0.5 °C) each side. Turning it off sets the target to the middle of the range.",
+            "description": "Optional, off by default. On, this room has two numbers instead of one target: Heat to and Cool to. It heats when it falls below Heat to by its drift and runs back up to Heat to, and it cools when it rises above Cool to by its drift and runs back down to Cool to. In between, it rests. MXZ still picks heat or cool for the shared outdoor unit, and eco, the lockouts, and the freeze floor work as before. The two stay at least 2 °F (1 °C) apart: moving one too close pushes the other. Turning this on starts the range around the room's target, 1 °F (0.5 °C) each side. Turning it off, with the integration loaded, sets the target to the middle of the range.",
             "data": {
               "dual_setpoint": "Use separate heat and cool setpoints"
             },

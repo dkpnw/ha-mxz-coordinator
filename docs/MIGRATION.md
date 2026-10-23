@@ -20,10 +20,12 @@ the single target, and its target number shows the range's middle.
 
 **Turning it off.** Save the room's page with the toggle off. The key is removed (it's
 never stored as false), so the room's record is exactly what it was before it opted in.
-The target becomes the middle of the range, rounded to the step (exact halves round to
-the even step, as the tile does: 68–73 °F becomes 70). The heat to and cool to numbers
-are removed from the entity registry on the reload, and the thermostat shows one target
-again.
+With the integration loaded, the target becomes the middle of the range, rounded to the
+step (exact halves round to the even step, as the tile does: 68–73 °F becomes 70). If it
+isn't loaded when you save (for example, it failed to start), the target keeps the
+middle it last showed, which can be a half degree such as 68.5 °F. The heat to and cool
+to numbers are removed from the entity registry on the reload, and the thermostat shows
+one target again.
 
 Either way, the room's run starts fresh, as it does after a target change. Drift,
 uneven drift, fan, and vane settings are untouched. Automations that write the room's
