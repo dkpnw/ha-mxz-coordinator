@@ -343,6 +343,42 @@ async def test_a_switch_is_recomputed_at_once(hass: HomeAssistant) -> None:
     assert (row["heat_start"], row["cool_start"]) == (64.0, 68.0)
 
 
+async def test_the_thermostat_shows_the_range_before_the_numbers_appear(hass: HomeAssistant) -> None:
+    """The switch's own state write: the thermostat's new features come before
+    the heat-to number's first state, not with the refresh that follows."""
+    entry, _ = await _setup(hass)
+    tile_id = _eid(hass, entry, "primary_thermostat")
+    low_id = er.async_get(hass).async_get_or_create(
+        "number", DOMAIN, f"{entry.entry_id}_primary_target_low", config_entry=entry
+    ).entity_id
+    log = StateLog(hass, [tile_id, low_id])
+    await _room_page(hass, entry, 1, dual_setpoint=True)
+    (old, new), = log.feature_changes(tile_id)
+    order = [(entity_id, new_state) for entity_id, _, new_state in log.events]
+    assert order.index((tile_id, new)) < [entity_id for entity_id, _ in order].index(low_id), order
+    log.stop()
+
+
+async def test_without_the_number_platform_callback_the_save_reloads(hass: HomeAssistant) -> None:
+    """Nowhere to add the new numbers: the save reloads, and the options
+    flow's handoff seeds the range exactly as on f01252f."""
+    entry, _ = await _setup(hass)
+    await _set(hass, entry, "primary_target", 70)
+    coordinator = entry.runtime_data
+    coordinator.add_range_numbers = None
+    tile_id = _eid(hass, entry, "primary_thermostat")
+    log = StateLog(hass, [tile_id])
+    await _room_page(hass, entry, 1, dual_setpoint=True)
+    assert entry.runtime_data is not coordinator
+    assert log.went_away(tile_id)
+    assert _zone(entry, 0).dual is True
+    assert _pair(entry) == (69.0, 71.0)
+    assert _value(hass, entry, "primary_target_low") == 69
+    assert _value(hass, entry, "primary_target_high") == 71
+    assert not hass.data.get(DUAL_HANDOFF_KEY)
+    log.stop()
+
+
 # --- a room whose stored wiring is empty -----------------------------------------------
 # The config flow stores a vane or stage key as None when it detects none
 # (config_flow._build_zones), and the room page drops an empty key on save. So
