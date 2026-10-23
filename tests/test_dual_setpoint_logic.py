@@ -62,7 +62,10 @@ def test_room_call_matches_the_design_table(eco, heat_lockout, cool_lockout):
     """Every reading, range, uneven band pair, eco, and lockout combination."""
     temps = [55 + 0.25 * i for i in range(121)]  # 55 .. 85
     for (low, high), (hb, cb) in itertools.product(
-        ((68.0, 74.0), (69.0, 71.0), (66.0, 76.0), (70.0, 72.0)),
+        # The last two reach past the safety lines and the eco band: 59 - 3
+        # is below the 58 lockout floor, 79 + 4 above the 80 ceiling, and 59
+        # and 79 sit outside the 60-78 eco band.
+        ((68.0, 74.0), (69.0, 71.0), (66.0, 76.0), (70.0, 72.0), (59.0, 66.0), (72.0, 79.0)),
         ((1.0, 1.0), (3.0, 0.5), (0.5, 4.0), (0.0, 0.0)),
     ):
         for temp in temps:
@@ -110,8 +113,30 @@ def test_lockouts_move_their_own_side_out_to_the_safety_line():
     assert _call(66, 68, 74, 1, 1, **on) == HEAT
 
 
+def test_a_lockout_keeps_an_edge_already_past_its_safety_line():
+    """L - d below the floor (60 - 3 = 57 < 58): the heat side still starts at
+    57, its own edge, not at the floor. Likewise H + d above the ceiling."""
+    on = {"heat_lockout": True, "heat_lockout_floor": 58.0}
+    assert logic.call_edges(
+        target=63.0, heat_band=3, cool_band=1, heat_target=60, cool_target=66,
+        **{**_COMMON, **on},
+    ) == (57.0, 67.0)
+    assert _call(57.5, 60, 66, 3, 1, **on) == NEUTRAL  # below the floor, not below L - d
+    assert _call(57.0, 60, 66, 3, 1, **on) == NEUTRAL
+    assert _call(56.9, 60, 66, 3, 1, **on) == HEAT
+    on = {"cool_lockout": True, "cool_lockout_ceiling": 80.0}
+    assert logic.call_edges(
+        target=76.5, heat_band=1, cool_band=3, heat_target=74, cool_target=79,
+        **{**_COMMON, **on},
+    ) == (73.0, 82.0)
+    assert _call(81.5, 74, 79, 1, 3, **on) == NEUTRAL  # above the ceiling, not above H + d
+    assert _call(82.1, 74, 79, 1, 3, **on) == COOL
+
+
 def test_eco_ignores_heat_to_and_cool_to():
-    for low, high in ((68, 74), (62, 64), (75, 77)):
+    # The last two reach past the eco band (heat to below its 60 floor, cool
+    # to above its 78 ceiling): eco still uses the eco band, not the range.
+    for low, high in ((68, 74), (62, 64), (75, 77), (59, 70), (70, 84)):
         assert _call(61, low, high, 1, 1, eco=True) == NEUTRAL
         assert _call(59.9, low, high, 1, 1, eco=True) == HEAT
         assert _call(78.1, low, high, 1, 1, eco=True) == COOL

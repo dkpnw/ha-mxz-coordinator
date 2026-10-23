@@ -313,6 +313,46 @@ async def test_toggle_off_sets_the_snapped_midpoint_and_removes_the_entities(
     assert set(_row(entry, 0)) == single_row_keys
 
 
+async def test_toggling_on_mid_run_resets_the_engage_latch(hass: HomeAssistant) -> None:
+    """DESIGN 5: a room heating at 70.5 toward a 72 target is switched to 71-73.
+    A fresh decision at 70.5 (heat starts below 70) coasts; the latch the reload
+    resumes from the head's mode would keep heating to 71."""
+    entry, (head_a, _) = await _setup(hass, temps=(72, 70))
+    await _set(hass, entry, "primary_target", 72)
+    await _start(hass, entry)
+    await _run(hass, entry, 68, 70)
+    assert entry.runtime_data.data["primary_engage"] == "heat"
+    await _run(hass, entry, 70.5, 70)  # inside the drift: only the latch says heat
+    assert entry.runtime_data.data["primary_engage"] == "heat"
+    assert hass.states.get(head_a).state == "heat"
+
+    await room_page_pass(hass, entry, 1, {"dual_setpoint": True})
+    assert _pair(entry) == (71.0, 73.0)
+    await _compute(hass, entry)
+    assert entry.runtime_data.data["primary_engage"] == "satisfied"
+
+
+async def test_toggling_off_mid_run_resets_the_engage_latch(hass: HomeAssistant) -> None:
+    """The other direction, with a 3 °F room drift: a 70-72 room heating at 69.5
+    toward 70 is switched back to one target, 71. A fresh decision at 69.5 (heat
+    starts below 68) coasts; a resumed latch would keep heating to 71."""
+    entry, (head_a, _) = await _setup(hass, dual=(0,), temps=(71, 70))
+    await _range(hass, entry, "primary", 70, 72)
+    await _set(hass, entry, "primary_drift", 3)
+    await _start(hass, entry)
+    await _run(hass, entry, 66, 70)
+    assert entry.runtime_data.data["primary_engage"] == "heat"
+    await _run(hass, entry, 69.5, 70)
+    assert entry.runtime_data.data["primary_engage"] == "heat"
+    assert hass.states.get(head_a).state == "heat"
+
+    await room_page_pass(hass, entry, 1, {"dual_setpoint": False})
+    assert _zone(entry, 0).target == 71
+    assert _zone(entry, 0).dual is False
+    await _compute(hass, entry)
+    assert entry.runtime_data.data["primary_engage"] == "satisfied"
+
+
 async def test_an_untouched_room_page_keeps_a_dual_room_as_it_is(hass: HomeAssistant) -> None:
     entry, _ = await _setup(hass)
     await room_page_pass(hass, entry, 1, {"dual_setpoint": True})
@@ -371,6 +411,34 @@ async def test_runs_end_at_the_edge_and_start_points_are_the_edges_used(
     assert hass.states.get(head_a).state == "fan_only"
 
 
+async def test_the_demand_vote_measures_from_each_edge_not_the_midpoint(
+    hass: HomeAssistant,
+) -> None:
+    """Threshold 3 °F from each edge: a 68-74 room asks the shared unit for heat
+    below 65 and for cool above 77. From the midpoint (71) it would ask for heat
+    below 68 and for cool above 74, so at 66 and 76 the two answers differ."""
+    entry, _ = await _setup(hass, dual=(0,), temps=(71, 70))
+    await _range(hass, entry, "primary", 68, 74)
+    await _start(hass, entry)
+    row = _row(entry, 0)
+    assert (row["heat_demand_below"], row["cool_demand_above"]) == (65.0, 77.0)
+    for temp, engage, demand in (
+        (66.0, "heat", "neutral"),  # past the start edge, short of the vote
+        (65.0, "heat", "neutral"),  # at heat_demand_below: strict, no vote yet
+        (64.9, "heat", "heat"),
+        (71.0, "satisfied", "neutral"),
+        (76.0, "cool", "neutral"),
+        (77.0, "cool", "neutral"),  # at cool_demand_above: strict, no vote yet
+        (77.1, "cool", "cool"),
+    ):
+        await _run(hass, entry, temp, 70)
+        plan = entry.runtime_data.data
+        assert (plan["primary_engage"], plan["primary_demand"]) == (engage, demand), temp
+        # The shown switching points are the ones the vote just used.
+        row = _row(entry, 0)
+        assert (row["heat_demand_below"], row["cool_demand_above"]) == (65.0, 77.0), temp
+
+
 async def test_fan_boost_measures_the_distance_to_the_range(hass: HomeAssistant, monkeypatch) -> None:
     entry, (head_a, head_b) = await _setup(hass, dual=(0,), temps=(71, 70))
     await _range(hass, entry, "primary", 68, 74)
@@ -388,6 +456,31 @@ async def test_fan_boost_measures_the_distance_to_the_range(hass: HomeAssistant,
         await _run(hass, entry, temp, 72.5)
         assert seen[head_a] == want, temp
         assert seen[head_b] == 2.5  # the single-target room: abs(72.5 - 70)
+
+
+@pytest.mark.parametrize(
+    ("unit", "pair", "eco_band", "below", "above"),
+    [
+        ("F", (68, 82), (50.0, 78.0), 77.5, 79.0),
+        ("C", (20.0, 28.0), (10.0, 26.0), 25.5, 26.5),
+    ],
+)
+async def test_eco_ignores_a_cool_to_above_the_eco_ceiling(
+    hass: HomeAssistant, unit, pair, eco_band, below, above
+) -> None:
+    """Eco runs the eco band even where cool to sits past its ceiling: the
+    room cools above the eco ceiling, not above cool to."""
+    other = 21 if unit == "C" else 70
+    entry, _ = await _setup(hass, unit, dual=(0,), temps=(pair[0] + 1, other))
+    await _range(hass, entry, "primary", *pair)
+    await _start(hass, entry)
+    await _on(hass, entry, "eco_idle")
+    for temp, engage in ((below, "satisfied"), (above, "cool")):
+        await _run(hass, entry, temp, other)
+        row = _row(entry, 0)
+        assert row["start_points_mode"] == "eco"
+        assert (row["heat_start"], row["cool_start"]) == eco_band
+        assert entry.runtime_data.data["primary_engage"] == engage, temp
 
 
 @pytest.mark.parametrize("dual_index", [0, 1])
@@ -467,15 +560,19 @@ async def test_climate_pair_is_checked_and_written_atomically(hass: HomeAssistan
     assert writes == [(68, 74)]  # one write for the pair, not one per edge
 
     rec = Recorder(hass, (head_a, head_b))
-    for low, high in ((70, 71), (71, 71)):
+    # The room is off, and each refused call asks to turn it on: a refused
+    # call changes nothing, its mode included. Both edges move in each pair,
+    # so none of them is a push.
+    assert _state(hass, entry, "primary_enable").state == "off"
+    for low, high in ((70, 71), (71, 71), (65, 66)):
         with pytest.raises(ServiceValidationError) as err:
-            await _range(hass, entry, "primary", low, high, hvac_mode="off")
+            await _range(hass, entry, "primary", low, high, hvac_mode="heat_cool")
         assert err.value.translation_key == "range_too_narrow"
+        assert _state(hass, entry, "primary_enable").state == "off", (low, high)
     with pytest.raises(ServiceValidationError) as err:
-        await _range(hass, entry, "primary", 75, 70)  # inverted: HA's own check
+        await _range(hass, entry, "primary", 75, 70, hvac_mode="heat_cool")  # inverted: HA's own check
     assert _pair(entry) == (68, 74)
     assert writes == [(68, 74)]
-    # A refused call changes nothing, its mode included.
     assert _state(hass, entry, "primary_enable").state == "off"
     assert rec.calls == []
 
@@ -641,6 +738,10 @@ async def test_a_reorder_carries_the_range_with_its_room(hass: HomeAssistant) ->
     await _range(hass, entry, "primary", 64, 76)
     low_id = _eid(hass, entry, "primary_target_low")
     high_id = _eid(hass, entry, "primary_target_high")
+    registry = er.async_get(hass)
+    # The registry records themselves move (same registry id, so the user's
+    # customizations stay); a dropped and recreated record would get new ids.
+    record_ids = (registry.async_get(low_id).id, registry.async_get(high_id).id)
     await _reconfigure(hass, entry, list(heads[::-1]), [SENSOR_B, SENSOR_A], names=["Bedroom", "Living"])
     zones = entry.runtime_data.zones
     assert [z.climate_id for z in zones] == list(heads[::-1])
@@ -649,6 +750,10 @@ async def test_a_reorder_carries_the_range_with_its_room(hass: HomeAssistant) ->
     assert ZONE_DUAL_SETPOINT not in entry.data[CONF_ZONES][0]
     assert _eid(hass, entry, "secondary_target_low") == low_id
     assert _eid(hass, entry, "secondary_target_high") == high_id
+    assert (
+        registry.async_get(_eid(hass, entry, "secondary_target_low")).id,
+        registry.async_get(_eid(hass, entry, "secondary_target_high")).id,
+    ) == record_ids
     assert not _has(hass, entry, "primary_target_low")
     assert _pair(entry, 1) == (64.0, 76.0)
 
