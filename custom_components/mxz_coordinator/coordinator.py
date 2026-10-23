@@ -93,6 +93,7 @@ from .const import (
     DEFAULT_RESTING_MODE_BIAS,
     DEMAND_NEUTRAL,
     DOMAIN,
+    DUAL_HANDOFF_KEY,
     ENGAGE_SATISFIED,
     EVENT_RECOMPUTE,
     EVIDENCE_HA_WRITE,
@@ -130,6 +131,7 @@ from .const import (
     ZONE_CLIMATE,
     ZONE_DRIFT_COOLER_BY,
     ZONE_DRIFT_WARMER_BY,
+    ZONE_DUAL_SETPOINT,
     ZONE_EVIDENCE_BASIS,
     ZONE_FLOOR_HIGH,
     ZONE_FLOOR_LOW,
@@ -155,6 +157,7 @@ from .logic import (
     PRIORITY_VOTE,
     Demand,
     FloorRun,
+    RangeError,
     arbitrate,
     call_edges,
     engage_with_latch,
@@ -164,11 +167,13 @@ from .logic import (
     floor_progress,
     freshness_window,
     head_action,
+    range_delta,
     room_call,
     sample_evidence,
     season_lockouts,
     sensor_health,
     setpoints,
+    shift_range,
 )
 
 if TYPE_CHECKING:
@@ -313,6 +318,20 @@ class Zone:
     # not set (or not a finite number): that side falls through.
     drift_cooler_by: float | None = None
     drift_warmer_by: float | None = None
+    # Dual setpoint (ZONE_DUAL_SETPOINT), from config; only a stored True opts
+    # in. Then target_low / target_high are its Heat to and Cool to, owned by
+    # the room's heat-to and cool-to numbers (None until they restore), and
+    # target is their midpoint, kept in step by every range write.
+    dual: bool = False
+    target_low: float | None = None
+    target_high: float | None = None
+    # The options flow's one-shot handoff for this room ({"seed_range": True}
+    # when it was just switched on, {"target": t} when just switched off),
+    # taken when the coordinator is built and read once by the numbers.
+    handoff: dict[str, Any] | None = None
+    # A restored range that no longer fit and was re-centered: the room's
+    # detail says so until the range is next written.
+    range_note: str | None = None
 
 
 def _parse_zones(
@@ -371,6 +390,7 @@ def _parse_zones(
             floor_high=_finite(z.get(ZONE_FLOOR_HIGH)),
             drift_cooler_by=_drift_side(z.get(ZONE_DRIFT_COOLER_BY), *engage_bounds),
             drift_warmer_by=_drift_side(z.get(ZONE_DRIFT_WARMER_BY), *engage_bounds),
+            dual=z.get(ZONE_DUAL_SETPOINT) is True,
         )
         for i, z in enumerate(raw)
     ]
@@ -435,6 +455,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.zones: list[Zone] = _parse_zones(
             conf, self.target_default, self._profile["engage_bounds"]
         )
+        self.dual_min_gap: float = self._profile["dual_min_gap"]
+        handoffs: dict[tuple[str, str], dict[str, Any]] = hass.data.setdefault(
+            DUAL_HANDOFF_KEY, {}
+        )
+        for zone in self.zones:
+            zone.handoff = handoffs.pop((entry.entry_id, zone.climate_id), None)
+        # A dual room's restored edges until both have arrived (see
+        # offer_range_restore): {slug: {is_low: value or None}}.
+        self._range_offers: dict[str, dict[bool, float | None]] = {}
         self.notify_service: str | None = conf.get(CONF_NOTIFY_SERVICE) or None
 
         # Unit-dependent tunables fall back to the system-unit profile default;
@@ -832,6 +861,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_setup(self) -> None:
         """Wire up listeners and run the first compute/apply."""
         self._floor_live = True  # the switches have restored by now
+        for zone in self.zones:
+            if zone.handoff is not None:
+                # Just switched to or from a dual setpoint: a fresh decision,
+                # exactly as a target write makes one (the switches have
+                # restored by now, so this sees the room's real state).
+                self.reset_engage_latch(zone.slug)
+                zone.handoff = None
         self._unsubs.append(
             async_track_state_change_event(
                 self.hass,
@@ -1014,8 +1050,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Per side, so a wide "warmer by" also holds back cool demand.
             heat_demand_band = max(self.demand_threshold, heat_drift)
             cool_demand_band = max(self.demand_threshold, cool_drift)
+            # Each side measures from its own target: Heat to and Cool to in
+            # a dual-setpoint room, the one target (twice) otherwise.
+            heat_target, cool_target = self.zone_side_targets(zone)
             demand = room_call(
                 temp=temp, target=zone.target, enabled=zone.enable,
+                heat_target=heat_target, cool_target=cool_target,
                 sensor_ok=ok,
                 heat_band=heat_demand_band,
                 cool_band=cool_demand_band,
@@ -1029,6 +1069,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     sides=(heat_drift, cool_drift),
                     demand_bands=(heat_demand_band, cool_demand_band),
                     sources=(heat_from, cool_from),
+                    targets=(heat_target, cool_target),
                 )
             )
             if zone.slug in self._startup_resume:
@@ -1065,6 +1106,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             engage = engage_with_latch(
                 prior=prior_engage or None,
                 temp=temp, target=zone.target, enabled=zone.enable,
+                heat_target=heat_target, cool_target=cool_target,
                 sensor_ok=ok, heat_band=heat_drift, cool_band=cool_drift,
                 neutral=ENGAGE_SATISFIED,
                 **common,
@@ -1139,6 +1181,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "engage": engages[i],
                         "temp": plan[f"{zone.slug}_temp"],
                         "target": zone.target,
+                        # A dual-setpoint room's Heat to and Cool to (its
+                        # target above is their midpoint). A single-target
+                        # row has no such keys.
+                        **(
+                            {"target_low": zone.target_low, "target_high": zone.target_high}
+                            if zone.dual else {}
+                        ),
                         "enabled": zone.enable,
                         "drift": self.zone_drift(zone),
                         # The drift in use below / above target (the same as
@@ -1221,6 +1270,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if read_room_temp(sensor, self.temp_unit) is None:
             add(f"Room sensor {zone.sensor_id} unavailable or invalid.",
                 "Restore a numeric temperature report with a supported unit.")
+        if zone.range_note:
+            add(zone.range_note,
+                "Check this room's heat to and cool to; writing either one clears this note.")
         if problem := self._fan_restore_problem.get(zone.climate_id):
             add(problem, "Reported speed is the conservative fallback; turn Fan auto ON to hand back control.")
         if zone.climate_id in self._fan_on_pending:
@@ -1887,12 +1939,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 eco=self._eco_active(),
                 idle=idle,
             )
+            heat_target, cool_target = self.zone_side_targets(zone)
             low, high = setpoints(
                 mode=state,
                 # A floor runs the head to its clear line, never the eco band.
                 target=(
                     self._floor_clear(zone, floor) if floor else float(zone.target)
                 ),
+                # Heat to while the shared mode is heat, Cool to while it's
+                # cool (the one target, twice, in a single-target room). A
+                # floor's clear line is its own target.
+                heat_target=None if floor else float(heat_target),
+                cool_target=None if floor else float(cool_target),
                 eco=self._eco_active() and not floor,
                 clamp_min=self.clamp_min,
                 clamp_max=self.clamp_max,
@@ -1910,7 +1968,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 keep = max if floor == MODE_HEAT else min
                 low, high = keep(low, taken[1]), keep(high, taken[2])
             shown = plan[f"{zone.slug}_temp"]
-            delta = 0.0 if shown is None else abs(shown - float(zone.target))
+            # How far the room sits outside its range (off its target, for a
+            # single target, where the range is the target itself).
+            delta = 0.0 if shown is None else range_delta(
+                temp=shown, low=float(heat_target), high=float(cool_target)
+            )
             # A floor delivery takes the fan-free path (engage None, as the
             # standby park does): mode and setpoint only, so a manual fan pick
             # is kept and MXZ never writes this head's fan.
@@ -4220,6 +4282,96 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             side(zone.drift_warmer_by, "room_warmer_by", self.drift_warmer_by, "warmer_by"),
         )
 
+    def zone_side_targets(self, zone: Zone) -> tuple[float, float]:
+        """The target each side measures from: (heat side, cool side).
+
+        A dual-setpoint room's Heat to and Cool to; a single-target room's
+        target, twice (so every decision computes exactly what it did before
+        dual setpoints existed). A dual room whose numbers haven't restored
+        yet reads its target until they do.
+        """
+        if zone.dual and zone.target_low is not None and zone.target_high is not None:
+            return zone.target_low, zone.target_high
+        return zone.target, zone.target
+
+    def set_zone_range(self, zone: Zone, low: float, high: float) -> None:
+        """Store a dual-setpoint room's validated range; nothing is checked here.
+
+        The target becomes the midpoint, the engage latch resets exactly as a
+        target write resets it, any restore note is spent, and the room's
+        entities redraw. The caller requests the recompute.
+        """
+        zone.target_low, zone.target_high = low, high
+        zone.target = (low + high) / 2
+        zone.range_note = None
+        self.reset_engage_latch(zone.slug)
+        self.async_update_listeners()
+
+    def offer_range_restore(
+        self, zone: Zone, is_low: bool, restored: float | None
+    ) -> None:
+        """One edge's restored value (None: nothing usable); the second settles both.
+
+        The pair is decided as a whole, so a range never mixes one restored
+        edge with one seeded edge: both restored edges, unless the room was
+        just switched on (the options flow's handoff) or either is missing;
+        then a range seeded around the (already restored) target at the
+        minimum gap, never one an earlier opt-in left in the restore data.
+        :meth:`finish_range_restore` then re-checks it, and the room's
+        entities redraw.
+        """
+        offers = self._range_offers.setdefault(zone.slug, {})
+        offers[is_low] = restored
+        if len(offers) < 2:
+            return
+        del self._range_offers[zone.slug]
+        bounds = self.head_target_bounds(zone.climate_id)
+        fresh = zone.handoff is not None and zone.handoff.get("seed_range") is True
+        if not fresh and offers[True] is not None and offers[False] is not None:
+            low, high = offers[True], offers[False]
+        else:
+            try:
+                low, high = shift_range(
+                    width=self.dual_min_gap, center=zone.target,
+                    bounds=bounds, step=self.target_step,
+                )
+            except RangeError:
+                low, high = bounds  # a head band narrower than the gap
+        zone.target_low, zone.target_high = float(low), float(high)
+        self.finish_range_restore(zone)
+        self.async_update_listeners()
+
+    def finish_range_restore(self, zone: Zone) -> None:
+        """Re-check a dual room's range once both of its numbers have restored.
+
+        Each edge is clamped into the head's current bounds. If that leaves
+        the pair narrower than the minimum gap, the range is re-centered at
+        the minimum gap around its midpoint (sliding inside the bounds), and
+        the room's detail says so once, until the range is next written.
+        """
+        if zone.target_low is None or zone.target_high is None:
+            return
+        lo, hi = self.head_target_bounds(zone.climate_id)
+        low = min(max(zone.target_low, lo), hi)
+        high = min(max(zone.target_high, lo), hi)
+        if high - low < self.dual_min_gap - 1e-9:
+            was = (zone.target_low, zone.target_high)
+            try:
+                low, high = shift_range(
+                    width=self.dual_min_gap, center=(low + high) / 2,
+                    bounds=(lo, hi), step=self.target_step,
+                )
+            except RangeError:
+                low, high = lo, hi  # a head band narrower than the gap
+            zone.range_note = (
+                f"Restored heat to {was[0]:g} and cool to {was[1]:g} didn't fit"
+                f" this head's limits {lo:g} to {hi:g} with the minimum gap,"
+                f" so the range was re-centered at {low:g} to {high:g}."
+            )
+            _LOGGER.warning("%s: %s", zone.name, zone.range_note)
+        zone.target_low, zone.target_high = low, high
+        zone.target = (low + high) / 2
+
     def reset_engage_latch(self, slug: str) -> None:
         """Forget a zone's engage latch (its target changed -> fresh decision).
 
@@ -4466,11 +4618,13 @@ def _start_points(
     sides: tuple[float, float],
     demand_bands: tuple[float, float],
     sources: tuple[str, str],
+    targets: tuple[float, float],
 ) -> dict[str, Any]:
     """One room's start points: the edges its engage and demand calls compare to.
 
-    ``common``, ``sides``, and ``demand_bands`` are exactly what this compute
-    passed to room_call / engage_with_latch, and :func:`call_edges` is the one
+    ``common``, ``sides``, ``demand_bands``, and ``targets`` (each side's
+    target) are exactly what this compute passed to room_call /
+    engage_with_latch, and :func:`call_edges` is the one
     place those turn into edges, so the numbers shown are the numbers used.
     The start edges are where a coasting room starts a run (a running room
     still runs all the way to its target). A disabled room makes no call, so
@@ -4491,10 +4645,13 @@ def _start_points(
     if not zone.enable:
         return points
     edges = (
-        *call_edges(target=zone.target, heat_band=sides[0], cool_band=sides[1], **common),
+        *call_edges(
+            target=zone.target, heat_band=sides[0], cool_band=sides[1],
+            heat_target=targets[0], cool_target=targets[1], **common,
+        ),
         *call_edges(
             target=zone.target, heat_band=demand_bands[0], cool_band=demand_bands[1],
-            **common,
+            heat_target=targets[0], cool_target=targets[1], **common,
         ),
     )
     points.update(

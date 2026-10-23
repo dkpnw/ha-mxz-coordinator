@@ -19,6 +19,12 @@ freezes, so nobody upstream (a HomeKit slider especially) knows the physical
 airflow. When such a sensor is wired, the tile mirrors the firmware's decoded
 actual blower stage as the matching settable rung — display ONLY; it never
 changes what the coordinator commands or what the latch machinery reads.
+
+A room opted in to a dual setpoint (Configure, Rooms, the room, Dual setpoint)
+gets :class:`MXZRangeRoomClimate` instead: the range in place of the single
+target, ``target_temp_low`` as its Heat to and ``target_temp_high`` as its
+Cool to, still in ``heat_cool``, still with MXZ choosing the direction. A
+room that isn't opted in keeps :class:`MXZRoomClimate` exactly as it was.
 """
 
 from __future__ import annotations
@@ -27,6 +33,8 @@ from typing import Any, ClassVar
 
 from homeassistant.components.climate import (
     ATTR_HVAC_MODE,
+    ATTR_TARGET_TEMP_HIGH,
+    ATTR_TARGET_TEMP_LOW,
     ClimateEntity,
     ClimateEntityFeature,
     HVACAction,
@@ -51,6 +59,8 @@ from .const import (
 )
 from .coordinator import MXZCoordinator, Zone, read_room_temp
 from .entity import MXZEntity
+from .logic import RangeError, resolve_range
+from .number import range_error
 
 # What a head is doing, from its mode, when it reports no hvac_action itself.
 _ACTION_FOR_MODE = {
@@ -70,10 +80,11 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up one single-target room thermostat per zone."""
+    """Set up one room thermostat per zone (a range one for a dual-setpoint room)."""
     coordinator: MXZCoordinator = entry.runtime_data
     async_add_entities(
-        MXZRoomClimate(coordinator, zone) for zone in coordinator.zones
+        (MXZRangeRoomClimate if zone.dual else MXZRoomClimate)(coordinator, zone)
+        for zone in coordinator.zones
     )
 
 
@@ -407,3 +418,70 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
             {"entity_id": enable_eid},
             blocking=True,
         )
+
+
+class MXZRangeRoomClimate(MXZRoomClimate):
+    """A dual-setpoint room's thermostat: Heat to and Cool to instead of one target.
+
+    The range feature replaces the single target, never both: a feature with
+    no value would be dishonest, and HomeKit, Alexa, and Google each handle
+    "both, one of them empty" differently. Everything else (modes, bounds,
+    step, action, fan, swing, and the start-point attributes) is the room
+    thermostat's own. It owns no state: writes land on the coordinator's
+    range, which the room's heat-to and cool-to numbers display and restore.
+    """
+
+    def __init__(self, coordinator: MXZCoordinator, zone: Zone) -> None:
+        super().__init__(coordinator, zone)
+        self._base_features = (
+            self._base_features & ~ClimateEntityFeature.TARGET_TEMPERATURE
+        ) | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+
+    @property
+    def target_temperature(self) -> float | None:
+        return None
+
+    @property
+    def target_temperature_low(self) -> float | None:
+        return self._zone.target_low
+
+    @property
+    def target_temperature_high(self) -> float | None:
+        return self._zone.target_high
+
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        """A range write: the final pair, checked, then stored in one step.
+
+        HA only reaches here with both edges (or neither: a mode-only call),
+        already inside min_temp/max_temp. A HomeKit threshold change arrives
+        as a pair with the other edge unchanged, so the push rule applies to
+        it; a pair that moves both edges too close together, or crosses them,
+        is refused with a translated error. The pair is checked before
+        anything is written, so a refused call changes nothing (its mode
+        included). Then ``hvac_mode`` goes first, as on the single-target
+        tile (#17), and the pair is stored at once, not one number at a
+        time, so no recompute sees half a move.
+        """
+        new = self._checked_range(kwargs)
+        if (hvac_mode := kwargs.get(ATTR_HVAC_MODE)) is not None:
+            await self.async_set_hvac_mode(hvac_mode)
+        if new is not None:
+            self.coordinator.set_zone_range(self._zone, *new)
+            await self.coordinator.async_user_changed()
+
+    def _checked_range(self, kwargs: dict[str, Any]) -> tuple[float, float] | None:
+        zone = self._zone
+        low, high = kwargs.get(ATTR_TARGET_TEMP_LOW), kwargs.get(ATTR_TARGET_TEMP_HIGH)
+        if (low is None and high is None) or zone.target_low is None or zone.target_high is None:
+            return None
+        try:
+            return resolve_range(
+                low=zone.target_low, high=zone.target_high,
+                new_low=zone.target_low if low is None else float(low),
+                new_high=zone.target_high if high is None else float(high),
+                gap=self.coordinator.dual_min_gap,
+                bounds=self.coordinator.head_target_bounds(zone.climate_id),
+                step=self.coordinator.target_step,
+            )
+        except RangeError as err:
+            raise range_error(self.coordinator, zone, err) from err

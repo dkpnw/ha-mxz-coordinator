@@ -520,6 +520,16 @@
               "floor_low": "Heat this disabled room below this temperature. 35-65 °F (2-18 °C).",
               "floor_high": "Cool this disabled room above this temperature. 75-100 °F (24-38 °C)."
             }
+          },
+          "dual": {
+            "name": "Dual setpoint",
+            "description": "Optional, off by default. On, this room has two numbers instead of one target: Heat to and Cool to. It heats when it falls below Heat to by its drift and runs back up to Heat to, and it cools when it rises above Cool to by its drift and runs back down to Cool to. In between, it rests. MXZ still picks heat or cool for the shared outdoor unit, and eco, the lockouts, and the freeze floor work as before. The two stay at least 2 °F (1 °C) apart: moving one too close pushes the other. Turning this on starts the range around the room's target, 1 °F (0.5 °C) each side. Turning it off sets the target to the middle of the range.",
+            "data": {
+              "dual_setpoint": "Use separate heat and cool setpoints"
+            },
+            "data_description": {
+              "dual_setpoint": "Adds this room's heat to and cool to numbers, and its thermostat shows a range. Its target number stays and shows the middle of the range; writing it moves the whole range. Voice assistants that set one number, such as Assist, can't set a range; use the target number instead."
+            }
           }
         }
       }
@@ -588,6 +598,12 @@
       },
       "zone_drift": {
         "name": "{zone} drift"
+      },
+      "zone_heat_to": {
+        "name": "{zone} heat to"
+      },
+      "zone_cool_to": {
+        "name": "{zone} cool to"
       }
     },
     "switch": {
@@ -624,6 +640,20 @@
       "zone_thermostat": {
         "name": "{zone} thermostat"
       }
+    }
+  },
+  "exceptions": {
+    "range_out_of_bounds": {
+      "message": "{zone}: heat to and cool to must both be between {min} and {max}."
+    },
+    "range_too_narrow": {
+      "message": "{zone}: cool to must be at least {gap} above heat to. Move one of them at a time to push the other, or set a wider range."
+    },
+    "range_push_out_of_bounds": {
+      "message": "{zone}: heat to and cool to stay at least {gap} apart, and keeping that gap would push the other one past this room's limits ({min} to {max})."
+    },
+    "range_too_wide": {
+      "message": "{zone}: the range is wider than this room's limits ({min} to {max})."
     }
   }
 }

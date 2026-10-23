@@ -67,6 +67,8 @@ from .const import (
     DEFAULT_MODE_HYSTERESIS,
     DEFAULT_RESTING_MODE_BIAS,
     DOMAIN,
+    DUAL_HANDOFF_KEY,
+    DUAL_ZONE_ENTITY_SUFFIXES,
     EVIDENCE_BASES,
     EVIDENCE_SAMPLE_TIMESTAMP,
     FAN_LADDER,
@@ -81,6 +83,7 @@ from .const import (
     ZONE_CLIMATE,
     ZONE_DRIFT_COOLER_BY,
     ZONE_DRIFT_WARMER_BY,
+    ZONE_DUAL_SETPOINT,
     ZONE_ENTITY_SUFFIXES,
     ZONE_EVIDENCE_BASIS,
     ZONE_FLOOR_HIGH,
@@ -101,7 +104,7 @@ from .const import (
     zone_slug,
 )
 from .coordinator import read_room_temp
-from .logic import evidence_contract, freshness_window
+from .logic import evidence_contract, freshness_window, snapped_midpoint
 
 _CLIMATE_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="climate")
@@ -402,7 +405,9 @@ def _async_move_room_entities(
     for old_index, head in enumerate(old_heads):
         if new_slot.get(head) == old_index:
             continue  # this room stayed put: leave its records untouched
-        for suffix in ZONE_ENTITY_SUFFIXES:
+        # A dual-setpoint room's heat-to and cool-to numbers move with it too;
+        # a room without them simply has nothing registered under those.
+        for suffix in (*ZONE_ENTITY_SUFFIXES, *DUAL_ZONE_ENTITY_SUFFIXES):
             entity_id = by_unique_id.get(
                 f"{entry.entry_id}_{zone_slug(old_index)}_{suffix}"
             )
@@ -592,6 +597,10 @@ _ROOM_DRIFT_FIELDS = (
     ("room_warmer_by", ZONE_DRIFT_WARMER_BY),
 )
 _DRIFT_SECTION = "drift"
+# The room page's dual setpoint opt-in, in a collapsed section. Stored as
+# ZONE_DUAL_SETPOINT: True only while on; off removes the key.
+_DUAL_FIELD = "dual_setpoint"
+_DUAL_SECTION = "dual"
 # Comfort's optional uneven drift. Blank by default; a blank field stores no
 # key (Allowed drift applies), and clearing one removes the saved key.
 _BLANK_CLEARS = (CONF_DRIFT_COOLER_BY, CONF_DRIFT_WARMER_BY)
@@ -667,6 +676,7 @@ def _flow_only_keys() -> frozenset[str]:
         + _ROOM_DRIFT_FIELDS
     }
     room_keys.add(_HANDS_OFF_FIELD)
+    room_keys.add(_DUAL_FIELD)
     section_keys = {key for _, groups in _PAGES.values() for key in groups}
     slot_keys = {
         f"{zone_slug(index)}_{key}"
@@ -677,7 +687,7 @@ def _flow_only_keys() -> frozenset[str]:
         room_keys
         | section_keys
         | slot_keys
-        | {_FRESHNESS_SECTION, _FLOOR_SECTION, _DRIFT_SECTION}
+        | {_FRESHNESS_SECTION, _FLOOR_SECTION, _DRIFT_SECTION, _DUAL_SECTION}
     )
 
 
@@ -769,6 +779,7 @@ def _room_view(zone: dict[str, Any]) -> dict[str, Any]:
     view.update(_zone_freshness_profile(zone))
     view.update({key: zone.get(zone_key) for key, zone_key in _FLOOR_FIELDS})
     view.update({key: zone.get(zone_key) for key, zone_key in _ROOM_DRIFT_FIELDS})
+    view[_DUAL_FIELD] = zone.get(ZONE_DUAL_SETPOINT) is True
     return view
 
 
@@ -826,7 +837,8 @@ def _room_schema(
     drift_expanded: bool = False,
 ) -> vol.Schema:
     """The room page: wiring at the top, then the room's uneven drift, the
-    freshness profile, and the freeze floor / overheat ceiling in sections.
+    freshness profile, the freeze floor / overheat ceiling, and the dual
+    setpoint opt-in in sections.
 
     Suggested values show what is wired now, and an untouched field is
     submitted back with its value, so only an explicit clear removes wiring.
@@ -907,6 +919,16 @@ def _room_schema(
             ),
             vol.Required(_FLOOR_SECTION): section(
                 vol.Schema(floor), {"collapsed": not floor_expanded}
+            ),
+            vol.Required(_DUAL_SECTION): section(
+                vol.Schema(
+                    {
+                        vol.Optional(
+                            _DUAL_FIELD, default=view.get(_DUAL_FIELD) is True
+                        ): selector.BooleanSelector(),
+                    }
+                ),
+                {"collapsed": True},
             ),
         }
     )
@@ -2533,7 +2555,46 @@ class MXZOptionsFlow(OptionsFlow):
                 zone.pop(zone_key, None)
             else:
                 zone[zone_key] = float(values[key])
+        # Dual setpoint: stored only while on (never a False), so a room left
+        # off stores exactly what it stored before the option existed.
+        was_dual = zone.get(ZONE_DUAL_SETPOINT) is True
+        if values.get(_DUAL_FIELD) is True:
+            zone[ZONE_DUAL_SETPOINT] = True
+        else:
+            zone.pop(ZONE_DUAL_SETPOINT, None)
+        if (zone.get(ZONE_DUAL_SETPOINT) is True) != was_dual:
+            self._hand_off_dual(zone, now_dual=not was_dual)
         return self._save({}, zones)
+
+    def _hand_off_dual(self, zone: dict[str, Any], *, now_dual: bool) -> None:
+        """Leave the reload this save triggers a one-shot note for this room.
+
+        Switched on: the new heat-to and cool-to numbers seed a range around
+        the room's current target at the minimum gap, whatever an earlier
+        opt-in left in the restore data. Switched off: the target number takes
+        the range's midpoint, snapped to the unit's step. A room the running
+        coordinator doesn't know yet (the entry isn't loaded) gets no target
+        note: its target number restores the midpoint it last showed.
+        """
+        handoffs = self.hass.data.setdefault(DUAL_HANDOFF_KEY, {})
+        key = (self.config_entry.entry_id, zone.get(ZONE_CLIMATE))
+        if now_dual:
+            handoffs[key] = {"seed_range": True}
+            return
+        coordinator = getattr(self.config_entry, "runtime_data", None)
+        running = next(
+            (z for z in getattr(coordinator, "zones", ()) if z.climate_id == key[1]),
+            None,
+        )
+        if running is None or running.target_low is None or running.target_high is None:
+            handoffs.pop(key, None)
+            return
+        handoffs[key] = {
+            "target": snapped_midpoint(
+                low=running.target_low, high=running.target_high,
+                step=coordinator.target_step,
+            )
+        }
 
     def _save(
         self,
