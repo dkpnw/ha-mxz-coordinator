@@ -625,6 +625,77 @@ async def test_an_enabled_room_whose_head_reads_unknown_keeps_holding(
     assert coord._sight[head_a].lost_at is None
 
 
+# unknown and unavailable both read as unavailable to the rest of the head
+# listener, so these move between them with no other recompute: only the
+# refresh the head change itself asks for (and the wakeup) may update the plan.
+
+
+async def test_unknown_then_unavailable_recomputes_and_arms_the_wakeup(
+    hass: HomeAssistant,
+) -> None:
+    """heat -> unknown -> unavailable: going out of sight from unknown starts
+    the clock, publishes it, and arms the expiry wakeup at once."""
+    entry, head_a, head_b = await _standoff(hass, hysteresis=0, **{TTL: 1})
+    coord = entry.runtime_data
+    await _quiesce(hass, coord)
+    # Only the state moves: the same attributes throughout, so nothing but
+    # the state change itself can ask for a refresh. The head takes no
+    # commands from here on, as a real one that drops off.
+    attrs = dict(hass.states.get(head_a).attributes)
+    _head(hass, head_a)._attr_available = False
+    hass.states.async_set(head_a, "unknown", attrs)
+    await hass.async_block_till_done()
+    await _fire_due(hass, 1)
+    assert _row(hass, entry, 0)["vote_status"] == "live"
+    assert coord._lost_timer is None
+
+    before = dt_util.utcnow()
+    hass.states.async_set(head_a, "unavailable", attrs)
+    await hass.async_block_till_done()
+    await _fire_due(hass, 1)
+    row = _row(hass, entry, 0)
+    assert row["vote_status"] == "stale"
+    assert before <= _since(row["lost_since"]) <= dt_util.utcnow()
+    assert coord._sight[head_a].lost_at is not None
+    assert coord._lost_timer is not None
+    plan = _plan(hass, entry)
+    assert (plan.state, plan.attributes["standoff"]) == (MODE_COOL, True)
+
+    # The wakeup it armed ends the hold at the limit, by itself.
+    age_lost_vote(coord, head_a, 60)
+    await _fire_due(hass, 61)
+    assert _row(hass, entry, 0)["vote_status"] == "expired"
+    assert _plan(hass, entry).state == MODE_HEAT
+    assert _s(hass, head_b) == MODE_HEAT
+    assert coord._lost_timer is None
+
+
+async def test_a_hands_off_head_unavailable_then_unknown_drops_its_stale_vote(
+    hass: HomeAssistant,
+) -> None:
+    """unavailable -> unknown: the head is back in sight with no mode, so its
+    stale heat ends at once (vote none, as on 3.10.0) and the wakeup goes."""
+    entry, _head_a, head_b = await _hands_off_heat(hass)
+    coord = entry.runtime_data
+    await _quiesce(hass, coord)
+    hass.states.async_set(head_b, "unavailable")
+    await hass.async_block_till_done()
+    await _fire_due(hass, 1)
+    vote, status, since = _vote(hass, entry, 1)
+    assert (vote, status) == (MODE_HEAT, "stale")
+    assert since is not None
+    assert coord._lost_timer is not None
+    assert _plan(hass, entry).state == MODE_HEAT
+
+    hass.states.async_set(head_b, "unknown")
+    await hass.async_block_till_done()
+    await _fire_due(hass, 1)
+    assert _vote(hass, entry, 1) == (None, "live", None)
+    assert coord._sight[head_b].lost_at is None
+    assert coord._lost_timer is None
+    assert _plan(hass, entry).state == MODE_COOL
+
+
 async def test_a_head_never_seen_since_start_holds_no_one(hass: HomeAssistant) -> None:
     """A released hands-off head that is unavailable when MXZ starts has no
     last vote: it holds no one, whatever it was doing before (as on 3.10.0)."""

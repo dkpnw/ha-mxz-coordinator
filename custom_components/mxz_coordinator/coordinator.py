@@ -3526,6 +3526,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if old_state is not None and old_state.state != STATE_UNAVAILABLE:
                 sight.observe(old_state.state)
             sight.lose(time.monotonic(), dt_util.utcnow().timestamp())
+        if sight is not None and (mode in (None, STATE_UNAVAILABLE)) != (
+            old_state is None or old_state.state == STATE_UNAVAILABLE
+        ):
+            # Out of sight, or back. HA's unknown is in sight but counts as
+            # unavailable below, so unknown<->unavailable needs this to
+            # recompute the vote and the expiry wakeup now.
+            refresh_needed = True
         pending = next(
             (zone for zone in self.zones
              if zone.climate_id == entity_id and zone.slug in self._startup_resume),
