@@ -337,15 +337,27 @@ class Zone:
     range_note: str | None = None
 
 
+# A room's optional wiring, read as ``z.get(key) or None``, so an empty value
+# and no key are the same room. The config flow stores None when it detects no
+# vane or stage sensor, and the room page drops an empty one on save.
+_OPTIONAL_WIRING_KEYS = frozenset(
+    (ZONE_VANE_VERTICAL, ZONE_VANE_HORIZONTAL, ZONE_STAGE_SENSOR, ZONE_SAFETY_PRIORITY_ENTITY)
+)
+
+
 def _without_dual(conf: dict[str, Any]) -> dict[str, Any]:
-    """The config with each room's dual setpoint key left out (for comparing saves)."""
+    """The config with each room's dual setpoint key and empty wiring left out (for comparing saves)."""
     raw = conf.get(CONF_ZONES)
     if not isinstance(raw, list):
         return conf
     return {
         **conf,
         CONF_ZONES: [
-            {k: v for k, v in z.items() if k != ZONE_DUAL_SETPOINT} if isinstance(z, dict) else z
+            {
+                k: v for k, v in z.items()
+                if k != ZONE_DUAL_SETPOINT and (v or k not in _OPTIONAL_WIRING_KEYS)
+            }
+            if isinstance(z, dict) else z
             for z in raw
         ],
     }
@@ -4340,7 +4352,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """The rooms an options save switched to or from a dual setpoint, if that's all it did.
 
         Compares the entry's config now with the config this coordinator was
-        built from, leaving out each room's dual setpoint key. If anything
+        built from, leaving out each room's dual setpoint key and any empty
+        vane, stage, or safety wiring (the same room either way). If anything
         else differs, or no room was switched, it returns None.
         """
         entry = self.config_entry
