@@ -331,7 +331,7 @@ async def test_google_sees_the_range_after_the_switch(hass: HomeAssistant) -> No
 async def test_a_switch_is_recomputed_at_once(hass: HomeAssistant) -> None:
     """A target write just before the switch puts the refresh debounce in its
     cooldown; the switch still recomputes the plan at once, as the reload did."""
-    entry, (head_a, _) = await _setup(hass, temps=(66, 70))
+    entry, _ = await _setup(hass, temps=(66, 70))
     await _start(hass, entry)
     await _set(hass, entry, "primary_target", 66)
     await _room_page(hass, entry, 1, dual_setpoint=True)
@@ -471,7 +471,7 @@ async def test_a_mid_run_switch_takes_a_fresh_decision_and_spares_the_other_room
 ) -> None:
     """The switched room decides afresh (as the reload left it); the other
     room's run carries on untouched."""
-    entry, (head_a, head_b) = await _setup(hass, temps=(72, 70))
+    entry, _ = await _setup(hass, temps=(72, 70))
     await _set(hass, entry, "primary_target", 72)
     await _set(hass, entry, "secondary_target", 72)
     await _start(hass, entry)
