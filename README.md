@@ -152,13 +152,13 @@ supported hardware and setup apply. It is not tested for parity with this integr
 
 Released October 24, 2026. A docs-only release: no code, settings, or behavior change.
 
-- **The README displays properly in HACS.** HACS can't show the logo or the setup and
-  Configure screenshots from this README, so they showed as blank boxes or stray
-  text. The logo is now one banner that reads on both light and dark themes, and
-  every image and the License badge use full web addresses.
+- **The README displays properly in HACS.** HACS couldn't show the logo or the setup
+  and Configure screenshots from this README, so they showed as stray text or blank
+  boxes. The logo is now one banner that reads on both light and dark themes, and
+  every HTML image and the License badge use full web addresses.
 - **Install from the HACS default store.** MXZ Coordinator is in HACS's default list
   now, so [Install](#install) says to search HACS for **MXZ Coordinator** and select
-  Download, with no custom repository to add, and the badge reads "HACS: Default"
+  Download, with no custom repository to add, and the HACS badge reads Default
   ([#47](https://github.com/dkpnw/ha-mxz-coordinator/pull/47)).
 
 From 3.11.0 (released October 23, 2026):
