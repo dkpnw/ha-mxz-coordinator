@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://github.com/dkpnw/ha-mxz-coordinator/releases/latest"><img src="https://img.shields.io/github/v/release/dkpnw/ha-mxz-coordinator" alt="Latest release"></a>
-  <a href="https://hacs.xyz"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5" alt="HACS: Custom repository"></a>
+  <a href="https://hacs.xyz"><img src="https://img.shields.io/badge/HACS-Default-41BDF5" alt="HACS: Default"></a>
   <a href="#before-you-install"><img src="https://img.shields.io/badge/Home%20Assistant-2024.12%2B-41BDF5" alt="Home Assistant 2024.12 or newer"></a>
   <a href="https://github.com/dkpnw/ha-mxz-coordinator/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/dkpnw/ha-mxz-coordinator/ci.yml?branch=main&label=CI" alt="CI status on main"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/dkpnw/ha-mxz-coordinator" alt="License: MIT"></a>
@@ -375,9 +375,8 @@ prove equivalent timing or hardware behavior.
 
 ## Install
 
-1. [Add this repository to HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration)
-   and select **Download**. If the link does not open, add
-   `https://github.com/dkpnw/ha-mxz-coordinator` as a custom repository of type **Integration**.
+1. Open **HACS**, search for **MXZ Coordinator**, and select **Download**. You can also
+   [open it in HACS directly](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration).
 2. Restart Home Assistant to load the integration.
 3. Open **Settings → Devices & services → Add integration → MXZ Coordinator**.
 4. Complete the setup below. Installation alone does not enable control.
