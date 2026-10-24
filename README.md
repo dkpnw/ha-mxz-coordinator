@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="custom_components/mxz_coordinator/brand/dark_logo@2x.png">
-    <img src="custom_components/mxz_coordinator/brand/logo@2x.png" width="460" alt="MXZ Coordinator wordmark: a dial running cool blue on the left to warm orange on the right, two wall heads on the ring, outdoor unit at the hub.">
-  </picture>
+  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/docs/readme-banner.png" width="460" alt="MXZ Coordinator wordmark on a light card: a dial running cool blue on the left to warm orange on the right, two wall heads on the ring, outdoor unit at the hub.">
 </p>
 
 <p align="center"><b>Set one temperature per room. The coordinator chooses one shared heating or cooling mode.</b></p>
@@ -10,9 +7,9 @@
 <p align="center">
   <a href="https://github.com/dkpnw/ha-mxz-coordinator/releases/latest"><img src="https://img.shields.io/github/v/release/dkpnw/ha-mxz-coordinator" alt="Latest release"></a>
   <a href="https://hacs.xyz"><img src="https://img.shields.io/badge/HACS-Default-41BDF5" alt="HACS: Default"></a>
-  <a href="#before-you-install"><img src="https://img.shields.io/badge/Home%20Assistant-2024.12%2B-41BDF5" alt="Home Assistant 2024.12 or newer"></a>
+  <a href="https://github.com/dkpnw/ha-mxz-coordinator#before-you-install"><img src="https://img.shields.io/badge/Home%20Assistant-2024.12%2B-41BDF5" alt="Home Assistant 2024.12 or newer"></a>
   <a href="https://github.com/dkpnw/ha-mxz-coordinator/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/dkpnw/ha-mxz-coordinator/ci.yml?branch=main&label=CI" alt="CI status on main"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/dkpnw/ha-mxz-coordinator" alt="License: MIT"></a>
+  <a href="https://github.com/dkpnw/ha-mxz-coordinator/blob/main/LICENSE"><img src="https://img.shields.io/github/license/dkpnw/ha-mxz-coordinator" alt="License: MIT"></a>
 </p>
 
 <p align="center">
@@ -63,7 +60,7 @@ Use [Reconfigure](#reconfigure-heads-rooms-and-sensors) to change the room list 
 
 - [What it does](#what-it-does), and
   [the problem it solves](#the-problem-stock-auto-starves-rooms)
-- [What's new in 3.11.0](#whats-new-in-3110)
+- [What's new in 3.11.1](#whats-new-in-3111)
 - [Before you install](#before-you-install) · [Install](#install)
 - [Set up your outdoor unit](#set-up-your-outdoor-unit) ·
   [If setup stops or warns](#if-setup-stops-or-warns)
@@ -151,9 +148,20 @@ supported hardware and setup apply. It is not tested for parity with this integr
 
 </details>
 
-## What's new in 3.11.0
+## What's new in 3.11.1
 
-Released October 23, 2026.
+Released October 24, 2026. A docs-only release: no code, settings, or behavior change.
+
+- **The README displays properly in HACS.** HACS can't show the logo or the setup and
+  Configure screenshots from this README, so they showed as blank boxes or stray
+  text. The logo is now one banner that reads on both light and dark themes, and
+  every image and the License badge use full web addresses.
+- **Install from the HACS default store.** MXZ Coordinator is in HACS's default list
+  now, so [Install](#install) says to search HACS for **MXZ Coordinator** and select
+  Download, with no custom repository to add, and the badge reads "HACS: Default"
+  ([#47](https://github.com/dkpnw/ha-mxz-coordinator/pull/47)).
+
+From 3.11.0 (released October 23, 2026):
 
 - **A lost head's vote goes stale, then expires.** When a head drops off the network
   (`unavailable` in Home Assistant, or gone from it), its room's last vote keeps
@@ -416,16 +424,16 @@ a change while the summary is open can send you back to correct it.
 
 <table>
 <tr>
-<td width="50%"><img src="images/mxz-3.4.0-setup-heads-c1007a.png" alt="Setup heads step with Studio, Loft, and Den heads in priority order and the outdoor unit named Upstairs outdoor unit."></td>
-<td width="50%"><img src="images/mxz-3.4.0-setup-rooms-c1007b.png" alt="Rooms step listing the three heads by priority, with Room 1 to 3 names pre-filled as Studio head, Loft head, and Den head."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-setup-heads-c1007a.png" alt="Setup heads step with Studio, Loft, and Den heads in priority order and the outdoor unit named Upstairs outdoor unit."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-setup-rooms-c1007b.png" alt="Rooms step listing the three heads by priority, with Room 1 to 3 names pre-filled as Studio head, Loft head, and Den head."></td>
 </tr>
 <tr>
 <td>1. Heads: three heads in priority order and an outdoor-unit name.</td>
 <td>2. Rooms: each name is pre-filled from its head's name and can be edited.</td>
 </tr>
 <tr>
-<td><img src="images/mxz-3.4.0-setup-sensors-c1007b.png" alt="Room temperature sensors step listing Studio, Loft, and Den with their heads, and Studio, Loft, and Den temperature picked."></td>
-<td><img src="images/mxz-3.4.0-setup-summary-c1007a.png" alt="Check this before you save summary with priority, head, sensor, reading, and unknown cadence per room, and Save and finish, Change advanced settings, and Go back to heads and rooms."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-setup-sensors-c1007b.png" alt="Room temperature sensors step listing Studio, Loft, and Den with their heads, and Studio, Loft, and Den temperature picked."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-setup-summary-c1007a.png" alt="Check this before you save summary with priority, head, sensor, reading, and unknown cadence per room, and Save and finish, Change advanced settings, and Go back to heads and rooms."></td>
 </tr>
 <tr>
 <td>3. Sensors: each room with its head, and one temperature sensor picked per room, before submit.</td>
@@ -447,7 +455,7 @@ a change while the summary is open can send you back to correct it.
 <details>
 <summary>Setup's advanced step as it looked in 3.4.0 (one form)</summary>
 
-<img src="images/mxz-3.4.0-setup-advanced-c1007a.png" width="420" alt="3.4.0 setup Comfort tuning form with every comfort, lockout, standby hold, idle action, and fan boost field pre-filled for °F.">
+<img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-setup-advanced-c1007a.png" width="420" alt="3.4.0 setup Comfort tuning form with every comfort, lockout, standby hold, idle action, and fan boost field pre-filled for °F.">
 
 3.4.0's single form, pre-filled with °F defaults. From 3.4.1 the same fields are split
 across the advanced pages described above.
@@ -456,7 +464,7 @@ across the advanced pages described above.
 
 After **Save and finish**, Home Assistant shows its own device **Name and assign** step.
 
-<img src="images/mxz-3.4.0-setup-complete-c1007a.png" width="420" alt="Home Assistant's Name and assign step for the new MXZ Coordinator device, with Device name, Area, and Skip and finish.">
+<img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-setup-complete-c1007a.png" width="420" alt="Home Assistant's Name and assign step for the new MXZ Coordinator device, with Device name, Area, and Skip and finish.">
 
 **Then turn it on.** New room enables and Coordinator enable start off.
 
@@ -486,31 +494,31 @@ second raw-head control for the same room.
 
 <table>
 <tr>
-<td width="50%"><img src="images/mxz-3.4.0-setup-heads-error-capability-c1007a.png" alt="Heads step error: climate.guest_fan_unit does not advertise both heat and cool."></td>
-<td width="50%"><img src="images/mxz-3.4.0-setup-already-configured-c1007a.png" alt="Heads step error: Nook, Loft, and Studio heads are already assigned to another MXZ Coordinator entry."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-setup-heads-error-capability-c1007a.png" alt="Heads step error: climate.guest_fan_unit does not advertise both heat and cool."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-setup-already-configured-c1007a.png" alt="Heads step error: Nook, Loft, and Studio heads are already assigned to another MXZ Coordinator entry."></td>
 </tr>
 <tr>
 <td>A fan-only guest unit is rejected because it lacks heat and cool.</td>
 <td>The heads belong to another entry. The error names them, and the heads step stays open.</td>
 </tr>
 <tr>
-<td><img src="images/mxz-3.4.0-setup-heads-error-reserved-c1007a.png" alt="Heads step error: climate.studio_head is selected in another open MXZ Coordinator dialog."></td>
-<td><img src="images/mxz-3.4.0-setup-rooms-error-duplicate-c1007a.png" alt="Rooms step error: two rooms have the same name, Studio."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-setup-heads-error-reserved-c1007a.png" alt="Heads step error: climate.studio_head is selected in another open MXZ Coordinator dialog."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-setup-rooms-error-duplicate-c1007a.png" alt="Rooms step error: two rooms have the same name, Studio."></td>
 </tr>
 <tr>
 <td>A head is reserved by another open setup dialog.</td>
 <td>Two rooms have the same name.</td>
 </tr>
 <tr>
-<td><img src="images/mxz-3.4.0-setup-sensors-error-shared-c1007a.png" alt="Sensors step error: sensor.studio_temperature is used for more than one room."></td>
-<td><img src="images/mxz-3.4.0-setup-sensors-error-unit-c1007a.png" alt="Sensors step error: MXZ Coordinator cannot read the temperature unit reported by sensor.garage_probe."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-setup-sensors-error-shared-c1007a.png" alt="Sensors step error: sensor.studio_temperature is used for more than one room."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-setup-sensors-error-unit-c1007a.png" alt="Sensors step error: MXZ Coordinator cannot read the temperature unit reported by sensor.garage_probe."></td>
 </tr>
 <tr>
 <td>One sensor picked for two rooms is blocked.</td>
 <td>A sensor whose unit cannot be converted is blocked.</td>
 </tr>
 <tr>
-<td><img src="images/mxz-3.4.0-setup-summary-warning-unavailable-c1007a.png" alt="Summary with Den's sensor sensor.porch_temperature unavailable and a warning that the room makes no automatic demand until it reports a valid number."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-setup-summary-warning-unavailable-c1007a.png" alt="Summary with Den's sensor sensor.porch_temperature unavailable and a warning that the room makes no automatic demand until it reports a valid number."></td>
 <td></td>
 </tr>
 <tr>
@@ -535,16 +543,16 @@ and finish** to apply it. Comfort and sensor-freshness settings stay in
 
 <table>
 <tr>
-<td width="50%"><img src="images/mxz-3.4.0-reconfigure-heads-c1007a.png" alt="Reconfigure heads step with Nook, Loft, and Studio heads in priority order."></td>
-<td width="50%"><img src="images/mxz-3.4.0-reconfigure-rooms-c1007a.png" alt="Reconfigure room names step pre-filled with Nook, Loft, and Studio in the new priority order."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-reconfigure-heads-c1007a.png" alt="Reconfigure heads step with Nook, Loft, and Studio heads in priority order."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-reconfigure-rooms-c1007a.png" alt="Reconfigure room names step pre-filled with Nook, Loft, and Studio in the new priority order."></td>
 </tr>
 <tr>
 <td>Heads: Nook added at priority 1, Loft kept at 2, Studio moved from 1 to 3, Den dropped.</td>
 <td>Room names in the new priority order. An empty box uses the head's own name.</td>
 </tr>
 <tr>
-<td><img src="images/mxz-3.4.0-reconfigure-sensors-c1007a.png" alt="Reconfigure sensors step: Loft and Studio keep their sensors and readings; Nook temperature picked for the new room."></td>
-<td><img src="images/mxz-3.4.0-reconfigure-summary-c1007a.png" alt="Reconfigure summary noting Studio moved from priority 1 with its settings, climate.den_head removed with its entities, and that comfort settings live in Configure."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-reconfigure-sensors-c1007a.png" alt="Reconfigure sensors step: Loft and Studio keep their sensors and readings; Nook temperature picked for the new room."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-reconfigure-summary-c1007a.png" alt="Reconfigure summary noting Studio moved from priority 1 with its settings, climate.den_head removed with its entities, and that comfort settings live in Configure."></td>
 </tr>
 <tr>
 <td>Sensors: kept rooms show their current sensors; Nook temperature is picked for the new room.</td>
@@ -585,7 +593,7 @@ save that leaves them unchanged triggers none. Reload rebuilds the coordinator a
 restarts sensor-health observation. Reconfigure finishes by closing the flow after a
 successful save with MXZ's own completion text.
 
-<img src="images/mxz-3.4.0-reconfigure-complete-c1007a.png" width="420" alt="MXZ Coordinator dialog reading Reconfiguration was successful. with a Close button.">
+<img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-reconfigure-complete-c1007a.png" width="420" alt="MXZ Coordinator dialog reading Reconfiguration was successful. with a Close button.">
 
 ## Configure comfort and sensor settings
 
@@ -616,16 +624,16 @@ on a menu of six pages. Some settings sit in a collapsed section on their page.
 
 <table>
 <tr>
-<td width="50%"><img src="images/mxz-3.4.1-configure-menu.png" alt="Configure's Settings menu listing six pages with subtitles: Comfort, Fan and idle, Seasons, Away and setpoint limits, Standby hold, and Rooms."></td>
-<td width="50%"><img src="images/mxz-3.4.1-configure-comfort.png" alt="Comfort page with Allowed drift 1 °F, Mode switch threshold 3 °F, and Resting mode Last used (default), and the Advanced section open showing Minimum time between mode switches 600 s, then Submit."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.1-configure-menu.png" alt="Configure's Settings menu listing six pages with subtitles: Comfort, Fan and idle, Seasons, Away and setpoint limits, Standby hold, and Rooms."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.1-configure-comfort.png" alt="Comfort page with Allowed drift 1 °F, Mode switch threshold 3 °F, and Resting mode Last used (default), and the Advanced section open showing Minimum time between mode switches 600 s, then Submit."></td>
 </tr>
 <tr>
 <td>The menu: one page per group of settings.</td>
 <td>Comfort, with its <b>Advanced</b> section opened.</td>
 </tr>
 <tr>
-<td><img src="images/mxz-3.4.1-configure-needs-attention.png" alt="Settings menu headed by a Needs attention line: the saved lowest setpoint is above the highest setpoint; open Away and setpoint limits to fix it."></td>
-<td><img src="images/mxz-3.4.1-configure-room-studio.png" alt="Room page titled Studio with empty Airflow sensor, Vertical vane, and Horizontal vane pickers, a collapsed Sensor freshness section, and Submit."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.1-configure-needs-attention.png" alt="Settings menu headed by a Needs attention line: the saved lowest setpoint is above the highest setpoint; open Away and setpoint limits to fix it."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.1-configure-room-studio.png" alt="Room page titled Studio with empty Airflow sensor, Vertical vane, and Horizontal vane pickers, a collapsed Sensor freshness section, and Submit."></td>
 </tr>
 <tr>
 <td><b>Needs attention</b> names an older saved value and the page that fixes it.</td>
@@ -641,23 +649,23 @@ and order changed in 3.4.1.
 
 <table>
 <tr>
-<td width="50%"><img src="images/mxz-3.4.0-configure-comfort-c1007a.png" alt="3.4.0 Configure form, top: comfort thresholds, setpoint range, resting mode, lockout safety limits, and seasonal changeover fields in °F."></td>
-<td width="50%"><img src="images/mxz-3.4.0-configure-idle-fan-c1007a.png" alt="3.4.0 Configure form: standby hold, idle action, coil-dry minutes, and fan boost fields."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-comfort-c1007a.png" alt="3.4.0 Configure form, top: comfort thresholds, setpoint range, resting mode, lockout safety limits, and seasonal changeover fields in °F."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-idle-fan-c1007a.png" alt="3.4.0 Configure form: standby hold, idle action, coil-dry minutes, and fan boost fields."></td>
 </tr>
 <tr>
 <td>3.4.0: comfort, setpoint range, resting mode, lockouts, and seasonal changeover.</td>
 <td>3.4.0: standby hold, idle action, coil drying, and fan boost.</td>
 </tr>
 <tr>
-<td><img src="images/mxz-3.4.0-configure-primary-vane-freshness-c1007a.png" alt="3.4.0 Configure form: Primary vertical and horizontal vane, airflow sensor, and six freshness fields."></td>
-<td><img src="images/mxz-3.4.0-configure-secondary-vane-freshness-c1007a.png" alt="3.4.0 Configure form: Secondary vertical and horizontal vane, airflow sensor, and six freshness fields."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-primary-vane-freshness-c1007a.png" alt="3.4.0 Configure form: Primary vertical and horizontal vane, airflow sensor, and six freshness fields."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-secondary-vane-freshness-c1007a.png" alt="3.4.0 Configure form: Secondary vertical and horizontal vane, airflow sensor, and six freshness fields."></td>
 </tr>
 <tr>
 <td>3.4.0: the priority 1 room's vanes, airflow, and freshness fields.</td>
 <td>3.4.0: the priority 2 room's fields. Each room now has its own page.</td>
 </tr>
 <tr>
-<td><img src="images/mxz-3.4.0-configure-zone3-vane-freshness-c1007a.png" alt="3.4.0 Configure form: Zone 3 vertical and horizontal vane, airflow sensor, and six freshness fields, then Submit."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-zone3-vane-freshness-c1007a.png" alt="3.4.0 Configure form: Zone 3 vertical and horizontal vane, airflow sensor, and six freshness fields, then Submit."></td>
 <td></td>
 </tr>
 <tr>
@@ -704,9 +712,9 @@ numbers: `nan` and `±inf` are rejected.
 
 <table>
 <tr>
-<td width="33%"><img src="images/mxz-3.4.0-configure-reject-clamp-field-c1007a.png" alt="3.4.0 Configure error on both Firmware minimum setpoint 80 and Firmware maximum setpoint 70: the lowest accepted setpoint cannot be above the highest."></td>
-<td width="33%"><img src="images/mxz-3.4.0-configure-reject-freshness-top-c1007a.png" alt="3.4.0 Configure form-level error asking to check every sensor freshness profile, ending Nothing was saved."></td>
-<td width="33%"><img src="images/mxz-3.4.0-configure-saved-c1007a.png" alt="Success dialog reading Options successfully saved. with a Finish button."></td>
+<td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-reject-clamp-field-c1007a.png" alt="3.4.0 Configure error on both Firmware minimum setpoint 80 and Firmware maximum setpoint 70: the lowest accepted setpoint cannot be above the highest."></td>
+<td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-reject-freshness-top-c1007a.png" alt="3.4.0 Configure form-level error asking to check every sensor freshness profile, ending Nothing was saved."></td>
+<td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-saved-c1007a.png" alt="Success dialog reading Options successfully saved. with a Finish button."></td>
 </tr>
 <tr>
 <td>3.4.0: a minimum setpoint above the maximum marked both fields. In 3.4.1 the error shows above the Head setpoint range section.</td>
