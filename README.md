@@ -1162,9 +1162,10 @@ a while, then lets go:
   loses its connection to Home Assistant doesn't take them: it keeps running its last
   command. Mitsubishi's outdoor unit stays in that head's mode, so a room that needs
   the other mode may wait in standby until the head reconnects or is turned off at the
-  unit. On our house, a lost bedroom head kept heating for about 7.5 minutes, the other
-  room sat in standby after the vote expired, and when the head reconnected, MXZ turned
-  it off and the other room started cooling, with no faults.
+  unit. On our house, a lost bedroom head kept heating the whole time it was offline,
+  about 7.5 minutes, and the other room sat in standby after the vote expired; when the
+  head reconnected, MXZ turned it off and the other room started cooling, and no faults
+  were seen.
 - **A head that comes back counts again at once (`live`).** Any reversal that follows
   waits out the mode-change wait as usual.
 - **Kept as before:** an enabled room whose Safety priority sensor is `on` keeps its
