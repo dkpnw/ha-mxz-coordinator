@@ -138,6 +138,15 @@ STALE_MISSED_REPORTS = 3
 #   stale            the configured maximum age was reached: no automatic demand
 #   invalid          missing/unavailable/non-numeric/non-finite (M13's reader)
 #   cadence_unknown  no cadence configured: age is shown, never enforced
+# How far a room's head vote can be trusted right now (the plan's vote_status).
+# live: the head is in sight. stale: out of sight (unavailable or gone), its
+# last-known vote still counts. expired: out of sight for the whole TTL, so
+# that vote no longer counts. unknown: not seen since MXZ started.
+VOTE_LIVE = "live"
+VOTE_STALE = "stale"
+VOTE_EXPIRED = "expired"
+VOTE_UNKNOWN = "unknown"
+
 HEALTH_HEALTHY = "healthy"
 HEALTH_AWAITING = "awaiting_report"
 HEALTH_STALE = "stale"
@@ -178,6 +187,10 @@ CONF_ENGAGE_DEADBAND = "engage_deadband"
 CONF_DRIFT_COOLER_BY = "drift_cooler_by"
 CONF_DRIFT_WARMER_BY = "drift_warmer_by"
 CONF_MODE_HYSTERESIS = "mode_hysteresis"
+# Optional: how long, in minutes, a head MXZ has lost sight of (unavailable or
+# gone) keeps its last-known vote. No key when blank: blank means
+# DEFAULT_LOST_VOTE_TTL, so an install that never sets it stores nothing.
+CONF_LOST_VOTE_TTL = "lost_vote_ttl"
 CONF_ECO_COOL_MAX = "eco_cool_max"
 CONF_ECO_HEAT_MIN = "eco_heat_min"
 CONF_CLAMP_MIN = "clamp_min"
@@ -197,6 +210,10 @@ CONF_FAN_BOOST_MAX = "fan_boost_max"
 DEFAULT_DEMAND_THRESHOLD = 3.0  # S — off-target °F before the SHARED MODE may flip
 DEFAULT_ENGAGE_DEADBAND = 1.0  # D — off-target °F before a head actively runs
 DEFAULT_MODE_HYSTERESIS = 600  # seconds minimum dwell before a heat<->cool flip
+# Minutes a lost head's last-known vote still counts (stale), then it expires.
+# The default of @csingley's ha-climate-zone-sequencer (DEFAULT_LAST_KNOWN_TTL).
+DEFAULT_LOST_VOTE_TTL = 30
+LOST_VOTE_TTL_BOUNDS = (1, 240)  # minutes, the UI's and the load clamp's range
 DEFAULT_ECO_COOL_MAX = 78.0  # away/eco cool extreme
 DEFAULT_ECO_HEAT_MIN = 50.0  # away/eco heat extreme
 DEFAULT_CLAMP_MIN = 59  # firmware min setpoint

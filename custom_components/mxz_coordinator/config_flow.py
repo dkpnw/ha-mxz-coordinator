@@ -42,6 +42,7 @@ from .const import (
     CONF_INHIBIT_ACTION,
     CONF_INHIBIT_ACTIVE_STATE,
     CONF_INHIBIT_ENTITY,
+    CONF_LOST_VOTE_TTL,
     CONF_MODE_HYSTERESIS,
     CONF_NOTIFY_SERVICE,
     CONF_PRIMARY_CLIMATE,
@@ -76,6 +77,7 @@ from .const import (
     FLOOR_RANGE_F,
     IDLE_ACTION_OPTIONS,
     INHIBIT_ACTION_OPTIONS,
+    LOST_VOTE_TTL_BOUNDS,
     MAX_ZONES,
     MIN_ZONES,
     RESTING_BIAS_OPTIONS,
@@ -603,7 +605,10 @@ _DUAL_FIELD = "dual_setpoint"
 _DUAL_SECTION = "dual"
 # Comfort's optional uneven drift. Blank by default; a blank field stores no
 # key (Allowed drift applies), and clearing one removes the saved key.
-_BLANK_CLEARS = (CONF_DRIFT_COOLER_BY, CONF_DRIFT_WARMER_BY)
+_BLANK_DRIFT = (CONF_DRIFT_COOLER_BY, CONF_DRIFT_WARMER_BY)
+# Every optional Comfort field that works that way: the uneven drift, and how
+# long a lost head's vote is kept (blank is the default time).
+_BLANK_CLEARS = (*_BLANK_DRIFT, CONF_LOST_VOTE_TTL)
 
 # Configure and setup pages: (top-level fields, {section: fields}), in display
 # order. Every tunable sits on exactly one page, and each validated pair sits
@@ -611,7 +616,14 @@ _BLANK_CLEARS = (CONF_DRIFT_COOLER_BY, CONF_DRIFT_WARMER_BY)
 _PAGES: dict[str, tuple[tuple[str, ...], dict[str, tuple[str, ...]]]] = {
     "comfort": (
         (CONF_ENGAGE_DEADBAND, CONF_DEMAND_THRESHOLD, CONF_RESTING_MODE_BIAS),
-        {"advanced": (CONF_MODE_HYSTERESIS, CONF_DRIFT_COOLER_BY, CONF_DRIFT_WARMER_BY)},
+        {
+            "advanced": (
+                CONF_MODE_HYSTERESIS,
+                CONF_DRIFT_COOLER_BY,
+                CONF_DRIFT_WARMER_BY,
+                CONF_LOST_VOTE_TTL,
+            )
+        },
     ),
     "fan_idle": (
         (
@@ -1093,6 +1105,7 @@ _FINITE_TUNABLES = _NONNEGATIVE_TUNABLES + (
     CONF_COOL_LOCKOUT_CEILING,
     CONF_CHANGEOVER_HEAT_ABOVE,
     CONF_CHANGEOVER_COOL_BELOW,
+    CONF_LOST_VOTE_TTL,
 )
 # (low, high, error, may_be_equal) for every pair a single field's selector can't
 # see. Inverted (low above high) always breaks its consumer:
@@ -1217,12 +1230,26 @@ def _tunables_schema(
             # means Allowed drift, so only a stored value is suggested.
             **{
                 vol.Optional(key, description={"suggested_value": eff.get(key)}): drift
-                for key in _BLANK_CLEARS
+                for key in _BLANK_DRIFT
             },
             vol.Optional(
                 CONF_MODE_HYSTERESIS,
                 default=eff.get(CONF_MODE_HYSTERESIS, DEFAULT_MODE_HYSTERESIS),
             ): _num("s"),
+            # Whole minutes, no default: blank means the default time, so only
+            # a stored value is suggested.
+            vol.Optional(
+                CONF_LOST_VOTE_TTL,
+                description={"suggested_value": eff.get(CONF_LOST_VOTE_TTL)},
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    mode=selector.NumberSelectorMode.BOX,
+                    min=LOST_VOTE_TTL_BOUNDS[0],
+                    max=LOST_VOTE_TTL_BOUNDS[1],
+                    step=1,
+                    unit_of_measurement="min",
+                )
+            ),
             vol.Optional(
                 CONF_ECO_COOL_MAX,
                 default=eff.get(CONF_ECO_COOL_MAX, DEFAULT_ECO_COOL_MAX),
@@ -1339,6 +1366,7 @@ _FIELD_LABELS = {
     CONF_DRIFT_WARMER_BY: "Let it get warmer by",
     CONF_DEMAND_THRESHOLD: "Mode switch threshold",
     CONF_MODE_HYSTERESIS: "Minimum time between mode switches",
+    CONF_LOST_VOTE_TTL: "Keep a lost head's vote for",
     CONF_COIL_DRY_MINUTES: "Coil drying time",
     CONF_CHANGEOVER_HEAT_ABOVE: "Lock out heat when the high is at least",
     CONF_CHANGEOVER_COOL_BELOW: "Lock out cool when the high is at most",
@@ -2374,8 +2402,9 @@ class MXZOptionsFlow(OptionsFlow):
                 clearable = _CLEARABLE_ENTITY.get(page)
                 if clearable and values and not values.get(clearable):
                     tunables[clearable] = None
-                # The uneven drift fields go further: blank stores NO key, so
-                # clearing one drops the saved key from options and data alike.
+                # The uneven drift and lost-vote fields go further: blank
+                # stores NO key, so clearing one drops the saved key from
+                # options and data alike.
                 # Same guards: only on the page that shows them, never on a
                 # degenerate empty submit.
                 cleared = frozenset(

@@ -30,6 +30,10 @@ from .const import (
     MODE_HEAT,
     MODE_OFF,
     STALE_MISSED_REPORTS,
+    VOTE_EXPIRED,
+    VOTE_LIVE,
+    VOTE_STALE,
+    VOTE_UNKNOWN,
 )
 
 
@@ -564,6 +568,61 @@ def arbitrate(
     # coordinator causes -- so it stamps like any other flip.
     read_only = full != plain and gate_open
     return Grant(direction=full, read_only=read_only, by_safety=by_safety)
+
+
+class HeadSight:
+    """What MXZ last saw of one head, and since when it has been out of sight.
+
+    Adapted from ``Zone.observe`` / ``lost`` / ``status`` / ``vote`` in
+    @csingley's ha-climate-zone-sequencer, commit f911e4a (``models.py``,
+    MIT License; see NOTICE). The idea is his: out of sight, a head keeps its
+    last-known vote for a time limit, because it may still be running that
+    want and nothing can steer it either way, so dropping the vote at once
+    would let a sibling contend blind. Past the limit the vote lapses.
+
+    What differs here: the caller's clock is monotonic seconds; the boundary
+    is half-open, as for a sensor's freshness cutoff (expired AT the limit,
+    not after it); and a head not seen since MXZ started is timed from that
+    start (:meth:`status` reads unknown until then, expired after), because
+    every head is briefly unavailable while Home Assistant boots.
+    """
+
+    def __init__(self, started: float, started_wall: float) -> None:
+        self.mode: str | None = None  # the state last seen; None if never seen
+        self.lost_at: float | None = started  # monotonic; None while in sight
+        self.lost_wall: float | None = started_wall  # the same moment, for display
+
+    def observe(self, mode: str) -> None:
+        """Record the head's state, seen just now."""
+        self.mode = mode
+        self.lost_at = None
+        self.lost_wall = None
+
+    def lose(self, now: float, wall: float) -> None:
+        """Record that the head can't be seen; the limit runs from the first call."""
+        if self.lost_at is None:
+            self.lost_at = now
+            self.lost_wall = wall
+
+    def status(self, now: float, ttl: float) -> str:
+        """live, stale, expired, or unknown (see VOTE_* in const)."""
+        if self.lost_at is None:
+            return VOTE_LIVE
+        if now - self.lost_at >= ttl:
+            return VOTE_EXPIRED
+        return VOTE_UNKNOWN if self.mode is None else VOTE_STALE
+
+    def expires_in(self, now: float, ttl: float) -> float | None:
+        """Seconds until the vote expires, or None (in sight or already expired)."""
+        if self.lost_at is None or now - self.lost_at >= ttl:
+            return None
+        return ttl - (now - self.lost_at)
+
+    def vote(self, now: float, ttl: float) -> str | None:
+        """The heat or cool that counts right now: the last seen, live or stale."""
+        if self.status(now, ttl) not in (VOTE_LIVE, VOTE_STALE):
+            return None
+        return self.mode if self.mode in (MODE_COOL, MODE_HEAT) else None
 
 
 def floor_call(

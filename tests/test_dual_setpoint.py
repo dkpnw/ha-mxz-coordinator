@@ -52,6 +52,7 @@ from tests.pin_scenario import (
     Recorder,
     room_page_pass,
     run_scenario,
+    take_vote_rows,
 )
 from tests.test_drive import MockHead, MockHeadC, _setup_mock_heads
 from tests.test_dual_setpoint_pin import PIN
@@ -785,10 +786,13 @@ async def test_mixed_install_single_room_is_3_9_0(hass: HomeAssistant, unit: str
     pinned = json.loads(PIN.read_text())[unit]
     assert [s["step"] for s in steps] == [s["step"] for s in pinned]
     for seen, want in zip(steps, pinned, strict=True):
+        seen, votes = take_vote_rows(seen)  # (added after 3.10.0; see pin_scenario)
+        assert votes == [("live", None), ("live", None)], seen["step"]
         assert _single_room_slice(seen) == _single_room_slice(want), seen["step"]
     # And the second room really was dual the whole way through.
     last = steps[-1]
     assert last["data"]["zones"][1][ZONE_DUAL_SETPOINT] is True
     assert "secondary_target_low" in last["entities"]
     assert "target_low" in last["entities"]["plan"]["attributes"]["zones"][1]
-    assert steps[0] == pinned[0]  # before the toggle, the whole install is 3.9.0
+    # Before the toggle, the whole install is 3.9.0.
+    assert take_vote_rows(steps[0])[0] == pinned[0]

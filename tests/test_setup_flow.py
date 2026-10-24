@@ -1020,7 +1020,13 @@ async def test_m3_configure_is_a_menu_of_pages_for_an_existing_entry(
         manager.async_abort(result["flow_id"])
     assert sorted(shown) == sorted(
         _TUNING_KEYS
-        | {"changeover_entity", "inhibit_entity", "drift_cooler_by", "drift_warmer_by"}
+        | {
+            "changeover_entity",
+            "inhibit_entity",
+            "drift_cooler_by",
+            "drift_warmer_by",
+            "lost_vote_ttl",
+        }
     )
 
     result = await manager.async_init(entry.entry_id)

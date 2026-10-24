@@ -393,5 +393,26 @@ async def run_scenario(
     return rec.steps
 
 
+# Every plan zones row gained these after 3.10.0 (the lost-head vote): the
+# 3.9.0 record predates them. A replay takes them out of each recorded row
+# with take_vote_rows and checks them on their own, then compares the rest of
+# the step to the record unchanged.
+VOTE_ROW_KEYS = ("vote_status", "lost_since")
+
+
+def take_vote_rows(step: dict[str, Any]) -> tuple[dict[str, Any], list[tuple[Any, ...]]]:
+    """``step`` without VOTE_ROW_KEYS in its plan rows, and each row's values of them.
+
+    A row missing a key reads ``"<missing>"`` for it, so a replay that expects
+    the keys fails on a row without them instead of passing on a default.
+    """
+    step = json.loads(json.dumps(step))
+    taken = [
+        tuple(row.pop(key, "<missing>") for key in VOTE_ROW_KEYS)
+        for row in step["entities"]["plan"]["attributes"]["zones"]
+    ]
+    return step, taken
+
+
 def dumps(record: dict[str, Any]) -> str:
     return json.dumps(record, indent=1, sort_keys=True) + "\n"

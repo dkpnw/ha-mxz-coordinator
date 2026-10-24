@@ -26,7 +26,12 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import ClimateEntityFeature
-from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, STATE_ON, UnitOfTemperature
+from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
+    STATE_ON,
+    STATE_UNAVAILABLE,
+    UnitOfTemperature,
+)
 from homeassistant.core import CoreState, Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceNotFound
 from homeassistant.helpers import entity_registry as er
@@ -70,6 +75,7 @@ from .const import (
     CONF_INHIBIT_ACTION,
     CONF_INHIBIT_ACTIVE_STATE,
     CONF_INHIBIT_ENTITY,
+    CONF_LOST_VOTE_TTL,
     CONF_MODE_HYSTERESIS,
     CONF_NOTIFY_SERVICE,
     CONF_PRIMARY_CLIMATE,
@@ -90,6 +96,7 @@ from .const import (
     DEFAULT_IDLE_ACTION,
     DEFAULT_INHIBIT_ACTION,
     DEFAULT_INHIBIT_ACTIVE_STATE,
+    DEFAULT_LOST_VOTE_TTL,
     DEFAULT_MODE_HYSTERESIS,
     DEFAULT_RESTING_MODE_BIAS,
     DEMAND_NEUTRAL,
@@ -120,6 +127,7 @@ from .const import (
     INHIBIT_ACTION_OFF,
     KEY_COOL_LOCKOUT,
     KEY_HEAT_LOCKOUT,
+    LOST_VOTE_TTL_BOUNDS,
     MODE_COOL,
     MODE_FAN_ONLY,
     MODE_HEAT,
@@ -130,6 +138,7 @@ from .const import (
     VANE_KICK_APPLY,
     VANE_KICK_RETIRE_TIMEOUT,
     VANE_KICK_SPINUP,
+    VOTE_EXPIRED,
     ZONE_CLIMATE,
     ZONE_DRIFT_COOLER_BY,
     ZONE_DRIFT_WARMER_BY,
@@ -159,6 +168,7 @@ from .logic import (
     PRIORITY_VOTE,
     Demand,
     FloorRun,
+    HeadSight,
     RangeError,
     arbitrate,
     call_edges,
@@ -527,6 +537,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             conf.get(CONF_DRIFT_WARMER_BY), _emin, _emax
         )
         self.hysteresis: int = conf.get(CONF_MODE_HYSTERESIS, DEFAULT_MODE_HYSTERESIS)
+        # How long a lost head's last-known vote still counts, in seconds.
+        # Blank (no key) is the default; a stored value is clamped into the
+        # UI's bounds, and one that isn't a finite number reads as blank.
+        self.lost_vote_ttl: float = 60.0 * _lost_vote_minutes(conf.get(CONF_LOST_VOTE_TTL))
         self.eco_cool_max: float = conf.get(
             CONF_ECO_COOL_MAX, _defaults[CONF_ECO_COOL_MAX]
         )
@@ -705,6 +719,19 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._vane_kick_retire: float = VANE_KICK_RETIRE_TIMEOUT
         # Set once this incarnation is unloaded: it must never write again.
         self._retired: bool = False
+        # Per head: what MXZ last saw of it and since when it has been out of
+        # sight (see logic.HeadSight). On the monotonic clock, like the dwell:
+        # a wall-clock step must not shorten or stretch the time limit (the
+        # wall-clock copy is display only). In memory only: after a restart or
+        # a reload a head is unknown until it is seen, timed from that start.
+        # One wakeup for the nearest expiry (see _sync_lost_timer).
+        started = time.monotonic()
+        started_wall = dt_util.utcnow().timestamp()
+        self._sight: dict[str, HeadSight] = {
+            zone.climate_id: HeadSight(started, started_wall) for zone in self.zones
+        }
+        self._lost_timer: Any | None = None
+        self._lost_retired = False
 
         # Helper values (owned by the switch/select entities; seeded on
         # restore, mutated on user action). Kill-switch defaults OFF for safety.
@@ -988,9 +1015,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Retire this context, then cancel its listeners, timers, and kick tasks.
 
         ``_retired`` first, so nothing this incarnation already scheduled can
-        write a head again. Every pending self-heal, dry, dwell and coast timer
-        is cancelled here. Retiring kicks is last: the existing own-wake guard
-        parks a head still reporting fan_only (see _restore_woken_heads).
+        write a head again. Every pending self-heal, dry, dwell, coast and
+        lost-vote timer is cancelled here. Retiring kicks is last: the existing
+        own-wake guard parks a head still reporting fan_only (see
+        _restore_woken_heads).
         """
         self._retired = True
         self._retire_deliveries()
@@ -1009,6 +1037,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._cancel_refresh_followup()
         self._fresh_retired = True
         self._cancel_fresh_timer()
+        self._lost_retired = True
+        self._cancel_lost_timer()
         for cancel in self._heal_timers.values():
             cancel()
         self._heal_timers.clear()
@@ -1058,9 +1088,16 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "cool_lockout_ceiling": self.cool_lockout_ceiling,
         }
         now = dt_util.utcnow().timestamp()
+        # The lost-vote clock (see logic.HeadSight); `now` above is wall-clock.
+        clock = time.monotonic()
         plan: dict[str, Any] = {}
         demands: list[str] = []
         engages: list[str] = []
+        # Each room's demand and engage as arbitration counts them: its own,
+        # unless its head's vote has expired (see _holds).
+        held_demands: list[str] = []
+        held_engages: list[str] = []
+        statuses: list[str] = []
         healths: list[str] = []
         ages: list[float | None] = []
         votes: list[str | None] = []
@@ -1071,6 +1108,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         all_ok = True
         coasted = False
         for i, zone in enumerate(self.zones):
+            sight = self._watch_head(zone.climate_id, clock, now)
+            status = sight.status(clock, self.lost_vote_ttl)
             state = self.hass.states.get(zone.sensor_id)
             valid, temp = _read_temp(state, self.target_default, self.temp_unit)
             health, age = self._sensor_health(zone, state, valid, now)
@@ -1166,16 +1205,23 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             floor = self._floor_want(zone, temp, ok, now)
             if floor is not None:
                 engage = floor
-            vote = self._hands_off_vote(zone)
+            vote = self._hands_off_vote(zone, clock)
+            safety = self._zone_safety(zone)
+            holds = self._holds(status, safety)
+            held_demand = demand if holds else DEMAND_NEUTRAL
+            held_engage = engage if holds or floor is not None else ENGAGE_SATISFIED
             arb_demands.extend(
                 self._zone_arbitration_pair(
-                    demand=demand, vote=vote, safety=self._zone_safety(zone), index=i,
+                    demand=held_demand, vote=vote, safety=safety, index=i,
                     floor=floor,
                 )
             )
             floors.append(floor)
             demands.append(demand)
             engages.append(engage)
+            held_demands.append(held_demand)
+            held_engages.append(held_engage)
+            statuses.append(status)
             votes.append(vote)
             healths.append(health)
             ages.append(age)
@@ -1196,7 +1242,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # display/freshness elsewhere) — an NTP step must not perturb dwell.
         elapsed = time.monotonic() - self._last_mode_change_ts
         allowed = elapsed >= self.hysteresis
-        engaged = any(e in (MODE_COOL, MODE_HEAT) for e in engages)
+        engaged = any(e in (MODE_COOL, MODE_HEAT) for e in held_engages)
         grant = arbitrate(
             arb_demands,
             engaged=engaged,
@@ -1211,7 +1257,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ):
             by_votes = True
         self._floor_settle(floors, state)
-        calls = [*demands, *votes, *floors]
+        calls = [*held_demands, *votes, *floors]
         plan.update(
             {
                 "state": state,
@@ -1242,6 +1288,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "control_reasons": self._control_reasons(zone),
                         "hands_off": self._hands_off_phase(zone),
                         "hands_off_vote": votes[i],
+                        # How far this room's head vote can be trusted now,
+                        # and since when MXZ has not seen the head (None
+                        # while it is in sight).
+                        "vote_status": statuses[i],
+                        "lost_since": self._lost_since(zone.climate_id),
                         "safety_priority": self._zone_safety(zone),
                         "floor_low": zone.floor_low,
                         "floor_high": zone.floor_high,
@@ -1252,7 +1303,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     for i, zone in enumerate(self.zones)
                 ],
                 # Both directions physically asked of the one outdoor unit,
-                # a hands-off head's and a floor's included.
+                # a hands-off head's and a floor's included (a room whose
+                # head's vote expired asks nothing any more).
                 "standoff": MODE_COOL in calls and MODE_HEAT in calls,
                 "mode_by_hands_off": by_votes,
                 "mode_by_safety": grant.by_safety,
@@ -1690,6 +1742,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._sync_dwell_timer(plan)
             self._sync_coast_timer()
             self._sync_freshness_timer()
+            self._sync_lost_timer()
             if self._refresh_pending or self._needs_legacy_refresh_guard:
                 self._sync_refresh_followup()
 
@@ -1779,13 +1832,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         current = self._arbitration_mode()
         views = plan.get("zones", ())
-        engages = [plan[f"{zone.slug}_engage"] for zone in self.zones]
-        engaged = any(e in (MODE_COOL, MODE_HEAT) for e in engages)
+        held_demands, held_engages = self._held_calls(plan)
+        engaged = any(e in (MODE_COOL, MODE_HEAT) for e in held_engages)
         arb_demands: list[Demand] = []
-        for i, (zone, view) in enumerate(zip(self.zones, views)):
+        for i, (view, demand) in enumerate(zip(views, held_demands)):
             arb_demands.extend(
                 self._zone_arbitration_pair(
-                    demand=plan[f"{zone.slug}_demand"],
+                    demand=demand,
                     vote=view.get("hands_off_vote"),
                     safety=bool(view.get("safety_priority")),
                     index=i,
@@ -3466,6 +3519,20 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         old_state = event.data.get("old_state")
         mode = new_state.state if new_state else None
         refresh_needed = False
+        sight = self._sight.get(entity_id)
+        if sight is not None and mode in (None, STATE_UNAVAILABLE):
+            # Lost sight of it: what it showed just before is its last-known
+            # vote, even if no compute ran in between.
+            if old_state is not None and old_state.state != STATE_UNAVAILABLE:
+                sight.observe(old_state.state)
+            sight.lose(time.monotonic(), dt_util.utcnow().timestamp())
+        if sight is not None and (mode in (None, STATE_UNAVAILABLE)) != (
+            old_state is None or old_state.state == STATE_UNAVAILABLE
+        ):
+            # Out of sight, or back. HA's unknown is in sight but counts as
+            # unavailable below, so unknown<->unavailable needs this to
+            # recompute the vote and the expiry wakeup now.
+            refresh_needed = True
         pending = next(
             (zone for zone in self.zones
              if zone.climate_id == entity_id and zone.slug in self._startup_resume),
@@ -3647,19 +3714,114 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for zone in self.zones
         )
 
-    def _hands_off_vote(self, zone: Zone) -> str | None:
+    def _hands_off_vote(self, zone: Zone, clock: float) -> str | None:
         """What a released hands-off head is running, if it is heat or cool.
 
         Before the off lands, the head's mode is ours or stale, so it has no
         vote. Every other reported state (fan_only, dry, auto, heat_cool, off,
-        unavailable) asks nothing of the outdoor unit's direction.
+        unknown) asks nothing of the outdoor unit's direction. A head MXZ has
+        lost sight of (unavailable, or gone) keeps the vote it last showed,
+        stale, until the time limit runs out; then it has none (see
+        logic.HeadSight, adapted from @csingley's ha-climate-zone-sequencer).
+        A head not seen since MXZ started has no last vote at all.
         """
         if self._hands_off_phase(zone) != "released" or self.inhibited:
             return None  # (a standby hold is holding it off)
-        head = self.hass.states.get(zone.climate_id)
-        if head is not None and head.state in (MODE_COOL, MODE_HEAT):
-            return head.state
-        return None
+        return self._sight[zone.climate_id].vote(clock, self.lost_vote_ttl)
+
+    # -- lost heads: a stale, then an expired vote ----------------------------
+    def _watch_head(self, climate_id: str, clock: float, wall: float) -> HeadSight:
+        """Record what this compute sees of the head, and return its record.
+
+        Only unavailable, or no state at all (the entity is gone), is out of
+        sight: MXZ can neither read nor steer such a head. Every other state is
+        a sighting, unknown included: the head is there and takes commands,
+        and its vote is what it shows now (unknown asks for no direction, as
+        it always has). A head that only reports nothing new is still in
+        sight: nothing here times a quiet head.
+        """
+        sight = self._sight[climate_id]
+        head = self.hass.states.get(climate_id)
+        if head is None or head.state == STATE_UNAVAILABLE:
+            sight.lose(clock, wall)
+        else:
+            sight.observe(head.state)
+        return sight
+
+    def _lost_since(self, climate_id: str) -> str | None:
+        """When MXZ last lost sight of the head (or started, if never seen), or None."""
+        wall = self._sight[climate_id].lost_wall
+        return None if wall is None else dt_util.utc_from_timestamp(wall).isoformat()
+
+    @staticmethod
+    def _holds(status: str | None, safety: bool) -> bool:
+        """Whether a room's own demand and run still count in arbitration.
+
+        Not once its head's vote has expired: a long-lost head must not hold
+        the shared mode for its room forever while a sibling waits. Kept as in
+        3.10.0, pending Drew's call: a room marked Safety priority with its
+        sensor on (its demand is a safety want), and a tripped floor or
+        ceiling (its own entry, never dropped here).
+        """
+        return safety or status != VOTE_EXPIRED
+
+    def _held_calls(self, plan: dict[str, Any]) -> tuple[list[str], list[str]]:
+        """Each room's (demand, engage) from a computed plan, as arbitration counts them.
+
+        Replays _compute's rule from the plan's own rows, so the dwell wakeup
+        weighs exactly what that compute arbitrated.
+        """
+        views = plan.get("zones", ())
+        demands: list[str] = []
+        engages: list[str] = []
+        for zone, view in zip(self.zones, views):
+            demand = plan[f"{zone.slug}_demand"]
+            engage = plan[f"{zone.slug}_engage"]
+            if self._holds(view.get("vote_status"), bool(view.get("safety_priority"))):
+                demands.append(demand)
+                engages.append(engage)
+            else:
+                demands.append(DEMAND_NEUTRAL)
+                floor = view.get("floor_want")
+                engages.append(engage if floor is not None else ENGAGE_SATISFIED)
+        return demands, engages
+
+    def _sync_lost_timer(self) -> None:
+        """Keep exactly one wakeup armed for the nearest lost-vote expiry.
+
+        A head that stays unavailable emits nothing more, so without this its
+        vote would only expire at the next unrelated recompute or the 15-min
+        heartbeat. Like the freshness wakeup, nothing is captured: the
+        callback only asks for a refresh, which re-reads every head as it is
+        then, so a head back in sight by then is simply live again.
+        """
+        self._cancel_lost_timer()
+        if self._lost_retired:
+            return
+        clock = time.monotonic()
+        waits = [
+            wait
+            for sight in self._sight.values()
+            if (wait := sight.expires_in(clock, self.lost_vote_ttl)) is not None
+        ]
+        if not waits:
+            return
+
+        @callback
+        def _fire(_now: Any) -> None:
+            self._lost_timer = None
+            if self._lost_retired:
+                return  # cancelling cannot recall a callback already in flight
+            self.hass.async_create_task(self.async_request_refresh())
+
+        # The boundary itself, as for freshness: expiry is half-open, so the
+        # refresh this fires reads the vote as expired.
+        self._lost_timer = async_call_later(self.hass, min(waits), _fire)
+
+    def _cancel_lost_timer(self) -> None:
+        if self._lost_timer is not None:
+            self._lost_timer()
+            self._lost_timer = None
 
     @staticmethod
     def _zone_arbitration_pair(
@@ -4831,6 +4993,22 @@ def _drift_side(value: Any, low: float, high: float) -> float | None:
     if not math.isfinite(number):
         return None
     return min(max(number, low), high)
+
+
+def _lost_vote_minutes(value: Any) -> float:
+    """A stored lost-vote time limit in minutes, clamped into the UI's bounds.
+
+    Blank (None) is the default; anything that isn't a finite number reads as
+    blank rather than failing setup.
+    """
+    low, high = LOST_VOTE_TTL_BOUNDS
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return float(DEFAULT_LOST_VOTE_TTL)
+    if not math.isfinite(number):
+        return float(DEFAULT_LOST_VOTE_TTL)
+    return min(max(number, float(low)), float(high))
 
 
 def _finite(value: Any) -> float | None:

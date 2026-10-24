@@ -109,12 +109,14 @@
             "data": {
               "mode_hysteresis": "Minimum time between mode switches",
               "drift_cooler_by": "Let it get cooler by",
-              "drift_warmer_by": "Let it get warmer by"
+              "drift_warmer_by": "Let it get warmer by",
+              "lost_vote_ttl": "Keep a lost head's vote for"
             },
             "data_description": {
               "mode_hysteresis": "Protects the compressor. 600 seconds (10 minutes) is recommended.",
               "drift_cooler_by": "How far below target a room can get before heating starts. Leave blank to use Allowed drift. The room always runs back to its target. These only set how far it can wander before a head starts again. A room's own drift number, once set, replaces both. A room's own uneven drift (Rooms, then the room) replaces either one.",
-              "drift_warmer_by": "How far above target a room can get before cooling starts. Leave blank to use Allowed drift. The room always runs back to its target. These only set how far it can wander before a head starts again. A room's own drift number, once set, replaces both. A room's own uneven drift (Rooms, then the room) replaces either one."
+              "drift_warmer_by": "How far above target a room can get before cooling starts. Leave blank to use Allowed drift. The room always runs back to its target. These only set how far it can wander before a head starts again. A room's own drift number, once set, replaces both. A room's own uneven drift (Rooms, then the room) replaces either one.",
+              "lost_vote_ttl": "How long MXZ keeps counting the heat or cool a head last showed after the head goes unavailable. After that its vote expires, and its room stops holding the shared mode, so another room can be served. Leave blank for 30 minutes. An enabled room with Safety priority on keeps its call. A room run from its own remote still lets go, Safety priority or not. A freeze floor or overheat ceiling is never dropped by this."
             }
           }
         }
@@ -351,12 +353,14 @@
             "data": {
               "mode_hysteresis": "Minimum time between mode switches",
               "drift_cooler_by": "Let it get cooler by",
-              "drift_warmer_by": "Let it get warmer by"
+              "drift_warmer_by": "Let it get warmer by",
+              "lost_vote_ttl": "Keep a lost head's vote for"
             },
             "data_description": {
               "mode_hysteresis": "Protects the compressor. 600 seconds (10 minutes) is recommended.",
               "drift_cooler_by": "How far below target a room can get before heating starts. Leave blank to use Allowed drift. The room always runs back to its target. These only set how far it can wander before a head starts again. A room's own drift number, once set, replaces both. A room's own uneven drift (Rooms, then the room) replaces either one.",
-              "drift_warmer_by": "How far above target a room can get before cooling starts. Leave blank to use Allowed drift. The room always runs back to its target. These only set how far it can wander before a head starts again. A room's own drift number, once set, replaces both. A room's own uneven drift (Rooms, then the room) replaces either one."
+              "drift_warmer_by": "How far above target a room can get before cooling starts. Leave blank to use Allowed drift. The room always runs back to its target. These only set how far it can wander before a head starts again. A room's own drift number, once set, replaces both. A room's own uneven drift (Rooms, then the room) replaces either one.",
+              "lost_vote_ttl": "How long MXZ keeps counting the heat or cool a head last showed after the head goes unavailable. After that its vote expires, and its room stops holding the shared mode, so another room can be served. Leave blank for 30 minutes. An enabled room with Safety priority on keeps its call. A room run from its own remote still lets go, Safety priority or not. A freeze floor or overheat ceiling is never dropped by this."
             }
           }
         }
