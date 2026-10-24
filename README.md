@@ -63,7 +63,7 @@ Use [Reconfigure](#reconfigure-heads-rooms-and-sensors) to change the room list 
 
 - [What it does](#what-it-does), and
   [the problem it solves](#the-problem-stock-auto-starves-rooms)
-- [What's new in 3.10.0](#whats-new-in-3100)
+- [What's new in 3.11.0](#whats-new-in-3110)
 - [Before you install](#before-you-install) · [Install](#install)
 - [Set up your outdoor unit](#set-up-your-outdoor-unit) ·
   [If setup stops or warns](#if-setup-stops-or-warns)
@@ -151,9 +151,60 @@ supported hardware and setup apply. It is not tested for parity with this integr
 
 </details>
 
-## What's new in 3.10.0
+## What's new in 3.11.0
 
 Released October 23, 2026.
+
+- **A lost head's vote goes stale, then expires.** When a head drops off the network
+  (`unavailable` in Home Assistant, or gone from it), its room's last vote keeps
+  counting, marked stale, for a time limit, and then expires. While it's stale, a room
+  run from its own remote keeps the heat or cool its head last showed, and an enabled
+  room keeps its demand in the heat-versus-cool decision, so a short dropout doesn't
+  swing the shared mode. Once it expires, the room stops holding the shared mode, so
+  MXZ can switch it for a room that needs the other mode. A head that comes back counts
+  again at once. Before this, a room run from its own remote lost its vote the moment
+  its head went unavailable, and an enabled room held the shared mode for as long as
+  its head was gone. An enabled room whose Safety priority sensor is `on` keeps its
+  want after the limit, and a tripped freeze floor or overheat ceiling is never dropped
+  by it. None of it is saved: after a restart or reload, each head starts `unknown`
+  until it is seen. The approach, and its live, stale, expired, and unknown votes, are
+  adapted from [@csingley](https://github.com/csingley)'s MIT-licensed
+  [ha-climate-zone-sequencer](https://github.com/csingley/ha-climate-zone-sequencer)
+  (commit
+  [f911e4a](https://github.com/csingley/ha-climate-zone-sequencer/commit/f911e4a1cb70ea247205491719bb2295e2a8ebbd));
+  [NOTICE](NOTICE) carries its MIT notice. See
+  [When a head goes unavailable](#when-a-head-goes-unavailable) and
+  [When a head goes unavailable (3.11.0)](docs/MIGRATION.md#when-a-head-goes-unavailable-3110).
+- **Keep a lost head's vote for**, a new setting in Configure → Comfort → Advanced: how
+  long a lost head's vote counts, 1 to 240 minutes. Blank uses 30 minutes, the same
+  default as ha-climate-zone-sequencer's, and leaving it untouched stores nothing.
+- **Each room shows its vote status.** Each room in the plan sensor's `zones` list
+  shows `vote_status` (`live`, `stale`, `expired`, or `unknown`) and `lost_since`, the
+  time MXZ lost sight of its head. See
+  [Diagnose a room that is waiting](#diagnose-a-room-that-is-waiting).
+- **A lost head keeps running its last command.** A head that loses its connection to
+  Home Assistant doesn't take MXZ's commands, and Mitsubishi's outdoor unit stays in
+  that head's mode. So after the vote expires, a room that needs the other mode may
+  wait in standby until the head reconnects or is turned off at the unit.
+- **Hardware test.** On our house, running this release's code before the version
+  bump, with Keep a lost head's vote for set to 3 minutes: the bedroom, heating, held
+  the shared mode while the rec room waited to cool. We took the bedroom head offline
+  by disabling its ESPHome entry. Its vote went stale and kept holding heat, then
+  expired after the limit, and MXZ switched the shared mode to cool and sent the rec
+  room cool. The rec room still sat in standby for nearly 5 minutes, because the
+  offline bedroom head kept heating the whole time it was gone, about 7.5 minutes, so
+  the outdoor unit stayed in heat. When the head reconnected, MXZ turned it off and the
+  rec room started cooling. No faults were seen. With the bedroom head offline across a
+  reload of MXZ, its vote read `unknown`, then expired after the limit, and it was
+  `live` again once the head returned. A 60-minute run with both heads connected kept
+  every vote `live`, and every plan update in it came from a room sensor, with no timed
+  recomputes added. Saving the setting's page untouched changed nothing, and 0 and 241
+  were refused. After the test, the house's previous install was put back, and its MXZ
+  settings matched the backup apart from their saved time. **Not tested on hardware:**
+  a room run from its own remote (none is set up on our house), a head reading
+  `unknown` (tests cover it), and a full Home Assistant restart with a head offline.
+
+From 3.10.0:
 
 - **Opt-in dual setpoint, per room.** For power users who'd rather give a room a range,
   the way an ecobee or a Nest does: each room's page in Configure → Rooms → (room) has
@@ -208,49 +259,17 @@ Released October 23, 2026.
 
 From 3.9.0:
 
-- **Per-room uneven drift.** Each room's page in Configure → Rooms → (room) has a new,
+- **Per-room uneven drift.** Each room's page in Configure → Rooms → (room) has a
   collapsed **Uneven drift** section with that room's own **Let it get cooler by** and
-  **Let it get warmer by**: the Comfort settings of the same name, for one room. Each
-  takes 0.5–5 °F / 0.25–2.5 °C. Both are blank by default, so nothing changes unless
-  you set one. For each side, MXZ uses the first of these that is set: the room's own
-  value, the room's drift number once you or an automation set it, Comfort's Let it get
-  cooler by or Let it get warmer by, then Allowed drift. A run still goes back to the
-  target. Each room's drift number still shows one value and gains read-only
-  `drift_heat` and `drift_cool` attributes, the drift in use on each side;
-  `drift_heat_from` and `drift_cool_from` read `room_cooler_by` or `room_warmer_by` for
-  a side set on the room's page, and `drift_source` reads `room`. There is no
-  migration. See [Per-room uneven drift](#per-room-uneven-drift) and
+  **Let it get warmer by**, blank by default. At release, only a room's own Let it get
+  cooler by had been tested on hardware. See
+  [Per-room uneven drift](#per-room-uneven-drift) and
   [Per-room uneven drift (3.9.0)](docs/MIGRATION.md#per-room-uneven-drift-390).
-- **Each room shows its start points.** The room's thermostat and its entry in the plan
-  sensor's `zones` list show `heat_start` and `cool_start` (where the room starts
-  heating or cooling while the outdoor unit is already in that mode),
-  `heat_demand_below` and `cool_demand_above` (where it asks the whole system to switch
-  to heating or cooling), and `drift_source`, `drift_heat_from`, and `drift_cool_from`
-  (where its drift comes from). They are read-only: the tile, Apple Home, Google Home,
-  and Alexa still see one target (from 3.10.0, a room you switch to a dual setpoint
-  shows a range). They show the numbers MXZ is using now, so in eco they show the eco
-  band, Away low limit and Away high limit (for example 50 and 78), not the comfort band
-  around the target. See [Uneven drift](#uneven-drift) and
-  [Start points (3.9.0)](docs/MIGRATION.md#start-points-390).
-- **One target per room, stated plainly.** [CONTRIBUTING.md](CONTRIBUTING.md) said MXZ
-  wouldn't add a dual setpoint or a heat/cool range, even as an option (3.10.0 replaces
-  that with a per-room opt-in, and one target stays the default). It also names the
-  power-user options and asks that a new tuning option be blank by default and change
-  nothing when unset.
-- **Oxford commas.** The remaining docs and the setup and Configure screen text now use
-  the Oxford comma.
-- **Hardware test: a room's own Let it get cooler by.** On our two-head MXZ (Home
-  Assistant 2026.10.2), with eco off, a bedroom at 63.86 °F with a 65 °F target stayed
-  idle with its own Let it get cooler by set to 2 (heat starts below 63.0) and 1.25
-  (below 63.75), and MXZ started heating it at once, with the head set to 65–67 °F,
-  when it was set to 1 (below 64.0). The other room, which has its own drift number,
-  didn't change. A global Let it get cooler by applied to the room that follows global
-  drift but not to the room with its own drift number, and a room's own value beat the
-  global one. With eco on, `heat_start` and `cool_start` read the eco band, 50 and 78;
-  with eco off, `heat_start` read the comfort values above. Clearing everything put the
-  stored settings back exactly as they were. Not tested on hardware: a room's Let it
-  get warmer by, the cool side, and a full run back to target (tests cover those). The
-  start points haven't been checked in Apple Home, Google Home, or Alexa.
+- **Each room shows its start points** (`heat_start`, `cool_start`,
+  `heat_demand_below`, and `cool_demand_above`, with where its drift comes from) on its
+  thermostat and in the plan sensor's `zones` list. See [Uneven drift](#uneven-drift)
+  and [Start points (3.9.0)](docs/MIGRATION.md#start-points-390).
+- **Oxford commas** in the remaining docs and the setup and Configure screen text.
 
 From 3.8.0:
 
@@ -1138,9 +1157,9 @@ a while, then lets go:
 - **Then it expires (`expired`).** After **Keep a lost head's vote for** (Configure →
   Comfort → Advanced: 1 to 240 minutes, or blank for 30), the vote stops counting. A
   room run from its own remote no longer sets the direction, and an enabled room stops
-  holding the shared mode, so a room waiting for the other mode can be served. MXZ
-  keeps sending an enabled room's lost head its usual commands, but a head that loses
-  its connection to Home Assistant doesn't take them: it keeps running its last
+  holding the shared mode, so MXZ can switch it for a room waiting for the other mode.
+  MXZ keeps sending an enabled room's lost head its usual commands, but a head that
+  loses its connection to Home Assistant doesn't take them: it keeps running its last
   command. Mitsubishi's outdoor unit stays in that head's mode, so a room that needs
   the other mode may wait in standby until the head reconnects or is turned off at the
   unit. On our house, a lost bedroom head kept heating for about 7.5 minutes, the other
@@ -1886,7 +1905,7 @@ MXZ Coordinator got this good because people ran it on their own systems, found 
 - [@helicopterrun](https://github.com/helicopterrun) validated it on 3-zone hardware and did relentless, root-caused QA through the v3 beta ([#4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4), [#5](https://github.com/dkpnw/ha-mxz-coordinator/issues/5), [#6](https://github.com/dkpnw/ha-mxz-coordinator/issues/6), [#7](https://github.com/dkpnw/ha-mxz-coordinator/issues/7)). Those reports led to the removal docs, single-setpoint head support, and entry-scoped restore.
 - [@oliverbrandmueller](https://github.com/oliverbrandmueller) asked for metric units ([#2](https://github.com/dkpnw/ha-mxz-coordinator/issues/2)). Since 2.8.0 the coordinator runs in your Home Assistant temperature unit from end to end.
 - **mw1029** on the [Home Assistant forum](https://community.home-assistant.io/t/1018382) tried MXZ with the cloud-based `comfort_HA` integration and posted both entity dumps, which showed exactly where the two don't line up. Support for it is in progress.
-- [@csingley](https://github.com/csingley) (Chris Singley) noticed that a room left to its own remote is invisible to the heat-versus-cool standoff, even while it is really heating or cooling on the shared outdoor unit, and sent a fix with a test ([#27](https://github.com/dkpnw/ha-mxz-coordinator/pull/27)). He followed it with [#28](https://github.com/dkpnw/ha-mxz-coordinator/pull/28), which lets a disabled room's head stay under its own remote. The per-room **Let its own remote run it while disabled** setting is built from both, with him as co-author, and he tested it on his own 4-zone MXZ-4C36NA2 before release. It shipped in 3.6.0. He then designed and wrote the safety-priority arbitration ([#31](https://github.com/dkpnw/ha-mxz-coordinator/pull/31)): every room's heat or cool want ranked in one priority order, with an optional per-room **Safety priority** sensor that lifts a room's own want above every other room's. It shipped in 3.7.0, not yet tested on hardware. The 3.7.0 freeze floor and overheat ceiling build on his safety tier: a tripped floor or ceiling is one more want in that same priority order, with the freeze floor ranked first. He also wrote [#32](https://github.com/dkpnw/ha-mxz-coordinator/pull/32), which times the mode-change wait with a monotonic clock so a wall-clock jump (an NTP correction, a clock set by hand) can't shorten or stretch it. It shipped in 3.7.1. His native dual-setpoint proposal ([#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35)) was declined at first to keep one target, but the discussion led to **Let it get cooler by** and **Let it get warmer by**, which give heat and cool different tolerances around that one target. They shipped in 3.8.0. [#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35) is also the origin of the opt-in per-room **dual setpoint** (separate Heat to and Cool to): it carries forward his idea and Home Assistant's range contract (the range feature, `heat_cool`, and writes through the room's own numbers), rebuilt as an opt-in on the room's page. It shipped in 3.10.0, with only the heat side tested on hardware so far. The stale, then expired, vote of a head that goes unavailable (see [When a head goes unavailable](#when-a-head-goes-unavailable)) adapts the observed-vote model from his [ha-climate-zone-sequencer](https://github.com/csingley/ha-climate-zone-sequencer) (MIT License; see [NOTICE](NOTICE)). It isn't in a release yet and hasn't been tested on hardware.
+- [@csingley](https://github.com/csingley) (Chris Singley) noticed that a room left to its own remote is invisible to the heat-versus-cool standoff, even while it is really heating or cooling on the shared outdoor unit, and sent a fix with a test ([#27](https://github.com/dkpnw/ha-mxz-coordinator/pull/27)). He followed it with [#28](https://github.com/dkpnw/ha-mxz-coordinator/pull/28), which lets a disabled room's head stay under its own remote. The per-room **Let its own remote run it while disabled** setting is built from both, with him as co-author, and he tested it on his own 4-zone MXZ-4C36NA2 before release. It shipped in 3.6.0. He then designed and wrote the safety-priority arbitration ([#31](https://github.com/dkpnw/ha-mxz-coordinator/pull/31)): every room's heat or cool want ranked in one priority order, with an optional per-room **Safety priority** sensor that lifts a room's own want above every other room's. It shipped in 3.7.0, not yet tested on hardware. The 3.7.0 freeze floor and overheat ceiling build on his safety tier: a tripped floor or ceiling is one more want in that same priority order, with the freeze floor ranked first. He also wrote [#32](https://github.com/dkpnw/ha-mxz-coordinator/pull/32), which times the mode-change wait with a monotonic clock so a wall-clock jump (an NTP correction, a clock set by hand) can't shorten or stretch it. It shipped in 3.7.1. His native dual-setpoint proposal ([#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35)) was declined at first to keep one target, but the discussion led to **Let it get cooler by** and **Let it get warmer by**, which give heat and cool different tolerances around that one target. They shipped in 3.8.0. [#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35) is also the origin of the opt-in per-room **dual setpoint** (separate Heat to and Cool to): it carries forward his idea and Home Assistant's range contract (the range feature, `heat_cool`, and writes through the room's own numbers), rebuilt as an opt-in on the room's page. It shipped in 3.10.0, with only the heat side tested on hardware so far. The stale, then expired, vote of a head that goes unavailable (see [When a head goes unavailable](#when-a-head-goes-unavailable)) adapts the observed-vote model from his [ha-climate-zone-sequencer](https://github.com/csingley/ha-climate-zone-sequencer) (commit [f911e4a](https://github.com/csingley/ha-climate-zone-sequencer/commit/f911e4a1cb70ea247205491719bb2295e2a8ebbd); MIT License; see [NOTICE](NOTICE)). It shipped in 3.11.0, tested on hardware with an enabled room but not with a room run from its own remote.
 
 **Prior art and references**
 

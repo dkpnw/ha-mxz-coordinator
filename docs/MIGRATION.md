@@ -1,5 +1,35 @@
 # Upgrading and migrating MXZ Coordinator
 
+## When a head goes unavailable (3.11.0)
+
+A new advanced setting, **Keep a lost head's vote for**, in Configure → Comfort →
+Advanced. It's stored as `lost_vote_ttl`, in minutes, only when set; blank is 30
+minutes, and it accepts 1 to 240.
+
+**Nothing to do.** No config-entry version change and no migration. A room whose head
+never goes unavailable behaves exactly as in 3.10.0.
+
+Up to 3.10.0, a room run from its own remote lost its vote the moment its head went
+`unavailable`, and an enabled room kept its demand in the heat-versus-cool decision for
+as long as its head was gone. Now a lost head (`unavailable`, or missing from Home
+Assistant) keeps the vote it last showed, stale, for **Keep a lost head's vote for**,
+and then the vote expires: an opted-in room's heat or cool stops counting, and an
+enabled room stops holding the shared mode. A head seen again counts at once. An
+enabled room whose Safety priority sensor is `on` keeps its want, and floors and
+ceilings are unchanged.
+
+The trade-off: a head that loses its connection to Home Assistant keeps running its
+last command, and Mitsubishi's outdoor unit stays in that head's mode. So after the
+vote expires, a room that needs the other mode may wait in standby until the head
+reconnects or is turned off at the unit.
+
+Each room in the plan's `zones` list gains `vote_status` (`live`, `stale`, `expired`, or
+`unknown`) and `lost_since`. None of it is saved: after a restart or reload each head is
+`unknown` until it is seen, and an enabled room's demand then counts for the time limit
+from that start. On a rollback to 3.10.0 the `lost_vote_ttl` key is ignored; that was
+checked by reading the older code, not run. See
+[When a head goes unavailable](../README.md#when-a-head-goes-unavailable).
+
 ## Dual setpoint (3.10.0)
 
 Each room's page in Configure → Rooms gains an optional, collapsed **Dual setpoint**
@@ -276,26 +306,9 @@ not an enabled room, set the shared mode on that update (or the mode went back a
 the vote ended), with no enabled room calling; such a change starts no mode-change
 wait. On an install with no room opted in it is always false.
 
-**A head that goes unavailable (not in a release yet).** Up to 3.10.0 an opted-in
-room's vote dropped the moment its head went `unavailable`, and an enabled room kept
-its demand in the heat-versus-cool decision for as long as its head was gone. Now a
-lost head (`unavailable`, or missing from Home Assistant) keeps the vote it last showed,
-stale, for **Keep a lost head's vote for** (Configure → Comfort → Advanced), and then
-the vote expires: an opted-in room's heat or cool stops counting, and an enabled room
-stops holding the shared mode. A head seen again counts at once. An enabled room whose
-Safety priority sensor is `on` keeps its want, and floors and ceilings are unchanged.
-The trade-off: after the limit, MXZ may run another room the other way while the lost
-head is still running its last mode, and the outdoor unit then settles that conflict
-its own way.
-The setting is stored as `lost_vote_ttl`, in minutes, only when set; blank is 30
-minutes. There is no config-entry version change and no migration, and a room whose
-head never goes unavailable behaves exactly as before. Each room in the plan's `zones`
-list gains `vote_status` (`live`, `stale`, `expired`, or `unknown`) and `lost_since`.
-None of it is saved: after a restart or reload each head is `unknown` until it is seen,
-and an enabled room's demand then counts for the time limit from that start. On a
-rollback to 3.10.0 the `lost_vote_ttl` key is ignored; that was checked by reading the
-older code, not run. See
-[When a head goes unavailable](../README.md#when-a-head-goes-unavailable).
+**A head that goes unavailable.** From 3.11.0 an opted-in room's last heat or cool
+keeps counting for a time limit after its head goes `unavailable`, then expires. See
+[When a head goes unavailable (3.11.0)](#when-a-head-goes-unavailable-3110).
 
 See [Run one room from its own remote](../README.md#run-one-room-from-its-own-remote).
 
