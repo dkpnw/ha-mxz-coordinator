@@ -1133,15 +1133,19 @@ a while, then lets go:
   and its run to target in the heat-versus-cool decision, as before. If a room run
   from its own remote has its Safety priority sensor `on`, its last heat or cool keeps
   its safety rank while stale, so for up to the limit it can take the mode from an
-  enabled room that is calling.
+  enabled room that is calling. Holding the last vote keeps a short dropout from
+  swinging the shared mode.
 - **Then it expires (`expired`).** After **Keep a lost head's vote for** (Configure →
   Comfort → Advanced: 1 to 240 minutes, or blank for 30), the vote stops counting. A
   room run from its own remote no longer sets the direction, and an enabled room stops
   holding the shared mode, so a room waiting for the other mode can be served. MXZ
-  keeps sending an enabled room's lost head its usual commands; an unavailable head
-  doesn't take them. The lost head may still be running its last mode while MXZ runs
-  another room the other way, and the outdoor unit then settles that conflict its own
-  way, as it would without MXZ.
+  keeps sending an enabled room's lost head its usual commands, but a head that loses
+  its connection to Home Assistant doesn't take them: it keeps running its last
+  command. Mitsubishi's outdoor unit stays in that head's mode, so a room that needs
+  the other mode may wait in standby until the head reconnects or is turned off at the
+  unit. On our house, a lost bedroom head kept heating for about 7.5 minutes, the other
+  room sat in standby after the vote expired, and when the head reconnected, MXZ turned
+  it off and the other room started cooling, with no faults.
 - **A head that comes back counts again at once (`live`).** Any reversal that follows
   waits out the mode-change wait as usual.
 - **Kept as before:** an enabled room whose Safety priority sensor is `on` keeps its
