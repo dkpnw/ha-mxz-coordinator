@@ -1226,7 +1226,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if floor is not None:
                 engage = floor
             safety = self._zone_safety(zone)
-            vote = self._hands_off_vote(zone, clock, safety)
+            vote = self._hands_off_vote(zone, clock, safety=safety)
             holds = self._holds(status, safety)
             held_demand = demand if holds else DEMAND_NEUTRAL
             held_engage = engage if holds or floor is not None else ENGAGE_SATISFIED
@@ -3777,7 +3777,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for zone in self.zones
         )
 
-    def _hands_off_vote(self, zone: Zone, clock: float, safety: bool = False) -> str | None:
+    def _hands_off_vote(self, zone: Zone, clock: float, *, safety: bool) -> str | None:
         """What a released hands-off head is running, if it is heat or cool.
 
         Before the off lands, the head's mode is ours or stale, so it has no
