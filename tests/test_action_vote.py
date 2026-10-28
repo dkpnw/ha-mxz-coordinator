@@ -300,6 +300,43 @@ def test_sight_mode_only_observe_is_unchanged() -> None:
     assert (sight.action, sight.ran, sight.stopped_at) == (None, None, None)
 
 
+def test_sight_observe_without_now_leaves_no_stale_hold() -> None:
+    """With no time, a sighting still ends a run it contradicts. A stop it
+    can't time is no hold (so no vote), never a run that goes on; a hold
+    already running keeps its own start; a run needs no time to begin."""
+    left = HeadSight(0.0, 0.0)
+    left.observe("heat", "heating", 0.0)
+    left.observe("heat", "idle", 100.0)  # holding from 100
+    left.observe("off")  # switched off: the run and its hold are over
+    assert (left.ran, left.stopped_at) == (None, None)
+    left.observe("heat", "idle", 200.0)  # back in heat, idle: nothing held
+    assert left.action_vote(200.0, TTL, HOLD) is None
+    assert left.hold_ends_in(200.0, HOLD) is None
+
+    stopped = HeadSight(0.0, 0.0)
+    stopped.observe("heat", "heating", 0.0)
+    stopped.observe("heat", "idle")  # stopped, with no time to hold from
+    assert (stopped.ran, stopped.stopped_at) == (None, None)
+    assert stopped.action_vote(10.0, TTL, HOLD) is None
+    stopped.observe("heat", "idle", 20.0)  # a later timed sighting holds nothing
+    assert stopped.action_vote(20.0, TTL, HOLD) is None
+
+    held = HeadSight(0.0, 0.0)
+    held.observe("heat", "heating", 0.0)
+    held.observe("heat", "idle", 100.0)
+    held.observe("heat", "idle")  # still stopped: the hold doesn't move
+    assert held.stopped_at == 100.0
+    assert held.action_vote(699.0, TTL, HOLD) == "heat"
+    assert held.action_vote(700.0, TTL, HOLD) is None
+
+    running = HeadSight(0.0, 0.0)
+    running.observe("cool", "cooling")
+    assert (running.ran, running.stopped_at) == ("cool", None)
+    assert running.action_vote(1.0, TTL, HOLD) == "cool"
+    running.observe("cool", "heating")  # a contradiction, untimed: no hold
+    assert running.action_vote(2.0, TTL, HOLD) is None
+
+
 # --- mode, the default: today's vote exactly ---------------------------------
 
 

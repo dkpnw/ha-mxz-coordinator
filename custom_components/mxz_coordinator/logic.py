@@ -614,19 +614,19 @@ class HeadSight:
         contradiction is never a run, so it can't start, extend, or refresh
         one. A head that leaves the mode it ran in ends that run, hold and
         all; one that stops running in the same mode starts its hold, timed
-        from the first sighting that shows it stopped. ``now`` (monotonic)
-        is None only for a caller that never reads :meth:`action_vote`.
+        from the first sighting that shows it stopped. ``now`` is monotonic;
+        without it a stop has no time to start a hold from, so it ends the
+        run instead (no hold, no vote). A hold already running keeps its own
+        start either way.
         """
         self.mode = mode
         self.action = action if isinstance(action, str) else None
         self.reports_action = self.reports_action or self.action is not None
         self.lost_at = None
         self.lost_wall = None
-        if now is None:
-            return
-        if self.action is not None and _RUNNING.get(mode) == self.action:
+        if runs(mode, self.action):
             self.ran, self.stopped_at = mode, None
-        elif mode != self.ran:
+        elif mode != self.ran or (now is None and self.stopped_at is None):
             self.ran, self.stopped_at = None, None
         elif self.stopped_at is None:
             self.stopped_at = now
