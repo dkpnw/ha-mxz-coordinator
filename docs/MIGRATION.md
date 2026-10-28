@@ -1,5 +1,19 @@
 # Upgrading and migrating MXZ Coordinator
 
+## Count a room's vote only while its head runs (unreleased, 3.13.0)
+
+A new per-room setting, **While its own remote runs it, its vote counts**, in Configure →
+Rooms → (room). It's stored in that room's record as `hands_off_vote_basis: action` only
+when **Only while it is heating or cooling** is chosen; the default stores no key, and
+choosing it again removes the key.
+
+**Nothing to do.** No config-entry version change and no migration. Every room behaves
+exactly as before until you choose the new option, and the plan's rows change only for
+rooms set to it (`vote_basis`, `vote_hold_until`). On a rollback to 3.12.x the key is
+ignored and the room votes by mode again; that was checked by reading the older code
+(it reads only the keys it knows), not run. See
+[Count its vote only while it runs](FEATURES.md#count-its-vote-only-while-it-runs).
+
 ## When a head goes unavailable (3.11.0)
 
 A new advanced setting, **Keep a lost head's vote for**, in Configure → Comfort →

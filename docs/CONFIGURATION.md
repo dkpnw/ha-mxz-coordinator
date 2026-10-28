@@ -41,6 +41,7 @@ nothing and leave today's behavior unchanged.
 | **Rooms** (one page per room, in priority order, titled by the room's name) | Airflow sensor, Vertical vane, Horizontal vane | detected at setup | Correct detection, select another entity, or clear a field to remove that optional wiring. |
 | | Safety priority sensor | none | See [Safety priority](FEATURES.md#safety-priority). |
 | | Let its own remote run it while disabled | off | See [Run one room from its own remote](FEATURES.md#run-one-room-from-its-own-remote). |
+| | While its own remote runs it, its vote counts | Whenever it is set to heat or cool | Or **Only while it is heating or cooling** (plus 10 minutes after it stops). Stored as `hands_off_vote_basis: action` only when chosen. See [Count its vote only while it runs](FEATURES.md#count-its-vote-only-while-it-runs). |
 | | *Uneven drift:* Let it get cooler by / Let it get warmer by | blank | This room's own sides; see [Per-room uneven drift](FEATURES.md#per-room-uneven-drift). |
 | | *Sensor freshness:* Report interval, Maximum age, Startup grace, Freshness evidence, Sample time attribute, Sample counter attribute | empty | See [Choose a sensor freshness contract](#choose-a-sensor-freshness-contract). |
 | | *Freeze floor and overheat ceiling:* Freeze floor / Overheat ceiling | empty (range 35–65 / 2–18 and 75–100 / 24–38) | See [Freeze floor and overheat ceiling](FEATURES.md#freeze-floor-and-overheat-ceiling). |
