@@ -4,7 +4,8 @@ A release is cut by hand, in this order. Don't tag until every step above the ta
 
 1. **Version bump.** Set `"version"` in
    `custom_components/mxz_coordinator/manifest.json` to the new version. In the same
-   commit, update the README's "What's new" section and add a section to
+   commit, add the release to [CHANGELOG.md](../CHANGELOG.md), update the README's short
+   "What's new" section, and add a section to
    [MIGRATION.md](MIGRATION.md) when behavior or options change.
 2. **Full suite and ruff.** On each lane you can run, from the checkout:
 
