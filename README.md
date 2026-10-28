@@ -58,7 +58,7 @@ and makes it well.
 **Start here:** [Install](#install), then [set up your outdoor unit](#set-up-your-outdoor-unit).
 No YAML is required.
 
-**Contents:** [What MXZ does for you](#what-mxz-does-for-you) · [What's new](#whats-new-in-3111) ·
+**Contents:** [What MXZ does for you](#what-mxz-does-for-you) · [What's new](#whats-new-in-3120) ·
 [Before you install](#before-you-install) · [Install](#install) · [Set up](#set-up-your-outdoor-unit) ·
 [Everyday use](#everyday-use) · [Optional extras](#optional-extras) · [Tune it](#tune-it) ·
 [If something looks wrong](#if-something-looks-wrong) · [Documentation](#documentation) ·
@@ -99,11 +99,15 @@ Mitsubishi manuals on stock AUTO.
 
 ## What's new in 3.12.0
 
-A docs-only release: the README now displays properly in HACS, and you install MXZ
-Coordinator from the HACS default store. 3.11.0 added the stale, then expired, vote of
-a head that goes unavailable, with **Keep a lost head's vote for** in Configure →
-Comfort → Advanced. Recent release notes are in the [changelog](CHANGELOG.md); older
-releases are covered in [Migration](docs/MIGRATION.md).
+Ready for Home Assistant 2026.11, with no change to settings or to how MXZ controls your
+heads. The room thermostats use 2026.11's new temperature property names, so MXZ logs no
+deprecation warnings, and the minimum is still Home Assistant 2024.12.0. 3.11.1 made the
+README display properly in HACS and moved installs to the HACS default store. 3.11.0
+added the stale, then expired, vote of a head that goes unavailable, with **Keep a lost
+head's vote for** in Configure → Comfort → Advanced. Recent release notes, including
+what 2026.11 itself changes for thermostat names and attributes, are in the
+[changelog](CHANGELOG.md#3120-october-27-2026); older releases are covered in
+[Migration](docs/MIGRATION.md).
 
 > **Upgrading from 3.3.0 or earlier?** **3.4.0** changed setup, sensor handling, the
 > room lifecycle, and command delivery. Read

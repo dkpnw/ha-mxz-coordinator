@@ -8,6 +8,28 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
+## 3.12.0 (October 27, 2026)
+
+Ready for Home Assistant 2026.11, with no change to settings or to
+how MXZ controls your heads. The minimum is still Home Assistant 2024.12.0.
+
+- **No deprecation warnings on Home Assistant 2026.11.** Home Assistant 2026.11 renames
+  the temperature properties a thermostat reports, and logs a warning for every
+  integration still using the old names, which stop working in 2027.11. The room
+  thermostats use the new names on 2026.11 and later, and the old ones before it, and
+  MXZ reads each head's temperature unit the same way, so MXZ logs no such warning.
+  A head integration that hasn't moved to the new names yet can still log its own.
+- **A `temperature_unit` attribute on every thermostat (Home Assistant 2026.11).**
+  Home Assistant itself adds it to every climate entity, MXZ's room thermostats and
+  your heads alike: the unit your system uses (°F or °C). MXZ adds nothing of its own.
+- **Names you type into an entity's settings (Home Assistant 2026.11).** Home Assistant
+  now puts the device name in front of them, so a room target you rename to
+  "Kids' comfort" shows as "MXZ Coordinator Kids' comfort". A name you typed before
+  upgrading keeps showing as you typed it, also after you rename or reorder rooms.
+- **Tested** with the full test suite on Home Assistant 2024.12.0, 2026.2.3, 2026.9.0,
+  2026.10.4, and a 2026.11 development build (commit 3c9da83). **Not tested** on
+  hardware or on a released 2026.11.
+
 ## 3.11.1 (October 24, 2026)
 
 A docs-only release: no code, settings, or behavior change.
