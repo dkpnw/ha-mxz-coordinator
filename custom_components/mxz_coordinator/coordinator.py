@@ -3626,6 +3626,14 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         and self._hands_off_phase(zone) == "parking"
                     ):
                         self._hands_off_released.add(zone.slug)
+                        if sight is not None:
+                            # Any run MXZ drove ends here, not at the next
+                            # compute: a person's heat before that one is
+                            # not that run stopping, so it starts no hold.
+                            sight.observe(
+                                mode, new_state.attributes.get(ATTR_HVAC_ACTION),
+                                time.monotonic(),
+                            )
         # A person changing a hands-off head during a floor run takes it back
         # (decision 8b): a real mode change, between two available states, to
         # anything but what MXZ is sending or would send, and not a vane kick.

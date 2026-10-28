@@ -56,7 +56,7 @@ from custom_components.mxz_coordinator.const import (
 from custom_components.mxz_coordinator.logic import HeadSight
 from tests.clocks import age_lost_vote
 from tests.flow_pages import default, marker_of, open_options_page, prefilled, submit
-from tests.test_drive import SENSOR_A, _eid, _recompute, _set_temp
+from tests.test_drive import SENSOR_A, SENSOR_B, _eid, _recompute, _set_temp
 from tests.test_dwell_wakeup import _count_refresh_requests, _fire_due, _quiesce
 from tests.test_hands_off import _plan, _remote, _s, _setup
 from tests.test_startup_continuity import _head, _shutdown, _startup, _switch
@@ -540,6 +540,45 @@ async def test_an_action_change_recomputes_only_once_released(hass: HomeAssistan
     await _fire_due(hass, 0)
     assert computes
     assert _row(hass, entry, 1)["vote_hold_until"] is not None
+
+
+@pytest.mark.parametrize("wait", [0, 11])
+async def test_the_off_landing_ends_mxz_s_own_run(hass: HomeAssistant, wait: int) -> None:
+    """MXZ ran the head in heat while the room was enabled. Disabled, MXZ
+    parks it off, and that off landing is the release: the run MXZ drove
+    ends there, with no compute needed to see it. A person then turning the
+    head to heat, idle, has started nothing, so it has no vote and no hold,
+    at once or after the 10 s request cooldown."""
+    entry, _a, head_b = await _setup(
+        hass, hands_off=(False, True), vote_basis=(None, "action"),
+        **{CONF_RESTING_MODE_BIAS: "cool"},
+    )
+    coord = entry.runtime_data
+    await _set_temp(hass, SENSOR_B, 66)
+    await _recompute(hass, entry)
+    assert _s(hass, head_b) == "heat"  # MXZ runs it for the enabled room
+    await _report(hass, head_b, "heat", "heating")
+    await _recompute(hass, entry)
+    assert coord._sight[head_b].ran == MODE_HEAT
+    await _quiesce(hass, coord)
+
+    await _switch(hass, _eid(hass, entry, "_secondary_enable"), False)
+    await hass.async_block_till_done()
+    assert _s(hass, head_b) == "off"  # MXZ's off landed
+    assert coord._hands_off_phase(coord.zones[1]) == "released"
+    assert (coord._sight[head_b].ran, coord._sight[head_b].stopped_at) == (None, None)
+    if wait:
+        await _fire_due(hass, wait)
+    calls = _climate_calls(hass, head_b)
+    assert await _vote_after(hass, entry, head_b, "heat", "idle") is None
+    row = _row(hass, entry, 1)
+    assert (row["hands_off"], row["vote_hold_until"]) == ("released", None)
+    assert _plan(hass, entry).state == MODE_COOL
+    # A run of their own still counts, and its stop still holds.
+    assert await _vote_after(hass, entry, head_b, "heat", "heating") == MODE_HEAT
+    assert await _vote_after(hass, entry, head_b, "heat", "idle") == MODE_HEAT
+    assert _row(hass, entry, 1)["vote_hold_until"] is not None
+    assert calls == []  # the person's head is left as it is
 
 
 @pytest.mark.parametrize(("mode", "action", "bias"), [

@@ -18,7 +18,10 @@ Fixes and cleanups after 3.13.0. No setting or default changes.
   recompute, so the running report could wait out Home Assistant's 10-second refresh
   cooldown (about 4 seconds on hardware). MXZ still sends the head nothing.
 - **Such a room's head asks for a recompute only once it is released.** Before MXZ's off
-  lands, the head has no vote, so its `hvac_action` changing no longer recomputes.
+  lands, the head has no vote, so its `hvac_action` changing no longer recomputes. That
+  off landing now also ends any run MXZ drove on the head. Before, a person turning the
+  head back to heat or cool before the next recompute (up to 10 seconds in 3.13.0) could
+  read as that run stopping and hold a vote for 10 minutes.
 - **The plan sensor no longer reads `cool` for a moment on a reload.** On every reload,
   such as an options save, it published the placeholder plan made before any setting had
   restored, whose shared mode is always `cool`, then the real plan a few milliseconds
