@@ -8,6 +8,33 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
+## Unreleased
+
+Fixes and cleanups after 3.13.0. No setting or default changes.
+
+- **A head starting to run counts at once.** In a room run from its own remote whose vote
+  counts only while its head runs, the vote now counts on the head's first heating or
+  cooling report. Before, the mode change that set the head going had just asked for a
+  recompute, so the running report could wait out Home Assistant's 10-second refresh
+  cooldown (about 4 seconds on hardware). MXZ still sends the head nothing.
+- **Such a room's head asks for a recompute only once it is released.** Before MXZ's off
+  lands, the head has no vote, so its `hvac_action` changing no longer recomputes.
+- **The plan sensor no longer reads `cool` for a moment on a reload.** On every reload,
+  such as an options save, it published the placeholder plan made before any setting had
+  restored, whose shared mode is always `cool`, then the real plan a few milliseconds
+  later. It now stays unavailable until the first plan computed from the restored
+  settings. No head was ever commanded from that placeholder.
+- A head's record no longer keeps a stale run or hold from a sighting without a time.
+  MXZ itself always passes one.
+- **Docs.** The FAQ for a head that looks off in an enabled room now sends you to sensor
+  health, the standby hold, waiting, and command status first. The setpoint explanations
+  are scoped to rooms with one target and say that a dual-setpoint room uses Heat to while
+  heating and Cool to while cooling. MIGRATION's `mode_by_safety` note includes tripped
+  freeze floors and overheat ceilings, and the plan screenshot's alt text includes its
+  Friendly name and Icon lines.
+- **Tested** with the full test suite on Home Assistant 2024.12.0, 2026.2.3, 2026.9.0,
+  2026.10.4, and a 2026.11 development build. **Not tested** on hardware.
+
 ## 3.13.0 (October 28, 2026)
 
 A room run from its own remote can now count its vote only while its head is actually
