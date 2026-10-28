@@ -76,6 +76,22 @@ ZONE_EVIDENCE_BASIS = "evidence_basis"
 # leaves that head alone until the room is enabled again (someone can run it
 # from its own remote), and its observed heat/cool is a low-priority vote.
 ZONE_HANDS_OFF = "hands_off"
+# Per room, what a released hands-off head's heat/cool vote follows. Stored
+# only as VOTE_BASIS_ACTION; the default (VOTE_BASIS_MODE) removes the key, so
+# a room that never chose stores exactly what it stored before this existed.
+# mode: the head votes the heat or cool it is set to, as it always has.
+# action: that vote counts only while the head's own hvac_action says it is
+# running that way (heating in heat, cooling in cool), and for
+# ACTION_VOTE_HOLD after it stops. A head that reports no hvac_action votes
+# by its mode.
+ZONE_HANDS_OFF_VOTE_BASIS = "hands_off_vote_basis"
+VOTE_BASIS_MODE = "mode"
+VOTE_BASIS_ACTION = "action"
+VOTE_BASES = (VOTE_BASIS_MODE, VOTE_BASIS_ACTION)
+# Seconds an action-basis vote still counts after its head stops running:
+# rides out the short idle gaps an inverter shows near its setpoint, and a
+# head's slow hvac_action reports. Fixed (Drew's call: a 10-minute hold).
+ACTION_VOTE_HOLD = 600
 # Optional per-zone binary_sensor: "this zone is asserting a safety override
 # right now" (e.g. a freeze/overheat floor). Unset = this zone's Demand never
 # carries PRIORITY_SAFETY. Settable on any zone regardless of enable/hands_off

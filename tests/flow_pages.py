@@ -69,6 +69,7 @@ ROOM_FIELDS: tuple[str, ...] = (
     "vane_horizontal",
     "safety_priority_entity",
     "hands_off",
+    "hands_off_vote_basis",
     *ROOM_SECTION_FIELDS["drift"],
     *SECTION_FIELDS["freshness"],
     *ROOM_SECTION_FIELDS["floor"],

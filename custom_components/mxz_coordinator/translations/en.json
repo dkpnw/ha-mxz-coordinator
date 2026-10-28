@@ -475,12 +475,14 @@
           "vane_vertical": "Vertical vane",
           "vane_horizontal": "Horizontal vane",
           "safety_priority_entity": "Safety priority sensor",
-          "hands_off": "Let its own remote run it while disabled"
+          "hands_off": "Let its own remote run it while disabled",
+          "hands_off_vote_basis": "While its own remote runs it, its vote counts"
         },
         "data_description": {
           "stage": "Shows the head's real fan speed while the fan is on auto.",
           "safety_priority_entity": "A binary sensor that's on when this room is asserting a safety override (e.g. a freeze or overheat floor). While on, this room's want for heat or cool outranks every other room's, coordinated or hands-off.",
-          "hands_off": "Off (the default): a disabled room's head is held off, as always. On: when you disable the room, MXZ turns the head off once, retrying until the head reports off. Then MXZ leaves the head alone until you enable the room again."
+          "hands_off": "Off (the default): a disabled room's head is held off, as always. On: when you disable the room, MXZ turns the head off once, retrying until the head reports off. Then MXZ leaves the head alone until you enable the room again.",
+          "hands_off_vote_basis": "Only matters with the option above on. While a person runs this room's head in heat or cool, that is a vote for the shared mode, below any enabled room's call. \"Whenever it is set to heat or cool\" (the default) counts it for as long as the head sits in that mode, as always. \"Only while it is heating or cooling\" counts it only while the head itself reports it is running that way, and for 10 minutes after it stops, so a head resting at its own setpoint stops holding the outdoor unit. A head that doesn't report what it is doing counts whenever it is set. While its Safety priority sensor is on, it counts whenever it is set, running or not."
         },
         "sections": {
           "drift": {
@@ -568,6 +570,12 @@
         "medium": "Medium",
         "middle": "Middle (faster than Medium)",
         "high": "High"
+      }
+    },
+    "hands_off_vote_basis": {
+      "options": {
+        "mode": "Whenever it is set to heat or cool (default)",
+        "action": "Only while it is heating or cooling"
       }
     },
     "evidence_basis": {

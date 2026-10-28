@@ -585,18 +585,47 @@ class HeadSight:
     not after it); and a head not seen since MXZ started is timed from that
     start (:meth:`status` reads unknown until then, expired after), because
     every head is briefly unavailable while Home Assistant boots.
+
+    It also keeps what the head was last seen running, for a room that votes
+    by action (:meth:`action_vote`). That filter is MXZ's own extension of
+    Chris's observed vote, not part of his design.
     """
 
     def __init__(self, started: float, started_wall: float) -> None:
         self.mode: str | None = None  # the state last seen; None if never seen
+        # The head's own hvac_action last seen; None if it reported none.
+        self.action: str | None = None
         self.lost_at: float | None = started  # monotonic; None while in sight
         self.lost_wall: float | None = started_wall  # the same moment, for display
+        # The heat or cool the head was last seen running in its own mode,
+        # and when it was first seen no longer running it (None while it runs).
+        self.ran: str | None = None
+        self.stopped_at: float | None = None
 
-    def observe(self, mode: str) -> None:
-        """Record the head's state, seen just now."""
+    def observe(self, mode: str, action: Any = None, now: float | None = None) -> None:
+        """Record the head's state and its own hvac_action, seen just now.
+
+        A run counts only when the action agrees with the mode: heating in
+        heat, cooling in cool. A head's action lags a mode change, so it can
+        read heating in off or cooling in fan_only for a poll; such a
+        contradiction is never a run, so it can't start, extend, or refresh
+        one. A head that leaves the mode it ran in ends that run, hold and
+        all; one that stops running in the same mode starts its hold, timed
+        from the first sighting that shows it stopped. ``now`` (monotonic)
+        is None only for a caller that never reads :meth:`action_vote`.
+        """
         self.mode = mode
+        self.action = action if isinstance(action, str) else None
         self.lost_at = None
         self.lost_wall = None
+        if now is None:
+            return
+        if self.action is not None and _RUNNING.get(mode) == self.action:
+            self.ran, self.stopped_at = mode, None
+        elif mode != self.ran:
+            self.ran, self.stopped_at = None, None
+        elif self.stopped_at is None:
+            self.stopped_at = now
 
     def lose(self, now: float, wall: float) -> None:
         """Record that the head can't be seen; the limit runs from the first call."""
@@ -623,6 +652,38 @@ class HeadSight:
         if self.status(now, ttl) not in (VOTE_LIVE, VOTE_STALE):
             return None
         return self.mode if self.mode in (MODE_COOL, MODE_HEAT) else None
+
+    def action_vote(self, now: float, ttl: float, hold: float) -> str | None:
+        """:meth:`vote`, counted only while the head runs it, or for ``hold`` after.
+
+        Never more than :meth:`vote`: this only drops a vote, it never makes
+        one. A lost head is judged as it was last seen (the moment it was
+        lost), so it keeps the vote it last had, running or held, stale until
+        the time limit, exactly as :meth:`vote` does. The hold is half-open,
+        like the time limit: over AT ``hold``, not after it.
+        """
+        vote = self.vote(now, ttl)
+        if vote is None or vote != self.ran:
+            return None
+        if self.stopped_at is None:
+            return vote
+        seen = now if self.lost_at is None else self.lost_at
+        return vote if seen - self.stopped_at < hold else None
+
+    def hold_ends_in(self, now: float, hold: float) -> float | None:
+        """Seconds until a stopped head's held vote drops, or None (no hold running).
+
+        None while the head is out of sight: its vote is then kept as last
+        seen, and :meth:`expires_in` times it.
+        """
+        if self.lost_at is not None or self.ran is None or self.stopped_at is None:
+            return None
+        left = hold - (now - self.stopped_at)
+        return left if left > 0 else None
+
+
+# The head's own hvac_action that means it is running its mode.
+_RUNNING = {MODE_HEAT: "heating", MODE_COOL: "cooling"}
 
 
 def floor_call(

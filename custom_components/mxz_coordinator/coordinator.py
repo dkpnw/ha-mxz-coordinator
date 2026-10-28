@@ -25,7 +25,11 @@ from datetime import datetime, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature
+from homeassistant.components.climate import (
+    ATTR_HVAC_ACTION,
+    ClimateEntity,
+    ClimateEntityFeature,
+)
 from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
     STATE_ON,
@@ -52,6 +56,7 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .capabilities import head_has_fan_auto
 from .const import (
+    ACTION_VOTE_HOLD,
     BAND_DRIFT_DELAY,
     BANNED_MODES,
     CHANGEOVER_INTERVAL_MINUTES,
@@ -138,6 +143,8 @@ from .const import (
     VANE_KICK_APPLY,
     VANE_KICK_RETIRE_TIMEOUT,
     VANE_KICK_SPINUP,
+    VOTE_BASIS_ACTION,
+    VOTE_BASIS_MODE,
     VOTE_EXPIRED,
     ZONE_CLIMATE,
     ZONE_DRIFT_COOLER_BY,
@@ -147,6 +154,7 @@ from .const import (
     ZONE_FLOOR_HIGH,
     ZONE_FLOOR_LOW,
     ZONE_HANDS_OFF,
+    ZONE_HANDS_OFF_VOTE_BASIS,
     ZONE_MAX_AGE,
     ZONE_NAME,
     ZONE_REPORT_INTERVAL,
@@ -306,6 +314,9 @@ class Zone:
     drift: float | None = None
     # Hands-off opt-in (ZONE_HANDS_OFF), from config; only a stored True opts in.
     hands_off: bool = False
+    # What its released head's vote follows (ZONE_HANDS_OFF_VOTE_BASIS), from
+    # config; only a stored "action" opts in, anything else is "mode".
+    vote_basis: str = VOTE_BASIS_MODE
     # Optional binary_sensor (ZONE_SAFETY_PRIORITY_ENTITY): "on" marks this
     # zone's Demand PRIORITY_SAFETY for this tick, regardless of whether its
     # direction comes from room_call() or a hands-off vote. Static wiring,
@@ -418,6 +429,11 @@ def _parse_zones(
             stage_sensor_id=z.get(ZONE_STAGE_SENSOR) or None,
             target=target_default,
             hands_off=z.get(ZONE_HANDS_OFF) is True,
+            vote_basis=(
+                VOTE_BASIS_ACTION
+                if z.get(ZONE_HANDS_OFF_VOTE_BASIS) == VOTE_BASIS_ACTION
+                else VOTE_BASIS_MODE
+            ),
             safety_priority_entity=z.get(ZONE_SAFETY_PRIORITY_ENTITY) or None,
             report_interval=z.get(ZONE_REPORT_INTERVAL),
             max_age=z.get(ZONE_MAX_AGE),
@@ -541,6 +557,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Blank (no key) is the default; a stored value is clamped into the
         # UI's bounds, and one that isn't a finite number reads as blank.
         self.lost_vote_ttl: float = 60.0 * _lost_vote_minutes(conf.get(CONF_LOST_VOTE_TTL))
+        # How long an action-basis vote still counts after its head stops
+        # running, in seconds (see logic.HeadSight.action_vote).
+        self.action_vote_hold: float = float(ACTION_VOTE_HOLD)
         self.eco_cool_max: float = conf.get(
             CONF_ECO_COOL_MAX, _defaults[CONF_ECO_COOL_MAX]
         )
@@ -1205,8 +1224,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             floor = self._floor_want(zone, temp, ok, now)
             if floor is not None:
                 engage = floor
-            vote = self._hands_off_vote(zone, clock)
             safety = self._zone_safety(zone)
+            vote = self._hands_off_vote(zone, clock, safety)
             holds = self._holds(status, safety)
             held_demand = demand if holds else DEMAND_NEUTRAL
             held_engage = engage if holds or floor is not None else ENGAGE_SATISFIED
@@ -1293,6 +1312,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         # while it is in sight).
                         "vote_status": statuses[i],
                         "lost_since": self._lost_since(zone.climate_id),
+                        # A room that votes by action: what its vote follows
+                        # now, and when a stopped head's held vote drops.
+                        **self._vote_basis_row(zone, clock, now),
                         "safety_priority": self._zone_safety(zone),
                         "floor_low": zone.floor_low,
                         "floor_high": zone.floor_high,
@@ -3523,15 +3545,35 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if sight is not None and mode in (None, STATE_UNAVAILABLE):
             # Lost sight of it: what it showed just before is its last-known
             # vote, even if no compute ran in between.
+            clock = time.monotonic()
             if old_state is not None and old_state.state != STATE_UNAVAILABLE:
-                sight.observe(old_state.state)
-            sight.lose(time.monotonic(), dt_util.utcnow().timestamp())
+                sight.observe(
+                    old_state.state, old_state.attributes.get(ATTR_HVAC_ACTION), clock
+                )
+            sight.lose(clock, dt_util.utcnow().timestamp())
         if sight is not None and (mode in (None, STATE_UNAVAILABLE)) != (
             old_state is None or old_state.state == STATE_UNAVAILABLE
         ):
             # Out of sight, or back. HA's unknown is in sight but counts as
             # unavailable below, so unknown<->unavailable needs this to
-            # recompute the vote and the expiry wakeup now.
+            # recompute the vote and the hold or expiry wakeup now.
+            refresh_needed = True
+        if (
+            new_state is not None and old_state is not None
+            and any(
+                zone.climate_id == entity_id and zone.hands_off
+                and zone.vote_basis == VOTE_BASIS_ACTION
+                for zone in self.zones
+            )
+            and (
+                mode != old_state.state
+                or new_state.attributes.get(ATTR_HVAC_ACTION)
+                != old_state.attributes.get(ATTR_HVAC_ACTION)
+            )
+        ):
+            # A room that votes by action: the head starting or stopping a run
+            # starts or ends its vote (or its hold), so recompute now rather
+            # than at the next sensor report.
             refresh_needed = True
         pending = next(
             (zone for zone in self.zones
@@ -3714,7 +3756,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for zone in self.zones
         )
 
-    def _hands_off_vote(self, zone: Zone, clock: float) -> str | None:
+    def _hands_off_vote(self, zone: Zone, clock: float, safety: bool = False) -> str | None:
         """What a released hands-off head is running, if it is heat or cool.
 
         Before the off lands, the head's mode is ours or stale, so it has no
@@ -3724,10 +3766,60 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         stale, until the time limit runs out; then it has none (see
         logic.HeadSight, adapted from @csingley's ha-climate-zone-sequencer).
         A head not seen since MXZ started has no last vote at all.
+
+        A room that votes by action counts that heat or cool only while its
+        head's own hvac_action says it is running it, and for the hold after
+        (logic.HeadSight.action_vote). Votes read from observations, not
+        configuration, is @csingley's idea (ha-climate-zone-sequencer f911e4a,
+        "derive zone votes from observations, not event recency"); filtering
+        by the running action is MXZ's extension of it. A room with its Safety
+        priority sensor on votes its mode, running or not: safety never waits
+        on the filter.
         """
         if self._hands_off_phase(zone) != "released" or self.inhibited:
             return None  # (a standby hold is holding it off)
-        return self._sight[zone.climate_id].vote(clock, self.lost_vote_ttl)
+        sight = self._sight[zone.climate_id]
+        if safety or self._vote_basis(zone) != VOTE_BASIS_ACTION:
+            return sight.vote(clock, self.lost_vote_ttl)
+        return sight.action_vote(clock, self.lost_vote_ttl, self.action_vote_hold)
+
+    def _vote_basis(self, zone: Zone) -> str:
+        """What this room's head vote follows now: its mode, or its action.
+
+        Action only for a room set to it whose head reports an hvac_action of
+        its own; a head seen reporting none votes by its mode. Only the head's
+        own attribute counts: MXZ's thermostat derives an action from the
+        head's mode for display, and that is never an observation.
+        """
+        if zone.vote_basis != VOTE_BASIS_ACTION:
+            return VOTE_BASIS_MODE
+        sight = self._sight[zone.climate_id]
+        if sight.mode is not None and sight.action is None:
+            return VOTE_BASIS_MODE
+        return VOTE_BASIS_ACTION
+
+    def _vote_basis_row(self, zone: Zone, clock: float, wall: float) -> dict[str, Any]:
+        """A hands-off action-basis room's vote_basis and vote_hold_until; else nothing.
+
+        Display only. vote_hold_until is when a stopped head's held vote
+        drops, as an ISO time, while that hold is running.
+        """
+        if not zone.hands_off or zone.vote_basis != VOTE_BASIS_ACTION:
+            return {}
+        basis = self._vote_basis(zone)
+        left = (
+            self._sight[zone.climate_id].hold_ends_in(clock, self.action_vote_hold)
+            if basis == VOTE_BASIS_ACTION else None
+        )
+        return {
+            "vote_basis": basis,
+            "vote_hold_until": (
+                None if left is None
+                # To the second: the two clocks drift apart by microseconds
+                # between computes, and the row should not.
+                else dt_util.utc_from_timestamp(round(wall + left)).isoformat()
+            ),
+        }
 
     # -- lost heads: a stale, then an expired vote ----------------------------
     def _watch_head(self, climate_id: str, clock: float, wall: float) -> HeadSight:
@@ -3745,7 +3837,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if head is None or head.state == STATE_UNAVAILABLE:
             sight.lose(clock, wall)
         else:
-            sight.observe(head.state)
+            sight.observe(head.state, head.attributes.get(ATTR_HVAC_ACTION), clock)
         return sight
 
     def _lost_since(self, climate_id: str) -> str | None:
@@ -3803,6 +3895,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             wait
             for sight in self._sight.values()
             if (wait := sight.expires_in(clock, self.lost_vote_ttl)) is not None
+        ]
+        # And the nearest end of a held action vote: a head that stopped
+        # running and stays quiet emits nothing more either.
+        waits += [
+            wait
+            for zone in self.zones
+            if zone.hands_off and zone.vote_basis == VOTE_BASIS_ACTION
+            and (
+                wait := self._sight[zone.climate_id].hold_ends_in(
+                    clock, self.action_vote_hold
+                )
+            ) is not None
         ]
         if not waits:
             return
