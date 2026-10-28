@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import attr
 import pytest
 
 pytest.importorskip("homeassistant")
@@ -459,6 +460,13 @@ async def test_rename_keeps_the_settings_and_the_registry_identity(
     )
 
 
+# Home Assistant 2026.11 (entity registry 1.24) puts the device name in front of
+# a name the user typed into the entity settings, as it does for the
+# integration's own names; before that, the typed name was the whole friendly
+# name. Its migration keeps a name typed before the upgrade whole, in compat_name.
+HA_PREFIXES_USER_NAMES = "compat_name" in attr.fields_dict(er.RegistryEntry)
+
+
 async def test_rename_respects_a_user_renamed_entity(hass: HomeAssistant) -> None:
     """A name the user typed into the entity settings outranks the room name."""
     heads, sensors, entry = await _setup_rooms(hass)
@@ -470,8 +478,8 @@ async def test_rename_respects_a_user_renamed_entity(hass: HomeAssistant) -> Non
     await _reconfigure(hass, entry, heads, sensors, names=["Nursery", "Study"])
 
     assert reg.async_get(target_eid).name == "Kids' comfort"
-    assert (
-        hass.states.get(target_eid).attributes["friendly_name"] == "Kids' comfort"
+    assert hass.states.get(target_eid).attributes["friendly_name"] == (
+        "MXZ Coordinator Kids' comfort" if HA_PREFIXES_USER_NAMES else "Kids' comfort"
     )
     # The room the user did NOT rename by hand still follows its new room name.
     assert (
@@ -521,6 +529,38 @@ async def test_rename_and_reorder_together(hass: HomeAssistant) -> None:
     _assert_room_settings_followed_their_heads(before, after, ignore=("name",))
     assert _by_head(after)[heads[0]]["name"] == "Nursery"
     assert _by_head(after)[heads[1]]["name"] == "Study"
+
+
+async def test_a_name_typed_before_the_upgrade_survives_rename_and_reorder(
+    hass: HomeAssistant,
+) -> None:
+    """A user's name that HA's registry migration kept whole stays whole.
+
+    The reorder moves the record with its head by changing only its unique_id.
+    Changing its name or device as well would make HA drop compat_name and put
+    the device name in front of what the user typed.
+    """
+    heads, sensors, entry = await _setup_rooms(hass)
+    reg = er.async_get(hass)
+    target_eid = _room_eid(hass, entry, 0, "target")
+    reg.async_update_entity(target_eid, name="Kids' comfort")
+    if HA_PREFIXES_USER_NAMES:
+        # As registry 1.24's migration leaves a name typed before it: the name,
+        # and compat_name holding the friendly name it showed. Only the
+        # migration and the registry itself set compat_name, through this call.
+        reg._async_update_entity(target_eid, compat_name="Kids' comfort")
+    # The migration runs before any entity exists; a reload starts them fresh.
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(target_eid).attributes["friendly_name"] == "Kids' comfort"
+
+    await _reconfigure(
+        hass, entry, heads[::-1], sensors[::-1], names=["Study", "Nursery"]
+    )
+
+    assert _room_eid(hass, entry, 1, "target") == target_eid  # moved with its head
+    assert reg.async_get(target_eid).name == "Kids' comfort"
+    assert hass.states.get(target_eid).attributes["friendly_name"] == "Kids' comfort"
 
 
 # -- removing and adding a room ---------------------------------------------

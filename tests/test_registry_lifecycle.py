@@ -54,6 +54,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_NAME,
     ZONE_SENSOR,
 )
+from tests.restore_store import set_stored_states
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -334,13 +335,13 @@ async def test_a_previous_incarnation_is_still_ignored(
     await hass.async_block_till_done()
 
     stamp = entry.created_at + timedelta(days=-3 if stale else 3)
-    rs.async_get(hass).last_states = {
+    set_stored_states(hass, {
         switch_id: rs.StoredState(
             State(switch_id, "unavailable", last_updated=stamp),
             rs.RestoredExtraData({"held": True}),
             stamp,
         )
-    }
+    })
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 

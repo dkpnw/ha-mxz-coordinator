@@ -79,6 +79,7 @@ from custom_components.mxz_coordinator.switch import (
     ATTR_PRIOR_FAN_COMMAND,
     FanHoldRestoreData,
 )
+from tests.restore_store import find_stored_state, stored_state
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -147,11 +148,11 @@ async def _shutdown(hass: HomeAssistant, entry: MockConfigEntry) -> None:
     raw = deepcopy(await restore.store.async_load())
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    removed = {sid: restore.last_states[sid] for sid in switches}
+    removed = {sid: stored_state(hass, sid) for sid in switches}
     await _load_store(hass, raw)
     records = {r["state"]["entity_id"]: r for r in raw}
     for sid in switches:
-        loaded = restore.last_states[sid]
+        loaded = stored_state(hass, sid)
         assert loaded is not removed[sid]
         assert loaded.state.entity_id == sid
         assert loaded.state.state == records[sid]["state"]["state"]
@@ -165,7 +166,7 @@ async def _load_store(hass: HomeAssistant, expected: list) -> None:
     """Cold-load the persisted input, independently of removal memory/cache."""
     restore = rs.async_get(hass)
     previous_store = restore.store
-    removed = dict(restore.last_states)
+    removed = {r["state"]["entity_id"]: find_stored_state(hass, r["state"]["entity_id"]) for r in expected}
     # Use HA's own Store construction (version/key/encoder), retaining the
     # active restore helper. phcc seeds only a cold Store from hass_storage.
     restore.store = rs.RestoreStateData(hass).store
@@ -184,8 +185,8 @@ async def _load_store(hass: HomeAssistant, expected: list) -> None:
     assert calls == [expected]
     for record in expected:
         sid = record["state"]["entity_id"]
-        loaded = restore.last_states[sid]
-        assert loaded is not removed.get(sid)
+        loaded = stored_state(hass, sid)
+        assert loaded is not removed[sid]
         assert loaded.state.entity_id == sid
         assert loaded.state.state == record["state"]["state"]
         assert dict(loaded.state.attributes) == record["state"]["attributes"]
@@ -195,11 +196,10 @@ async def _load_store(hass: HomeAssistant, expected: list) -> None:
 
 async def _startup(hass: HomeAssistant, entry: MockConfigEntry) -> None:
     """Prove both Fan-auto restore getters read the supplied loaded records."""
-    restore = rs.async_get(hass)
     supplied = {
-        _eid(hass, entry, f"_{room}_fan_auto"): restore.last_states[
-            _eid(hass, entry, f"_{room}_fan_auto")
-        ] for room in ("primary", "secondary")
+        _eid(hass, entry, f"_{room}_fan_auto"): stored_state(
+            hass, _eid(hass, entry, f"_{room}_fan_auto")
+        ) for room in ("primary", "secondary")
     }
     reads = []
     real_state = rs.RestoreEntity.async_get_last_state
@@ -1254,9 +1254,9 @@ async def test_older_store_cannot_prove_a_later_rung_is_owned(
     await hass.async_block_till_done()
     # No new shutdown dump: load the genuine earlier record after removal.
     assert hass_storage["core.restore_state"] == older
-    removed = rs.async_get(hass).last_states[switch]
+    removed = stored_state(hass, switch)
     await _load_store(hass, older["data"])
-    assert rs.async_get(hass).last_states[switch] is not removed
+    assert stored_state(hass, switch) is not removed
     writes = _fan_writes(hass)
     await _startup(hass, entry)
     if room == "idle":

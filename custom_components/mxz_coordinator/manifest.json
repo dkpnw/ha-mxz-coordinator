@@ -1,6 +1,7 @@
 {
   "domain": "mxz_coordinator",
   "name": "MXZ Coordinator",
+  "categories": ["climate.heat_pumps_air_conditioning"],
   "codeowners": ["@dkpnw"],
   "config_flow": true,
   "dependencies": [],
@@ -9,5 +10,5 @@
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/dkpnw/ha-mxz-coordinator/issues",
   "requirements": [],
-  "version": "3.11.1"
+  "version": "3.12.0"
 }

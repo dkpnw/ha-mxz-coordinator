@@ -29,9 +29,11 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from enum import Enum
 from typing import Any
 
+from homeassistant.components.climate import const as climate_const
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, EVENT_CALL_SERVICE
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers import entity_registry as er
@@ -412,6 +414,42 @@ def take_vote_rows(step: dict[str, Any]) -> tuple[dict[str, Any], list[tuple[Any
         for row in step["entities"]["plan"]["attributes"]["zones"]
     ]
     return step, taken
+
+
+# Home Assistant 2026.11 publishes temperature_unit, the system unit, on every
+# climate entity (the thermostats and the heads alike); the 3.9.0 record
+# predates it. A replay takes it out of each climate entity's attributes with
+# take_climate_units and checks it on its own. On an older core every entity
+# reads "<missing>", so a unit that appears there fails as well.
+HA_PUBLISHES_CLIMATE_UNIT = hasattr(
+    getattr(climate_const, "ClimateEntityStateAttribute", None), "TEMPERATURE_UNIT"
+)
+
+
+def _climate_attributes(step: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Each climate entity's attributes in ``step`` (the dicts themselves), by name."""
+    return {
+        name: entity["attributes"]
+        for group in ("entities", "heads")
+        for name, entity in step[group].items()
+        if entity["attributes"] is not None and "hvac_modes" in entity["attributes"]
+    }
+
+
+def take_climate_units(step: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """``step`` without temperature_unit on its climate entities, and each one's value."""
+    step = deepcopy(step)
+    taken = {
+        name: attributes.pop("temperature_unit", "<missing>")
+        for name, attributes in _climate_attributes(step).items()
+    }
+    return step, taken
+
+
+def climate_units(recorded: dict[str, Any], unit: str) -> dict[str, Any]:
+    """What take_climate_units must find, on this core, in a replay of ``recorded``."""
+    value = ("°F" if unit == "F" else "°C") if HA_PUBLISHES_CLIMATE_UNIT else "<missing>"
+    return dict.fromkeys(_climate_attributes(recorded), value)
 
 
 def dumps(record: dict[str, Any]) -> str:

@@ -76,6 +76,12 @@ _ACTION_FOR_MODE = {
 # Independent horizontal swing was added in HA 2024.12; guard for older cores.
 _HAS_HORIZONTAL_SWING = hasattr(ClimateEntityFeature, "SWING_HORIZONTAL_MODE")
 
+# HA 2026.11 renamed the temperature members native_* (native_temperature_unit,
+# native_current_temperature, ...). It still serves a subclass that provides the
+# old names, but logs a deprecation for it, and 2027.11 drops them. So each
+# thermostat provides exactly the names its core reads, never both.
+_NATIVE_TEMPERATURES = hasattr(ClimateEntity, "native_current_temperature")
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -105,7 +111,10 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
 
         # Report the HA system temperature unit + its resolution (°F: whole
         # degrees; °C: 0.5° steps).
-        self._attr_temperature_unit = coordinator.temp_unit
+        if _NATIVE_TEMPERATURES:
+            self._attr_native_temperature_unit = coordinator.temp_unit
+        else:
+            self._attr_temperature_unit = coordinator.temp_unit
         self._attr_target_temperature_step = coordinator.target_step
 
         # Setpoint-slider bounds are derived live from the head (see min_temp /
@@ -194,8 +203,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         return self._zone.sensor_id
 
     # -- display ------------------------------------------------------------
-    @property
-    def current_temperature(self) -> float | None:
+    def _current_temperature(self) -> float | None:
         """The room sensor the coordinator reads; None when it rejects it.
 
         Shares the coordinator's own reader, so the tile shows exactly what the
@@ -219,9 +227,15 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         """High slider bound: clamp_max narrowed to the head's native ceiling (#10)."""
         return self.coordinator.head_target_bounds(self._head_id)[1]
 
-    @property
-    def target_temperature(self) -> float | None:
+    def _target_temperature(self) -> float | None:
         return self._zone.target
+
+    if _NATIVE_TEMPERATURES:
+        native_current_temperature = property(lambda self: self._current_temperature())
+        native_target_temperature = property(lambda self: self._target_temperature())
+    else:
+        current_temperature = property(lambda self: self._current_temperature())
+        target_temperature = property(lambda self: self._target_temperature())
 
     @property
     def hvac_mode(self) -> HVACMode:
@@ -446,17 +460,21 @@ class MXZRangeRoomClimate(MXZRoomClimate):
             features & ~ClimateEntityFeature.TARGET_TEMPERATURE
         ) | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
 
-    @property
-    def target_temperature(self) -> float | None:
-        return None if self._zone.dual else super().target_temperature
+    def _target_temperature(self) -> float | None:
+        return None if self._zone.dual else super()._target_temperature()
 
-    @property
-    def target_temperature_low(self) -> float | None:
+    def _target_temperature_low(self) -> float | None:
         return self._zone.target_low if self._zone.dual else None
 
-    @property
-    def target_temperature_high(self) -> float | None:
+    def _target_temperature_high(self) -> float | None:
         return self._zone.target_high if self._zone.dual else None
+
+    if _NATIVE_TEMPERATURES:
+        native_target_temperature_low = property(lambda self: self._target_temperature_low())
+        native_target_temperature_high = property(lambda self: self._target_temperature_high())
+    else:
+        target_temperature_low = property(lambda self: self._target_temperature_low())
+        target_temperature_high = property(lambda self: self._target_temperature_high())
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """A range write: the final pair, checked, then stored in one step.

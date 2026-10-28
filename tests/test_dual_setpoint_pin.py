@@ -24,7 +24,13 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.core import HomeAssistant
 
-from tests.pin_scenario import dumps, run_scenario, take_vote_rows
+from tests.pin_scenario import (
+    climate_units,
+    dumps,
+    run_scenario,
+    take_climate_units,
+    take_vote_rows,
+)
 
 PIN = Path(__file__).with_name("pin_3_9_0.json")
 CAPTURE = os.environ.get("MXZ_PIN_CAPTURE") == "1"
@@ -49,6 +55,8 @@ async def test_all_single_install_is_3_9_0(hass: HomeAssistant, unit: str) -> No
         # No head is ever lost in this scenario: both rows are live every step.
         seen, votes = take_vote_rows(seen)
         assert votes == [("live", None), ("live", None)], seen["step"]
+        seen, units = take_climate_units(seen)
+        assert units == climate_units(want, unit), seen["step"]
         assert seen == want, seen["step"]
 
 

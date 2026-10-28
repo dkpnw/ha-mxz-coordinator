@@ -621,8 +621,9 @@ def boundary_phases(tmp_path_factory):
             f"def test_invented_boundary():\n    assert {exit_code} == 0\n")
         # Explicit child fixture scope for pytest-asyncio; plain pytest accepts -o
         # without introducing an unregistered option into an ini configuration file.
+        # -p no:respx is what the repository's pytest.ini adds to the suite itself.
         children[exit_code] = subprocess.Popen(
-            [sys.executable, "-I", "-m", "pytest", "-p", "no:cacheprovider",
+            [sys.executable, "-I", "-m", "pytest", "-p", "no:cacheprovider", "-p", "no:respx",
              "-o", "asyncio_default_fixture_loop_scope=function",
              "-q", "-s", "test_invented_boundary.py"], cwd=root, env=EXPORT_ENV,
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

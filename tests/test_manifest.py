@@ -59,3 +59,12 @@ def test_manifest_has_required_metadata(manifest: dict) -> None:
         assert manifest.get(key), f"manifest.json is missing {key!r}"
 
     assert manifest["config_flow"] is True
+
+
+def test_category_files_it_with_heat_pumps(manifest: dict) -> None:
+    """Home Assistant 2026.11 groups integrations by category when browsing.
+
+    One known climate subcategory, in the form hassfest checks
+    (``area`` or ``area.subcategory``); older cores ignore the key.
+    """
+    assert manifest["categories"] == ["climate.heat_pumps_air_conditioning"]

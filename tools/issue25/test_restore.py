@@ -13,7 +13,7 @@ from contextlib import ExitStack
 from copy import deepcopy
 from datetime import datetime
 from hashlib import sha256
-from importlib.metadata import distribution
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from time import monotonic
 from typing import ClassVar
@@ -63,13 +63,28 @@ def trace(event, **values):
     print("ISSUE25 " + json.dumps({"event": event, **values}, default=str, sort_keys=True))
 
 
+def _test_plugin():
+    """The installed Home Assistant pytest plugin and its helper module.
+
+    Home Assistant 2026.11 ships its own plugin, pytest-home-assistant, for cores
+    that pytest-homeassistant-custom-component no longer follows. With neither
+    installed, dependency_provenance's distribution() call raises, as before.
+    """
+    try:
+        distribution("pytest-homeassistant-custom-component")
+    except PackageNotFoundError:
+        return "pytest-home-assistant", "pytest_homeassistant/common.py"
+    return "pytest-homeassistant-custom-component", "pytest_homeassistant_custom_component/common.py"
+
+
 def dependency_provenance():
     """Bind the later executed contract to installed files, never guessed sources."""
+    plugin, helpers = _test_plugin()
     for package, paths in (
         ("homeassistant", ("homeassistant/helpers/restore_state.py",
                            "homeassistant/helpers/storage.py",
                            "homeassistant/helpers/entity_platform.py")),
-        ("pytest-homeassistant-custom-component", ("pytest_homeassistant_custom_component/common.py",)),
+        (plugin, (helpers,)),
     ):
         installed = distribution(package)
         for path in paths:
@@ -174,9 +189,21 @@ def observe_lifecycle(stack, observer, entity_class, relevant=lambda entity: Tru
         stack.enter_context(patch.object(cls, method, new=observer.wrap(getattr(cls, method), kind, relevant)))
 
 
+def stored_record(restore, sid):
+    """The record restore hands sid, or None.
+
+    Home Assistant 2026.11 removed ``last_states`` for records indexed by entity
+    registry id; ``async_get_stored_state`` finds a record in either index. This
+    overlay runs on an older exported tree, so it cannot share tests/restore_store.py.
+    """
+    if hasattr(restore, "last_states"):
+        return restore.last_states.get(sid)
+    return restore.async_get_stored_state(sid)
+
+
 async def load_after_removal(restore, raw, entities, created_at):
     """Check the actual Store call and reconstructed records after removal."""
-    removed = {sid: restore.last_states.get(sid) for sid in entities}
+    removed = {sid: stored_record(restore, sid) for sid in entities}
     real_load = restore.store.async_load
     loads = []
 
@@ -193,11 +220,11 @@ async def load_after_removal(restore, raw, entities, created_at):
     assert loads[0]["result"] == raw["data"], "UNKNOWN: post-unload load did not read serialized shutdown store"
     records = {r["state"]["entity_id"]: r for r in raw["data"]}
     assert len(records) == len(raw["data"]), "UNKNOWN: duplicate serialized entity"
+    loaded = {sid: stored_record(restore, sid) for sid in entities}
     for sid in entities:
-        loaded = restore.last_states.get(sid)
-        assert loaded is not removed[sid], "UNKNOWN: unload-time memory record survived load"
-        require_restore_record(sid, loaded, records[sid], created_at)
-    return {sid: restore.last_states[sid] for sid in entities}
+        assert loaded[sid] is not removed[sid], "UNKNOWN: unload-time memory record survived load"
+        require_restore_record(sid, loaded[sid], records[sid], created_at)
+    return loaded
 
 
 def public_hold(plan, room):

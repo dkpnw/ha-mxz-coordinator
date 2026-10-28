@@ -50,8 +50,10 @@ from tests.pin_scenario import (
     SENSOR_A,
     SENSOR_B,
     Recorder,
+    climate_units,
     room_page_pass,
     run_scenario,
+    take_climate_units,
     take_vote_rows,
 )
 from tests.test_drive import MockHead, MockHeadC, _setup_mock_heads
@@ -788,6 +790,8 @@ async def test_mixed_install_single_room_is_3_9_0(hass: HomeAssistant, unit: str
     for seen, want in zip(steps, pinned, strict=True):
         seen, votes = take_vote_rows(seen)  # (added after 3.10.0; see pin_scenario)
         assert votes == [("live", None), ("live", None)], seen["step"]
+        seen, units = take_climate_units(seen)  # (added by HA 2026.11; see pin_scenario)
+        assert units == climate_units(want, unit), seen["step"]
         assert _single_room_slice(seen) == _single_room_slice(want), seen["step"]
     # And the second room really was dual the whole way through.
     last = steps[-1]
@@ -795,4 +799,5 @@ async def test_mixed_install_single_room_is_3_9_0(hass: HomeAssistant, unit: str
     assert "secondary_target_low" in last["entities"]
     assert "target_low" in last["entities"]["plan"]["attributes"]["zones"][1]
     # Before the toggle, the whole install is 3.9.0.
-    assert take_vote_rows(steps[0])[0] == pinned[0]
+    first, units = take_climate_units(take_vote_rows(steps[0])[0])
+    assert (first, units) == (pinned[0], climate_units(pinned[0], unit))
