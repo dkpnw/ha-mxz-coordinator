@@ -28,7 +28,7 @@ Each room in the plan's `zones` list gains `vote_status` (`live`, `stale`, `expi
 `unknown` until it is seen, and an enabled room's demand then counts for the time limit
 from that start. On a rollback to 3.10.0 the `lost_vote_ttl` key is ignored; that was
 checked by reading the older code, not run. See
-[When a head goes unavailable](../README.md#when-a-head-goes-unavailable).
+[When a head goes unavailable](FEATURES.md#when-a-head-goes-unavailable).
 
 ## Dual setpoint (3.10.0)
 
@@ -66,7 +66,7 @@ the single target again) without a bridge reload. A save that also changes somet
 else, such as the room's uneven drift on the same page, reloads the integration as
 before, with the same result for the room; the thermostat is briefly unavailable, so
 reload the HomeKit bridge (Settings → Devices & services → HomeKit Bridge → Reload) or
-restart Home Assistant afterwards. On our house, the HomeKit bridge's store was
+restart Home Assistant afterwards. On a test system, the HomeKit bridge's store was
 rewritten with the heating and cooling thresholds after a toggle saved on its own; it
 hasn't been checked in the Apple Home app yet.
 
@@ -74,7 +74,7 @@ Either way, the room's run starts fresh, as it does after a target change. Drift
 uneven drift, fan, and vane settings are untouched. Automations that write the room's
 target number keep working while it's on: the write moves the whole range. Assist
 can't set a range; see
-[Give a room separate heat and cool setpoints](../README.md#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint).
+[Give a room separate heat and cool setpoints](FEATURES.md#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint).
 
 ## Per-room uneven drift (3.9.0)
 
@@ -97,7 +97,7 @@ for a side that comes from this section and `room` for one that comes from the d
 number, and `drift_source` is `room` when either side comes from the room. Each room's drift number still shows one value, and
 gains read-only `drift_heat` and `drift_cool` attributes: the drift in use on each side.
 
-See [Per-room uneven drift](../README.md#per-room-uneven-drift).
+See [Per-room uneven drift](FEATURES.md#per-room-uneven-drift).
 
 ## Start points (3.9.0)
 
@@ -121,7 +121,7 @@ A heat or cool lockout moves its side out to **Heat anyway below** or **Cool any
 above**. A disabled room shows no start points: the four edges and `start_points_mode`
 are `null`, and `start_points_lockouts` is empty.
 
-See [Uneven drift](../README.md#uneven-drift).
+See [Uneven drift](FEATURES.md#uneven-drift).
 
 ## Uneven drift (3.8.0)
 
@@ -139,7 +139,7 @@ their meaning; a room's own drift still applies the same distance either way.
 The plan sensor's `zones` list gains `drift_heat` and `drift_cool` per room: the drift
 in use below and above target. Without the new settings both equal `drift`.
 
-See [Uneven drift](../README.md#uneven-drift).
+See [Uneven drift](FEATURES.md#uneven-drift).
 
 ## Mode-change wait on a monotonic clock (3.7.1)
 
@@ -219,7 +219,7 @@ The plan sensor gains a top-level `mode_by_safety` attribute, and each room in i
 room marked Safety priority is asserting and its want is the shared mode. On an
 install with no room's safety priority wired it is always false.
 
-See [Safety priority](../README.md#safety-priority).
+See [Safety priority](FEATURES.md#safety-priority).
 
 ## Freeze floor and overheat ceiling (3.7.0)
 
@@ -278,7 +278,7 @@ after 3.7.0. A run restored after a restart is not a new trip, so a trip notice 
 back before the restart is never sent, although the plan sensor shows the run
 throughout.
 
-See [Freeze floor and overheat ceiling](../README.md#freeze-floor-and-overheat-ceiling).
+See [Freeze floor and overheat ceiling](FEATURES.md#freeze-floor-and-overheat-ceiling).
 
 ## Run one room from its own remote (3.6.0)
 
@@ -310,7 +310,7 @@ wait. On an install with no room opted in it is always false.
 keeps counting for a time limit after its head goes `unavailable`, then expires. See
 [When a head goes unavailable (3.11.0)](#when-a-head-goes-unavailable-3110).
 
-See [Run one room from its own remote](../README.md#run-one-room-from-its-own-remote).
+See [Run one room from its own remote](FEATURES.md#run-one-room-from-its-own-remote).
 
 ## Idle action default (3.5.0)
 
@@ -340,7 +340,7 @@ not run.
 rename/reorder, and registry continuity, and adds optional sensor freshness, Follow
 global drift, and shared-mode choices, with command-delivery, manual-intent, and restore
 corrections. The config-entry schema version remains 2. The declared HA floor remains
-2024.12.0. The README's setup, Reconfigure, and Configure screenshots were rendered on
+2024.12.0. The setup, Reconfigure, and Configure screenshots were rendered on
 HA 2026.10.0 only. The rollback checks below ran on earlier 3.4.0 builds with invented
 entries, within the limits stated there; they were not repeated on the released files.
 
@@ -478,7 +478,8 @@ zone (`climate.*_<zone>_thermostat`) — see "Single-target HomeKit/Google tile"
 1. **Note your current setup** — screenshot your target values, which rooms are
    enabled, and any automations that read/write the old helpers.
 2. **Stop the package's head-writing automations** before setup. Install the
-   integration via HACS (see the README) and select 2–8 heads and a sensor per room.
+   integration via HACS (see the README's [Install](../README.md#install)) and select
+   2–8 heads and a sensor per room.
    Leave the new coordinator and rooms disabled while checking the mapping.
 3. **Remove the YAML package** (or comment out its `!include`) and reload/restart as
    its helpers and automations require. Confirm its head-writing automations are gone
@@ -582,8 +583,8 @@ primary/secondary shape to an ordered `zones` list. Zones 0/1 keep the `primary`
 entity unique_ids. Existing registry records keep their entity IDs, preserving those
 references in history and dashboards. Other runtime changes can still affect what a
 dashboard reports. To add more
-zones to an existing entry, use **⋮ → Reconfigure** on the config entry (see the README's
-"Reconfiguring" section) — no need to remove and re-add.
+zones to an existing entry, use **⋮ → Reconfigure** on the config entry (see
+[Reconfigure](SETUP.md#reconfigure-heads-rooms-and-sensors)) — no need to remove and re-add.
 
 **Display names follow the zone.** Every zone's entities are labelled with that zone's
 name ("Bedroom target", "Bedroom enable"), including the first two — they used to read
@@ -596,7 +597,7 @@ zone-named IDs from the start.
 **Per-zone Fan auto switch.** Every zone also gains a registered
 `switch.*_<zone>_fan_auto` entity — a live mirror of that zone's manual-fan hold (ON = boost
 drives, OFF = a manual speed is held) and the discoverable way to hand fan control back; see
-the README's "Who drives the fan". The entity is available only while the head advertises fan
+[Who drives the fan](FEATURES.md#who-drives-the-fan). The entity is available only while the head advertises fan
 control with the exact `auto` token. It keeps the same registry identity through a temporary
 capability loss or late head startup. The switch restores one held/not-held value across a
 restart so the coordinator can distinguish your hold from its own leftover boost speed.
@@ -663,7 +664,7 @@ parks: `fan_only` (default until [the change above](#idle-action-default-350)), 
 `coil_dry_minutes`, default 10 — then off; heating parks off at once). The `off` choices
 request that the indoor fan stop. They do not establish the cause of a smell or the
 position of a refrigerant valve. Parked-head refrigerant behavior depends on model and
-hardware settings. See the README's "How a satisfied head idles".
+hardware settings. See [How a satisfied head idles](FEATURES.md#how-a-satisfied-head-idles).
 
 **Interactions.**
 
@@ -803,8 +804,7 @@ or error key changed, and nothing is migrated.
   and the page that fixes it.
 - An error on a field inside a collapsed section is shown above that section, which
   opens.
-- Field labels changed. The 3.4.0 sections below use the old labels; the README's
-  [Configure](../README.md#configure-comfort-and-sensor-settings) section has the new
+- Field labels changed. The 3.4.0 sections below use the old labels; [Configuration](CONFIGURATION.md#every-setting-and-its-default) has the new
   ones and the page for each pair.
 
 ## Setpoints on °C-native heads in a °F system (3.4.1)

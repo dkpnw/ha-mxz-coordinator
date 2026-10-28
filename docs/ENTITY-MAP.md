@@ -2,7 +2,7 @@
 
 > **This page is for the legacy manual install** (the `packages/` YAML file). The
 > recommended install is now the **HACS integration**, which configures these entities
-> through a UI form — no find/replace. See the README's "Install" section, and
+> through a UI form — no find/replace. See the README's [Install](../README.md#install) section, and
 > [`MIGRATION.md`](MIGRATION.md) for the integration's entity IDs. Keep reading only if
 > you are using the YAML package directly.
 
@@ -39,7 +39,7 @@ update the thermostat does not display adds none.
 When recorded, these entities can add history/storage and trigger bare state
 automations more often. Actual recorder rows, bytes, and hourly growth have not been
 measured. See [Migration](MIGRATION.md#added-diagnostics-and-state-events) for the
-tradeoff and [README diagnostics](../README.md#diagnose-a-room-that-is-waiting) for use.
+tradeoff and [Diagnose a room that is waiting](TROUBLESHOOTING.md#diagnose-a-room-that-is-waiting) for use.
 
 ## Integration start points
 
