@@ -8,6 +8,37 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
+## 3.13.0 (October 28, 2026)
+
+A room run from its own remote can now count its vote only while its head is actually
+running. It's off by default, so nothing changes until you choose it.
+
+- **A room run from its own remote can count its vote only while its head runs.** A new
+  per-room setting in Configure → Rooms → (room), **While its own remote runs it, its
+  vote counts**: **Whenever it is set to heat or cool** (the default, today's behavior,
+  stores nothing) or **Only while it is heating or cooling**. With the second, the head's
+  heat or cool vote counts only while its own `hvac_action` reports it running that way,
+  and for 10 minutes after it stops, so a head idle at its own setpoint stops holding the
+  outdoor unit against a room that needs the other mode. A mode and action that disagree
+  (the action lagging a mode change for a poll, such as `off` while still `heating`) never
+  start, extend, or restart a vote or its hold; a running head that reports the opposite
+  action in the same mode is treated as stopped. A head that reports no `hvac_action` counts by its mode. Safety priority, the
+  enabled-room tiers, the lost-head vote, and the freeze floor and overheat ceiling are
+  unchanged, and MXZ sends the head nothing for this. The plan's room rows gain
+  `vote_basis` and `vote_hold_until` for rooms set to it. See
+  [Count its vote only while it runs](docs/FEATURES.md#count-its-vote-only-while-it-runs).
+  Reading votes from observations is
+  [@csingley](https://github.com/csingley)'s idea (ha-climate-zone-sequencer
+  [f911e4a](https://github.com/csingley/ha-climate-zone-sequencer/commit/f911e4a1cb70ea247205491719bb2295e2a8ebbd),
+  "derive zone votes from observations, not event recency"); the action filter is
+  MXZ's extension.
+- **Tested** with the full test suite on Home Assistant 2024.12.0, 2026.2.3, 2026.9.0,
+  2026.10.4, and a 2026.11 development build, and on hardware on a two-head system in heat
+  (October 28, 2026): the vote counted while the head heated, held 10 minutes after it
+  went idle, cleared the hold when it heated again, and dropped at once when the head was
+  turned off or to fan only. MXZ sent the head nothing. **Not tested** on hardware: the
+  cool side and the safety-priority room while idle (covered by automated tests).
+
 ## 3.12.0 (October 27, 2026)
 
 Ready for Home Assistant 2026.11, with no change to settings or to

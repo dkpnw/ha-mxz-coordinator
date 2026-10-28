@@ -104,6 +104,7 @@ async def _setup(
     hysteresis: int | None = 0,
     legacy_key: bool = True,
     safety: tuple[str | None, str | None] = (None, None),
+    vote_basis: tuple[str | None, str | None] = (None, None),
     **extra,
 ) -> tuple[MockConfigEntry, str, str]:
     """Two mock heads, both rooms at 70 / target 70.
@@ -111,22 +112,25 @@ async def _setup(
     ``hands_off`` opts each room in. A room left opted out stores NO key at
     all (``legacy_key``), exactly like every entry saved before the option
     existed; ``legacy_key=False`` stores an explicit False instead.
-    ``safety`` stores each room's Safety priority sensor, if any.
+    ``safety`` stores each room's Safety priority sensor, if any;
+    ``vote_basis`` each room's stored hands_off_vote_basis, if any.
     """
     hass.config.units = US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(hass)
     await _set_temp(hass, SENSOR_A, 70)
     await _set_temp(hass, SENSOR_B, 70)
     zones = []
-    for name, head, sensor, opted, safe in (
-        ("Primary", head_a, SENSOR_A, hands_off[0], safety[0]),
-        ("Secondary", head_b, SENSOR_B, hands_off[1], safety[1]),
+    for name, head, sensor, opted, safe, basis in (
+        ("Primary", head_a, SENSOR_A, hands_off[0], safety[0], vote_basis[0]),
+        ("Secondary", head_b, SENSOR_B, hands_off[1], safety[1], vote_basis[1]),
     ):
         zone = {ZONE_NAME: name, ZONE_CLIMATE: head, ZONE_SENSOR: sensor}
         if opted or not legacy_key:
             zone[ZONE_HANDS_OFF] = opted
         if safe:
             zone[ZONE_SAFETY_PRIORITY_ENTITY] = safe
+        if basis is not None:
+            zone["hands_off_vote_basis"] = basis
         zones.append(zone)
     data = {CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY, CONF_ZONES: zones, **extra}
     if hysteresis is not None:

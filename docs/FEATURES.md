@@ -8,7 +8,8 @@ named here live in Configure; see [Configuration](CONFIGURATION.md) for the menu
   [uneven drift](#uneven-drift), [start points](#start-points), and
   [per-room uneven drift](#per-room-uneven-drift)
 - [Give a room separate heat and cool setpoints (dual setpoint)](#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint)
-- [Run one room from its own remote](#run-one-room-from-its-own-remote)
+- [Run one room from its own remote](#run-one-room-from-its-own-remote):
+  [count its vote only while it runs](#count-its-vote-only-while-it-runs)
 - [Safety priority](#safety-priority)
 - [When a head goes unavailable](#when-a-head-goes-unavailable)
 - [Freeze floor and overheat ceiling](#freeze-floor-and-overheat-ceiling)
@@ -363,6 +364,74 @@ Two heads on one outdoor unit asking for opposite modes is still a standoff that
 outdoor unit settles its own way (see
 [the problem in detail](HOW-IT-WORKS.md#the-problem-in-detail)): the room you run by hand
 can make an enabled room wait, or wait itself.
+
+### Count its vote only while it runs
+
+*New in 3.13.0.* **While its own remote runs it, its vote counts** is a second
+per-room setting on the same page, right below **Let its own remote run it while
+disabled**. It only matters with that one on.
+
+- **Whenever it is set to heat or cool (default).** The head's vote counts for as long as
+  it sits in `heat` or `cool`, as described above. Every room of an existing install
+  stays on this after upgrading, and it stores nothing, so nothing changes until you pick
+  the other option.
+- **Only while it is heating or cooling.** The vote counts only while the head itself
+  reports, in its own `hvac_action`, that it is running that way: `heating` in `heat`,
+  `cooling` in `cool`. When it stops (for example `idle` at its own setpoint), the vote
+  keeps counting for 10 minutes, then stops. This rides out the short idle gaps an
+  inverter shows near its setpoint. If it runs again within those 10 minutes, it simply
+  keeps counting.
+
+Why: a head left in `heat` that reached its own setpoint hours ago still votes heat, and
+when no enabled room is calling, that idle vote holds the outdoor unit in heat while
+another room that needs cool waits. With this option, an idle head stops holding it. It
+matters most with two or more rooms run from their own remotes, or one that sits in the
+opposite mode for long stretches.
+
+Details:
+
+- **The mode still decides which way.** The vote is still the head's mode; the action
+  only decides whether it counts. MXZ never invents a vote from the action: a head in
+  `fan_only`, `dry`, `auto`, `heat_cool`, or `off` has no vote, running or not.
+- **A mode and action that disagree are ignored.** A head's action can lag its mode for a
+  poll after someone changes it: `off` while still reporting `heating`, or `fan_only`
+  while still `cooling`. Such a report never starts, extends, or restarts a vote or its
+  10 minutes. Switching the head to another mode ends its vote at once; switching back
+  counts again only once it is seen running.
+- **A head that reports no `hvac_action`** votes as if this were set to the default. A
+  head that has reported one since MXZ started stays judged by it, so a single report
+  without it (as across a reconnect) is not running and can't bring back the idle vote.
+  The room's row in `sensor.*_plan` shows which applies (`vote_basis`). Only the head's own
+  attribute counts: the action MXZ's room thermostat shows for a head that reports none
+  is worked out from its mode, and is never treated as what the head is doing.
+- **Safety priority still wins.** While the room's [Safety priority](#safety-priority)
+  sensor is `on`, the vote counts whenever the head is set to heat or cool, running or
+  not.
+- **Nothing else moves.** It is still the same low vote: an enabled room that is calling
+  or still running to its target outranks it, and the mode-change wait applies as before.
+  The freeze floor and overheat ceiling work from the room's temperature, not this vote.
+  MXZ sends the head nothing for this: no mode, no fan.
+- **When the head goes unavailable**, the vote it had when it was last seen (running, or
+  inside its 10 minutes) is kept, stale, for **Keep a lost head's vote for**, exactly as
+  in [When a head goes unavailable](#when-a-head-goes-unavailable). The 10 minutes don't
+  run out while MXZ can't see the head. A head that was idle with no vote left has
+  nothing to keep.
+- **After a restart or reload** nothing is restored: the head counts again only once it
+  is seen running.
+- `sensor.*_plan` shows `vote_basis` (`action`, or `mode` for a head that reports no
+  action) and `vote_hold_until` (when the vote of a head that stopped running stops
+  counting, or `null`) on the rows of rooms set to this option.
+
+The idea of reading each room's vote from what Home Assistant observes, rather than from
+the order events arrived, comes from @csingley's
+[ha-climate-zone-sequencer](https://github.com/csingley/ha-climate-zone-sequencer)
+(commit [f911e4a](https://github.com/csingley/ha-climate-zone-sequencer/commit/f911e4a1cb70ea247205491719bb2295e2a8ebbd),
+"derive zone votes from observations, not event recency"; MIT License, see
+[NOTICE](../NOTICE)). Counting a vote only while the head runs is MXZ's extension of it.
+
+**Not tested on hardware yet.** The automated tests use invented heads. The cn105 heads
+on a test system report `hvac_action` (`off`, `idle`, `heating`, `cooling`, `fan`) and
+showed the lag described above, but the option itself has not run on them.
 
 ## Safety priority
 

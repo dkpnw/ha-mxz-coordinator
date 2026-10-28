@@ -82,6 +82,9 @@ from .const import (
     MIN_ZONES,
     RESTING_BIAS_OPTIONS,
     UNAVAILABLE_STATES,
+    VOTE_BASES,
+    VOTE_BASIS_ACTION,
+    VOTE_BASIS_MODE,
     ZONE_CLIMATE,
     ZONE_DRIFT_COOLER_BY,
     ZONE_DRIFT_WARMER_BY,
@@ -91,6 +94,7 @@ from .const import (
     ZONE_FLOOR_HIGH,
     ZONE_FLOOR_LOW,
     ZONE_HANDS_OFF,
+    ZONE_HANDS_OFF_VOTE_BASIS,
     ZONE_MAX_AGE,
     ZONE_NAME,
     ZONE_REPORT_INTERVAL,
@@ -576,6 +580,10 @@ _ROOM_WIRING_FIELDS = (
 # The room page's hands-off opt-in (flow key); stored as ZONE_HANDS_OFF only
 # when on, so an opted-out room's record is exactly what it was before this option existed.
 _HANDS_OFF_FIELD = "hands_off"
+# What that room's head vote follows (flow key); stored as
+# ZONE_HANDS_OFF_VOTE_BASIS only when "action", so a room left at "mode"
+# stores exactly what it stored before this option existed.
+_VOTE_BASIS_FIELD = "hands_off_vote_basis"
 _FRESHNESS_ZONE_FIELDS = (
     ("report_interval", ZONE_REPORT_INTERVAL),
     ("max_age", ZONE_MAX_AGE),
@@ -688,6 +696,7 @@ def _flow_only_keys() -> frozenset[str]:
         + _ROOM_DRIFT_FIELDS
     }
     room_keys.add(_HANDS_OFF_FIELD)
+    room_keys.add(_VOTE_BASIS_FIELD)
     room_keys.add(_DUAL_FIELD)
     section_keys = {key for _, groups in _PAGES.values() for key in groups}
     slot_keys = {
@@ -788,6 +797,11 @@ def _room_view(zone: dict[str, Any]) -> dict[str, Any]:
     """A stored zone as the room page's field values."""
     view = {key: zone.get(zone_key) for key, zone_key in _ROOM_WIRING_FIELDS}
     view[_HANDS_OFF_FIELD] = zone.get(ZONE_HANDS_OFF) is True
+    view[_VOTE_BASIS_FIELD] = (
+        VOTE_BASIS_ACTION
+        if zone.get(ZONE_HANDS_OFF_VOTE_BASIS) == VOTE_BASIS_ACTION
+        else VOTE_BASIS_MODE
+    )
     view.update(_zone_freshness_profile(zone))
     view.update({key: zone.get(zone_key) for key, zone_key in _FLOOR_FIELDS})
     view.update({key: zone.get(zone_key) for key, zone_key in _ROOM_DRIFT_FIELDS})
@@ -923,6 +937,20 @@ def _room_schema(
             vol.Optional(
                 _HANDS_OFF_FIELD, default=view.get(_HANDS_OFF_FIELD) is True
             ): selector.BooleanSelector(),
+            vol.Optional(
+                _VOTE_BASIS_FIELD,
+                default=(
+                    VOTE_BASIS_ACTION
+                    if view.get(_VOTE_BASIS_FIELD) == VOTE_BASIS_ACTION
+                    else VOTE_BASIS_MODE
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(VOTE_BASES),
+                    translation_key="hands_off_vote_basis",
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             vol.Required(_DRIFT_SECTION): section(
                 vol.Schema(drift), {"collapsed": not drift_expanded}
             ),
@@ -2482,8 +2510,8 @@ class MXZOptionsFlow(OptionsFlow):
     async def async_step_room(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """One room's vanes, airflow sensor, hands-off opt-in, uneven drift,
-        sensor freshness, and freeze floor / overheat ceiling.
+        """One room's vanes, airflow sensor, hands-off opt-in and vote basis,
+        uneven drift, sensor freshness, and freeze floor / overheat ceiling.
 
         These are flow-input only: they fold into this room's record in the
         zones list, never into flat keys (a stale flat key would shadow the
@@ -2558,6 +2586,11 @@ class MXZOptionsFlow(OptionsFlow):
             zone[ZONE_HANDS_OFF] = True
         else:
             zone.pop(ZONE_HANDS_OFF, None)
+        # Stored only as "action"; "mode" (the default) removes the key.
+        if values.get(_VOTE_BASIS_FIELD) == VOTE_BASIS_ACTION:
+            zone[ZONE_HANDS_OFF_VOTE_BASIS] = VOTE_BASIS_ACTION
+        else:
+            zone.pop(ZONE_HANDS_OFF_VOTE_BASIS, None)
         # A complete all-empty profile is an explicit return to unknown
         # cadence. Otherwise preserve the submitted values byte-for-byte under
         # M36's existing zone keys.
