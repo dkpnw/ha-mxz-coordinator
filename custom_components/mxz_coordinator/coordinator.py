@@ -723,6 +723,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Inert until async_setup: the seed compute below runs before the
         # switches restore, with every room still reading disabled.
         self._floor_live = False
+        # Whether a plan has been computed since async_setup, from restored
+        # inputs. The seed is not one: its shared mode is only the default.
+        self.plan_ready = False
 
         # Vane-kick bookkeeping: heads mid-kick are skipped by _apply so the
         # plan doesn't turn them back off while the louvre is still traveling.
@@ -1758,6 +1761,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # This is computed intent, not delivery confirmation. Per-head software
         # status accompanies it, and in-flight action ownership remains separate.
         self.data = plan
+        self.plan_ready = self.plan_ready or self._floor_live
         # Resolve an existing coast wakeup as soon as the decision resolves it;
         # an unrelated pending transport must not postpone its cancellation.
         if not self._coasted:
