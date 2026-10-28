@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.climate import ClimateEntityFeature
+from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature
 from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
     STATE_ON,
@@ -2560,7 +2560,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             nmin = float(entity.min_temp)
             nmax = float(entity.max_temp)
-            nunit = entity.temperature_unit
+            nunit = _native_unit(entity)
         except (TypeError, ValueError, AttributeError):
             return None
         if nunit not in (
@@ -2672,7 +2672,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         entity = self._head_entity(climate_id)
         try:
             step = float(entity.target_temperature_step)
-            unit = entity.temperature_unit
+            unit = _native_unit(entity)
         except (TypeError, ValueError, AttributeError):
             step, unit = 0.0, None
         if step <= 0 or unit not in (
@@ -4847,6 +4847,21 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._fan_latched.pop(cid, None)
             self._fan_idx.pop(cid, None)
             self._publish_fan_state(cid)
+
+
+# HA 2026.11 renamed ClimateEntity.temperature_unit native_temperature_unit. The
+# old name answers until 2027.11, but reading it logs a deprecation against this
+# integration. Both return the same value.
+_UNIT_MEMBER = (
+    "native_temperature_unit"
+    if hasattr(ClimateEntity, "native_temperature_unit")
+    else "temperature_unit"
+)
+
+
+def _native_unit(entity: Any) -> Any:
+    """A head entity object's own temperature unit (AttributeError if it has none)."""
+    return getattr(entity, _UNIT_MEMBER)
 
 
 def _as_float(value: Any) -> float | None:

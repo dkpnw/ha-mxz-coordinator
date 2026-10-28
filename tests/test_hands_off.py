@@ -64,6 +64,7 @@ from custom_components.mxz_coordinator.logic import (
 )
 from tests.dwell import assert_restamped, expire_dwell
 from tests.flow_pages import default, open_options_page, prefilled, submit
+from tests.restore_store import replace_stored_state, stored_state
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -463,11 +464,9 @@ async def test_disabled_while_down_without_record_still_parks(hass: HomeAssistan
     await _remote(hass, head_b, "heat")
     await _shutdown(hass, entry)
     # Strip the record, as a store from before this option (state only, no extra data) has it.
-    restore = rs.async_get(hass)
     sid = _eid(hass, entry, "_secondary_enable")
-    restore.last_states[sid] = rs.StoredState(
-        restore.last_states[sid].state, None, restore.last_states[sid].last_seen
-    )
+    stored = stored_state(hass, sid)
+    replace_stored_state(hass, sid, rs.StoredState(stored.state, None, stored.last_seen))
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     await _recompute(hass, entry)

@@ -7,6 +7,7 @@ loaded (freezegun among them), so the parent's own clock never matters.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -64,13 +65,33 @@ def _child(tmp_path: Path, source: str, uptime: str | None) -> subprocess.Comple
            "PYTHONDONTWRITEBYTECODE": "1"}
     if uptime is not None:
         env["FAKE_UPTIME"] = uptime
+    # Outside the checkout, so -p no:respx is what the repository's pytest.ini adds.
     return subprocess.run(
-        [sys.executable, "-m", "pytest", "-p", "tools.fakeboot", "-p", "no:cacheprovider",
+        [sys.executable, "-m", "pytest", "-p", "tools.fakeboot", "-p", "no:cacheprovider", "-p", "no:respx",
          "-o", "asyncio_mode=auto", "-o", "asyncio_default_fixture_loop_scope=function",
          "-q", "-s", "test_invented_clock.py"],
         cwd=tmp_path, env=env, stdin=subprocess.DEVNULL, check=False, capture_output=True, text=True,
         timeout=120,
     )
+
+
+def _outcomes(stdout: str) -> dict[str, int]:
+    """The child's final summary as counts, its warnings left out.
+
+    How many warnings a child prints depends on the installed core and plugin
+    (HA 2026.11's own plugin surfaces its import-time deprecations), not on
+    fakeboot. Every other outcome is counted exactly.
+    """
+    summary = stdout.rstrip().splitlines()[-1]
+    match = re.fullmatch(r"((?:\d+ \w+, )*\d+ \w+) in [\d.]+s(?: \([\d:]+\))?", summary)
+    assert match, stdout
+    counts = {}
+    for part in match.group(1).split(", "):
+        number, outcome = part.split(" ")
+        counts[outcome] = int(number)
+    counts.pop("warnings", None)
+    counts.pop("warning", None)
+    return counts
 
 
 @pytest.mark.parametrize("uptime,expected", [(None, 120), ("120", 120), ("86400", 86400)],
@@ -79,7 +100,7 @@ def test_the_clock_reads_as_just_booted(tmp_path, uptime, expected):
     result = _child(tmp_path, CLOCK_TESTS.format(uptime=expected), uptime)
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.splitlines().count(f"FAKEBOOT_UPTIME={expected}") == 1, result.stdout
-    assert "4 passed" in result.stdout
+    assert _outcomes(result.stdout) == {"passed": 4}
 
 
 def test_a_wrong_uptime_fails_the_clock_check(tmp_path):
@@ -87,11 +108,11 @@ def test_a_wrong_uptime_fails_the_clock_check(tmp_path):
     result = _child(tmp_path, CLOCK_TESTS.format(uptime=86400), "120")
     assert result.returncode == 1, result.stdout + result.stderr
     assert "FAKEBOOT_UPTIME=120" in result.stdout.splitlines()
-    assert "2 failed, 2 passed" in result.stdout
+    assert _outcomes(result.stdout) == {"failed": 2, "passed": 2}
 
 
 def test_a_replaced_clock_errors_the_next_test(tmp_path):
     result = _child(tmp_path, REPLACED_TESTS, "120")
     assert result.returncode == 1, result.stdout + result.stderr
     assert "fakeboot: time.monotonic was replaced" in result.stdout
-    assert "1 passed, 1 error" in result.stdout
+    assert _outcomes(result.stdout) == {"passed": 1, "error": 1}

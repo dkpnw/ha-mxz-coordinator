@@ -13,7 +13,7 @@ from contextlib import ExitStack
 from copy import deepcopy
 from datetime import datetime
 from hashlib import sha256
-from importlib.metadata import distribution
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from time import monotonic
 from typing import ClassVar
@@ -63,13 +63,28 @@ def trace(event, **values):
     print("ISSUE25 " + json.dumps({"event": event, **values}, default=str, sort_keys=True))
 
 
+def _test_plugin():
+    """The installed Home Assistant pytest plugin and its helper module.
+
+    Home Assistant 2026.11 ships its own plugin, pytest-home-assistant, for cores
+    that pytest-homeassistant-custom-component no longer follows. With neither
+    installed, dependency_provenance's distribution() call raises, as before.
+    """
+    try:
+        distribution("pytest-homeassistant-custom-component")
+    except PackageNotFoundError:
+        return "pytest-home-assistant", "pytest_homeassistant/common.py"
+    return "pytest-homeassistant-custom-component", "pytest_homeassistant_custom_component/common.py"
+
+
 def dependency_provenance():
     """Bind the later executed contract to installed files, never guessed sources."""
+    plugin, helpers = _test_plugin()
     for package, paths in (
         ("homeassistant", ("homeassistant/helpers/restore_state.py",
                            "homeassistant/helpers/storage.py",
                            "homeassistant/helpers/entity_platform.py")),
-        ("pytest-homeassistant-custom-component", ("pytest_homeassistant_custom_component/common.py",)),
+        (plugin, (helpers,)),
     ):
         installed = distribution(package)
         for path in paths:
@@ -174,9 +189,32 @@ def observe_lifecycle(stack, observer, entity_class, relevant=lambda entity: Tru
         stack.enter_context(patch.object(cls, method, new=observer.wrap(getattr(cls, method), kind, relevant)))
 
 
+def stored_record(restore, sid):
+    """The record restore hands sid, or None.
+
+    Home Assistant 2026.11 removed ``last_states`` for records indexed by entity
+    registry id; ``async_get_stored_state`` finds a record in either index. This
+    overlay runs on an older exported tree, so it cannot share tests/restore_store.py.
+    """
+    if hasattr(restore, "last_states"):
+        return restore.last_states.get(sid)
+    return restore.async_get_stored_state(sid)
+
+
+def drop_stored_record(restore, sid):
+    """Remove every record restore could hand sid, from each index it keeps."""
+    if hasattr(restore, "last_states"):
+        restore.last_states.pop(sid, None)
+    else:
+        restore.last_states_by_entity_id.pop(sid, None)
+        if (entry := er.async_get(restore.hass).async_get(sid)) is not None:
+            restore.last_states_by_entity_registry_id.pop(entry.id, None)
+    assert stored_record(restore, sid) is None, "UNKNOWN: restore record survived removal"
+
+
 async def load_after_removal(restore, raw, entities, created_at):
     """Check the actual Store call and reconstructed records after removal."""
-    removed = {sid: restore.last_states.get(sid) for sid in entities}
+    removed = {sid: stored_record(restore, sid) for sid in entities}
     real_load = restore.store.async_load
     loads = []
 
@@ -193,11 +231,11 @@ async def load_after_removal(restore, raw, entities, created_at):
     assert loads[0]["result"] == raw["data"], "UNKNOWN: post-unload load did not read serialized shutdown store"
     records = {r["state"]["entity_id"]: r for r in raw["data"]}
     assert len(records) == len(raw["data"]), "UNKNOWN: duplicate serialized entity"
+    loaded = {sid: stored_record(restore, sid) for sid in entities}
     for sid in entities:
-        loaded = restore.last_states.get(sid)
-        assert loaded is not removed[sid], "UNKNOWN: unload-time memory record survived load"
-        require_restore_record(sid, loaded, records[sid], created_at)
-    return {sid: restore.last_states[sid] for sid in entities}
+        assert loaded[sid] is not removed[sid], "UNKNOWN: unload-time memory record survived load"
+        require_restore_record(sid, loaded[sid], records[sid], created_at)
+    return loaded
 
 
 def public_hold(plan, room):
@@ -406,7 +444,7 @@ class Trial:
         restore = rs.async_get(self.hass)
         await load_after_removal(restore, raw, identity[2:], self.entry.created_at)
         for sid in identity[2:]:
-            loaded = restore.last_states.get(sid)
+            loaded = stored_record(restore, sid)
             trace("reloaded-after-unload", cycle=self.cycle, entity=sid,
                   state=loaded.state.as_dict(),
                   extra=(loaded.extra_data.as_dict() if loaded.extra_data else None))
@@ -416,7 +454,7 @@ class Trial:
         if variant == "missing":
             # Explicitly labelled negative, never decisive real-store evidence.
             for i in range(2):
-                rs.async_get(self.hass).last_states.pop(self.switch(i), None)
+                drop_stored_record(restore, self.switch(i))
             trace("negative-only-injection", kind="remove-both-fan-restore-records")
         elif variant == "demand":
             # B's demand changes while it is still cooling. 72 is past its engage
@@ -428,7 +466,7 @@ class Trial:
             self.heads[0].report("auto")
         elif variant == "missing-speed":
             self.heads[0].report(None)
-        supplied = {sid: restore.last_states.get(sid) for sid in identity[2:]}
+        supplied = {sid: stored_record(restore, sid) for sid in identity[2:]}
         # The immutable base selects the inspected read path, never the oracle.
         base = os.environ.get("ISSUE25_BASE")
         assert base in ("released", "main"), "UNKNOWN: restore base identity missing"

@@ -60,6 +60,7 @@ from custom_components.mxz_coordinator.sensor import _ATTRS
 from tests.clocks import age_floor_clock, age_floor_notice, jump_wall_clock
 from tests.dwell import RESTAMP_TOLERANCE, assert_restamped, expire_dwell
 from tests.flow_pages import open_options_page, prefilled, submit, suggested
+from tests.restore_store import replace_stored_state, stored_state
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -610,7 +611,7 @@ async def test_p3_the_persons_run_survives_a_restart_mid_run(hass: HomeAssistant
     f = await _setup(hass, hands_off=(False, True))
     await _persons_heat_then_trip(f)
     await _shutdown(hass, f.entry)
-    stored = rs.async_get(hass).last_states[_eid(hass, f.entry, "_secondary_enable")]
+    stored = stored_state(hass, _eid(hass, f.entry, "_secondary_enable"))
     assert stored.extra_data.as_dict()["floor_prior"] == {"mode": "heat", "low": 56, "high": 58}
     await _startup(hass, f.entry)
     await f.compute()
@@ -1057,7 +1058,7 @@ async def test_p15_the_persons_latest_setting_survives_a_restart_mid_run(
     await _remote_sets(hass, f.b, *new)
     await f.compute()
     await _shutdown(hass, f.entry)
-    stored = rs.async_get(hass).last_states[_eid(hass, f.entry, "_secondary_enable")]
+    stored = stored_state(hass, _eid(hass, f.entry, "_secondary_enable"))
     assert stored.extra_data.as_dict()["floor_prior"] == {
         "mode": "heat", "low": new[0], "high": new[1],
     }
@@ -1948,7 +1949,7 @@ async def test_d8b_a_yield_is_stored_and_restored_on_the_wall_clock(
     yielded_at = dt_util.utcnow().timestamp()
     assert f.floor(1)[0] == "yielded"
     await _shutdown(hass, f.entry)
-    stored = rs.async_get(hass).last_states[_eid(hass, f.entry, "_secondary_enable")]
+    stored = stored_state(hass, _eid(hass, f.entry, "_secondary_enable"))
     data = stored.extra_data.as_dict()
     assert set(data) == {"hands_off_released", "floor_yield"}
     assert data["floor_yield"]["direction"] == "heat"
@@ -2298,19 +2299,18 @@ async def test_p9_the_rearm_window_across_a_restart(
     await _tick(hass, freezer, timedelta(minutes=10))
     await f.temp(SENSOR_B, 43.5)
     await _shutdown(hass, f.entry)
-    restore = rs.async_get(hass)
     sid = _eid(hass, f.entry, "_secondary_enable")
-    stored = restore.last_states[sid]
+    stored = stored_state(hass, sid)
     data = stored.extra_data.as_dict()
     assert [seen for _, seen in data["floor_run"]["window"]] == [41.0, 43.5]
     if record != "this_build":
         old_run = {k: v for k, v in data["floor_run"].items() if k != "window"}
         if record == "unreadable_window":
             old_run["window"] = [[3600.0, 41.0], [4200.0, "41"]]
-        restore.last_states[sid] = rs.StoredState(
+        replace_stored_state(hass, sid, rs.StoredState(
             stored.state, rs.RestoredExtraData({**data, "floor_run": old_run}),
             stored.last_seen,
-        )
+        ))
     await _tick(hass, freezer, 3 * HOUR)  # downtime is not charged
     await _startup(hass, f.entry)
     await f.compute()
@@ -2608,12 +2608,11 @@ async def test_restart_hands_off_with_the_record_lost_parks_then_releases(
     await f.temp(SENSOR_B, 51)
     assert _s(hass, f.b) == "heat"
     await _shutdown(hass, f.entry)
-    restore = rs.async_get(hass)
     sid = _eid(hass, f.entry, "_secondary_enable")
-    stored = restore.last_states[sid]
+    stored = stored_state(hass, sid)
     assert stored.extra_data.as_dict()["hands_off_released"] is False
     assert stored.extra_data.as_dict()["floor_run"]["direction"] == "heat"
-    restore.last_states[sid] = rs.StoredState(stored.state, None, stored.last_seen)
+    replace_stored_state(hass, sid, rs.StoredState(stored.state, None, stored.last_seen))
     assert await hass.config_entries.async_setup(f.entry.entry_id)
     await hass.async_block_till_done()
     await f.compute()
@@ -2667,9 +2666,8 @@ async def test_a_room_without_a_floor_persists_exactly_what_3_7_0_did(hass: Home
     """Storage: with no floor run the enable switch's extra data is 3.7.0's."""
     f = await _setup(hass, floors=((None, None), (None, None)), hands_off=(False, True))
     await _shutdown(hass, f.entry)
-    restore = rs.async_get(hass)
     for room in ("primary", "secondary"):
-        extra = restore.last_states[_eid(hass, f.entry, f"_{room}_enable")].extra_data
+        extra = stored_state(hass, _eid(hass, f.entry, f"_{room}_enable")).extra_data
         assert set(extra.as_dict()) == {"hands_off_released"}
 
 
