@@ -30,11 +30,11 @@ shows a CN3N external input that sets heating or cooling through an adapter
 (PAC-SC36NA-E). Whether either is set on your system is an installer question; the
 manuals do not say how other models behave.
 
-**What it looks like in practice.** On a two-head system, a room 6 °F past its cooling
-target drew **~26 W for over an hour** while the other head was satisfied. After that
-head was turned off, the room ramped to ~460 W and cooled. This is a household
-observation, not a controlled comparison or a measured energy, comfort, noise, or
-equipment-life result.
+**What it looks like in practice.** On the maintainer's two-head system, a room 6 °F
+past its cooling target drew **~26 W for over an hour** while the other head was
+satisfied. After that head was turned off, the room ramped to ~460 W and cooled. This is
+a household observation, not a controlled comparison or a measured energy, comfort,
+noise, or equipment-life result.
 
 **The same scenario, coordinated:** both rooms served within minutes instead of an hour of
 starvation.

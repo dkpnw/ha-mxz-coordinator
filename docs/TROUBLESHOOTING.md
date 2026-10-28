@@ -203,10 +203,12 @@ held off, and MXZ turns it back off whenever someone turns it on. See
 Wire a `binary_sensor` to that room's **Safety priority** field in Configure → Rooms.
 While it reads exactly `on`, that room's want for heat or cool outranks every other
 room's, including an enabled room that is calling or still running to its target, which
-an ordinary vote from a room run on its own remote never overrides. It only raises a want
-the room already has; it never starts heat or cool by itself, so it is not freeze
-protection. Reserve it for a real floor or ceiling condition, not everyday comfort: it is
-an override, not a priority bump. See [Safety priority](FEATURES.md#safety-priority).
+an ordinary vote from a room run on its own remote never overrides. Only a tripped
+freeze floor ranks higher, and a tripped overheat ceiling is settled against it by room
+order. It only raises a want the room already has; it never starts heat or cool by
+itself, so it is not freeze protection. Reserve it for a real floor or ceiling
+condition, not everyday comfort: it is an override, not a priority bump. See [Safety
+priority](FEATURES.md#safety-priority).
 
 </details>
 

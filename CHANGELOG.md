@@ -54,13 +54,13 @@ A docs-only release: no code, settings, or behavior change.
   Home Assistant doesn't take MXZ's commands, and Mitsubishi's outdoor unit stays in
   that head's mode. So after the vote expires, a room that needs the other mode may wait
   in standby until the head reconnects or is turned off at the unit.
-- **Hardware test.** On a two-head system, running this release's code before the
-  version bump, with Keep a lost head's vote for set to 3 minutes: one room, heating,
-  held the shared mode while the other waited to cool. The heating room's head was taken
-  offline by disabling its ESPHome entry. Its vote went stale and kept holding heat,
-  then expired after the limit, and MXZ switched the shared mode to cool and sent the
-  waiting room cool. That room still sat in standby for nearly 5 minutes, because the
-  offline head kept heating the whole time it was gone, about 7.5 minutes, so the
+- **Hardware test.** On the maintainer's two-head system, running this release's code
+  before the version bump, with Keep a lost head's vote for set to 3 minutes: one room,
+  heating, held the shared mode while the other waited to cool. The heating room's head
+  was taken offline by disabling its ESPHome entry. Its vote went stale and kept holding
+  heat, then expired after the limit, and MXZ switched the shared mode to cool and sent
+  the waiting room cool. That room still sat in standby for nearly 5 minutes, because
+  the offline head kept heating the whole time it was gone, about 7.5 minutes, so the
   outdoor unit stayed in heat. When the head reconnected, MXZ turned it off and the
   waiting room started cooling. No faults were seen. With the head offline across a
   reload of MXZ, its vote read `unknown`, then expired after the limit, and it was
@@ -69,8 +69,8 @@ A docs-only release: no code, settings, or behavior change.
   recomputes added. Saving the setting's page untouched changed nothing, and 0 and 241
   were refused. After the test, the previous install was put back, and its MXZ settings
   matched the backup apart from their saved time. **Not tested on hardware:** a room run
-  from its own remote (none was set up on the test system), a head reading `unknown`
-  (tests cover it), and a full Home Assistant restart with a head offline.
+  from its own remote (none was set up on the maintainer's system), a head reading
+  `unknown` (tests cover it), and a full Home Assistant restart with a head offline.
 
 ## 3.10.0
 
@@ -102,26 +102,27 @@ A docs-only release: no code, settings, or behavior change.
   setpoint is supported as a per-room opt-in, in place of 3.9.0's stance that MXZ
   wouldn't add one. MXZ won't make it the default, and won't add simultaneous heat and
   cool or the heads' hardware Auto.
-- **Hardware test: the heat side.** On a two-head MXZ (Home Assistant 2026.10.2),
-  running an earlier build of this release with one room switched on: turning it on
-  started the room's 65 °F target as 64–66 °F, with its Heat to and Cool to numbers, and
-  left the other room as it was. With eco off, the room at 62.2–62.4 °F, and the outdoor
-  unit already heating, a 62–64 °F range stayed idle (heat starts below 61.5), and a
-  63–65 °F range started heating it at once, with the head set to 63–65 °F. At
-  64–66 °F the room also asked the outdoor unit for heat, and the head got 64–66 °F. The
-  minimum gap, the push, and the refusals worked as described; writing the target number
-  slid the range and kept its width; eco ignored the range and showed the eco band, 50
-  and 78; and turning it off set the target to 65 and removed the two numbers. That run
-  also found that the HomeKit bridge didn't rebuild its accessory with the range: the
-  reload after the save left the thermostat briefly unavailable, and the bridge's store
-  wasn't rewritten. That's why a switch saved on its own now applies in place. A recheck
-  of the release code kept the thermostat available through the switch on and off, and
-  the HomeKit bridge's store was rewritten with the heating and cooling thresholds, with
-  no bridge reload and no restart. **The cool side isn't hardware-tested yet**: the room
-  was at 62 °F in October, so no cooling run and no switch between heating and cooling
-  were tried (tests cover those). Apple Home was checked from the HomeKit bridge's
-  store, not on an iPhone, and Google Home and Alexa weren't checked in their apps. °C
-  and two dual-setpoint rooms at once weren't tested on hardware.
+- **Hardware test: the heat side.** On the maintainer's two-head MXZ (Home Assistant
+  2026.10.2), running an earlier build of this release with one room switched on:
+  turning it on started the room's 65 °F target as 64–66 °F, with its Heat to and Cool
+  to numbers, and left the other room as it was. With eco off, the room at 62.2–62.4 °F,
+  and the outdoor unit already heating, a 62–64 °F range stayed idle (heat starts below
+  61.5), and a 63–65 °F range started heating it at once, with the head set to 63–65 °F.
+  At 64–66 °F the room also asked the outdoor unit for heat, and the head got 64–66 °F.
+  The minimum gap, the push, and the refusals worked as described; writing the target
+  number slid the range and kept its width; eco ignored the range and showed the eco
+  band, 50 and 78; and turning it off set the target to 65 and removed the two numbers.
+  That run also found that the HomeKit bridge didn't rebuild its accessory with the
+  range: the reload after the save left the thermostat briefly unavailable, and the
+  bridge's store wasn't rewritten. That's why a switch saved on its own now applies in
+  place. A recheck of the release code kept the thermostat available through the switch
+  on and off, and the HomeKit bridge's store was rewritten with the heating and cooling
+  thresholds, with no bridge reload and no restart. **The cool side isn't
+  hardware-tested yet**: the room was at 62 °F in October, so no cooling run and no
+  switch between heating and cooling were tried (tests cover those). Apple Home was
+  checked from the HomeKit bridge's store, not on an iPhone, and Google Home and Alexa
+  weren't checked in their apps. °C and two dual-setpoint rooms at once weren't tested
+  on hardware.
 
 ## 3.9.0
 

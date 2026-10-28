@@ -66,9 +66,9 @@ the single target again) without a bridge reload. A save that also changes somet
 else, such as the room's uneven drift on the same page, reloads the integration as
 before, with the same result for the room; the thermostat is briefly unavailable, so
 reload the HomeKit bridge (Settings → Devices & services → HomeKit Bridge → Reload) or
-restart Home Assistant afterwards. On a test system, the HomeKit bridge's store was
-rewritten with the heating and cooling thresholds after a toggle saved on its own; it
-hasn't been checked in the Apple Home app yet.
+restart Home Assistant afterwards. On the maintainer's system, the HomeKit bridge's
+store was rewritten with the heating and cooling thresholds after a toggle saved on its
+own; it hasn't been checked in the Apple Home app yet.
 
 Either way, the room's run starts fresh, as it does after a target change. Drift,
 uneven drift, fan, and vane settings are untouched. Automations that write the room's
@@ -210,9 +210,10 @@ room that is calling or still running to its target, which an ordinary vote from
 room run on its own remote never overrides. Taking the direction from such a room
 parks its head, so it starts the compressor's mode-change wait exactly like any other
 reversal; deciding while no enabled room is calling or still running does not, the
-same as an ordinary vote. The sensor only raises a want the room already has; it never
-starts heat or cool by itself. `off`, `unavailable`, `unknown`, or a missing entity is no
-priority.
+same as an ordinary vote. A tripped freeze floor still ranks above it, and a tripped
+overheat ceiling is settled against it by room order (see below). The sensor only
+raises a want the room already has; it never starts heat or cool by itself. `off`,
+`unavailable`, `unknown`, or a missing entity is no priority.
 
 The plan sensor gains a top-level `mode_by_safety` attribute, and each room in its
 `zones` list gains `safety_priority` (`true`/`false`). `mode_by_safety` is true while a

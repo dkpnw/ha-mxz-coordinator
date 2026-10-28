@@ -65,6 +65,9 @@ No YAML is required.
 [If something looks wrong](#if-something-looks-wrong) · [Documentation](#documentation) ·
 [Remove](#remove-the-integration) · [Credits](#credits--prior-art) · [License](#license)
 
+<!-- Anchors below keep links to sections of the older, longer README working. -->
+<a id="what-it-does"></a><a id="the-problem-stock-auto-starves-rooms"></a>
+
 ## What MXZ does for you
 
 A Mitsubishi multi-split runs every head from one outdoor unit, and that unit can only
@@ -79,7 +82,7 @@ Every core feature exists for a reason someone ran into:
 
 | MXZ does this | So that |
 | --- | --- |
-| **Picks one heat or cool mode for the whole system**, from every room's temperature and target. It never asks a head for hardware AUTO. | Rooms stop fighting over heat versus cool, and no head is left waiting in standby behind whichever head was set first. |
+| **Picks one heat or cool mode for the whole system**, from every room's temperature and target. It never asks a head for hardware AUTO. | Coordinated rooms stop fighting over heat versus cool, and the shared direction follows the rooms that need it, not whichever head was set first. |
 | **Settles a standoff by your room order**, and by default waits 10 minutes between heat/cool switches (Minimum time between mode switches). | The room you rank first wins, and the mode won't flip back and forth. |
 | **Has a room that's done step aside.** On a new setup its head runs the fan to dry the coil after cooling, then turns off; Fan only and Off are also available. | The rooms that still need conditioning get served, and the coil dries before the head closes up. |
 | **Lets a room coast** inside its drift (1 °F / 0.5 °C by default) before it runs again, then runs it all the way back to target. | A room that's close enough rests, and every run finishes where you asked. |
@@ -92,17 +95,20 @@ Every core feature exists for a reason someone ran into:
 | **Keeps a lost head's last vote for a while** (30 minutes by default), then lets it go. | A short Wi-Fi dropout doesn't swing the shared mode, and a long one doesn't hold it forever. |
 | **Shows its reasoning** on one plan sensor: each room's demand, start points, sensor health, and command status. | When a room waits, you can see why. |
 
+<a id="uneven-drift"></a><a id="per-room-uneven-drift"></a><a id="give-a-room-separate-heat-and-cool-setpoints-dual-setpoint"></a><a id="run-one-room-from-its-own-remote"></a><a id="safety-priority"></a><a id="when-a-head-goes-unavailable"></a><a id="freeze-floor-and-overheat-ceiling"></a>
+
 For power users, each of these is optional and off or blank until you set it:
 
 - **Uneven drift**, globally or per room: let a room get cooler than it may get warmer,
   or the other way round. [Details](docs/FEATURES.md#drift-when-a-room-starts-a-run)
-- **Dual setpoint** for one room at a time: separate Heat to and Cool to, like an
-  ecobee or a Nest. One target per room stays the default.
+- **Dual setpoint**, enabled separately for each room: separate Heat to and Cool to,
+  like an ecobee or a Nest. One target per room stays the default.
   [Details](docs/FEATURES.md#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint)
 - **Freeze floor and overheat ceiling**: a disabled room is heated or cooled back to
   safety. [Details](docs/FEATURES.md#freeze-floor-and-overheat-ceiling)
 - **Safety priority**: while a sensor you wire reads `on`, that room's own heat or cool
-  outranks every other room's. [Details](docs/FEATURES.md#safety-priority)
+  outranks ordinary room demands. Only a tripped freeze floor ranks higher.
+  [Details](docs/FEATURES.md#safety-priority)
 - **Run one room from its own remote**: turn on
   **Let its own remote run it while disabled**, and a disabled room is left to its
   remote while its heat or cool still counts.
@@ -156,6 +162,8 @@ Home Assistant's `custom_components` directory, restart, then add the integratio
 [Migration](docs/MIGRATION.md#moving-from-the-yaml-package), and stop its automations
 before letting the integration control the same heads.
 
+<a id="if-setup-stops-or-warns"></a><a id="reconfigure-heads-rooms-and-sensors"></a>
+
 ## Set up your outdoor unit
 
 Setup has four steps. Only **Save and finish** creates the entry.
@@ -180,6 +188,8 @@ head for the same room. [Setup in detail](docs/SETUP.md) has screenshots of ever
 what each error means, and how to use **Reconfigure** to add, remove, or reorder heads
 later.
 
+<a id="everyday-control"></a><a id="who-drives-the-fan"></a><a id="how-a-satisfied-head-idles"></a>
+
 ## Everyday use
 
 - **Each room's thermostat** takes one target and `heat_cool` or `off`. `heat_cool`
@@ -198,6 +208,8 @@ later.
 
 The [feature guide](docs/FEATURES.md) explains each control in full.
 
+<a id="configure-comfort-and-sensor-settings"></a><a id="saving-rules-warnings-and-clearing-fields"></a><a id="choose-a-sensor-freshness-contract"></a>
+
 ## Tune it
 
 Open **Settings → Devices & services → MXZ Coordinator → Configure**. It's a menu of six
@@ -214,6 +226,8 @@ pages, and each saves only what it shows:
 
 [Configuration](docs/CONFIGURATION.md) lists every setting with its default, °F and °C.
 
+<a id="diagnose-a-room-that-is-waiting"></a><a id="faq-and-troubleshooting"></a><a id="faq-waiting"></a>
+
 ## If something looks wrong
 
 - **Nothing happens after setup?** Turn on **Coordinator enable** and each room.
@@ -224,6 +238,8 @@ pages, and each saves only what it shows:
 
 [Troubleshooting and FAQ](docs/TROUBLESHOOTING.md) has these and more, with what every
 plan attribute means.
+
+<a id="best-practice-give-the-firmware-your-room-sensor-too"></a><a id="developer-setup-and-tested-support"></a>
 
 ## Documentation
 
