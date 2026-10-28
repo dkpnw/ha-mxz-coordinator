@@ -97,6 +97,8 @@ Every core feature exists for a reason someone ran into:
 [How it works](docs/HOW-IT-WORKS.md) walks through each decision and cites the
 Mitsubishi manuals on stock AUTO.
 
+<a id="whats-new-in-3111"></a>
+
 ## What's new in 3.12.0
 
 Ready for Home Assistant 2026.11, with no change to settings or to how MXZ controls your
