@@ -17,8 +17,9 @@ on your equipment.
   heat or cool vote counts only while its own `hvac_action` reports it running that way,
   and for 10 minutes after it stops, so a head idle at its own setpoint stops holding the
   outdoor unit against a room that needs the other mode. A mode and action that disagree
-  (the action lagging a mode change for a poll, such as `off` while still `heating`) are
-  ignored. A head that reports no `hvac_action` counts by its mode. Safety priority, the
+  (the action lagging a mode change for a poll, such as `off` while still `heating`) never
+  start, extend, or restart a vote or its hold; a running head that reports the opposite
+  action in the same mode is treated as stopped. A head that reports no `hvac_action` counts by its mode. Safety priority, the
   enabled-room tiers, the lost-head vote, and the freeze floor and overheat ceiling are
   unchanged, and MXZ sends the head nothing for this. The plan's room rows gain
   `vote_basis` and `vote_hold_until` for rooms set to it. See
