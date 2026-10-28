@@ -690,6 +690,13 @@ class HeadSight:
 _RUNNING = {MODE_HEAT: "heating", MODE_COOL: "cooling"}
 
 
+def runs(mode: Any, action: Any) -> bool:
+    """Whether a head's own hvac_action says it runs its mode: heating in
+    heat, cooling in cool. Anything else, a lagging action included, is not
+    a run."""
+    return isinstance(action, str) and _RUNNING.get(mode) == action
+
+
 def floor_call(
     *,
     temp: float,

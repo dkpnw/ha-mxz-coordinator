@@ -59,7 +59,7 @@ from tests.flow_pages import default, marker_of, open_options_page, prefilled, s
 from tests.test_drive import SENSOR_A, _eid, _recompute, _set_temp
 from tests.test_dwell_wakeup import _count_refresh_requests, _fire_due, _quiesce
 from tests.test_hands_off import _plan, _remote, _s, _setup
-from tests.test_startup_continuity import _head, _shutdown, _startup
+from tests.test_startup_continuity import _head, _shutdown, _startup, _switch
 
 # Stored key, values and hold, written out independently of const.py.
 BASIS = "hands_off_vote_basis"
@@ -325,9 +325,11 @@ async def test_mode_basis_votes_while_idle_as_always(hass: HomeAssistant, stored
         await original()
 
     coord._async_request_ordinary_refresh = counting
+    computes = _computes(coord)  # nor an immediate one, past the request path
     await _report(hass, head_b, "heat", "heating")
     await _report(hass, head_b, "heat", "idle")
     assert requested == []
+    assert computes == []
 
 
 async def test_mode_and_action_rows_differ_only_by_the_new_keys(hass: HomeAssistant) -> None:
@@ -449,6 +451,90 @@ async def test_an_action_change_recomputes_without_any_other_event(
     await _fire_due(hass, 0)
     assert _row(hass, entry, 1)["hands_off_vote"] == MODE_HEAT
     assert _plan(hass, entry).state == MODE_HEAT
+
+
+def _computes(coord: Any) -> list[str]:
+    """Every plan computed from here on, whatever asked for it."""
+    seen: list[str] = []
+    original = coord._compute
+
+    def counting() -> dict[str, Any]:
+        seen.append("compute")
+        return original()
+
+    coord._compute = counting
+    return seen
+
+
+async def test_an_action_change_recomputes_only_once_released(hass: HomeAssistant) -> None:
+    """Parking (the coordinator is off, so the off can't be sent): the head's
+    mode is ours or stale and votes nothing, so its action changing asks for
+    no recompute. Released, the same changes each recompute."""
+    entry, _a, head_b = await _setup(
+        hass, hands_off=(False, True), vote_basis=(None, "action"),
+        **{CONF_RESTING_MODE_BIAS: "cool"},
+    )
+    coord = entry.runtime_data
+    await _remote(hass, head_b, "heat")
+    await _switch(hass, _eid(hass, entry, "_coordinator_enable"), False)
+    await _switch(hass, _eid(hass, entry, "_secondary_enable"), False)
+    await _recompute(hass, entry)
+    assert _row(hass, entry, 1)["hands_off"] == "parking"
+    await _quiesce(hass, coord)
+    computes = _computes(coord)
+    for action in ("heating", "idle", "heating"):
+        await _report(hass, head_b, "heat", action)
+        await _fire_due(hass, 0)
+    assert computes == []
+
+    await _switch(hass, _eid(hass, entry, "_coordinator_enable"), True)
+    await _recompute(hass, entry)
+    assert _s(hass, head_b) == "off"
+    assert _row(hass, entry, 1)["hands_off"] == "released"
+    await _report(hass, head_b, "heat", "idle")  # a person turns it on
+    await _quiesce(hass, coord)
+    computes.clear()
+    await _report(hass, head_b, "heat", "heating")
+    assert computes == ["compute"]  # at once: no time has passed
+    assert _row(hass, entry, 1)["hands_off_vote"] == MODE_HEAT
+    await _quiesce(hass, coord)
+    computes.clear()
+    await _report(hass, head_b, "heat", "idle")  # stopped: its hold starts
+    await _fire_due(hass, 0)
+    assert computes
+    assert _row(hass, entry, 1)["vote_hold_until"] is not None
+
+
+@pytest.mark.parametrize(("mode", "action", "bias"), [
+    (MODE_HEAT, "heating", MODE_COOL), (MODE_COOL, "cooling", MODE_HEAT),
+])
+async def test_a_run_start_counts_on_its_own_report(
+    hass: HomeAssistant, mode: str, action: str, bias: str
+) -> None:
+    """On hardware a new vote came up to 4 s late: a person's mode change
+    asked for a refresh, and the head's first running report seconds later
+    fell inside that refresh's request cooldown. A run starting recomputes
+    at once: the vote counts on that same state event, with no time moved,
+    and MXZ still sends the head nothing."""
+    entry, _a, head_b = await _setup(
+        hass, hands_off=(False, True), enable=("_primary_enable", "_coordinator_enable"),
+        vote_basis=(None, "action"), **{CONF_RESTING_MODE_BIAS: bias},
+    )
+    await _recompute(hass, entry)
+    assert _row(hass, entry, 1)["hands_off"] == "released"
+    coord = entry.runtime_data
+    await _quiesce(hass, coord)
+    calls = _climate_calls(hass, head_b)
+    computes = _computes(coord)
+    await _report(hass, head_b, mode, "idle")  # the mode change: computed now
+    assert computes == ["compute"]  # so the request cooldown is running
+    assert (_row(hass, entry, 1)["hands_off_vote"], _plan(hass, entry).state) == (None, bias)
+    await _report(hass, head_b, mode, action)  # inside that cooldown
+    assert computes == ["compute", "compute"]
+    assert (_row(hass, entry, 1)["hands_off_vote"], _plan(hass, entry).state) == (mode, mode)
+    await _fire_due(hass, 0)
+    assert _plan(hass, entry).state == mode
+    assert calls == []  # MXZ never wrote to it
 
 
 # --- the lag on real heads: a contradiction is never a run ---------------------

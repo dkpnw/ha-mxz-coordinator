@@ -189,6 +189,7 @@ from .logic import (
     head_action,
     range_delta,
     room_call,
+    runs,
     sample_evidence,
     season_lockouts,
     sensor_health,
@@ -1721,6 +1722,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._sync_refresh_followup()
             return
         await super().async_request_refresh()
+
+    async def _async_refresh_now(self) -> None:
+        """Recompute at once, without waiting out the request cooldown.
+
+        A plan already running is released from waiting on its deliveries,
+        as by any new input, and this one computes next.
+        """
+        if self._retired:
+            return
+        if self._plan_lock.locked():
+            self._refresh_wake.set()
+        await self.async_refresh()
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Serialize plan decisions on every supported HA version."""
@@ -3541,6 +3554,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         old_state = event.data.get("old_state")
         mode = new_state.state if new_state else None
         refresh_needed = False
+        refresh_now = False
         sight = self._sight.get(entity_id)
         if sight is not None and mode in (None, STATE_UNAVAILABLE):
             # Lost sight of it: what it showed just before is its last-known
@@ -3561,20 +3575,25 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if (
             new_state is not None and old_state is not None
             and any(
-                zone.climate_id == entity_id and zone.hands_off
+                zone.climate_id == entity_id
                 and zone.vote_basis == VOTE_BASIS_ACTION
+                and self._hands_off_phase(zone) == "released"
                 for zone in self.zones
             )
-            and (
-                mode != old_state.state
-                or new_state.attributes.get(ATTR_HVAC_ACTION)
-                != old_state.attributes.get(ATTR_HVAC_ACTION)
-            )
         ):
-            # A room that votes by action: the head starting or stopping a run
+            # A released room that votes by action (before release its head
+            # has no vote to change): the head starting or stopping a run
             # starts or ends its vote (or its hold), so recompute now rather
             # than at the next sensor report.
-            refresh_needed = True
+            action = new_state.attributes.get(ATTR_HVAC_ACTION)
+            old_action = old_state.attributes.get(ATTR_HVAC_ACTION)
+            if runs(mode, action) and not runs(old_state.state, old_action):
+                # A run starting is a new vote from this report. The mode
+                # change that set the head going asked for a refresh seconds
+                # ago, so a debounced request would wait out its cooldown.
+                refresh_now = True
+            elif mode != old_state.state or action != old_action:
+                refresh_needed = True
         pending = next(
             (zone for zone in self.zones
              if zone.climate_id == entity_id and zone.slug in self._startup_resume),
@@ -3663,7 +3682,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ) != (
             old_state is None or old_state.state in UNAVAILABLE_STATES
         )
-        if refresh_needed or new_fan != old_fan or capabilities_changed or availability_changed:
+        if refresh_now:
+            self.hass.async_create_task(self._async_refresh_now())
+        elif refresh_needed or new_fan != old_fan or capabilities_changed or availability_changed:
             if (
                 self._needs_legacy_refresh_guard
                 and self._plan_lock.locked()
