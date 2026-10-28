@@ -244,3 +244,59 @@ async def test_post_removal_load_contract_rejects(case):
     restore.async_load = reload
     with pytest.raises((AssertionError, RuntimeError)):
         await load_after_removal(restore, raw, ["sensor.invented"], None)
+
+
+async def test_dropped_restore_record_is_gone_from_every_index(hass):
+    """The negative-only "missing" variant must leave restore nothing to hand back.
+
+    On cores with registry-id indexing a registered entity can hold a record in
+    both indexes (a stale entity_id record is kept when its entry already has
+    one), so removal clears both; older cores keep one dict by entity_id.
+    """
+    from homeassistant.core import State
+    from homeassistant.helpers import entity_registry as er
+    from homeassistant.helpers import restore_state as rs
+    from homeassistant.util import dt as dt_util
+
+    from tests.restore_store import find_stored_state, replace_stored_state
+    from tools.issue25.test_restore import drop_stored_record
+
+    def record(entity_id):
+        return rs.StoredState(State(entity_id, "on"), None, dt_util.utcnow())
+
+    registry = er.async_get(hass)
+    registered = registry.async_get_or_create(
+        "switch", "invented", "registered", suggested_object_id="invented_registered"
+    ).entity_id
+    unregistered, bystander = "switch.invented_unregistered", "switch.invented_bystander"
+    for entity_id in (registered, unregistered, bystander):
+        replace_stored_state(hass, entity_id, record(entity_id))
+    restore = rs.async_get(hass)
+    by_entity_id = not hasattr(restore, "last_states")
+    if by_entity_id:
+        restore.last_states_by_entity_id[registered] = record(registered)
+
+    for entity_id in (registered, unregistered):
+        assert find_stored_state(hass, entity_id) is not None
+        drop_stored_record(restore, entity_id)
+        assert find_stored_state(hass, entity_id) is None
+
+    assert find_stored_state(hass, bystander).state.entity_id == bystander
+    if by_entity_id:
+        assert registered not in restore.last_states_by_entity_id
+        assert unregistered not in restore.last_states_by_entity_id
+        assert registry.async_get(registered).id not in restore.last_states_by_entity_registry_id
+    else:
+        assert set(restore.last_states) == {bystander}
+
+
+def test_restore_record_that_survives_removal_is_unknown():
+    from tools.issue25.test_restore import drop_stored_record
+
+    class Sticky(dict):
+        def pop(self, key, default=None):
+            return self.get(key, default)
+
+    restore = SimpleNamespace(last_states=Sticky({"switch.invented": object()}))
+    with pytest.raises(AssertionError, match="UNKNOWN: restore record survived removal"):
+        drop_stored_record(restore, "switch.invented")

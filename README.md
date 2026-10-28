@@ -159,9 +159,6 @@ how MXZ controls your heads. The minimum is still Home Assistant 2024.12.0.
   thermostats use the new names on 2026.11 and later, and the old ones before it, and
   MXZ reads each head's temperature unit the same way, so MXZ logs no such warning.
   A head integration that hasn't moved to the new names yet can still log its own.
-- **Listed under Climate, Heat pumps & air conditioning.** Home Assistant 2026.11
-  groups integrations by category when you browse for one; MXZ now declares its
-  category.
 - **A `temperature_unit` attribute on every thermostat (Home Assistant 2026.11).**
   Home Assistant itself adds it to every climate entity, MXZ's room thermostats and
   your heads alike: the unit your system uses (°F or °C). MXZ adds nothing of its own.

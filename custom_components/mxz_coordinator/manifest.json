@@ -1,7 +1,6 @@
 {
   "domain": "mxz_coordinator",
   "name": "MXZ Coordinator",
-  "categories": ["climate.heat_pumps_air_conditioning"],
   "codeowners": ["@dkpnw"],
   "config_flow": true,
   "dependencies": [],

@@ -61,10 +61,12 @@ def test_manifest_has_required_metadata(manifest: dict) -> None:
     assert manifest["config_flow"] is True
 
 
-def test_category_files_it_with_heat_pumps(manifest: dict) -> None:
-    """Home Assistant 2026.11 groups integrations by category when browsing.
+def test_manifest_declares_no_category_yet(manifest: dict) -> None:
+    """``categories`` must stay out until the stable hassfest accepts it.
 
-    One known climate subcategory, in the form hassfest checks
-    (``area`` or ``area.subcategory``); older cores ignore the key.
+    Home Assistant 2026.11 adds integration categories, but CI's hassfest runs
+    the current stable core, which rejects the key ("not a valid option at
+    categories"). Add back ``["climate.heat_pumps_air_conditioning"]`` once the
+    stable hassfest accepts it (HA 2026.11+), and flip this test to pin it.
     """
-    assert manifest["categories"] == ["climate.heat_pumps_air_conditioning"]
+    assert "categories" not in manifest

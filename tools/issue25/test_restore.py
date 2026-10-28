@@ -201,6 +201,17 @@ def stored_record(restore, sid):
     return restore.async_get_stored_state(sid)
 
 
+def drop_stored_record(restore, sid):
+    """Remove every record restore could hand sid, from each index it keeps."""
+    if hasattr(restore, "last_states"):
+        restore.last_states.pop(sid, None)
+    else:
+        restore.last_states_by_entity_id.pop(sid, None)
+        if (entry := er.async_get(restore.hass).async_get(sid)) is not None:
+            restore.last_states_by_entity_registry_id.pop(entry.id, None)
+    assert stored_record(restore, sid) is None, "UNKNOWN: restore record survived removal"
+
+
 async def load_after_removal(restore, raw, entities, created_at):
     """Check the actual Store call and reconstructed records after removal."""
     removed = {sid: stored_record(restore, sid) for sid in entities}
@@ -433,7 +444,7 @@ class Trial:
         restore = rs.async_get(self.hass)
         await load_after_removal(restore, raw, identity[2:], self.entry.created_at)
         for sid in identity[2:]:
-            loaded = restore.last_states.get(sid)
+            loaded = stored_record(restore, sid)
             trace("reloaded-after-unload", cycle=self.cycle, entity=sid,
                   state=loaded.state.as_dict(),
                   extra=(loaded.extra_data.as_dict() if loaded.extra_data else None))
@@ -443,7 +454,7 @@ class Trial:
         if variant == "missing":
             # Explicitly labelled negative, never decisive real-store evidence.
             for i in range(2):
-                rs.async_get(self.hass).last_states.pop(self.switch(i), None)
+                drop_stored_record(restore, self.switch(i))
             trace("negative-only-injection", kind="remove-both-fan-restore-records")
         elif variant == "demand":
             # B's demand changes while it is still cooling. 72 is past its engage
@@ -455,7 +466,7 @@ class Trial:
             self.heads[0].report("auto")
         elif variant == "missing-speed":
             self.heads[0].report(None)
-        supplied = {sid: restore.last_states.get(sid) for sid in identity[2:]}
+        supplied = {sid: stored_record(restore, sid) for sid in identity[2:]}
         # The immutable base selects the inspected read path, never the oracle.
         base = os.environ.get("ISSUE25_BASE")
         assert base in ("released", "main"), "UNKNOWN: restore base identity missing"
