@@ -50,8 +50,8 @@ The outdoor-unit name and **Notify on drift** service are set in setup and Recon
 
 ## How saving works
 
-- Submitting a page saves that page and closes the dialog. Open Configure again for the
-  next page.
+- Submitting a page saves that page and shows **Options successfully saved.**; **Finish**
+  closes the dialog. Open Configure again for the next page.
 - A save merges the page's values into the existing options, mirrors them into entry
   data, and reloads once. It never touches a setting on another page.
 - A save that leaves entry data and options unchanged needs no reload.
@@ -63,52 +63,49 @@ The outdoor-unit name and **Notify on drift** service are set in setup and Recon
 
 <table>
 <tr>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.1-configure-menu.png" alt="Configure's Settings menu listing six pages with subtitles: Comfort, Fan and idle, Seasons, Away and setpoint limits, Standby hold, and Rooms."></td>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.1-configure-comfort.png" alt="Comfort page with Allowed drift 1 °F, Mode switch threshold 3 °F, and Resting mode Last used (default), and the Advanced section open showing Minimum time between mode switches 600 s, then Submit."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-menu-dark.png" alt="Configure's Settings menu listing six pages, each with a subtitle: Comfort, Fan and idle, Seasons, Away and setpoint limits, Standby hold, and Rooms."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-comfort-advanced.png" alt="Comfort page with Allowed drift 1 °F, Mode switch threshold 3 °F, and Resting mode Last used (default), and the Advanced section open: Minimum time between mode switches 600 s, Let it get cooler by and Let it get warmer by blank, and Keep a lost head's vote for blank (minutes), then Submit."></td>
 </tr>
 <tr>
 <td>The menu: one page per group of settings.</td>
-<td>Comfort, with its <b>Advanced</b> section opened.</td>
+<td>Comfort, with its <b>Advanced</b> section opened. <b>Keep a lost head's vote for</b> is blank, which means 30 minutes.</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.1-configure-needs-attention.png" alt="Settings menu headed by a Needs attention line: the saved lowest setpoint is above the highest setpoint; open Away and setpoint limits to fix it."></td>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.1-configure-room-studio.png" alt="Room page titled Studio with empty Airflow sensor, Vertical vane, and Horizontal vane pickers, a collapsed Sensor freshness section, and Submit."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-needs-attention.png" alt="Settings menu headed by Needs attention: the saved lowest setpoint is above the highest setpoint. Open Away and setpoint limits to fix it. The six pages follow."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-room.png" alt="Room page titled Studio: empty Airflow sensor, Vertical vane, Horizontal vane, and Safety priority sensor pickers, Let its own remote run it while disabled off, and collapsed Uneven drift, Sensor freshness, Freeze floor and overheat ceiling, and Dual setpoint sections, then Submit."></td>
 </tr>
 <tr>
 <td><b>Needs attention</b> names an older saved value and the page that fixes it.</td>
-<td>A room page, titled by the room's name.</td>
+<td>A room page, titled by the room's name, with its four sections collapsed.</td>
 </tr>
 </table>
 
 <details>
-<summary>Screenshots of the 3.4.0 single form (the menu replaced it)</summary>
-
-These show 3.4.0's one-form Configure. The fields are the same; their labels, grouping,
-and order changed in 3.4.1.
+<summary>Screenshots of the other pages</summary>
 
 <table>
 <tr>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-comfort-c1007a.png" alt="3.4.0 Configure form, top: comfort thresholds, setpoint range, resting mode, lockout safety limits, and seasonal changeover fields in °F."></td>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-idle-fan-c1007a.png" alt="3.4.0 Configure form: standby hold, idle action, coil-dry minutes, and fan boost fields."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-fan-idle.png" alt="Fan and idle page: Fan boost on, Fan boost top speed High, When a room reaches target Off after drying (default), and Coil drying time 10 min."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-seasons.png" alt="Seasons page: no weather source, Lock out heat when the high is at least 68 °F, Lock out cool when the high is at most 50 °F, and Safety overrides open with Heat anyway below 58 °F and Cool anyway above 80 °F."></td>
 </tr>
 <tr>
-<td>3.4.0: comfort, setpoint range, resting mode, lockouts, and seasonal changeover.</td>
-<td>3.4.0: standby hold, idle action, coil drying, and fan boost.</td>
+<td>Fan and idle, with the defaults.</td>
+<td>Seasons, with <b>Safety overrides</b> opened.</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-primary-vane-freshness-c1007a.png" alt="3.4.0 Configure form: Primary vertical and horizontal vane, airflow sensor, and six freshness fields."></td>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-secondary-vane-freshness-c1007a.png" alt="3.4.0 Configure form: Secondary vertical and horizontal vane, airflow sensor, and six freshness fields."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-limits.png" alt="Away and setpoint limits page: Away low limit 50 °F and Away high limit 78 °F, and Head setpoint range open with Lowest setpoint 59 °F and Highest setpoint 88 °F."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-standby.png" alt="Standby hold page: no hold signal, Active state on, and During a hold Eco, protection only (recommended)."></td>
 </tr>
 <tr>
-<td>3.4.0: the priority 1 room's vanes, airflow, and freshness fields.</td>
-<td>3.4.0: the priority 2 room's fields. Each room now has its own page.</td>
+<td>Away and setpoint limits, with <b>Head setpoint range</b> opened.</td>
+<td>Standby hold, with no hold signal.</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-zone3-vane-freshness-c1007a.png" alt="3.4.0 Configure form: Zone 3 vertical and horizontal vane, airflow sensor, and six freshness fields, then Submit."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-rooms-menu.png" alt="Rooms menu: Pick a room. Rooms are listed in priority order. Studio (priority 1, climate.studio_head), Loft (priority 2, climate.loft_head), Den (priority 3, climate.den_head), then Back."></td>
 <td></td>
 </tr>
 <tr>
-<td>3.4.0: the priority 3 room's fields, then Submit.</td>
+<td>Rooms lists each room in priority order with its head.</td>
 <td></td>
 </tr>
 </table>
@@ -151,14 +148,14 @@ numbers: `nan` and `±inf` are rejected.
 
 <table>
 <tr>
-<td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-reject-clamp-field-c1007a.png" alt="3.4.0 Configure error on both Firmware minimum setpoint 80 and Firmware maximum setpoint 70: the lowest accepted setpoint cannot be above the highest."></td>
-<td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-reject-freshness-top-c1007a.png" alt="3.4.0 Configure form-level error asking to check every sensor freshness profile, ending Nothing was saved."></td>
-<td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.4.0-configure-saved-c1007a.png" alt="Success dialog reading Options successfully saved. with a Finish button."></td>
+<td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-error-setpoint-range.png" alt="Away and setpoint limits page with Lowest setpoint 80 °F and Highest setpoint 70 °F, and the error The lowest setpoint can't be above the highest setpoint. shown above the open Head setpoint range section."></td>
+<td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-error-freshness.png" alt="Studio's room page with Sensor freshness open, Report interval 10 min and Maximum age 5 min, and an error at the top: these freshness settings don't fit together, ending Nothing was saved."></td>
+<td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-saved.png" alt="Success dialog reading Options successfully saved. with a Finish button."></td>
 </tr>
 <tr>
-<td>3.4.0: a minimum setpoint above the maximum marked both fields. In 3.4.1 the error shows above the Head setpoint range section.</td>
-<td>3.4.0: an invalid freshness profile rejected the form. In 3.4.1 it rejects that room's page.</td>
-<td>A valid page saves and closes.</td>
+<td>A lowest setpoint above the highest: the error shows above the <b>Head setpoint range</b> section.</td>
+<td>A maximum age shorter than the report interval rejects that room's page.</td>
+<td>A valid page saves; <b>Finish</b> closes the dialog.</td>
 </tr>
 </table>
 

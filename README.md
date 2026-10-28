@@ -50,7 +50,13 @@ and makes it well.
 | Temperature it uses | Thermistor in the head | The room sensor you pick |
 | Seasons and away | Manual | Weather lockouts, away limits, standby hold |
 
-![Two rooms as single-target Auto dials beside the coordinator's decision state.](images/dashboard.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-dashboard-dark.png">
+  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-dashboard-light.png" alt="Home Assistant dashboard in heat mode: the Studio thermostat is Heating to 72 °F at 70 °F, Loft is Idle at its 72 °F target, and Den is Heating to 71 °F at 69 °F, each with Off and heat/cool (Auto) mode buttons and heat/cool selected; a Coordinator card shows Shared mode heat, Plan heat, Coordinator enable on, and Eco idle, Heat lockout, and Cool lockout off.">
+</picture>
+
+One shared mode, heat: Studio and Den heat to their targets while Loft, already at its
+target, idles. Each room has one target.
 
 > Shared as-is; support is best-effort. Automated checks use invented heads and sensors.
 > They establish software behavior, not physical performance on your equipment.
@@ -238,6 +244,11 @@ pages, and each saves only what it shows:
 | **Away and setpoint limits** | The away band, and the lowest and highest setpoint a head may get. |
 | **Standby hold** | An optional hold signal, its active state, and what heads do during a hold. |
 | **Rooms** | One page per room: vanes, airflow sensor, safety priority, own-remote control, uneven drift, sensor freshness, freeze floor, and dual setpoint. |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-menu-dark.png">
+  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-menu-light.png" width="420" alt="Configure's Settings menu listing six pages, each with a subtitle: Comfort, Fan and idle, Seasons, Away and setpoint limits, Standby hold, and Rooms.">
+</picture>
 
 [Configuration](docs/CONFIGURATION.md#every-setting-and-its-default) lists every setting
 with its default in °F and °C, the

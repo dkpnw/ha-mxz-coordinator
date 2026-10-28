@@ -75,6 +75,6 @@ through HA's translation loader on each lane.
 
 On HA 2026.10.0 (frontend 20260930.2) the real frontend rendered the local text,
 “Reconfiguration was successful.” with its trailing period, not HA's central text,
-which has none ([screenshot](../images/mxz-3.4.0-reconfigure-complete-c1007a.png)). The
+which has none ([screenshot](../images/mxz-3.12-reconfigure-complete.png)). The
 floor's rendering of local abort text was not captured, and `already_configured` was
 not rendered.

@@ -9,6 +9,19 @@ Open `sensor.*_plan` on the device page. Start with the room's entry in `zones`,
 compare it with the raw head and room sensor. Top-level primary/secondary attributes refer
 to priority slots, not permanent room identities.
 
+On Home Assistant 2026.10, the plan's attributes are under the sensor's ⋮ menu →
+**Details**.
+
+<details>
+<summary>Screenshot: the plan's Details</summary>
+
+<img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-plan-vote-stale.png" width="420" alt="The Plan sensor's Details: state heat, the top-level attributes from Idle action to Standoff, then Studio's zones row with its demand, engage, temperature, target, drift, start points, sensor health, a control reason that climate.studio_head is unavailable, vote_status stale, and lost_since.">
+
+Studio's row while its head is unavailable; see
+[When a head goes unavailable](FEATURES.md#when-a-head-goes-unavailable).
+
+</details>
+
 | Observation | Meaning and next step |
 | --- | --- |
 | `standoff`, demand/engage, mode dwell | Another room's priority or dwell may be holding the direction. Check targets and priority before changing a raw head. |
