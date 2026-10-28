@@ -326,7 +326,7 @@ async def test_toggling_on_mid_run_resets_the_engage_latch(hass: HomeAssistant) 
     await _start(hass, entry)
     await _run(hass, entry, 68, 70)
     assert entry.runtime_data.data["primary_engage"] == "heat"
-    await _run(hass, entry, 70.5, 70)  # inside the drift: only the latch says heat
+    await _run(hass, entry, 70.5, 70)  # below 71: the latch says heat, and so does a fresh start
     assert entry.runtime_data.data["primary_engage"] == "heat"
     assert hass.states.get(head_a).state == "heat"
 

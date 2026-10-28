@@ -264,7 +264,7 @@ def test_sight_lost_keeps_the_vote_it_had_as_last_seen() -> None:
     idle = HeadSight(0.0, 0.0)
     idle.observe("heat", "idle", 0.0)
     idle.lose(10.0, 10.0)
-    assert idle.vote(20.0, TTL, ) == "heat"  # by mode it would be kept
+    assert idle.vote(20.0, TTL) == "heat"  # by mode it would be kept
     assert idle.action_vote(20.0, TTL, HOLD) is None  # by action it had none
 
 
