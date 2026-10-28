@@ -82,8 +82,8 @@ ZONE_HANDS_OFF = "hands_off"
 # mode: the head votes the heat or cool it is set to, as it always has.
 # action: that vote counts only while the head's own hvac_action says it is
 # running that way (heating in heat, cooling in cool), and for
-# ACTION_VOTE_HOLD after it stops. A head that reports no hvac_action votes
-# by its mode.
+# ACTION_VOTE_HOLD after it stops. A head never seen reporting an
+# hvac_action since MXZ started votes by its mode.
 ZONE_HANDS_OFF_VOTE_BASIS = "hands_off_vote_basis"
 VOTE_BASIS_MODE = "mode"
 VOTE_BASIS_ACTION = "action"

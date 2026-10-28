@@ -595,6 +595,9 @@ class HeadSight:
         self.mode: str | None = None  # the state last seen; None if never seen
         # The head's own hvac_action last seen; None if it reported none.
         self.action: str | None = None
+        # Whether it has reported one at all since MXZ started: a head that
+        # has can't fall back to its mode by dropping it for one report.
+        self.reports_action = False
         self.lost_at: float | None = started  # monotonic; None while in sight
         self.lost_wall: float | None = started_wall  # the same moment, for display
         # The heat or cool the head was last seen running in its own mode,
@@ -616,6 +619,7 @@ class HeadSight:
         """
         self.mode = mode
         self.action = action if isinstance(action, str) else None
+        self.reports_action = self.reports_action or self.action is not None
         self.lost_at = None
         self.lost_wall = None
         if now is None:

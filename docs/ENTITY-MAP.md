@@ -96,7 +96,7 @@ exactly the keys above.
 
 | Entity surface | Fields | Meaning |
 | --- | --- | --- |
-| `sensor.*_plan` → `zones[]` | `vote_basis` | What the room's `hands_off_vote` follows now: `action` (counted only while the head's own `hvac_action` is `heating` in `heat` or `cooling` in `cool`, and for 10 minutes after it stops), or `mode` when the head reports no `hvac_action` of its own. |
+| `sensor.*_plan` → `zones[]` | `vote_basis` | What the room's `hands_off_vote` follows now: `action` (counted only while the head's own `hvac_action` is `heating` in `heat` or `cooling` in `cool`, and for 10 minutes after it stops), or `mode` when the head has reported no `hvac_action` of its own since MXZ started. |
 | Same row | `vote_hold_until` | While a head that stopped running still has its vote counted, when that ends, as an ISO time. `null` otherwise, and while the head is out of sight (its vote is then kept as in the lost-head vote above). Display only; nothing about it is saved. |
 
 ## Required — replace these

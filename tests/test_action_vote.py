@@ -18,7 +18,8 @@ heads do (off, idle, heating, cooling, fan):
 * the head's action lags its mode on real hardware (off + heating,
   fan_only + cooling, cool + heating): a contradiction never creates,
   extends, or refreshes a vote or a hold;
-* a head that reports no hvac_action votes by its mode, and says so; MXZ's
+* a head never seen reporting hvac_action votes by its mode, and says so;
+  one that has reported it gets no mode vote from a report without it; MXZ's
   own thermostat's derived action never counts;
 * unavailable blips keep 3.11.0's lost-head rule (the last vote, stale,
   until the time limit);
@@ -273,6 +274,23 @@ def test_sight_never_seen_has_no_action_vote() -> None:
     assert sight.hold_ends_in(110.0, HOLD) is None
 
 
+def test_sight_remembers_a_head_that_reports_an_action() -> None:
+    """Once seen reporting an action, a report without one is no run (and a
+    run it ended starts its hold); the head is still one that reports."""
+    sight = HeadSight(0.0, 0.0)
+    sight.observe("heat", None, 0.0)
+    assert sight.reports_action is False
+    sight.observe("heat", "heating", 10.0)
+    assert sight.reports_action is True
+    sight.observe("heat", None, 20.0)
+    assert (sight.action, sight.reports_action) == (None, True)
+    assert (sight.ran, sight.stopped_at) == ("heat", 20.0)
+    sight.lose(30.0, 30.0)
+    sight.observe("heat", None, 40.0)
+    assert sight.reports_action is True
+    assert HeadSight(0.0, 0.0).reports_action is False  # a new start forgets
+
+
 def test_sight_mode_only_observe_is_unchanged() -> None:
     """Called with the state alone, as 3.11.0 did: the mode vote is untouched
     and no run is recorded."""
@@ -506,6 +524,28 @@ async def test_a_head_without_hvac_action_votes_by_mode(hass: HomeAssistant) -> 
     assert entry.runtime_data._sight[head_b].action is None
     # Once it reports an action, it is judged by it.
     assert await _vote_after(hass, entry, head_b, "heat", "idle") is None
+    assert _row(hass, entry, 1)["vote_basis"] == "action"
+    assert _plan(hass, entry).state == MODE_COOL
+
+
+async def test_a_dropped_action_report_is_not_a_mode_vote(hass: HomeAssistant) -> None:
+    """A head that has reported an action and then, for a report, has none
+    (as across a reconnect) stays judged by action: idle stays no vote, and a
+    run it ended only holds, never falls back to its mode."""
+    entry, _a, head_b = await _released(hass)
+    coord = entry.runtime_data
+    assert await _vote_after(hass, entry, head_b, "heat", "idle") is None
+    assert await _vote_after(hass, entry, head_b, "heat", None) is None
+    row = _row(hass, entry, 1)
+    assert (row["vote_basis"], row["vote_hold_until"]) == ("action", None)
+    assert _plan(hass, entry).state == MODE_COOL
+    assert coord._lost_timer is None
+
+    assert await _vote_after(hass, entry, head_b, "heat", "heating") == MODE_HEAT
+    assert await _vote_after(hass, entry, head_b, "heat", None) == MODE_HEAT  # held
+    assert _row(hass, entry, 1)["vote_hold_until"] is not None
+    _age_hold(coord, head_b, HOLD)
+    assert await _vote_after(hass, entry, head_b, "heat", None) is None
     assert _row(hass, entry, 1)["vote_basis"] == "action"
     assert _plan(hass, entry).state == MODE_COOL
 

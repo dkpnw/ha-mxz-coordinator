@@ -3787,14 +3787,17 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """What this room's head vote follows now: its mode, or its action.
 
         Action only for a room set to it whose head reports an hvac_action of
-        its own; a head seen reporting none votes by its mode. Only the head's
-        own attribute counts: MXZ's thermostat derives an action from the
-        head's mode for display, and that is never an observation.
+        its own; a head seen, but never seen reporting one since MXZ started,
+        votes by its mode. A head that has reported one stays on action even
+        if a later report lacks it, so a dropped attribute can't hand it a
+        vote it isn't running for. Only the head's own attribute counts: MXZ's
+        thermostat derives an action from the head's mode for display, and
+        that is never an observation.
         """
         if zone.vote_basis != VOTE_BASIS_ACTION:
             return VOTE_BASIS_MODE
         sight = self._sight[zone.climate_id]
-        if sight.mode is not None and sight.action is None:
+        if sight.mode is not None and not sight.reports_action:
             return VOTE_BASIS_MODE
         return VOTE_BASIS_ACTION
 

@@ -398,8 +398,10 @@ Details:
   while still `cooling`. Such a report never starts, extends, or restarts a vote or its
   10 minutes. Switching the head to another mode ends its vote at once; switching back
   counts again only once it is seen running.
-- **A head that reports no `hvac_action`** votes as if this were set to the default. The
-  room's row in `sensor.*_plan` shows which applies (`vote_basis`). Only the head's own
+- **A head that reports no `hvac_action`** votes as if this were set to the default. A
+  head that has reported one since MXZ started stays judged by it, so a single report
+  without it (as across a reconnect) is not running and can't bring back the idle vote.
+  The room's row in `sensor.*_plan` shows which applies (`vote_basis`). Only the head's own
   attribute counts: the action MXZ's room thermostat shows for a head that reports none
   is worked out from its mode, and is never treated as what the head is doing.
 - **Safety priority still wins.** While the room's [Safety priority](#safety-priority)
