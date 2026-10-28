@@ -367,7 +367,7 @@ can make an enabled room wait, or wait itself.
 
 ### Count its vote only while it runs
 
-*Unreleased, for 3.13.0.* **While its own remote runs it, its vote counts** is a second
+*New in 3.13.0.* **While its own remote runs it, its vote counts** is a second
 per-room setting on the same page, right below **Let its own remote run it while
 disabled**. It only matters with that one on.
 

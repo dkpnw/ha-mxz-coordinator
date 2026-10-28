@@ -8,7 +8,10 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
-## Unreleased (next minor, 3.13.0)
+## 3.13.0 (October 28, 2026)
+
+A room run from its own remote can now count its vote only while its head is actually
+running. It's off by default, so nothing changes until you choose it.
 
 - **A room run from its own remote can count its vote only while its head runs.** A new
   per-room setting in Configure → Rooms → (room), **While its own remote runs it, its
@@ -30,7 +33,11 @@ on your equipment.
   "derive zone votes from observations, not event recency"); the action filter is
   MXZ's extension.
 - **Tested** with the full test suite on Home Assistant 2024.12.0, 2026.2.3, 2026.9.0,
-  2026.10.4, and a 2026.11 development build. **Not tested** on hardware.
+  2026.10.4, and a 2026.11 development build, and on hardware on a two-head system in heat
+  (October 28, 2026): the vote counted while the head heated, held 10 minutes after it
+  went idle, cleared the hold when it heated again, and dropped at once when the head was
+  turned off or to fan only. MXZ sent the head nothing. **Not tested** on hardware: the
+  cool side and the safety-priority room while idle (covered by automated tests).
 
 ## 3.12.0 (October 27, 2026)
 

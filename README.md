@@ -105,16 +105,24 @@ Mitsubishi manuals on stock AUTO.
 
 <a id="whats-new-in-3111"></a>
 
-## What's new in 3.12.0
+## What's new in 3.13.0
 
-Ready for Home Assistant 2026.11, with no change to settings or to how MXZ controls your
+A room run from its own remote can count its vote only while its head is heating or
+cooling, plus 10 minutes after it stops, so an idle head at its own setpoint stops holding
+the outdoor unit against a room that needs the other mode. Choose it in Configure → Rooms
+→ (room) → **While its own remote runs it, its vote counts**. It's off by default, and a
+safety-priority room still votes while idle. The idea of reading votes from what Home
+Assistant observes is [@csingley](https://github.com/csingley)'s. See
+[Count its vote only while it runs](docs/FEATURES.md#count-its-vote-only-while-it-runs).
+
+3.12.0 was ready for Home Assistant 2026.11, with no change to settings or to how MXZ controls your
 heads. The room thermostats use 2026.11's new temperature property names, so MXZ logs no
 deprecation warnings, and the minimum is still Home Assistant 2024.12.0. 3.11.1 made the
 README display properly in HACS and moved installs to the HACS default store. 3.11.0
 added the stale, then expired, vote of a head that goes unavailable, with **Keep a lost
 head's vote for** in Configure → Comfort → Advanced. Recent release notes, including
 what 2026.11 itself changes for thermostat names and attributes, are in the
-[changelog](CHANGELOG.md#3120-october-27-2026); older releases are covered in
+[changelog](CHANGELOG.md#3130-october-28-2026); older releases are covered in
 [Migration](docs/MIGRATION.md).
 
 > **Upgrading from 3.3.0 or earlier?** **3.4.0** changed setup, sensor handling, the
@@ -313,7 +321,7 @@ MXZ Coordinator got this good because people ran it on their own systems, found 
   - **Monotonic mode-change wait (3.7.1).** He wrote [#32](https://github.com/dkpnw/ha-mxz-coordinator/pull/32), which times the mode-change wait with a monotonic clock so a wall-clock jump (an NTP correction, a clock set by hand) can't shorten or stretch it.
   - **Uneven drift (3.8.0) and dual setpoint (3.10.0).** His native dual-setpoint proposal ([#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35)) was declined at first to keep one target, but the discussion led to **Let it get cooler by** and **Let it get warmer by**, which give heat and cool different tolerances around that one target. They shipped in 3.8.0. [#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35) is also the origin of the opt-in per-room **dual setpoint** (separate Heat to and Cool to): it carries forward his idea and Home Assistant's range contract (the range feature, `heat_cool`, and writes through the room's own numbers), rebuilt as an opt-in on the room's page. It shipped in 3.10.0, with only the heat side tested on hardware so far.
   - **Lost-head votes (3.11.0).** The stale, then expired, vote of a head that goes unavailable (see [When a head goes unavailable](docs/FEATURES.md#when-a-head-goes-unavailable)) adapts the observed-vote model from his [ha-climate-zone-sequencer](https://github.com/csingley/ha-climate-zone-sequencer) (commit [f911e4a](https://github.com/csingley/ha-climate-zone-sequencer/commit/f911e4a1cb70ea247205491719bb2295e2a8ebbd); MIT License; see [NOTICE](NOTICE)). It was tested on hardware with an enabled room but not with a room run from its own remote.
-  - **Votes only while running (unreleased, 3.13.0).** The per-room option to count a room's vote only while its head runs (see [Count its vote only while it runs](docs/FEATURES.md#count-its-vote-only-while-it-runs)) builds on the same observed-vote idea from his ha-climate-zone-sequencer: derive each room's vote from what Home Assistant observes, not from event recency (commit [f911e4a](https://github.com/csingley/ha-climate-zone-sequencer/commit/f911e4a1cb70ea247205491719bb2295e2a8ebbd)). Filtering that vote by the head's running action is MXZ's extension. Not yet tested on hardware.
+  - **Votes only while running (3.13.0).** The per-room option to count a room's vote only while its head runs (see [Count its vote only while it runs](docs/FEATURES.md#count-its-vote-only-while-it-runs)) builds on the same observed-vote idea from his ha-climate-zone-sequencer: derive each room's vote from what Home Assistant observes, not from event recency (commit [f911e4a](https://github.com/csingley/ha-climate-zone-sequencer/commit/f911e4a1cb70ea247205491719bb2295e2a8ebbd)). Filtering that vote by the head's running action is MXZ's extension.
 
 **Prior art and references**
 

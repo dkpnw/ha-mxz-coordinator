@@ -1,6 +1,6 @@
 # Upgrading and migrating MXZ Coordinator
 
-## Count a room's vote only while its head runs (unreleased, 3.13.0)
+## Count a room's vote only while its head runs (3.13.0)
 
 A new per-room setting, **While its own remote runs it, its vote counts**, in Configure →
 Rooms → (room). It's stored in that room's record as `hands_off_vote_basis: action` only
