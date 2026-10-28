@@ -49,6 +49,21 @@ Home Assistant going down, and recorder load.
 Short answers to things people have asked about or tripped over. Each one links to the
 section with the detail.
 
+- [I set it up and nothing happens](#faq-nothing-happens)
+- [My head looks off and its vanes are closed, but the coordinator says it is on / the room is enabled](#faq-parked)
+- [The fan is running but the room is not heating or cooling](#faq-fan-not-conditioning)
+- [A room needs heating or cooling but its head waits](#faq-waiting)
+- [The room reached its target, drifted away, and the head did not start again](#faq-no-restart)
+- [The setpoint on the head is not the room's target](#faq-setpoint)
+- [The fan is stuck on one speed](#faq-fan-stuck)
+- [I changed a head with its remote or app and it changed back](#faq-changed-back)
+- [I want to run one room from its own remote](#faq-own-remote)
+- [One room needs to win every time, not just by priority order](#faq-win-every-time)
+- [Keep a disabled room from freezing (or overheating)](#faq-freeze)
+- [A head dropped off the network and the other room is stuck waiting](#faq-head-dropped)
+
+<a id="faq-nothing-happens"></a>
+
 <details>
 <summary><b>I set it up and nothing happens</b></summary>
 
@@ -57,6 +72,8 @@ commands nothing. Turn on Coordinator enable, then each room (its enable switch,
 its thermostat to `heat_cool`).
 
 </details>
+
+<a id="faq-parked"></a>
 
 <details>
 <summary><b>My head looks off and its vanes are closed, but the coordinator says it is on / the room is enabled</b></summary>
@@ -84,6 +101,8 @@ Want air moving instead? Choose **Fan only** in Configure → Fan and idle. See
 [How a satisfied head idles](FEATURES.md#how-a-satisfied-head-idles).
 
 </details>
+
+<a id="faq-fan-not-conditioning"></a>
 
 <details>
 <summary><b>The fan is running but the room is not heating or cooling</b></summary>
@@ -131,6 +150,8 @@ command instead.
 
 </details>
 
+<a id="faq-no-restart"></a>
+
 <details>
 <summary><b>The room reached its target, drifted away, and the head did not start again</b></summary>
 
@@ -139,6 +160,8 @@ Rooms run to target, then coast until they drift past the re-engage band (defaul
 hands it back to the global value. See [Everyday control](FEATURES.md#everyday-control).
 
 </details>
+
+<a id="faq-setpoint"></a>
 
 <details>
 <summary><b>The setpoint on the head is not the room's target</b></summary>
@@ -162,6 +185,8 @@ The head also reads its own thermistor, which can differ from your room sensor; 
 
 </details>
 
+<a id="faq-fan-stuck"></a>
+
 <details>
 <summary><b>The fan is stuck on one speed</b></summary>
 
@@ -172,6 +197,8 @@ head may not advertise an exact `auto` fan mode. See
 [Who drives the fan](FEATURES.md#who-drives-the-fan).
 
 </details>
+
+<a id="faq-changed-back"></a>
 
 <details>
 <summary><b>I changed a head with its remote or app and it changed back</b></summary>
@@ -185,6 +212,8 @@ alone. To hand just one room to its remote, see the next answer.
 
 </details>
 
+<a id="faq-own-remote"></a>
+
 <details>
 <summary><b>I want to run one room from its own remote</b></summary>
 
@@ -196,6 +225,8 @@ held off, and MXZ turns it back off whenever someone turns it on. See
 [Run one room from its own remote](FEATURES.md#run-one-room-from-its-own-remote).
 
 </details>
+
+<a id="faq-win-every-time"></a>
 
 <details>
 <summary><b>One room needs to win every time, not just by priority order</b></summary>
@@ -211,6 +242,8 @@ condition, not everyday comfort: it is an override, not a priority bump. See [Sa
 priority](FEATURES.md#safety-priority).
 
 </details>
+
+<a id="faq-freeze"></a>
 
 <details>
 <summary><b>Keep a disabled room from freezing (or overheating)</b></summary>
@@ -234,6 +267,8 @@ when the hold ends. See
 [Freeze floor and overheat ceiling](FEATURES.md#freeze-floor-and-overheat-ceiling).
 
 </details>
+
+<a id="faq-head-dropped"></a>
 
 <details>
 <summary><b>A head dropped off the network and the other room is stuck waiting</b></summary>

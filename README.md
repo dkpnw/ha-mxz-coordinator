@@ -58,10 +58,9 @@ and makes it well.
 **Start here:** [Install](#install), then [set up your outdoor unit](#set-up-your-outdoor-unit).
 No YAML is required.
 
-**Contents:** [What MXZ does for you](#what-mxz-does-for-you) ·
-[What's new](#whats-new-in-3111) · [Before you install](#before-you-install) ·
-[Install](#install) · [Set up](#set-up-your-outdoor-unit) ·
-[Everyday use](#everyday-use) · [Tune it](#tune-it) ·
+**Contents:** [What MXZ does for you](#what-mxz-does-for-you) · [What's new](#whats-new-in-3111) ·
+[Before you install](#before-you-install) · [Install](#install) · [Set up](#set-up-your-outdoor-unit) ·
+[Everyday use](#everyday-use) · [Optional extras](#optional-extras) · [Tune it](#tune-it) ·
 [If something looks wrong](#if-something-looks-wrong) · [Documentation](#documentation) ·
 [Remove](#remove-the-integration) · [Credits](#credits--prior-art) · [License](#license)
 
@@ -95,28 +94,6 @@ Every core feature exists for a reason someone ran into:
 | **Keeps a lost head's last vote for a while** (30 minutes by default), then lets it go. | A short Wi-Fi dropout doesn't swing the shared mode, and a long one doesn't hold it forever. |
 | **Shows its reasoning** on one plan sensor: each room's demand, start points, sensor health, and command status. | When a room waits, you can see why. |
 
-<a id="uneven-drift"></a><a id="per-room-uneven-drift"></a><a id="give-a-room-separate-heat-and-cool-setpoints-dual-setpoint"></a><a id="run-one-room-from-its-own-remote"></a><a id="safety-priority"></a><a id="when-a-head-goes-unavailable"></a><a id="freeze-floor-and-overheat-ceiling"></a>
-
-For power users, each of these is optional and off or blank until you set it:
-
-- **Uneven drift**, globally or per room: let a room get cooler than it may get warmer,
-  or the other way round. [Details](docs/FEATURES.md#drift-when-a-room-starts-a-run)
-- **Dual setpoint**, enabled separately for each room: separate Heat to and Cool to,
-  like an ecobee or a Nest. One target per room stays the default.
-  [Details](docs/FEATURES.md#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint)
-- **Freeze floor and overheat ceiling**: a disabled room is heated or cooled back to
-  safety. [Details](docs/FEATURES.md#freeze-floor-and-overheat-ceiling)
-- **Safety priority**: while a sensor you wire reads `on`, that room's own heat or cool
-  outranks ordinary room demands. Only a tripped freeze floor ranks higher.
-  [Details](docs/FEATURES.md#safety-priority)
-- **Run one room from its own remote**: turn on
-  **Let its own remote run it while disabled**, and a disabled room is left to its
-  remote while its heat or cool still counts.
-  [Details](docs/FEATURES.md#run-one-room-from-its-own-remote)
-- **Sensor freshness**: tell MXZ how often a room's sensor reports, and a room whose
-  sensor goes quiet stops asking for heat or cool.
-  [Details](docs/CONFIGURATION.md#choose-a-sensor-freshness-contract)
-
 [How it works](docs/HOW-IT-WORKS.md) walks through each decision and cites the
 Mitsubishi manuals on stock AUTO.
 
@@ -125,7 +102,8 @@ Mitsubishi manuals on stock AUTO.
 A docs-only release: the README now displays properly in HACS, and you install MXZ
 Coordinator from the HACS default store. 3.11.0 added the stale, then expired, vote of
 a head that goes unavailable, with **Keep a lost head's vote for** in Configure →
-Comfort → Advanced. Every release is in the [changelog](CHANGELOG.md).
+Comfort → Advanced. Recent release notes are in the [changelog](CHANGELOG.md); older
+releases are covered in [Migration](docs/MIGRATION.md).
 
 > **Upgrading from 3.3.0 or earlier?** **3.4.0** changed setup, sensor handling, the
 > room lifecycle, and command delivery. Read
@@ -185,8 +163,9 @@ so it commands nothing until you:
 
 Expose the per-room thermostats to HomeKit or Google, and avoid also exposing the raw
 head for the same room. [Setup in detail](docs/SETUP.md) has screenshots of every step,
-what each error means, and how to use **Reconfigure** to add, remove, or reorder heads
-later.
+[what each error means](docs/SETUP.md#if-setup-stops-or-warns), and how to use
+[Reconfigure](docs/SETUP.md#reconfigure-heads-rooms-and-sensors) to add, remove, or
+reorder heads later.
 
 <a id="everyday-control"></a><a id="who-drives-the-fan"></a><a id="how-a-satisfied-head-idles"></a>
 
@@ -206,7 +185,37 @@ later.
   away. The example [day/night/away presets](examples/presets.yaml) set targets and Eco
   idle.
 
-The [feature guide](docs/FEATURES.md) explains each control in full.
+The [feature guide](docs/FEATURES.md#everyday-control) explains each control in full,
+including [who drives the fan](docs/FEATURES.md#who-drives-the-fan) and
+[how a satisfied head idles](docs/FEATURES.md#how-a-satisfied-head-idles).
+
+<a id="uneven-drift"></a><a id="per-room-uneven-drift"></a><a id="give-a-room-separate-heat-and-cool-setpoints-dual-setpoint"></a><a id="run-one-room-from-its-own-remote"></a><a id="safety-priority"></a><a id="when-a-head-goes-unavailable"></a><a id="freeze-floor-and-overheat-ceiling"></a>
+
+## Optional extras
+
+Each is off or blank until you set it:
+
+- **Uneven drift**, globally or [per room](docs/FEATURES.md#per-room-uneven-drift): let a
+  room get cooler than it may get warmer, or the other way round.
+  [Details](docs/FEATURES.md#uneven-drift)
+- **Dual setpoint**, enabled separately for each room: separate Heat to and Cool to, like
+  an ecobee or a Nest. One target per room stays the default.
+  [Details](docs/FEATURES.md#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint)
+- **Freeze floor and overheat ceiling**: a disabled room is heated or cooled back to
+  safety. [Details](docs/FEATURES.md#freeze-floor-and-overheat-ceiling)
+- **Safety priority**: while a sensor you wire reads `on`, that room's own heat or cool
+  outranks ordinary room demands. A tripped freeze floor ranks first; other safety
+  demands and tripped overheat ceilings are settled by room order.
+  [Details](docs/FEATURES.md#safety-priority)
+- **Run one room from its own remote**: turn on **Let its own remote run it while
+  disabled**, and a disabled room is left to its remote while its heat or cool still
+  counts. [Details](docs/FEATURES.md#run-one-room-from-its-own-remote)
+- **Sensor freshness**: tell MXZ how often a room's sensor reports, and a room whose sensor
+  goes quiet stops asking for heat or cool.
+  [Details](docs/CONFIGURATION.md#choose-a-sensor-freshness-contract)
+
+What happens when a head drops off the network is in
+[When a head goes unavailable](docs/FEATURES.md#when-a-head-goes-unavailable).
 
 <a id="configure-comfort-and-sensor-settings"></a><a id="saving-rules-warnings-and-clearing-fields"></a><a id="choose-a-sensor-freshness-contract"></a>
 
@@ -224,7 +233,10 @@ pages, and each saves only what it shows:
 | **Standby hold** | An optional hold signal, its active state, and what heads do during a hold. |
 | **Rooms** | One page per room: vanes, airflow sensor, safety priority, own-remote control, uneven drift, sensor freshness, freeze floor, and dual setpoint. |
 
-[Configuration](docs/CONFIGURATION.md) lists every setting with its default, °F and °C.
+[Configuration](docs/CONFIGURATION.md#every-setting-and-its-default) lists every setting
+with its default in °F and °C, the
+[saving rules](docs/CONFIGURATION.md#saving-rules-warnings-and-clearing-fields), and how
+to [choose a sensor freshness contract](docs/CONFIGURATION.md#choose-a-sensor-freshness-contract).
 
 <a id="diagnose-a-room-that-is-waiting"></a><a id="faq-and-troubleshooting"></a><a id="faq-waiting"></a>
 
@@ -235,9 +247,11 @@ pages, and each saves only what it shows:
   idle action, not a fault.
 - **A room is waiting?** One outdoor unit runs one direction at a time. Open
   `sensor.*_plan` and check `standoff`, the room's `demand`, and `mode_change_allowed`.
+  [More](docs/TROUBLESHOOTING.md#faq-waiting)
 
-[Troubleshooting and FAQ](docs/TROUBLESHOOTING.md) has these and more, with what every
-plan attribute means.
+[Troubleshooting and FAQ](docs/TROUBLESHOOTING.md) has these and more:
+[diagnosing a waiting room](docs/TROUBLESHOOTING.md#diagnose-a-room-that-is-waiting),
+with what every plan attribute means, and the [FAQ](docs/TROUBLESHOOTING.md#faq).
 
 <a id="best-practice-give-the-firmware-your-room-sensor-too"></a><a id="developer-setup-and-tested-support"></a>
 
@@ -248,12 +262,12 @@ plan attribute means.
 | [Setup](docs/SETUP.md) | Requirements, install, every setup step with screenshots, Reconfigure, and removal. |
 | [Configuration](docs/CONFIGURATION.md) | Every setting and default, saving rules, and sensor freshness. |
 | [Features](docs/FEATURES.md) | Everyday control, drift, dual setpoint, own-remote rooms, safety priority, lost heads, freeze floor, fan, and idle. |
-| [How it works](docs/HOW-IT-WORKS.md) | Stock AUTO in Mitsubishi's manuals, how MXZ decides, feeding the firmware your room sensor, and limits of control. |
+| [How it works](docs/HOW-IT-WORKS.md) | Stock AUTO in Mitsubishi's manuals, how MXZ decides, [feeding the firmware your room sensor](docs/HOW-IT-WORKS.md#best-practice-give-the-firmware-your-room-sensor-too), and limits of control. |
 | [Troubleshooting and FAQ](docs/TROUBLESHOOTING.md) | Diagnosing a waiting room, and answers to common questions. |
 | [Entity map](docs/ENTITY-MAP.md) | The integration's diagnostic attributes, and what to edit in the legacy YAML package. |
 | [Migration](docs/MIGRATION.md) | Upgrade notes for each release, and moving from the YAML package. |
 | [Changelog](CHANGELOG.md) | Release notes, newest first. |
-| [Contributing](CONTRIBUTING.md) and [Developer setup](docs/DEVELOPMENT.md) | Design principles, pull requests, test lanes, and releasing. |
+| [Contributing](CONTRIBUTING.md) and [Developer setup](docs/DEVELOPMENT.md) | Design principles, pull requests, [tested support](docs/DEVELOPMENT.md#tested-support), test lanes, and releasing. |
 
 <a id="removing"></a>
 
@@ -276,7 +290,12 @@ MXZ Coordinator got this good because people ran it on their own systems, found 
 - [@helicopterrun](https://github.com/helicopterrun) validated it on 3-zone hardware and did relentless, root-caused QA through the v3 beta ([#4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4), [#5](https://github.com/dkpnw/ha-mxz-coordinator/issues/5), [#6](https://github.com/dkpnw/ha-mxz-coordinator/issues/6), [#7](https://github.com/dkpnw/ha-mxz-coordinator/issues/7)). Those reports led to the removal docs, single-setpoint head support, and entry-scoped restore.
 - [@oliverbrandmueller](https://github.com/oliverbrandmueller) asked for metric units ([#2](https://github.com/dkpnw/ha-mxz-coordinator/issues/2)). Since 2.8.0 the coordinator runs in your Home Assistant temperature unit from end to end.
 - **mw1029** on the [Home Assistant forum](https://community.home-assistant.io/t/1018382) tried MXZ with the cloud-based `comfort_HA` integration and posted both entity dumps, which showed exactly where the two don't line up. Support for it is in progress.
-- [@csingley](https://github.com/csingley) (Chris Singley) noticed that a room left to its own remote is invisible to the heat-versus-cool standoff, even while it is really heating or cooling on the shared outdoor unit, and sent a fix with a test ([#27](https://github.com/dkpnw/ha-mxz-coordinator/pull/27)). He followed it with [#28](https://github.com/dkpnw/ha-mxz-coordinator/pull/28), which lets a disabled room's head stay under its own remote. The per-room **Let its own remote run it while disabled** setting is built from both, with him as co-author, and he tested it on his own 4-zone MXZ-4C36NA2 before release. It shipped in 3.6.0. He then designed and wrote the safety-priority arbitration ([#31](https://github.com/dkpnw/ha-mxz-coordinator/pull/31)): every room's heat or cool want ranked in one priority order, with an optional per-room **Safety priority** sensor that lifts a room's own want above every other room's. It shipped in 3.7.0, not yet tested on hardware. The 3.7.0 freeze floor and overheat ceiling build on his safety tier: a tripped floor or ceiling is one more want in that same priority order, with the freeze floor ranked first. He also wrote [#32](https://github.com/dkpnw/ha-mxz-coordinator/pull/32), which times the mode-change wait with a monotonic clock so a wall-clock jump (an NTP correction, a clock set by hand) can't shorten or stretch it. It shipped in 3.7.1. His native dual-setpoint proposal ([#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35)) was declined at first to keep one target, but the discussion led to **Let it get cooler by** and **Let it get warmer by**, which give heat and cool different tolerances around that one target. They shipped in 3.8.0. [#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35) is also the origin of the opt-in per-room **dual setpoint** (separate Heat to and Cool to): it carries forward his idea and Home Assistant's range contract (the range feature, `heat_cool`, and writes through the room's own numbers), rebuilt as an opt-in on the room's page. It shipped in 3.10.0, with only the heat side tested on hardware so far. The stale, then expired, vote of a head that goes unavailable (see [When a head goes unavailable](docs/FEATURES.md#when-a-head-goes-unavailable)) adapts the observed-vote model from his [ha-climate-zone-sequencer](https://github.com/csingley/ha-climate-zone-sequencer) (commit [f911e4a](https://github.com/csingley/ha-climate-zone-sequencer/commit/f911e4a1cb70ea247205491719bb2295e2a8ebbd); MIT License; see [NOTICE](NOTICE)). It shipped in 3.11.0, tested on hardware with an enabled room but not with a room run from its own remote.
+- [@csingley](https://github.com/csingley) (Chris Singley):
+  - **Own-remote rooms (3.6.0).** He noticed that a room left to its own remote is invisible to the heat-versus-cool standoff, even while it is really heating or cooling on the shared outdoor unit, and sent a fix with a test ([#27](https://github.com/dkpnw/ha-mxz-coordinator/pull/27)). He followed it with [#28](https://github.com/dkpnw/ha-mxz-coordinator/pull/28), which lets a disabled room's head stay under its own remote. The per-room **Let its own remote run it while disabled** setting is built from both, with him as co-author, and he tested it on his own 4-zone MXZ-4C36NA2 before release.
+  - **Safety priority (3.7.0).** He designed and wrote the safety-priority arbitration ([#31](https://github.com/dkpnw/ha-mxz-coordinator/pull/31)): every room's heat or cool want ranked in one priority order, with an optional per-room **Safety priority** sensor that lifts a room's own want above every other room's. It shipped not yet tested on hardware. The 3.7.0 freeze floor and overheat ceiling build on his safety tier: a tripped floor or ceiling is one more want in that same priority order, with the freeze floor ranked first and a ceiling settled against a safety room by room order.
+  - **Monotonic mode-change wait (3.7.1).** He wrote [#32](https://github.com/dkpnw/ha-mxz-coordinator/pull/32), which times the mode-change wait with a monotonic clock so a wall-clock jump (an NTP correction, a clock set by hand) can't shorten or stretch it.
+  - **Uneven drift (3.8.0) and dual setpoint (3.10.0).** His native dual-setpoint proposal ([#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35)) was declined at first to keep one target, but the discussion led to **Let it get cooler by** and **Let it get warmer by**, which give heat and cool different tolerances around that one target. They shipped in 3.8.0. [#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35) is also the origin of the opt-in per-room **dual setpoint** (separate Heat to and Cool to): it carries forward his idea and Home Assistant's range contract (the range feature, `heat_cool`, and writes through the room's own numbers), rebuilt as an opt-in on the room's page. It shipped in 3.10.0, with only the heat side tested on hardware so far.
+  - **Lost-head votes (3.11.0).** The stale, then expired, vote of a head that goes unavailable (see [When a head goes unavailable](docs/FEATURES.md#when-a-head-goes-unavailable)) adapts the observed-vote model from his [ha-climate-zone-sequencer](https://github.com/csingley/ha-climate-zone-sequencer) (commit [f911e4a](https://github.com/csingley/ha-climate-zone-sequencer/commit/f911e4a1cb70ea247205491719bb2295e2a8ebbd); MIT License; see [NOTICE](NOTICE)). It was tested on hardware with an enabled room but not with a room run from its own remote.
 
 **Prior art and references**
 
