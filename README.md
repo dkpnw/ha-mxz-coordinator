@@ -268,8 +268,11 @@ to [choose a sensor freshness contract](docs/CONFIGURATION.md#choose-a-sensor-fr
 ## If something looks wrong
 
 - **Nothing happens after setup?** Turn on **Coordinator enable** and each room.
-- **A head looks off but the room is enabled?** That's a satisfied room parked by its
-  idle action, not a fault.
+- **A head looks off but the room is enabled?** On `sensor.*_plan`, first check the room's
+  `sensor_health`, the standby hold (`inhibited`), whether the room is waiting for the
+  other mode, and its `command_status`. If none of those explains it, it's a satisfied
+  room parked by its idle action, not a fault.
+  [More](docs/TROUBLESHOOTING.md#faq-parked)
 - **A room is waiting?** One outdoor unit runs one direction at a time. Open
   `sensor.*_plan` and check `standoff`, the room's `demand`, and `mode_change_allowed`.
   [More](docs/TROUBLESHOOTING.md#faq-waiting)
