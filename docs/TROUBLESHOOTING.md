@@ -96,7 +96,10 @@ An enabled room's head is parked for other reasons too, so rule those out first 
 
 - **Sensor health.** A room whose `sensor_health` is `stale` or `invalid` stops asking for
   heat or cool, and its head parks by the idle action.
-- **Standby hold.** While `inhibited` is true, an `off` standby hold parks every head off.
+- **Standby hold.** While `inhibited` is true, an `off` standby hold parks every head off,
+  and a `fan_only` hold parks every head in fan only. The default `eco` hold parks nothing
+  by itself: rooms keep running to the eco limits, and a room inside them is satisfied, so
+  its head turns off whatever the idle action.
 - **Waiting.** A room that needs the other mode parks while it waits; see
   [A room needs heating or cooling but its head waits](#faq-waiting).
 - **Command status.** A room `command_status` of `pending` or `rejected` means MXZ's last
