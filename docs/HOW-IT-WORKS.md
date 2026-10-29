@@ -92,9 +92,14 @@ The plan, with each room's reasons, is on `sensor.*_plan`; see
 
 **Setpoints sent to the heads.**
 
-- **Range heads** (`target_temp_low`/`high`) get a band: target − 2 °F to the target when
-  cooling, the target to target + 2 °F when heating (a 1 °C band on a °C system).
-  **Single-setpoint heads**, common on MXZ indoor units, get the target itself.
+- In a room with one target, **range heads** (`target_temp_low`/`high`) get a band:
+  target − 2 °F to the target when cooling, the target to target + 2 °F when heating (a
+  1 °C band on a °C system). **Single-setpoint heads**, common on MXZ indoor units, get the
+  target itself.
+- A [dual-setpoint](FEATURES.md#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint)
+  room uses its Heat to edge in place of the target while heating, and its Cool to edge
+  while cooling. A range head gets the same band built from that edge, and a
+  single-setpoint head gets the edge itself.
 - Setpoints are rounded to 1 °F or 0.5 °C and kept within Configure's Lowest/Highest
   setpoint and the head's own limits.
 - A head that only holds 0.5 °C steps (ESPHome CN105) in a °F system shows some whole-°F

@@ -231,8 +231,9 @@ raises a want the room already has; it never starts heat or cool by itself. `off
 
 The plan sensor gains a top-level `mode_by_safety` attribute, and each room in its
 `zones` list gains `safety_priority` (`true`/`false`). `mode_by_safety` is true while a
-room marked Safety priority is asserting and its want is the shared mode. On an
-install with no room's safety priority wired it is always false.
+room marked Safety priority is asserting and its want is the shared mode, or, since
+3.7.0, while a tripped freeze floor's or overheat ceiling's direction is. On an install
+with no room's safety priority wired and no floor or ceiling tripped it is always false.
 
 See [Safety priority](FEATURES.md#safety-priority).
 
@@ -259,7 +260,8 @@ ceiling's cool against a Safety priority room's heat goes by room order.
 The plan sensor gains a top-level `mode_by_floor` attribute, and each room in its
 `zones` list gains `floor_low`, `floor_high`, `floor_want`, `floor_state`, and
 `floor_reason`; a room run from its own remote can read `floor` in `hands_off`.
-`mode_by_safety` is also true while a tripped floor's direction is the shared mode. On
+`mode_by_safety` is also true while a tripped floor's or ceiling's direction is the
+shared mode. On
 an install with no floor set, `mode_by_floor` is always false and every room's
 `floor_state` is `none`.
 

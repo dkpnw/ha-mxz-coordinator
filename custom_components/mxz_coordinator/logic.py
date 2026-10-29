@@ -588,10 +588,12 @@ class HeadSight:
 
     It also keeps what the head was last seen running, for a room that votes
     by action (:meth:`action_vote`). That filter is MXZ's own extension of
-    Chris's observed vote, not part of his design.
+    Chris's observed vote, not part of his design. ``settle`` is how long
+    after a mode change a report of running is unconfirmed (see
+    :meth:`observe`); 0 confirms every report at once.
     """
 
-    def __init__(self, started: float, started_wall: float) -> None:
+    def __init__(self, started: float, started_wall: float, settle: float = 0.0) -> None:
         self.mode: str | None = None  # the state last seen; None if never seen
         # The head's own hvac_action last seen; None if it reported none.
         self.action: str | None = None
@@ -604,6 +606,9 @@ class HeadSight:
         # and when it was first seen no longer running it (None while it runs).
         self.ran: str | None = None
         self.stopped_at: float | None = None
+        self.settle = settle
+        # When its mode was last seen to change (monotonic); None if never.
+        self.changed_at: float | None = None
 
     def observe(self, mode: str, action: Any = None, now: float | None = None) -> None:
         """Record the head's state and its own hvac_action, seen just now.
@@ -614,19 +619,33 @@ class HeadSight:
         contradiction is never a run, so it can't start, extend, or refresh
         one. A head that leaves the mode it ran in ends that run, hold and
         all; one that stops running in the same mode starts its hold, timed
-        from the first sighting that shows it stopped. ``now`` (monotonic)
-        is None only for a caller that never reads :meth:`action_vote`.
+        from the first sighting that shows it stopped. ``now`` is monotonic;
+        without it a stop has no time to start a hold from, so it ends the
+        run instead (no hold, no vote). A hold already running keeps its own
+        start either way.
+
+        A head's action can also lag the other way: just after a mode change
+        it can read running in its new mode, carried over from the run
+        before. So a run that starts within ``settle`` of the mode last
+        changing is unconfirmed: no run, no vote, and stopping it starts no
+        hold. It counts only if a sighting at or past the end of that window
+        (:meth:`settles_in`) still shows it running. A run in the mode it
+        already ran in, held or not, counts at once (that run was confirmed
+        after the last change, so the window is over), as does any run while
+        the mode has not changed since MXZ first saw the head.
         """
+        if now is not None and self.mode is not None and mode != self.mode:
+            self.changed_at = now
         self.mode = mode
         self.action = action if isinstance(action, str) else None
         self.reports_action = self.reports_action or self.action is not None
         self.lost_at = None
         self.lost_wall = None
-        if now is None:
-            return
-        if self.action is not None and _RUNNING.get(mode) == self.action:
+        if runs(mode, self.action) and (
+            now is None or self.changed_at is None or now - self.changed_at >= self.settle
+        ):
             self.ran, self.stopped_at = mode, None
-        elif mode != self.ran:
+        elif mode != self.ran or (now is None and self.stopped_at is None):
             self.ran, self.stopped_at = None, None
         elif self.stopped_at is None:
             self.stopped_at = now
@@ -685,9 +704,32 @@ class HeadSight:
         left = hold - (now - self.stopped_at)
         return left if left > 0 else None
 
+    def settles_in(self, now: float) -> float | None:
+        """Seconds until an unconfirmed run's window ends (0: it has), or None.
+
+        None unless the head was last seen, in sight, running a mode it is
+        not counted as running (see :meth:`observe`). Past the window it is 0:
+        a sighting is due to confirm it.
+        """
+        if (
+            self.lost_at is not None
+            or self.changed_at is None
+            or self.mode == self.ran  # confirmed (or never in a window)
+            or not runs(self.mode, self.action)
+        ):
+            return None
+        return max(0.0, self.settle - (now - self.changed_at))
+
 
 # The head's own hvac_action that means it is running its mode.
 _RUNNING = {MODE_HEAT: "heating", MODE_COOL: "cooling"}
+
+
+def runs(mode: Any, action: Any) -> bool:
+    """Whether a head's own hvac_action says it runs its mode: heating in
+    heat, cooling in cool. Anything else, a lagging action included, is not
+    a run."""
+    return isinstance(action, str) and _RUNNING.get(mode) == action
 
 
 def floor_call(

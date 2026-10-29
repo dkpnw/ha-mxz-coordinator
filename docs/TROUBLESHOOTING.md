@@ -15,7 +15,7 @@ On Home Assistant 2026.10, the plan's attributes are under the sensor's ⋮ menu
 <details>
 <summary>Screenshot: the plan's Details</summary>
 
-<img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-plan-vote-stale.png" width="420" alt="The Plan sensor's Details: state heat, the top-level attributes from Idle action to Standoff, then Studio's zones row with its demand, engage, temperature, target, drift, start points, sensor health, a control reason that climate.studio_head is unavailable, vote_status stale, and lost_since.">
+<img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-plan-vote-stale.png" width="420" alt="The Plan sensor's Details: state heat, the Friendly name and Icon lines, the top-level attributes from Idle action to Standoff, then Studio's zones row with its demand, engage, temperature, target, drift, start points, sensor health, a control reason that climate.studio_head is unavailable, vote_status stale, and lost_since.">
 
 Studio's row while its head is unavailable; see
 [When a head goes unavailable](FEATURES.md#when-a-head-goes-unavailable).
@@ -91,8 +91,22 @@ its thermostat to `heat_cool`).
 <details>
 <summary><b>My head looks off and its vanes are closed, but the coordinator says it is on / the room is enabled</b></summary>
 
-That is a satisfied room parked by its idle action. It is not a fault, and the room has
-not been dropped.
+An enabled room's head is parked for other reasons too, so rule those out first on
+`sensor.*_plan`:
+
+- **Sensor health.** A room whose `sensor_health` is `stale` or `invalid` stops asking for
+  heat or cool, and its head parks by the idle action.
+- **Standby hold.** While `inhibited` is true, an `off` standby hold parks every head off,
+  and a `fan_only` hold parks every head in fan only. The default `eco` hold parks nothing
+  by itself: rooms keep running to the eco limits, and a room inside them is satisfied, so
+  its head turns off whatever the idle action.
+- **Waiting.** A room that needs the other mode parks while it waits; see
+  [A room needs heating or cooling but its head waits](#faq-waiting).
+- **Command status.** A room `command_status` of `pending` or `rejected` means MXZ's last
+  command to that head has not returned, or failed; read `command_error`.
+
+If none of these applies, it is a satisfied room parked by its idle action. That is not a
+fault, and the room has not been dropped.
 
 - With **Off after drying** (the default for new setups) or **Off**, a room that reaches
   its target asks its head to turn off, so the fan stops and the head closes its vanes.
@@ -181,9 +195,14 @@ hands it back to the global value. See [Everyday control](FEATURES.md#everyday-c
 
 Usually expected:
 
-- **Range heads** (`target_temp_low`/`high`) get a band: target − 2 °F to the target when
-  cooling, the target to target + 2 °F when heating (a 1 °C band on a °C system).
-  **Single-setpoint heads**, common on MXZ indoor units, get the target itself.
+- In a room with one target, **range heads** (`target_temp_low`/`high`) get a band:
+  target − 2 °F to the target when cooling, the target to target + 2 °F when heating (a
+  1 °C band on a °C system). **Single-setpoint heads**, common on MXZ indoor units, get the
+  target itself.
+- A [dual-setpoint](FEATURES.md#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint)
+  room uses its Heat to edge in place of the target while heating, and its Cool to edge
+  while cooling. A range head gets the same band built from that edge, and a
+  single-setpoint head gets the edge itself.
 - Setpoints are rounded to 1 °F or 0.5 °C and kept within Configure's Lowest/Highest
   setpoint and the head's own limits.
 - A head that only holds 0.5 °C steps (ESPHome CN105) in a °F system shows some whole-°F

@@ -8,6 +8,55 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
+## 3.13.1 (October 28, 2026)
+
+Fixes and cleanups after 3.13.0. No setting or default changes.
+
+- **A head starting or stopping a run counts at once.** In a room run from its own remote
+  whose vote counts only while its head runs, the vote now counts on the head's first
+  heating or cooling report (unless that report comes just after a mode change; see the
+  next item). It also ends on the first report that leaves the run (such
+  as `fan_only`, another mode, or `off`), and its 10-minute hold starts on the first
+  `idle` report. Before, such a report could wait out Home Assistant's 10-second refresh
+  cooldown when something else had just asked for a recompute: the mode change that set
+  the head going, or a room's sensor report. On hardware that was about 4 seconds for a
+  start and about 5 seconds for `fan_only` or `idle`. MXZ still sends the head nothing.
+- **A run reported just after the head's mode changes counts only if it lasts.** On
+  hardware, MXZ ran a room's head in heat, parked it off when the room was disabled, and 3
+  seconds later a remote set it to cool. The head reported `cooling` 0.3 seconds after
+  that, left over from the heat run, and `idle` 5 seconds later. It really started
+  cooling 100 seconds on. MXZ counted a cool vote and then held it for 10 minutes. Now a
+  `heating` or `cooling` report within 15 seconds of the head's mode changing (any change,
+  MXZ's own off included) counts only if the head is still running when those 15 seconds
+  end, and MXZ recomputes at that moment without waiting for another report. Stopping
+  inside them starts no hold. Every real start seen on that hardware came 10.6 to 16.7
+  seconds after a mode change, so a real start counts at most about 4 seconds later.
+  Unchanged: a start in a mode the head has been in for longer, stops, `fan_only`, `off`,
+  the 10-minute hold, Safety priority votes, and the default vote by mode.
+- **Such a room's head asks for a recompute only once it is released.** Before MXZ's off
+  lands, the head has no vote, so its `hvac_action` changing no longer recomputes. That
+  off landing now also ends any run MXZ drove on the head. Before, a person turning the
+  head back to heat or cool before the next recompute (up to 10 seconds in 3.13.0) could
+  read as that run stopping and hold a vote for 10 minutes.
+- **The plan sensor no longer reads `cool` for a moment on a reload.** On every reload,
+  such as an options save, it published the placeholder plan made before any setting had
+  restored, whose shared mode is always `cool`, then the real plan a few milliseconds
+  later. It now stays unavailable until the first plan computed from the restored
+  settings. No head was ever commanded from that placeholder.
+- A head's record no longer keeps a stale run or hold from a sighting without a time.
+  MXZ itself always passes one.
+- **Docs.** The FAQ for a head that looks off in an enabled room now sends you to sensor
+  health, the standby hold, waiting, and command status first. The setpoint explanations
+  are scoped to rooms with one target and say that a dual-setpoint room uses Heat to while
+  heating and Cool to while cooling. MIGRATION's `mode_by_safety` note includes tripped
+  freeze floors and overheat ceilings, and the plan screenshot's alt text includes its
+  Friendly name and Icon lines.
+- **Tested** with the full test suite on Home Assistant 2024.12.0, 2026.2.3, 2026.9.0,
+  2026.10.4, and a 2026.11 development build, and on a two-head system in cool: a start
+  after a mode change counted about 15 seconds later, a start in the same mode at once,
+  and three left-over run reports just after a release (one heat, two cool, each about
+  5.4 seconds long) counted no vote and started no hold.
+
 ## 3.13.0 (October 28, 2026)
 
 A room run from its own remote can now count its vote only while its head is actually

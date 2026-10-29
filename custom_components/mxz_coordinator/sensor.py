@@ -64,6 +64,16 @@ class MXZPlanSensor(MXZEntity, CoordinatorEntity[MXZCoordinator], SensorEntity):
         )
 
     @property
+    def available(self) -> bool:
+        """Not until a plan is computed from restored inputs.
+
+        The coordinator's seed predates them (its shared mode is only the
+        default cool), so publishing it would show, for a moment on every
+        start or reload, a mode MXZ never chose.
+        """
+        return super().available and self.coordinator.plan_ready
+
+    @property
     def native_value(self) -> str | None:
         """The chosen shared mode."""
         return (self.coordinator.data or {}).get("state")

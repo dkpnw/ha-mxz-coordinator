@@ -57,6 +57,7 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 from .capabilities import head_has_fan_auto
 from .const import (
     ACTION_VOTE_HOLD,
+    ACTION_VOTE_SETTLE,
     BAND_DRIFT_DELAY,
     BANNED_MODES,
     CHANGEOVER_INTERVAL_MINUTES,
@@ -722,6 +723,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Inert until async_setup: the seed compute below runs before the
         # switches restore, with every room still reading disabled.
         self._floor_live = False
+        # Whether a plan has been computed since async_setup, from restored
+        # inputs. The seed is not one: its shared mode is only the default.
+        self.plan_ready = False
 
         # Vane-kick bookkeeping: heads mid-kick are skipped by _apply so the
         # plan doesn't turn them back off while the louvre is still traveling.
@@ -743,14 +747,17 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # a wall-clock step must not shorten or stretch the time limit (the
         # wall-clock copy is display only). In memory only: after a restart or
         # a reload a head is unknown until it is seen, timed from that start.
-        # One wakeup for the nearest expiry (see _sync_lost_timer).
+        # One wakeup for the nearest expiry (see _sync_lost_timer), and one
+        # for the nearest end of a settle window (see _sync_settle_timer).
         started = time.monotonic()
         started_wall = dt_util.utcnow().timestamp()
         self._sight: dict[str, HeadSight] = {
-            zone.climate_id: HeadSight(started, started_wall) for zone in self.zones
+            zone.climate_id: HeadSight(started, started_wall, ACTION_VOTE_SETTLE)
+            for zone in self.zones
         }
         self._lost_timer: Any | None = None
         self._lost_retired = False
+        self._settle_timer: Any | None = None
 
         # Helper values (owned by the switch/select entities; seeded on
         # restore, mutated on user action). Kill-switch defaults OFF for safety.
@@ -1034,8 +1041,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Retire this context, then cancel its listeners, timers, and kick tasks.
 
         ``_retired`` first, so nothing this incarnation already scheduled can
-        write a head again. Every pending self-heal, dry, dwell, coast and
-        lost-vote timer is cancelled here. Retiring kicks is last: the existing
+        write a head again. Every pending self-heal, dry, dwell, coast,
+        lost-vote and settle timer is cancelled here. Retiring kicks is last: the existing
         own-wake guard parks a head still reporting fan_only (see
         _restore_woken_heads).
         """
@@ -1058,6 +1065,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cancel_fresh_timer()
         self._lost_retired = True
         self._cancel_lost_timer()
+        self._cancel_settle_timer()
         for cancel in self._heal_timers.values():
             cancel()
         self._heal_timers.clear()
@@ -1225,7 +1233,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if floor is not None:
                 engage = floor
             safety = self._zone_safety(zone)
-            vote = self._hands_off_vote(zone, clock, safety)
+            vote = self._hands_off_vote(zone, clock, safety=safety)
             holds = self._holds(status, safety)
             held_demand = demand if holds else DEMAND_NEUTRAL
             held_engage = engage if holds or floor is not None else ENGAGE_SATISFIED
@@ -1722,6 +1730,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         await super().async_request_refresh()
 
+    async def _async_refresh_now(self) -> None:
+        """Recompute at once, without waiting out the request cooldown.
+
+        A plan already running is released from waiting on its deliveries,
+        as by any new input, and this one computes next.
+        """
+        if self._retired:
+            return
+        if self._plan_lock.locked():
+            self._refresh_wake.set()
+        await self.async_refresh()
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Serialize plan decisions on every supported HA version."""
         async with self._plan_lock:
@@ -1745,6 +1765,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # This is computed intent, not delivery confirmation. Per-head software
         # status accompanies it, and in-flight action ownership remains separate.
         self.data = plan
+        self.plan_ready = self.plan_ready or self._floor_live
         # Resolve an existing coast wakeup as soon as the decision resolves it;
         # an unrelated pending transport must not postpone its cancellation.
         if not self._coasted:
@@ -1765,6 +1786,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._sync_coast_timer()
             self._sync_freshness_timer()
             self._sync_lost_timer()
+            self._sync_settle_timer()
             if self._refresh_pending or self._needs_legacy_refresh_guard:
                 self._sync_refresh_followup()
 
@@ -3541,6 +3563,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         old_state = event.data.get("old_state")
         mode = new_state.state if new_state else None
         refresh_needed = False
+        refresh_now = False
         sight = self._sight.get(entity_id)
         if sight is not None and mode in (None, STATE_UNAVAILABLE):
             # Lost sight of it: what it showed just before is its last-known
@@ -3561,20 +3584,25 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if (
             new_state is not None and old_state is not None
             and any(
-                zone.climate_id == entity_id and zone.hands_off
+                zone.climate_id == entity_id
                 and zone.vote_basis == VOTE_BASIS_ACTION
+                and self._hands_off_phase(zone) == "released"
                 for zone in self.zones
             )
-            and (
+        ):
+            # A released room that votes by action (before release its head
+            # has no vote to change): the head starting or stopping a run
+            # starts or ends its vote (or its hold) from this report, so
+            # recompute at once. A debounced request would wait out any
+            # cooldown already running, and room reports and the person's own
+            # mode change open one every few seconds. A run reported just
+            # after a mode change is seen here too, but counts only at its
+            # settle window's end (see _sync_settle_timer).
+            refresh_now = (
                 mode != old_state.state
                 or new_state.attributes.get(ATTR_HVAC_ACTION)
                 != old_state.attributes.get(ATTR_HVAC_ACTION)
             )
-        ):
-            # A room that votes by action: the head starting or stopping a run
-            # starts or ends its vote (or its hold), so recompute now rather
-            # than at the next sensor report.
-            refresh_needed = True
         pending = next(
             (zone for zone in self.zones
              if zone.climate_id == entity_id and zone.slug in self._startup_resume),
@@ -3603,6 +3631,14 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         and self._hands_off_phase(zone) == "parking"
                     ):
                         self._hands_off_released.add(zone.slug)
+                        if sight is not None:
+                            # Any run MXZ drove ends here, not at the next
+                            # compute: a person's heat before that one is
+                            # not that run stopping, so it starts no hold.
+                            sight.observe(
+                                mode, new_state.attributes.get(ATTR_HVAC_ACTION),
+                                time.monotonic(),
+                            )
         # A person changing a hands-off head during a floor run takes it back
         # (decision 8b): a real mode change, between two available states, to
         # anything but what MXZ is sending or would send, and not a vane kick.
@@ -3663,7 +3699,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ) != (
             old_state is None or old_state.state in UNAVAILABLE_STATES
         )
-        if refresh_needed or new_fan != old_fan or capabilities_changed or availability_changed:
+        if refresh_now:
+            self.hass.async_create_task(self._async_refresh_now())
+        elif refresh_needed or new_fan != old_fan or capabilities_changed or availability_changed:
             if (
                 self._needs_legacy_refresh_guard
                 and self._plan_lock.locked()
@@ -3756,7 +3794,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for zone in self.zones
         )
 
-    def _hands_off_vote(self, zone: Zone, clock: float, safety: bool = False) -> str | None:
+    def _hands_off_vote(self, zone: Zone, clock: float, *, safety: bool) -> str | None:
         """What a released hands-off head is running, if it is heat or cool.
 
         Before the off lands, the head's mode is ours or stale, so it has no
@@ -3929,6 +3967,46 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._lost_timer is not None:
             self._lost_timer()
             self._lost_timer = None
+
+    def _sync_settle_timer(self) -> None:
+        """Keep one wakeup armed for the nearest end of a settle window.
+
+        A released action-basis head that reported running just after its
+        mode changed is not counted yet (logic.HeadSight.observe); if it keeps
+        running it reports nothing new, so this wakes at the window's end and
+        recomputes at once, not through the request cooldown. That compute
+        sees it still running and counts it, or sees it stopped and counts
+        nothing. Every compute re-arms this from what it saw, so a stop, a new
+        mode change or a lost head cancels or moves it. Votes by mode and
+        Safety priority votes never wait on it: they don't read the run.
+        """
+        self._cancel_settle_timer()
+        if self._retired:
+            return
+        clock = time.monotonic()
+        waits = [
+            wait
+            for zone in self.zones
+            if zone.hands_off and zone.vote_basis == VOTE_BASIS_ACTION
+            and self._hands_off_phase(zone) == "released"
+            and (wait := self._sight[zone.climate_id].settles_in(clock)) is not None
+        ]
+        if not waits:
+            return
+
+        @callback
+        def _fire(_now: Any) -> None:
+            self._settle_timer = None
+            if self._retired:
+                return  # cancelling cannot recall a callback already in flight
+            self.hass.async_create_task(self._async_refresh_now())
+
+        self._settle_timer = async_call_later(self.hass, min(waits), _fire)
+
+    def _cancel_settle_timer(self) -> None:
+        if self._settle_timer is not None:
+            self._settle_timer()
+            self._settle_timer = None
 
     @staticmethod
     def _zone_arbitration_pair(
