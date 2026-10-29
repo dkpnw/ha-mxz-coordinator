@@ -8,7 +8,7 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
-## Unreleased
+## 3.13.1 (October 28, 2026)
 
 Fixes and cleanups after 3.13.0. No setting or default changes.
 
@@ -52,7 +52,10 @@ Fixes and cleanups after 3.13.0. No setting or default changes.
   freeze floors and overheat ceilings, and the plan screenshot's alt text includes its
   Friendly name and Icon lines.
 - **Tested** with the full test suite on Home Assistant 2024.12.0, 2026.2.3, 2026.9.0,
-  2026.10.4, and a 2026.11 development build. **Not tested** on hardware.
+  2026.10.4, and a 2026.11 development build, and on a two-head system in cool: a start
+  after a mode change counted about 15 seconds later, a start in the same mode at once,
+  and three left-over run reports just after a release (one heat, two cool, each about
+  5.4 seconds long) counted no vote and started no hold.
 
 ## 3.13.0 (October 28, 2026)
 
