@@ -147,7 +147,7 @@ async def _entry(hass: HomeAssistant, platforms: list[str], extras: list[dict] |
         ("mqtt", HEAD_TYPE_CLOUD, HEAD_TYPE_CLOUD),
     ],
 )
-async def test_room_page_shows_the_stored_type_or_the_suggestion(
+async def test_room_page_shows_the_stored_type_or_local(
     hass: HomeAssistant, platform: str, stored: str | None, shown: str
 ) -> None:
     extra = {} if stored is None else {ZONE_HEAD_TYPE: stored}

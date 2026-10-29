@@ -128,8 +128,9 @@ ZONE_DRIFT_WARMER_BY = "drift_warmer_by"
 ZONE_DUAL_SETPOINT = "dual_setpoint"
 # Per room: how MXZ reaches the head (beta). Stored only as HEAD_TYPE_CLOUD,
 # or as HEAD_TYPE_LOCAL where the head's platform suggested cloud and the user
-# kept local (in setup, or by switching a cloud room back); no key reads local, so every entry stored before this option
-# existed, and every CN105 room, stores exactly what it stored before.
+# kept local (in setup, or by switching a cloud room back); no key reads local,
+# so every entry stored before this option existed, and every CN105 room,
+# stores exactly what it stored before.
 # local: today's path, unchanged (ESPHome/CN105 heads, and any other head).
 # cloud: a head behind a cloud integration that polls (MELCloud, Kumo Cloud).
 # MXZ sends it the mode on its own call, then one setpoint pushed past the

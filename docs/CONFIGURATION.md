@@ -38,7 +38,7 @@ nothing and leave today's behavior unchanged.
 | **Standby hold** | Hold signal | none | An external signal that holds enabled coordination. Missing, `unknown`, or `unavailable` input releases the hold. |
 | | Active state | `on` | The signal state that means "hold". Many grid sensors read `off` when the grid is down. |
 | | During a hold | `eco` | `eco`, `off`, or `fan_only`. |
-| **Rooms** (one page per room, in priority order, titled by the room's name) | Head type | Local (Cloud (beta) filled in for a `melcloud`, `kumo_cloud` or `kumo` head never asked) | Local, or Cloud (beta) for a head behind a cloud integration. An ESPHome head is always local. See [Cloud heads (beta)](../README.md#cloud-heads-beta). |
+| **Rooms** (one page per room, in priority order, titled by the room's name) | Head type | Local | Local, or Cloud (beta) for a head behind a cloud integration. Only setup suggests Cloud (beta), for a `melcloud`, `kumo_cloud` or `kumo` head; this page shows Local until you choose Cloud (beta) here. An ESPHome head is always local. See [Cloud heads (beta)](../README.md#cloud-heads-beta). |
 | | Airflow sensor, Vertical vane, Horizontal vane | detected at setup | Correct detection, select another entity, or clear a field to remove that optional wiring. |
 | | Safety priority sensor | none | See [Safety priority](FEATURES.md#safety-priority). |
 | | Let its own remote run it while disabled | off | See [Run one room from its own remote](FEATURES.md#run-one-room-from-its-own-remote). |

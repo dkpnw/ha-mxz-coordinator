@@ -1,5 +1,22 @@
 # Upgrading and migrating MXZ Coordinator
 
+## Cloud heads (beta) (3.14.0)
+
+A new per-room **Head type**, in Configure → Rooms → (room), with a collapsed **Cloud
+head (beta)** section for its three settings. It's stored in that room's record as
+`head_type: cloud` when Cloud (beta) is chosen, or as `head_type: local` where the head
+comes from `melcloud`, `kumo_cloud` or `kumo` and you kept it local. The settings are
+stored as `drive_offset`, `write_interval` and `confirm_wait`, only while the room is
+cloud and only when set to something other than the default.
+
+**Nothing to do.** No config-entry version change and no migration. A room without
+`head_type: cloud`, which is every room saved before this option existed, is driven
+exactly as before, and an ESPHome head is always local. A room's page shows Local until
+you choose Cloud (beta) there, so saving it for anything else changes nothing. On a
+rollback to 3.13.x the keys are ignored and a cloud room is driven as a local head
+again; that was checked by searching the older code for the keys (it reads none of
+them), not run. See [Cloud heads (beta)](../README.md#cloud-heads-beta).
+
 ## Count a room's vote only while its head runs (3.13.0)
 
 A new per-room setting, **While its own remote runs it, its vote counts**, in Configure →
