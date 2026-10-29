@@ -407,6 +407,43 @@ async def test_fan_boost_moves_one_rung_per_five_minutes(hass: HomeAssistant) ->
     assert a.device["fan"] == "high"
 
 
+async def test_a_fan_step_held_by_the_write_interval_does_not_climb_on(
+    hass: HomeAssistant,
+) -> None:
+    """Confirm wait shorter than the write interval: still one speed at a time.
+
+    The fan step comes due while the interval still holds the batch, and every
+    recompute in the hold asks for the fan again. Only a rung sent counts, so
+    the head gets low first, not a speed it climbed to while waiting.
+    """
+    a, _b, entry = await _comfort_pair(
+        hass, extra={ZONE_WRITE_INTERVAL: 300, ZONE_CONFIRM_WAIT: 30}
+    )
+    await past_startup(hass, entry)  # the start, a fan step, is now 30 s old
+    calls = record(hass)
+    await _driven(hass, entry, SENSORS[0], 60)
+
+    def fans() -> list[str]:
+        return [w[1]["fan_mode"] for w in writes(calls, a.entity_id) if w[0] == "set_fan_mode"]
+
+    assert [w[0] for w in writes(calls, a.entity_id)] == ["set_hvac_mode", "set_temperature"]
+    past_window(entry, a.entity_id, 270)  # the fan step is due, the interval holds 30 s more
+    await recompute(hass, entry)
+    for _ in range(5):
+        past_window(entry, a.entity_id, 5)
+        await recompute(hass, entry)
+    assert fans() == []
+    assert entry.runtime_data._cloud[a.entity_id].release_at is not None
+    past_window(entry, a.entity_id, 5)  # the interval is over
+    await recompute(hass, entry)
+    assert fans() == ["low"]
+    assert a.device["fan"] == "low"
+    for _ in range(3):  # "middle", which comfort_HA doesn't list, is passed over
+        past_window(entry, a.entity_id, 300)
+        await recompute(hass, entry)
+    assert fans() == ["low", "medium", "high"]
+
+
 async def test_a_held_back_step_wakes_the_plan_by_itself(
     hass: HomeAssistant, freezer
 ) -> None:

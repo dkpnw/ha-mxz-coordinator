@@ -3146,6 +3146,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if fan is not None:
             if act in (MODE_COOL, MODE_HEAT):
                 cloud.fan_at = clock
+            if fan in FAN_LADDER:
+                # A boost rung counts only once it goes out: a batch the write
+                # interval held must not climb on while it waits.
+                self._fan_idx[climate_id] = FAN_LADDER.index(fan)
             # The latch's command memory, exactly as a local fan write keeps it.
             if fan != self._fan_cmd.get(climate_id):
                 self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, fan)
@@ -3213,10 +3217,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # when the step is due.
                 cloud.release_at = clock + CLOUD_FAN_STEP_SECONDS - since
                 return None
-            self._fan_idx[climate_id] = want
+            if token in modes:
+                return token  # its rung is committed when the batch goes out
             # A rung this head doesn't list is passed over without a write,
             # so it doesn't spend the step: the next rung can follow at once.
-            return token if token in modes else None
+            self._fan_idx[climate_id] = want
+            return None
         elif fan_act == MODE_FAN_ONLY or self.eco_idle:
             self._fan_idx.pop(climate_id, None)
             token = FAN_AUTO
