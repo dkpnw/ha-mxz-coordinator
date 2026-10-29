@@ -398,6 +398,18 @@ Details:
   while still `cooling`. Such a report never starts, extends, or restarts a vote or its
   10 minutes. Switching the head to another mode ends its vote at once; switching back
   counts again only once it is seen running.
+- **A run reported just after a mode change waits 15 seconds.** The action can also lag
+  the other way: right after its mode changes, a head can report running in the new mode,
+  left over from the run before. On a test system, a head MXZ had just run in heat and
+  parked off read `cooling` 0.3 seconds after a remote set it to cool, kept that for 5
+  seconds, and really started cooling 100 seconds later. So a `heating` or `cooling`
+  report within 15 seconds of the head's mode changing (by anyone, MXZ's own off
+  included) doesn't count yet, and if the head goes idle inside those 15 seconds no
+  10-minute hold starts. If it is still running when they end, the vote counts then,
+  without waiting for another report. Real starts on that system came 10.6 to 16.7
+  seconds after a mode change, so they count at most a few seconds later. A head that
+  starts running in a mode it has been in for longer, or runs again in the mode it was
+  already counted in, counts at once, and stops still count at once.
 - **A head that reports no `hvac_action`** votes as if this were set to the default. A
   head that has reported one since MXZ started stays judged by it, so a single report
   without it (as across a reconnect) is not running and can't bring back the idle vote.
@@ -406,7 +418,7 @@ Details:
   is worked out from its mode, and is never treated as what the head is doing.
 - **Safety priority still wins.** While the room's [Safety priority](#safety-priority)
   sensor is `on`, the vote counts whenever the head is set to heat or cool, running or
-  not.
+  not, with no 15-second wait.
 - **Nothing else moves.** It is still the same low vote: an enabled room that is calling
   or still running to its target outranks it, and the mode-change wait applies as before.
   The freeze floor and overheat ceiling work from the room's temperature, not this vote.

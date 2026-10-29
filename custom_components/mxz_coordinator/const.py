@@ -92,6 +92,17 @@ VOTE_BASES = (VOTE_BASIS_MODE, VOTE_BASIS_ACTION)
 # rides out the short idle gaps an inverter shows near its setpoint, and a
 # head's slow hvac_action reports. Fixed (Drew's call: a 10-minute hold).
 ACTION_VOTE_HOLD = 600
+# Seconds after a head's hvac_mode is seen to change (any change: MXZ's own
+# off on release, a remote, anything) during which its report of running is
+# not yet a run for an action-basis vote: it counts only if the head still
+# reports running when this ends. On hardware (2026-10-28 18:30, after MXZ ran
+# the Bedroom head in heat and parked it off) a remote's cool was answered by
+# "cooling" 0.11 s after the head showed cool (0.29 s after the call), a stale
+# report that lasted 5.3 s, until idle; its real cooling began 100 s later.
+# Every real start seen after a mode change that day came 10.6 to 16.7 s after
+# the call. 15 s is almost three times the stale report's 5.3 s, and holds a
+# real start back by at most about 4 s.
+ACTION_VOTE_SETTLE = 15
 # Optional per-zone binary_sensor: "this zone is asserting a safety override
 # right now" (e.g. a freeze/overheat floor). Unset = this zone's Demand never
 # carries PRIORITY_SAFETY. Settable on any zone regardless of enable/hands_off

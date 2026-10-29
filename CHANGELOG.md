@@ -14,12 +14,25 @@ Fixes and cleanups after 3.13.0. No setting or default changes.
 
 - **A head starting or stopping a run counts at once.** In a room run from its own remote
   whose vote counts only while its head runs, the vote now counts on the head's first
-  heating or cooling report. It also ends on the first report that leaves the run (such
+  heating or cooling report (unless that report comes just after a mode change; see the
+  next item). It also ends on the first report that leaves the run (such
   as `fan_only`, another mode, or `off`), and its 10-minute hold starts on the first
   `idle` report. Before, such a report could wait out Home Assistant's 10-second refresh
   cooldown when something else had just asked for a recompute: the mode change that set
   the head going, or a room's sensor report. On hardware that was about 4 seconds for a
   start and about 5 seconds for `fan_only` or `idle`. MXZ still sends the head nothing.
+- **A run reported just after the head's mode changes counts only if it lasts.** On
+  hardware, MXZ ran a room's head in heat, parked it off when the room was disabled, and 3
+  seconds later a remote set it to cool. The head reported `cooling` 0.3 seconds after
+  that, left over from the heat run, and `idle` 5 seconds later. It really started
+  cooling 100 seconds on. MXZ counted a cool vote and then held it for 10 minutes. Now a
+  `heating` or `cooling` report within 15 seconds of the head's mode changing (any change,
+  MXZ's own off included) counts only if the head is still running when those 15 seconds
+  end, and MXZ recomputes at that moment without waiting for another report. Stopping
+  inside them starts no hold. Every real start seen on that hardware came 10.6 to 16.7
+  seconds after a mode change, so a real start counts at most about 4 seconds later.
+  Unchanged: a start in a mode the head has been in for longer, stops, `fan_only`, `off`,
+  the 10-minute hold, Safety priority votes, and the default vote by mode.
 - **Such a room's head asks for a recompute only once it is released.** Before MXZ's off
   lands, the head has no vote, so its `hvac_action` changing no longer recomputes. That
   off landing now also ends any run MXZ drove on the head. Before, a person turning the
