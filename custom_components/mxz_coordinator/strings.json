@@ -39,6 +39,30 @@
           "room_name_8": "Shown on this room's entities. You can rename it later."
         }
       },
+      "head_type": {
+        "title": "Head type (beta)",
+        "description": "These heads come from a cloud integration. MXZ can drive them as cloud heads (beta): the mode on its own call, one setpoint pushed past the target by a drive offset, at most one write a minute, and a wait for each head to report back. Choose Local to drive one exactly as MXZ drives an ESPHome (CN105) head. You can change this later on the room's page in Configure.\n\n{rooms}",
+        "data": {
+          "head_type_1": "Room 1 head type",
+          "head_type_2": "Room 2 head type",
+          "head_type_3": "Room 3 head type",
+          "head_type_4": "Room 4 head type",
+          "head_type_5": "Room 5 head type",
+          "head_type_6": "Room 6 head type",
+          "head_type_7": "Room 7 head type",
+          "head_type_8": "Room 8 head type"
+        },
+        "data_description": {
+          "head_type_1": "How MXZ drives {room_1}'s head.",
+          "head_type_2": "How MXZ drives {room_2}'s head.",
+          "head_type_3": "How MXZ drives {room_3}'s head.",
+          "head_type_4": "How MXZ drives {room_4}'s head.",
+          "head_type_5": "How MXZ drives {room_5}'s head.",
+          "head_type_6": "How MXZ drives {room_6}'s head.",
+          "head_type_7": "How MXZ drives {room_7}'s head.",
+          "head_type_8": "How MXZ drives {room_8}'s head."
+        }
+      },
       "sensors": {
         "title": "Room temperature sensors",
         "description": "Pick a thermometer for each room. A sensor near where people sit beats the head's own reading, which runs warm when idle.\n\n{rooms}",
@@ -309,7 +333,9 @@
       "must_not_be_negative": "Enter 0 or more.",
       "not_a_number": "Enter a number.",
       "freshness_profile_invalid": "These freshness settings don't fit together. Times must be finite positive minutes, and maximum age can't be shorter than the report interval. \"Sensor reports a sample time or counter\" needs exactly one attribute; other choices need both attributes empty. Nothing was saved.",
-      "floor_out_of_range": "The freeze floor must be 35-65 °F (2-18 °C) and the overheat ceiling 75-100 °F (24-38 °C), in your Home Assistant unit. Leave a field empty for none. Nothing was saved."
+      "floor_out_of_range": "The freeze floor must be 35-65 °F (2-18 °C) and the overheat ceiling 75-100 °F (24-38 °C), in your Home Assistant unit. Leave a field empty for none. Nothing was saved.",
+      "cloud_esphome_head": "This head is on ESPHome, which MXZ drives as a local (CN105) head. Choose Local.",
+      "cloud_unsupported_options": "A cloud head (beta) takes no vanes, airflow sensor, dual setpoint or vote by action. Clear those, or choose Local."
     },
     "abort": {
       "empty_options": "Nothing changed."
@@ -469,8 +495,9 @@
       },
       "room": {
         "title": "{room}",
-        "description": "Vane and airflow entities were found automatically at setup. Change one only if it's wrong, or clear it to remove it.",
+        "description": "Vane and airflow entities were found automatically at setup. Change one only if it's wrong, or clear it to remove it. Head type: Local for ESPHome (CN105) heads; Cloud (beta) for a head behind a cloud integration such as MELCloud or Kumo Cloud.",
         "data": {
+          "head_type": "Head type",
           "stage": "Airflow sensor",
           "vane_vertical": "Vertical vane",
           "vane_horizontal": "Horizontal vane",
@@ -479,6 +506,7 @@
           "hands_off_vote_basis": "While its own remote runs it, its vote counts"
         },
         "data_description": {
+          "head_type": "Local (the default) drives the head as MXZ always has. Cloud (beta) is for a head behind a cloud integration that polls: MXZ sends its mode on its own call, then one setpoint pushed past the target by the drive offset, writes it at most once per write interval, and waits for it to report back. A cloud head gets no vanes, airflow sensor, dual setpoint or vote by action. An ESPHome head is always local.",
           "stage": "Shows the head's real fan speed while the fan is on auto.",
           "safety_priority_entity": "A binary sensor that's on when this room is asserting a safety override (e.g. a freeze or overheat floor). While on, this room's want for heat or cool outranks every other room's, coordinated or hands-off.",
           "hands_off": "Off (the default): a disabled room's head is held off, as always. On: when you disable the room, MXZ turns the head off once, retrying until the head reports off. Then MXZ leaves the head alone until you enable the room again.",
@@ -536,6 +564,20 @@
             "data_description": {
               "dual_setpoint": "Adds this room's heat to and cool to numbers, and its thermostat shows a range. Its target number stays and shows the middle of the range; writing it moves the whole range. Voice assistants that set one number, such as Assist, can't set a range; use the target number instead. Save this change on its own and the HomeKit bridge picks it up at once; saved with other changes on this page, it reloads the integration, so reload the HomeKit bridge afterwards."
             }
+          },
+          "cloud": {
+            "name": "Cloud head (beta)",
+            "description": "Only for a cloud head; a local head ignores these. Leave them at their defaults unless your head needs otherwise.",
+            "data": {
+              "drive_offset": "Setpoint drive offset",
+              "write_interval": "Write interval",
+              "confirm_wait": "Confirm wait"
+            },
+            "data_description": {
+              "drive_offset": "While the room runs, its head gets the target plus this in heat and minus this in cool, so the head's own sensor doesn't stop it early. The room sensor still decides when the room is done. 0 sends the bare target. Default 2 °F (1 °C).",
+              "write_interval": "At most one write to this head per this many seconds; a newer change waits and replaces the older one. 30-300 s, default 60.",
+              "confirm_wait": "After a write, how long MXZ waits for the head to report it before sending again. A report of an older state in this time is read as late, not as someone's change. 30-600 s, default 90."
+            }
           }
         }
       }
@@ -584,6 +626,12 @@
         "ha_state_write": "Every update is a new reading",
         "sample_timestamp": "Sensor reports a sample time or counter"
       }
+    },
+    "head_type": {
+      "options": {
+        "local": "Local",
+        "cloud": "Cloud (beta)"
+      }
     }
   },
   "services": {
@@ -596,6 +644,10 @@
     "shared_mode_legacy_option": {
       "title": "Shared mode no longer offers \"{stored}\"",
       "description": "Shared mode now offers only the two directions one outdoor unit can share: cool and heat. Arbitration resolved the stored \"{stored}\" to cool, so it was an unreliable stop control rather than a stop: with the coordinator running it could park a head that had been heating, and while the coordinator was disabled or held in a fixed-mode standby park it was simply retained on the selector. Shared mode now reads \"{current}\". The stored value does not say which direction the system had been running, nothing else changed, and no hold was created.\n\nTo stop the coordinator and leave the heads exactly where they are, turn off **Coordinator enable**. To hold the heads, use the standby hold (Configure → Standby hold → \"Hold signal\"): its default eco action still conditions a room that reaches the protection extremes, while its off or fan only action parks every head for as long as the hold lasts. To idle one room, turn off that room's enable switch. To stop a satisfied head's fan, set \"When a room reaches target\" to \"Off\" (Configure → Fan and idle).\n\nDismiss this message once you have read it."
+    },
+    "cloud_head_unresponsive": {
+      "title": "Cloud head {head} is not responding (beta)",
+      "description": "MXZ's cloud head {head} ({room}) has been unavailable, or sent no report at all, for {minutes} minutes. MXZ sends it nothing, and {room}'s call for heat or cool no longer counts toward the shared mode, unless its Safety priority sensor is on. Check the head's cloud integration and its connection. This clears by itself once the head reports again."
     }
   },
   "entity": {
