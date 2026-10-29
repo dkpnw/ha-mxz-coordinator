@@ -692,7 +692,7 @@ async def test_a_run_ending_drops_the_vote_on_its_own_report(
     assert (row["hands_off_vote"], row["vote_hold_until"]) == (None, None)
     assert _plan(hass, entry).state == MODE_HEAT  # back to rest
     assert computes == ["compute"]
-    _head(hass, head_b)._attr_current_temperature = 71
+    _head(hass, head_b)._attr_native_current_temperature = 71
     await _report(hass, head_b, mode, action)
     assert computes == ["compute"]
     assert calls == []  # MXZ never wrote to it

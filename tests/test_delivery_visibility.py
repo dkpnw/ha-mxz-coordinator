@@ -297,7 +297,7 @@ async def test_head_attribute_only_update_adds_no_room_thermostat_event(delivery
         EVENT_STATE_CHANGED, callback(lambda event: changed.append(event.data["entity_id"]))
     )
     try:
-        head._attr_current_temperature = 71.5  # the room tile shows the room sensor
+        head._attr_native_current_temperature = 71.5  # the room tile shows the room sensor
         head.async_write_ha_state()
         await r.settle()
         assert head.entity_id in changed

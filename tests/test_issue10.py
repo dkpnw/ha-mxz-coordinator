@@ -57,14 +57,14 @@ class CelsiusSingleHead(MockSingleSetpointHead):
     79 °F, because it converts to 26.11 °C > the 26.0 °C native max.
     """
 
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_min_temp = 10.0
     _attr_max_temp = 26.0
     _attr_target_temperature_step = 0.5
 
     def __init__(self, suffix: str) -> None:
         super().__init__(suffix)
-        self._attr_target_temperature = 24.0  # a sane native seed
+        self._attr_native_target_temperature = 24.0  # a sane native seed
 
 
 class CelsiusRangeHead(MockHeadC):
@@ -180,7 +180,7 @@ async def test_safe_band_round_trips_at_float_boundary(hass: HomeAssistant) -> N
     """
 
     class FractionalFahrenheitHead(MockSingleSetpointHead):
-        _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
+        _attr_native_temperature_unit = UnitOfTemperature.FAHRENHEIT
         _attr_min_temp = 40.0
         _attr_max_temp = 78.8
 
