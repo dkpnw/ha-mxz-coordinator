@@ -2761,12 +2761,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 cur = _as_float(state.attributes.get("temperature")) if state else None
                 if cur_mode == act and self._head_already_at(climate_id, cur, setpoint):
                     return  # idempotent
-                await self.async_head_service(
-                    climate_id, "set_temperature",
-                    {
-                        "hvac_mode": act,
-                        "temperature": setpoint,
-                    },
+                await self._set_mode_and_setpoints(
+                    climate_id, act, cur_mode, {"temperature": setpoint},
                 )
                 return
             cur_low = _as_float(state.attributes.get("target_temp_low")) if state else None
@@ -2779,13 +2775,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 and self._head_already_at(climate_id, cur_high, high)
             ):
                 return  # idempotent
-            await self.async_head_service(
-                climate_id, "set_temperature",
-                {
-                    "hvac_mode": act,
-                    "target_temp_low": low,
-                    "target_temp_high": high,
-                },
+            await self._set_mode_and_setpoints(
+                climate_id, act, cur_mode,
+                {"target_temp_low": low, "target_temp_high": high},
             )
             return
 
@@ -2796,6 +2788,30 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             climate_id, "set_hvac_mode",
             {"hvac_mode": act},
         )
+
+    async def _set_mode_and_setpoints(
+        self, climate_id: str, act: str, cur_mode: str | None,
+        setpoints: dict[str, float],
+    ) -> None:
+        """Send cool/heat and its setpoint(s) the way this head will honor.
+
+        An ESPHome head (the CN105) applies the hvac_mode HA passes along
+        inside set_temperature, so it gets today's single combined call. Other
+        integrations may drop it: Kumo Cloud heads through comfort_HA parked in
+        fan_only never woke. So a mode change on those goes first as its own
+        set_hvac_mode, then set_temperature carries only the setpoint(s). A
+        failed mode call raises before the setpoint write and the next compute
+        retries. A head with no registry entry can't be identified, so it
+        keeps the combined call as before.
+        """
+        entry = er.async_get(self.hass).async_get(climate_id)
+        if cur_mode == act or entry is None or entry.platform == "esphome":
+            await self.async_head_service(
+                climate_id, "set_temperature", {"hvac_mode": act, **setpoints},
+            )
+            return
+        await self.async_head_service(climate_id, "set_hvac_mode", {"hvac_mode": act})
+        await self.async_head_service(climate_id, "set_temperature", setpoints)
 
     async def _apply_fan(self, climate_id: str, act: str, delta: float) -> None:
         """Drive the head's fan speed from ``delta`` (°F off-target). Idempotent.

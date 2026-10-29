@@ -8,10 +8,24 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
-## Unreleased
+## 3.13.2 (October 29, 2026)
 
-Test-only preparation for Home Assistant 2026.12. No change to the integration, its
-settings or its defaults.
+A wake-up fix for heads from cloud integrations, and test-only preparation for Home
+Assistant 2026.12. No setting or default changes.
+
+- **A head from a cloud integration wakes from `fan_only` or `off`.** MXZ woke a parked
+  head with one `climate.set_temperature` call carrying both the mode and the setpoint.
+  ESPHome, which runs the CN105 heads, applies the mode from that call. Kumo Cloud heads
+  through comfort_HA drop it, so MXZ could park them but never wake them. For a head
+  whose climate entity is not on the ESPHome platform, MXZ now sends
+  `climate.set_hvac_mode` first, then `climate.set_temperature` with only the setpoint.
+  If the mode call fails, MXZ sends no setpoint, logs the error and tries again at the
+  next update. ESPHome heads, and heads with no entity registry entry, get the same single
+  call as before. The suite's CN105 test heads now register on the ESPHome platform, so the
+  existing tests keep checking those calls. This fixes the wake-up only; fuller cloud-head
+  support is still in progress. Tested on invented heads, not yet on a cloud head.
+  Reported by @mw1029 on the
+  [Home Assistant forum](https://community.home-assistant.io/t/1018382).
 
 - **The invented test heads use Home Assistant's new climate temperature names.** Home
   Assistant 2026.11 renamed a climate entity's temperature members `native_*` (such as
@@ -22,6 +36,9 @@ settings or its defaults.
   The heads now stand on a shared test base and use only the new names. On Home
   Assistant 2024.12 to 2026.10, which know only the old names, the base stores each new
   name under the old one.
+- **Tested** with the full test suite on Home Assistant 2024.12.0, 2026.2.3, 2026.9.0,
+  2026.10.4, a 2026.11 development build, and a 2026.12 development build. **Not tested**
+  on hardware: the ESPHome (CN105) path is unchanged.
 
 ## 3.13.1 (October 28, 2026)
 
