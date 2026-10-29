@@ -145,9 +145,9 @@ async def test_band_change_with_a_pending_head_echo_stays_current(
         if (mode := kwargs.get("hvac_mode")) is not None:
             self._attr_hvac_mode = mode
         if (low := kwargs.get("target_temp_low")) is not None:
-            self._attr_target_temperature_low = low
+            self._attr_native_target_temperature_low = low
         if (high := kwargs.get("target_temp_high")) is not None:
-            self._attr_target_temperature_high = high
+            self._attr_native_target_temperature_high = high
         pending_echoes.append(self.async_write_ha_state)
 
     monkeypatch.setattr(MockHead, "async_set_temperature", accept_then_echo_later)

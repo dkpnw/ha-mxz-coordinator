@@ -8,6 +8,21 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
+## Unreleased
+
+Test-only preparation for Home Assistant 2026.12. No change to the integration, its
+settings or its defaults.
+
+- **The invented test heads use Home Assistant's new climate temperature names.** Home
+  Assistant 2026.11 renamed a climate entity's temperature members `native_*` (such as
+  `native_target_temperature_low`) and logs a deprecation for code that still writes or
+  defines the old ones, which stop working in 2027.11. MXZ's own thermostats moved in
+  3.12.0. On the 2026.12 development core, the test heads' old names logged thousands of
+  such warnings, many naming MXZ because the heads write them inside commands MXZ sends.
+  The heads now stand on a shared test base and use only the new names. On Home
+  Assistant 2024.12 to 2026.10, which know only the old names, the base stores each new
+  name under the old one.
+
 ## 3.13.1 (October 28, 2026)
 
 Fixes and cleanups after 3.13.0. No setting or default changes.

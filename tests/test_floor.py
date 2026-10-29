@@ -872,7 +872,7 @@ def _single_setpoint(hass: HomeAssistant, entity_id: str) -> None:
         if (mode := kwargs.get("hvac_mode")) is not None:
             head._attr_hvac_mode = mode
         if (temp := kwargs.get("temperature")) is not None:
-            head._attr_target_temperature = temp
+            head._attr_native_target_temperature = temp
         head.async_write_ha_state()
 
     head.async_set_temperature = set_temperature
@@ -912,7 +912,7 @@ async def test_p10_a_single_setpoint_head_keeps_the_warmer_of_the_two(
 async def _head_reports(hass: HomeAssistant, entity_id: str, **attrs: Any) -> None:
     """The head reports a setting with no service call behind it: a person at
     its own remote, or a late or echoed report of a command. ``attrs`` name
-    the entity's ``_attr_`` fields (target_temperature_low, hvac_mode, ...)."""
+    the entity's ``_attr_`` fields (native_target_temperature_low, hvac_mode, ...)."""
     head = _head(hass, entity_id)
     for key, value in attrs.items():
         setattr(head, f"_attr_{key}", value)
@@ -924,10 +924,10 @@ async def _remote_sets(hass: HomeAssistant, entity_id: str, low: float, high: fl
     """A person changes only the setpoint at the head's own remote: both
     edges of a range head, or the one setpoint (``high`` None)."""
     if high is None:
-        await _head_reports(hass, entity_id, target_temperature=low)
+        await _head_reports(hass, entity_id, native_target_temperature=low)
     else:
         await _head_reports(
-            hass, entity_id, target_temperature_low=low, target_temperature_high=high
+            hass, entity_id, native_target_temperature_low=low, native_target_temperature_high=high
         )
 
 
@@ -1101,7 +1101,7 @@ async def test_p15_mxz_own_command_and_its_late_snapped_echo_are_not_a_person(
     for _ in range(2):
         await f.compute()
     assert _theirs(f) == ("heat", 56, 58)
-    await _head_reports(hass, f.b, target_temperature_low=59.2, target_temperature_high=60.8)
+    await _head_reports(hass, f.b, native_target_temperature_low=59.2, native_target_temperature_high=60.8)
     for _ in range(2):
         await f.compute()
     assert (_run(hass, f.b), _theirs(f)) == (("heat", 59.2, 60.8), ("heat", 56, 58))
@@ -1132,7 +1132,7 @@ async def test_p15_a_report_while_mxz_command_is_in_flight_is_not_a_person(
     await f.coord.async_refresh()
     assert f.b in f.coord._deliveries
     head = _head(hass, f.b)
-    head._attr_target_temperature_low, head._attr_target_temperature_high = 64, 66
+    head._attr_native_target_temperature_low, head._attr_native_target_temperature_high = 64, 66
     head.async_write_ha_state()
     await f.coord.async_refresh()
     assert (f.b in f.coord._deliveries, _theirs(f)) == (True, ("heat", 56, 58))
@@ -1159,13 +1159,13 @@ async def test_p15_a_head_restored_at_startup_and_its_late_report_are_not_a_pers
     await _shutdown(hass, f.entry)
     await _head_reports(hass, f.b, available=False)
     await _head_reports(
-        hass, f.b, available=True, target_temperature_low=64, target_temperature_high=66
+        hass, f.b, available=True, native_target_temperature_low=64, native_target_temperature_high=66
     )
     sent = _setpoint_commands(hass, f.b)
     await _startup(hass, f.entry)
     await f.compute()
     assert (_run(hass, f.b), _theirs(f)) == (("heat", 59, 61), ("heat", 56, 58))
-    await _head_reports(hass, f.b, target_temperature_low=64, target_temperature_high=66)
+    await _head_reports(hass, f.b, native_target_temperature_low=64, native_target_temperature_high=66)
     await f.compute()
     assert _theirs(f) == ("heat", 56, 58)
     await f.temp(SENSOR_B, 53)
@@ -1375,7 +1375,7 @@ async def test_p17_a_cn105_flip_flop_around_a_persons_raise_ends_at_their_settin
     sent = _setpoint_commands(hass, f.b)
     seen = []
     for low, high in ((64, 66), (59, 61), (64, 66)):
-        await _head_reports(hass, f.b, target_temperature_low=low, target_temperature_high=high)
+        await _head_reports(hass, f.b, native_target_temperature_low=low, native_target_temperature_high=high)
         await f.compute()
         seen.append(_theirs(f))
     assert (seen, sent) == ([("heat", 64, 66)] * 3, [("heat", 64, 66)])
@@ -1400,7 +1400,7 @@ async def test_p17_known_limit_a_late_report_of_a_mixed_command_is_taken(
     await _remote_sets(hass, f.b, 70, 72)
     await f.compute()
     assert _theirs(f) == ("heat", 70, 72)
-    await _head_reports(hass, f.b, target_temperature_low=59, target_temperature_high=64)
+    await _head_reports(hass, f.b, native_target_temperature_low=59, native_target_temperature_high=64)
     await f.compute()
     assert _theirs(f) == ("heat", 59, 64)
     await f.temp(SENSOR_B, 53)

@@ -16,7 +16,6 @@ import logging
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -24,6 +23,7 @@ pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.components.climate import ClimateEntity
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import deprecation
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
@@ -99,33 +99,23 @@ def test_defining_the_thermostats_logs_no_deprecation() -> None:
     )
 
 
-class _StoresSetpointsUnderTheCoresName:
-    """A test head that stores what it is sent under the names its core reads.
-
-    HA reports a deprecated read or write against the nearest integration on
-    the call stack. A real head integration is that nearest frame for its own
-    code; test_drive's heads live in tests/, so their own old-name writes, made
-    inside a command MXZ sends, would be reported against MXZ. Their class-level
-    temperature unit keeps the old name: that is what MXZ reads.
-    """
-
-    async def async_set_temperature(self, **kwargs: Any) -> None:
-        prefix = "_attr_native_" if NATIVE else "_attr_"
-        if (mode := kwargs.get("hvac_mode")) is not None:
-            self._attr_hvac_mode = mode
-        if (low := kwargs.get("target_temp_low")) is not None:
-            setattr(self, f"{prefix}target_temperature_low", low)
-        if (high := kwargs.get("target_temp_high")) is not None:
-            setattr(self, f"{prefix}target_temperature_high", high)
-        self.async_write_ha_state()
-
-
-class OldUnitHeadF(_StoresSetpointsUnderTheCoresName, MockHead):
+# HA reports a deprecated read or write against the nearest integration on the
+# call stack. A real head integration is that nearest frame for its own code;
+# test_drive's heads live in tests/, so an old-name write of theirs, made inside
+# a command MXZ sends, would be reported against MXZ. They store their
+# setpoints under the names their core reads (tests/head_entity.py); only the
+# class-level temperature unit below keeps the old name: that is what MXZ reads.
+# On 2026.11 and later HA reports each of these two classes once, when defined.
+class OldUnitHeadF(MockHead):
     """A °F head whose unit uses the old name."""
 
+    _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
 
-class OldUnitHeadC(_StoresSetpointsUnderTheCoresName, MockHeadC):
+
+class OldUnitHeadC(MockHeadC):
     """A °C head whose unit uses the old name."""
+
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
 
 
 def _deprecations(caplog: pytest.LogCaptureFixture, about: str) -> list[str]:

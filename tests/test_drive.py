@@ -15,7 +15,6 @@ pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.components.climate import (
-    ClimateEntity,
     ClimateEntityFeature,
     HVACMode,
 )
@@ -60,17 +59,18 @@ from custom_components.mxz_coordinator.const import (
     INHIBIT_ACTION_OFF,
 )
 from tests.dwell import expire_dwell
+from tests.head_entity import HeadEntity
 
 SENSOR_A = "sensor.room_a_temp"
 SENSOR_B = "sensor.room_b_temp"
 
 
-class MockHead(ClimateEntity):
+class MockHead(HeadEntity):
     """A minimal dual-setpoint head that records what it's told."""
 
     _attr_should_poll = False
     _attr_has_entity_name = False
-    _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
+    _attr_native_temperature_unit = UnitOfTemperature.FAHRENHEIT
     _attr_hvac_modes: ClassVar[list[HVACMode]] = [HVACMode.OFF, HVACMode.COOL, HVACMode.HEAT, HVACMode.FAN_ONLY]
     # RAW/unsorted order, as reported by the real head (includes "middle" and "high").
     _attr_fan_modes: ClassVar[list[str]] = ["auto", "low", "medium", "middle", "high", "quiet"]
@@ -86,8 +86,8 @@ class MockHead(ClimateEntity):
         self._attr_unique_id = f"mock_head_{suffix}"
         self._attr_name = f"Mock Head {suffix}"
         self._attr_hvac_mode = HVACMode.OFF
-        self._attr_target_temperature_low = None
-        self._attr_target_temperature_high = None
+        self._attr_native_target_temperature_low = None
+        self._attr_native_target_temperature_high = None
         self._attr_fan_mode = "auto"
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
@@ -102,16 +102,16 @@ class MockHead(ClimateEntity):
         if (mode := kwargs.get("hvac_mode")) is not None:
             self._attr_hvac_mode = mode
         if (low := kwargs.get("target_temp_low")) is not None:
-            self._attr_target_temperature_low = low
+            self._attr_native_target_temperature_low = low
         if (high := kwargs.get("target_temp_high")) is not None:
-            self._attr_target_temperature_high = high
+            self._attr_native_target_temperature_high = high
         self.async_write_ha_state()
 
 
 class MockHeadC(MockHead):
     """A metric head: reports/accepts °C (matches a Celsius HA system)."""
 
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
 
 
 async def _setup_mock_heads(

@@ -18,7 +18,6 @@ pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.components.climate import (
-    ClimateEntity,
     ClimateEntityFeature,
     HVACMode,
 )
@@ -51,17 +50,18 @@ from custom_components.mxz_coordinator.const import (
     IDLE_ACTION_FAN_ONLY,
 )
 from tests.dwell import expire_dwell
+from tests.head_entity import HeadEntity
 
 SENSOR_A = "sensor.room_a_temp"
 SENSOR_B = "sensor.room_b_temp"
 
 
-class MockHead(ClimateEntity):
+class MockHead(HeadEntity):
     """Minimal dual-setpoint head."""
 
     _attr_should_poll = False
     _attr_has_entity_name = False
-    _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
+    _attr_native_temperature_unit = UnitOfTemperature.FAHRENHEIT
     _attr_hvac_modes: ClassVar[list[HVACMode]] = [HVACMode.OFF, HVACMode.COOL, HVACMode.HEAT, HVACMode.FAN_ONLY]
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
@@ -74,8 +74,8 @@ class MockHead(ClimateEntity):
         self._attr_unique_id = f"mock_head_{suffix}"
         self._attr_name = f"Mock Head {suffix}"
         self._attr_hvac_mode = HVACMode.OFF
-        self._attr_target_temperature_low = None
-        self._attr_target_temperature_high = None
+        self._attr_native_target_temperature_low = None
+        self._attr_native_target_temperature_high = None
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         self._attr_hvac_mode = hvac_mode
@@ -85,9 +85,9 @@ class MockHead(ClimateEntity):
         if (mode := kwargs.get("hvac_mode")) is not None:
             self._attr_hvac_mode = mode
         if (low := kwargs.get("target_temp_low")) is not None:
-            self._attr_target_temperature_low = low
+            self._attr_native_target_temperature_low = low
         if (high := kwargs.get("target_temp_high")) is not None:
-            self._attr_target_temperature_high = high
+            self._attr_native_target_temperature_high = high
         self.async_write_ha_state()
 
 

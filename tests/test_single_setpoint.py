@@ -53,7 +53,7 @@ class MockSingleSetpointHead(MockHead):
 
     def __init__(self, suffix: str) -> None:
         super().__init__(suffix)
-        self._attr_target_temperature = 66.0
+        self._attr_native_target_temperature = 66.0
         self._attr_swing_mode = "auto"
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -64,7 +64,7 @@ class MockSingleSetpointHead(MockHead):
         if (mode := kwargs.get("hvac_mode")) is not None:
             self._attr_hvac_mode = mode
         if (temp := kwargs.get("temperature")) is not None:
-            self._attr_target_temperature = temp
+            self._attr_native_target_temperature = temp
         self.async_write_ha_state()
 
 

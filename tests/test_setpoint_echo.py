@@ -71,7 +71,7 @@ class CN105Head(MockHead):
     model latches BOTH range edges; see ``HouseCN105Head`` for the real one.
     """
 
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_target_temperature_step = 0.5
     _attr_precision = PRECISION_HALVES
     _attr_min_temp = 10.0
@@ -95,9 +95,9 @@ class CN105Head(MockHead):
         if (mode := kwargs.get("hvac_mode")) is not None:
             self._attr_hvac_mode = mode
         for key, attr in (
-            ("target_temp_low", "_attr_target_temperature_low"),
-            ("target_temp_high", "_attr_target_temperature_high"),
-            ("temperature", "_attr_target_temperature"),
+            ("target_temp_low", "_attr_native_target_temperature_low"),
+            ("target_temp_high", "_attr_native_target_temperature_high"),
+            ("temperature", "_attr_native_target_temperature"),
         ):
             if (value := kwargs.get(key)) is not None:
                 setattr(self, attr, latch(value))
@@ -134,7 +134,7 @@ class CN105SingleHead(CN105Head):
 
     def __init__(self, suffix: str) -> None:
         super().__init__(suffix)
-        self._attr_target_temperature = 21.0
+        self._attr_native_target_temperature = 21.0
 
 
 class RecordingHead(MockHead):
@@ -158,7 +158,7 @@ class WholeFahrenheitHead(RecordingHead):
 class HalfCelsiusHead(RecordingHead):
     """A °C-native 0.5 °C head in a °C system (values land on its grid)."""
 
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_target_temperature_step = 0.5
     _attr_precision = PRECISION_TENTHS
 
