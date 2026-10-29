@@ -8,7 +8,7 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
-## Unreleased (planned 3.14.0)
+## 3.14.0 (unreleased)
 
 Cloud heads (beta). They add a head type and three cloud settings to a room's page.
 Nothing changes for an existing room until you set it to cloud, and ESPHome (CN105) heads
