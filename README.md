@@ -249,10 +249,9 @@ MELCloud or Kumo Cloud, can be coordinated too, as a beta. It's opt-in for each 
 the `kumo` integration ([hass-kumo](https://github.com/dlarrick/hass-kumo)), with
 **Cloud (beta)** filled in for you to confirm. For any other head, or later, use
 Configure → Rooms → (room) → **Head type**. An ESPHome head is always local. Upgrading
-changes nothing: every existing room stays local until you choose cloud on its page. On
-the page of a room whose head comes from one of those integrations, **Head type** is
-filled in as Cloud (beta) until you answer it, so saving that page makes the room cloud;
-choose Local there to keep it.
+changes nothing: every existing room stays local until you choose cloud on its page. A
+room's page shows **Head type** as Local until you choose Cloud (beta) there, so saving
+the page for anything else never makes a room cloud.
 Reconfigure doesn't ask about a head it adds, so set that head's type on its room page.
 
 **What MXZ does differently for a cloud head.** A cloud integration polls, so its head
@@ -272,7 +271,8 @@ take your room sensor as its own. So for a cloud head MXZ:
   change. A head still not showing the write after it is sent the write again;
 - steps fan boost one speed at a time, at most once every 5 minutes;
 - holds a cloud head for one confirm wait after a restart or reload, so a write just
-  before it isn't sent twice and a late report isn't taken for someone's change;
+  before it isn't sent twice and a late report isn't taken for someone's change. For that
+  wait an own-remote room whose cloud head is under its own remote has no vote;
 - stops writing a head that has been unavailable for 15 minutes, or available but
   silent (no report at all) for 35 minutes, and stops counting its room's heat or cool
   call (a room with its Safety priority sensor on still calls from its room sensor). A

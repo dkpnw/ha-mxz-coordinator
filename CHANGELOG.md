@@ -20,10 +20,9 @@ ESPHome (CN105) heads are always driven as before.
   cloud head, opt-in per room. Setup asks about each head from the `melcloud`,
   `kumo_cloud` or `kumo` integration with **Cloud (beta)** filled in for you to confirm;
   any room can be set on its page (Configure → Rooms → (room) → **Head type**). An ESPHome
-  head is always local, and an existing room stays local until you choose otherwise. On
-  the page of a room whose head comes from one of those integrations and has never been
-  asked, **Head type** is filled in as Cloud (beta), so saving that page for any reason
-  makes it a cloud room; choose Local there to keep it, and it isn't suggested again. For
+  head is always local, and an existing room stays local until you choose otherwise: a
+  room's page shows Local until you choose Cloud (beta) there, so saving it for anything
+  else never makes a room cloud. For
   a cloud head MXZ sends the mode on its own call, then one setpoint (never a low/high
   pair) pushed past the target by the room's **Setpoint drive offset** while the room runs
   (2 °F / 1 °C by default, 0 for the bare target), rounded to the head's own step and
@@ -33,7 +32,8 @@ ESPHome (CN105) heads are always driven as before.
   in which it sends nothing again and reads a report of an older state as late, not as
   someone's change, so a late poll can't start a fan hold or an off-while-running alert.
   Fan boost steps one speed at most every 5 minutes. After a restart or reload MXZ holds
-  each cloud head for one confirm wait. A head unavailable for 15 minutes, or silent for 35 (Home
+  each cloud head for one confirm wait, in which an own-remote room whose cloud head is
+  under its own remote has no vote. A head unavailable for 15 minutes, or silent for 35 (Home
   Assistant's own MELCloud integration reports a quiet head every 15 minutes), is not
   controllable: MXZ stops writing it, its room's call stops counting toward the
   shared mode (unless the room's Safety priority sensor is on), and a repair issue says so
