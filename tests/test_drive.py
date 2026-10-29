@@ -117,7 +117,11 @@ class MockHeadC(MockHead):
 async def _setup_mock_heads(
     hass: HomeAssistant, *, cls: type[MockHead] = MockHead
 ) -> tuple[str, str]:
-    """Register two mock climate heads and return their entity_ids."""
+    """Register two mock climate heads and return their entity_ids.
+
+    They register on the ``esphome`` platform, as the CN105 heads they model
+    do, so MXZ sends them its ESPHome calls.
+    """
     heads = [cls("a"), cls("b")]
 
     async def _async_setup_platform(
@@ -125,12 +129,12 @@ async def _setup_mock_heads(
     ):
         async_add_entities(heads)
 
-    mock_integration(hass, MockModule("test"))
+    mock_integration(hass, MockModule("esphome"))
     mock_platform(
-        hass, "test.climate", MockPlatform(async_setup_platform=_async_setup_platform)
+        hass, "esphome.climate", MockPlatform(async_setup_platform=_async_setup_platform)
     )
     assert await async_setup_component(
-        hass, "climate", {"climate": {"platform": "test"}}
+        hass, "climate", {"climate": {"platform": "esphome"}}
     )
     await hass.async_block_till_done()
     return heads[0].entity_id, heads[1].entity_id

@@ -87,11 +87,12 @@ async def _setup(
     async def _select(hass, config, async_add_entities, discovery_info=None):
         async_add_entities([vane, *([vane_b] if vane_b is not None else [])])
 
-    mock_integration(hass, MockModule("test"))
-    mock_platform(hass, "test.climate", MockPlatform(async_setup_platform=_climate))
-    mock_platform(hass, "test.select", MockPlatform(async_setup_platform=_select))
-    assert await async_setup_component(hass, "climate", {"climate": {"platform": "test"}})
-    assert await async_setup_component(hass, "select", {"select": {"platform": "test"}})
+    # The CN105 heads and their vane selects come from ESPHome.
+    mock_integration(hass, MockModule("esphome"))
+    mock_platform(hass, "esphome.climate", MockPlatform(async_setup_platform=_climate))
+    mock_platform(hass, "esphome.select", MockPlatform(async_setup_platform=_select))
+    assert await async_setup_component(hass, "climate", {"climate": {"platform": "esphome"}})
+    assert await async_setup_component(hass, "select", {"select": {"platform": "esphome"}})
     await hass.async_block_till_done()
 
     entry = MockConfigEntry(
