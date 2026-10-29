@@ -8,7 +8,7 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
-## Unreleased
+## 3.13.2 (October 29, 2026)
 
 A wake-up fix for heads from cloud integrations, and test-only preparation for Home
 Assistant 2026.12. No setting or default changes.
@@ -36,6 +36,9 @@ Assistant 2026.12. No setting or default changes.
   The heads now stand on a shared test base and use only the new names. On Home
   Assistant 2024.12 to 2026.10, which know only the old names, the base stores each new
   name under the old one.
+- **Tested** with the full test suite on Home Assistant 2024.12.0, 2026.2.3, 2026.9.0,
+  2026.10.4, a 2026.11 development build, and a 2026.12 development build. **Not tested**
+  on hardware: the ESPHome (CN105) path is unchanged.
 
 ## 3.13.1 (October 28, 2026)
 
