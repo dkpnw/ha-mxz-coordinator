@@ -217,8 +217,10 @@ def _platform(hass: HomeAssistant, climate_id: str) -> str | None:
 def _suggested_head_type(hass: HomeAssistant, climate_id: str) -> str:
     """Cloud (beta) for a head from a known cloud integration, else local.
 
-    Only a suggestion: the setup flow and the room page show it, and the
-    user confirms it. An ESPHome head, and any head MXZ can't place, is local.
+    Only a suggestion, shown in the setup flow, where the user confirms it.
+    The room page never suggests it: a room with no stored type shows local,
+    so saving the page for something else can't switch the room. An ESPHome
+    head, and any head MXZ can't place, is local.
     """
     return (
         HEAD_TYPE_CLOUD if _platform(hass, climate_id) in CLOUD_PLATFORMS
@@ -864,17 +866,15 @@ def _page_form(
     return _page_schema(union, page, frozenset(page_errors)), page_errors
 
 
-def _room_view(
-    zone: dict[str, Any], suggested_head_type: str = HEAD_TYPE_LOCAL
-) -> dict[str, Any]:
+def _room_view(zone: dict[str, Any]) -> dict[str, Any]:
     """A stored zone as the room page's field values.
 
-    The head type is the stored one; a room that never stored one shows the
-    type its head's platform suggests (local unless it is a known cloud one).
+    The head type is the stored one; a room that never stored one shows local,
+    which it is, whatever its head's platform (the suggestion is setup's).
     """
     view = {key: zone.get(zone_key) for key, zone_key in _ROOM_WIRING_FIELDS}
     stored = zone.get(ZONE_HEAD_TYPE)
-    view[_HEAD_TYPE_FIELD] = stored if stored in HEAD_TYPES else suggested_head_type
+    view[_HEAD_TYPE_FIELD] = stored if stored in HEAD_TYPES else HEAD_TYPE_LOCAL
     view.update({key: zone.get(zone_key) for key, zone_key in _CLOUD_FIELDS})
     view[_HANDS_OFF_FIELD] = zone.get(ZONE_HANDS_OFF) is True
     view[_VOTE_BASIS_FIELD] = (
@@ -2750,11 +2750,10 @@ class MXZOptionsFlow(OptionsFlow):
         zone = zones[index]
         unit = str(self.hass.config.units.temperature_unit)
         title = {"room": _room_name(zone, index)}
-        suggested = _suggested_head_type(self.hass, zone[ZONE_CLIMATE])
         if user_input is None:
             return self.async_show_form(
                 step_id="room",
-                data_schema=_room_schema(_room_view(zone, suggested), temperature_unit=unit),
+                data_schema=_room_schema(_room_view(zone), temperature_unit=unit),
                 description_placeholders=title,
             )
         values = _flatten(user_input)
@@ -2850,13 +2849,16 @@ class MXZOptionsFlow(OptionsFlow):
         if (zone.get(ZONE_DUAL_SETPOINT) is True) != was_dual:
             self._hand_off_dual(zone, now_dual=not was_dual)
         # Head type: stored as cloud; as local only where the head's platform
-        # suggests cloud (so the page doesn't suggest it again); otherwise no
-        # key, so a CN105 room stores exactly what it stored before. A cloud
-        # room's settings are kept only while it is cloud.
+        # suggests cloud and the room already had an answer (it was cloud, or
+        # kept local in setup); otherwise no key, so a CN105 room, and a room
+        # never asked, stores exactly what it stored before. A cloud room's
+        # settings are kept only while it is cloud.
         cloud = values.get(_HEAD_TYPE_FIELD) == HEAD_TYPE_CLOUD
         if cloud:
             zone[ZONE_HEAD_TYPE] = HEAD_TYPE_CLOUD
-        elif suggested == HEAD_TYPE_CLOUD:
+        elif zone.get(ZONE_HEAD_TYPE) in HEAD_TYPES and _suggested_head_type(
+            self.hass, zone[ZONE_CLIMATE]
+        ) == HEAD_TYPE_CLOUD:
             zone[ZONE_HEAD_TYPE] = HEAD_TYPE_LOCAL
         else:
             zone.pop(ZONE_HEAD_TYPE, None)

@@ -1,8 +1,9 @@
 """Cloud heads (beta): choosing a head type in setup and on the room page.
 
-The type is suggested from the head's entity platform (melcloud, kumo,
-kumo_cloud) and the user confirms it; an ESPHome head is always local. What
-is stored: ``head_type: cloud``, or ``head_type: local`` where the platform
+Setup suggests the type from the head's entity platform (melcloud, kumo,
+kumo_cloud) and the user confirms it; the room page suggests nothing, so a
+room with no stored type shows local there. An ESPHome head is always local.
+What is stored: ``head_type: cloud``, or ``head_type: local`` where the platform
 suggested cloud and the user kept local, and otherwise nothing, so every
 entry stored before this option, and every CN105 room, reads local and stores
 exactly what it stored before.
@@ -28,6 +29,7 @@ from custom_components.mxz_coordinator.const import (
     HEAD_TYPE_LOCAL,
     VOTE_BASIS_ACTION,
     ZONE_CONFIRM_WAIT,
+    ZONE_DRIFT_COOLER_BY,
     ZONE_DRIVE_OFFSET,
     ZONE_HEAD_TYPE,
     ZONE_WRITE_INTERVAL,
@@ -136,9 +138,9 @@ async def _entry(hass: HomeAssistant, platforms: list[str], extras: list[dict] |
 @pytest.mark.parametrize(
     ("platform", "stored", "shown"),
     [
-        (MELCLOUD, None, HEAD_TYPE_CLOUD),  # never asked: suggested
-        (COMFORT, None, HEAD_TYPE_CLOUD),
-        ("kumo", None, HEAD_TYPE_CLOUD),
+        (MELCLOUD, None, HEAD_TYPE_LOCAL),  # never asked: local, no suggestion
+        (COMFORT, None, HEAD_TYPE_LOCAL),
+        ("kumo", None, HEAD_TYPE_LOCAL),
         (ESPHOME, None, HEAD_TYPE_LOCAL),
         ("mqtt", None, HEAD_TYPE_LOCAL),
         (MELCLOUD, HEAD_TYPE_LOCAL, HEAD_TYPE_LOCAL),  # answered: kept
@@ -159,8 +161,11 @@ async def test_room_page_shows_the_stored_type_or_the_suggestion(
 async def test_room_page_saves_cloud_settings_and_local_clears_them(hass: HomeAssistant) -> None:
     _h, entry = await _entry(hass, [MELCLOUD, ESPHOME])
     result = await open_options_page(hass, entry, "room_1")
-    values = {**prefilled(result), "drive_offset": 3.0, "write_interval": 120, "confirm_wait": 300}
-    assert values["head_type"] == HEAD_TYPE_CLOUD
+    assert default(result, "head_type") == HEAD_TYPE_LOCAL
+    values = {
+        **prefilled(result), "head_type": HEAD_TYPE_CLOUD,
+        "drive_offset": 3.0, "write_interval": 120, "confirm_wait": 300,
+    }
     await submit(hass.config_entries.options, result, values)
     await hass.async_block_till_done()
     zone = entry.data["zones"][0]
@@ -181,6 +186,28 @@ async def test_room_page_saves_cloud_settings_and_local_clears_them(hass: HomeAs
     assert zone[ZONE_HEAD_TYPE] == HEAD_TYPE_LOCAL
     assert not {ZONE_DRIVE_OFFSET, ZONE_WRITE_INTERVAL, ZONE_CONFIRM_WAIT} & set(zone)
     assert entry.runtime_data._cloud == {}
+
+
+@pytest.mark.parametrize("platform", [MELCLOUD, COMFORT, "kumo"])
+async def test_an_unrelated_save_leaves_a_never_asked_cloud_platform_room_local(
+    hass: HomeAssistant, platform: str
+) -> None:
+    """An upgraded entry: a cloud-platform room with no stored type, saved for a drift change.
+
+    The room stays local and stores no head type: only the drift changes.
+    """
+    _h, entry = await _entry(hass, [platform, ESPHOME])
+    before = dict(entry.data["zones"][0])
+    assert ZONE_HEAD_TYPE not in before
+    result = await open_options_page(hass, entry, "room_1")
+    result = await submit(
+        hass.config_entries.options, result, {**prefilled(result), "room_cooler_by": 1.5}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.data["zones"][0] == {**before, ZONE_DRIFT_COOLER_BY: 1.5}
+    assert entry.runtime_data._cloud == {}
+    assert entry.runtime_data.zones[0].head_type == HEAD_TYPE_LOCAL
 
 
 async def test_a_cn105_room_page_save_stores_what_it_stored_before(hass: HomeAssistant) -> None:
@@ -229,7 +256,7 @@ async def test_room_page_refuses_what_a_cloud_head_cannot_do(
 async def test_room_page_refuses_a_setting_that_is_not_a_number(hass: HomeAssistant) -> None:
     _h, entry = await _entry(hass, [MELCLOUD, ESPHOME])
     result = await open_options_page(hass, entry, "room_1")
-    flat = {**prefilled(result), "drive_offset": float("nan")}
+    flat = {**prefilled(result), "head_type": HEAD_TYPE_CLOUD, "drive_offset": float("nan")}
     result = await hass.config_entries.options.async_configure(result["flow_id"], nest(result, flat))
     assert result["errors"] == {"cloud": "not_a_number"}
 
