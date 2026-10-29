@@ -2852,7 +2852,9 @@ class MXZOptionsFlow(OptionsFlow):
         # suggests cloud and the room already had an answer (it was cloud, or
         # kept local in setup); otherwise no key, so a CN105 room, and a room
         # never asked, stores exactly what it stored before. A cloud room's
-        # settings are kept only while it is cloud.
+        # settings are kept only while it is cloud, and only where they differ
+        # from the default: a box left at its default stores nothing, so the
+        # default follows the unit (2 °F isn't carried into Celsius as 2 °C).
         cloud = values.get(_HEAD_TYPE_FIELD) == HEAD_TYPE_CLOUD
         if cloud:
             zone[ZONE_HEAD_TYPE] = HEAD_TYPE_CLOUD
@@ -2862,8 +2864,11 @@ class MXZOptionsFlow(OptionsFlow):
             zone[ZONE_HEAD_TYPE] = HEAD_TYPE_LOCAL
         else:
             zone.pop(ZONE_HEAD_TYPE, None)
+        defaults = _cloud_defaults(unit)
         for key, zone_key in _CLOUD_FIELDS:
-            if cloud and values.get(key) not in (None, ""):
+            if cloud and values.get(key) not in (None, "") and (
+                float(values[key]) != defaults[key]
+            ):
                 zone[zone_key] = float(values[key])
             else:
                 zone.pop(zone_key, None)

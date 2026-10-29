@@ -145,8 +145,9 @@ HEAD_TYPES = (HEAD_TYPE_LOCAL, HEAD_TYPE_CLOUD)
 # kumo_cloud is jjustinwilson/comfort_HA (manifest domains, read 2026-10-29).
 CLOUD_PLATFORMS = ("melcloud", "kumo", "kumo_cloud")
 # A cloud room's tunables, stored only while the room is cloud and only when
-# set (blank is the default). The drive offset is in the system unit; the two
-# times are seconds.
+# set to something other than the default (blank or the default stores no key,
+# so the default follows the system unit). The drive offset is in the system
+# unit; the two times are seconds.
 ZONE_DRIVE_OFFSET = "drive_offset"
 ZONE_WRITE_INTERVAL = "write_interval"
 ZONE_CONFIRM_WAIT = "confirm_wait"

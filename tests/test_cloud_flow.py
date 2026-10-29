@@ -21,7 +21,7 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 
 from custom_components.mxz_coordinator.const import (
     DOMAIN,
@@ -186,6 +186,44 @@ async def test_room_page_saves_cloud_settings_and_local_clears_them(hass: HomeAs
     assert zone[ZONE_HEAD_TYPE] == HEAD_TYPE_LOCAL
     assert not {ZONE_DRIVE_OFFSET, ZONE_WRITE_INTERVAL, ZONE_CONFIRM_WAIT} & set(zone)
     assert entry.runtime_data._cloud == {}
+
+
+async def test_settings_left_at_their_defaults_store_nothing_and_follow_the_unit(
+    hass: HomeAssistant,
+) -> None:
+    """Cloud chosen with the boxes untouched: no setting is stored.
+
+    So the default offset follows the unit: after a switch to Celsius the room
+    drives by 1 °C, not by a stored 2 read as 2 °C. A changed box is stored.
+    """
+    _h, entry = await _entry(hass, [MELCLOUD, ESPHOME])
+    result = await open_options_page(hass, entry, "room_1")
+    values = {**prefilled(result), "head_type": HEAD_TYPE_CLOUD}
+    assert (values["drive_offset"], values["write_interval"], values["confirm_wait"]) == (
+        2.0, 60.0, 90.0,
+    )
+    await submit(hass.config_entries.options, result, values)
+    await hass.async_block_till_done()
+    zone = entry.data["zones"][0]
+    assert zone[ZONE_HEAD_TYPE] == HEAD_TYPE_CLOUD
+    assert not {ZONE_DRIVE_OFFSET, ZONE_WRITE_INTERVAL, ZONE_CONFIRM_WAIT} & set(zone)
+    assert entry.runtime_data.zones[0].drive_offset == 2.0
+
+    hass.config.units = METRIC_SYSTEM
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.zones[0].drive_offset == 1.0
+
+    result = await open_options_page(hass, entry, "room_1")
+    await submit(
+        hass.config_entries.options, result,
+        {**prefilled(result), "drive_offset": 1.5, "write_interval": 60},
+    )
+    await hass.async_block_till_done()
+    zone = entry.data["zones"][0]
+    assert zone[ZONE_DRIVE_OFFSET] == 1.5
+    assert not {ZONE_WRITE_INTERVAL, ZONE_CONFIRM_WAIT} & set(zone)
+    assert entry.runtime_data.zones[0].drive_offset == 1.5
 
 
 @pytest.mark.parametrize("platform", [MELCLOUD, COMFORT, "kumo"])
