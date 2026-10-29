@@ -1,0 +1,76 @@
+name: Cloud head beta report
+description: How MXZ's cloud heads (beta) worked with your MELCloud or Kumo Cloud heads, good or bad.
+title: "[cloud beta] "
+labels: [cloud-beta]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying cloud heads (beta). A clean week is as useful to us as a problem.
+        Before you paste anything, remove names, addresses, account e-mails, tokens and
+        passwords. Room and entity names are fine to shorten or replace.
+  - type: input
+    id: integration
+    attributes:
+      label: Cloud integration and version
+      description: For example MELCloud (built into Home Assistant), comfort_HA 1.1.0 (kumo_cloud), or hass-kumo 0.3.x.
+    validations:
+      required: true
+  - type: input
+    id: head_model
+    attributes:
+      label: Head model(s)
+      description: Indoor unit model numbers, and the outdoor unit if you know it.
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      description: Settings → About.
+    validations:
+      required: true
+  - type: input
+    id: mxz_version
+    attributes:
+      label: MXZ Coordinator version
+    validations:
+      required: true
+  - type: textarea
+    id: settings
+    attributes:
+      label: Cloud head settings
+      description: For each cloud room, its Setpoint drive offset, Write interval and Confirm wait (Configure → Rooms → room → Cloud head (beta)), or "defaults".
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, with times
+      description: For example "21:05 the room was 66 °F with a 70 °F target; I expected the head to heat within a few minutes."
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead, with times
+      description: What the head did and showed, and when. "Nothing went wrong this week" is a good answer too.
+    validations:
+      required: true
+  - type: textarea
+    id: plan
+    attributes:
+      label: Plan sensor attributes
+      description: Developer tools → States → sensor.*_plan → attributes, copied at or near the time it happened. The cloud rooms' rows show head_type, cloud_status, cloud_pending_until and cloud_confirmed_at.
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Debug log
+      description: |
+        Turn on debug logging for `custom_components.mxz_coordinator` (Settings → Devices & services → MXZ Coordinator → Enable debug logging), reproduce it, then turn it off to download the log. Remove names, tokens and anything else private before pasting.
+      render: text
+    validations:
+      required: false
