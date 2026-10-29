@@ -189,7 +189,6 @@ from .logic import (
     head_action,
     range_delta,
     room_call,
-    runs,
     sample_evidence,
     season_lockouts,
     sensor_health,
@@ -3587,17 +3586,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ):
             # A released room that votes by action (before release its head
             # has no vote to change): the head starting or stopping a run
-            # starts or ends its vote (or its hold), so recompute now rather
-            # than at the next sensor report.
-            action = new_state.attributes.get(ATTR_HVAC_ACTION)
-            old_action = old_state.attributes.get(ATTR_HVAC_ACTION)
-            if runs(mode, action) and not runs(old_state.state, old_action):
-                # A run starting is a new vote from this report. The mode
-                # change that set the head going asked for a refresh seconds
-                # ago, so a debounced request would wait out its cooldown.
-                refresh_now = True
-            elif mode != old_state.state or action != old_action:
-                refresh_needed = True
+            # starts or ends its vote (or its hold) from this report, so
+            # recompute at once. A debounced request would wait out any
+            # cooldown already running, and room reports and the person's own
+            # mode change open one every few seconds.
+            refresh_now = (
+                mode != old_state.state
+                or new_state.attributes.get(ATTR_HVAC_ACTION)
+                != old_state.attributes.get(ATTR_HVAC_ACTION)
+            )
         pending = next(
             (zone for zone in self.zones
              if zone.climate_id == entity_id and zone.slug in self._startup_resume),

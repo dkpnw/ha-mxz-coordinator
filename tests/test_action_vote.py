@@ -613,6 +613,79 @@ async def test_a_run_start_counts_on_its_own_report(
     assert calls == []  # MXZ never wrote to it
 
 
+async def _running_in_a_cooldown(hass: HomeAssistant):
+    """Secondary released and cooling (resting bias heat, so a cool plan can
+    only come from its vote), then a room sensor report: its debounced
+    refresh computes at once and opens HA's 10 s request cooldown, as room
+    reports do every few seconds on hardware. No time moves after that."""
+    entry, _a, head_b = await _setup(
+        hass, hands_off=(False, True), enable=("_primary_enable", "_coordinator_enable"),
+        vote_basis=(None, "action"), **{CONF_RESTING_MODE_BIAS: MODE_HEAT},
+    )
+    await _recompute(hass, entry)
+    assert _row(hass, entry, 1)["hands_off"] == "released"
+    coord = entry.runtime_data
+    await _report(hass, head_b, MODE_COOL, "idle")
+    await _report(hass, head_b, MODE_COOL, "cooling")
+    await _quiesce(hass, coord)
+    assert (_row(hass, entry, 1)["hands_off_vote"], _plan(hass, entry).state) == (
+        MODE_COOL, MODE_COOL,
+    )
+    calls = _climate_calls(hass, head_b)
+    computes = _computes(coord)
+    await _set_temp(hass, SENSOR_B, 70.25)
+    assert computes == ["compute"]
+    assert coord._debounced_refresh._timer_task is not None  # the cooldown runs
+    computes.clear()
+    return entry, head_b, calls, computes
+
+
+@pytest.mark.parametrize(("mode", "action"), [
+    ("fan_only", "cooling"),  # cn105's lagging action, a poll after the switch
+    ("fan_only", "fan"),
+    ("heat", "idle"),  # a mode change: not the mode it ran in
+    ("off", "off"),
+])
+async def test_a_run_ending_drops_the_vote_on_its_own_report(
+    hass: HomeAssistant, mode: str, action: str
+) -> None:
+    """On hardware (7211fba) a cooling head switched to fan_only kept its
+    vote ~5 s: the report fell inside a request cooldown and waited it out.
+    A released head leaving its run recomputes at once, on that same state
+    event, with no time moved; MXZ still sends the head nothing. A report
+    that changes neither mode nor action asks for nothing at once."""
+    entry, head_b, calls, computes = await _running_in_a_cooldown(hass)
+    await _report(hass, head_b, mode, action)
+    row = _row(hass, entry, 1)
+    assert (row["hands_off_vote"], row["vote_hold_until"]) == (None, None)
+    assert _plan(hass, entry).state == MODE_HEAT  # back to rest
+    assert computes == ["compute"]
+    _head(hass, head_b)._attr_current_temperature = 71
+    await _report(hass, head_b, mode, action)
+    assert computes == ["compute"]
+    assert calls == []  # MXZ never wrote to it
+
+
+async def test_a_run_stopping_starts_its_hold_on_its_own_report(hass: HomeAssistant) -> None:
+    """On hardware (7211fba) a cooling head going idle published its hold
+    ~5 s late, for the same cooldown. It now starts on that report: the
+    vote holds, the hold's end is published and its wakeup armed, and MXZ
+    still sends the head nothing."""
+    entry, head_b, calls, computes = await _running_in_a_cooldown(hass)
+    coord = entry.runtime_data
+    before = dt_util.utcnow()
+    await _report(hass, head_b, MODE_COOL, "idle")
+    row = _row(hass, entry, 1)
+    assert row["vote_hold_until"] is not None
+    assert row["hands_off_vote"] == MODE_COOL
+    assert computes == ["compute"]
+    until = dt_util.parse_datetime(row["vote_hold_until"])
+    assert abs((until - before).total_seconds() - HOLD) <= 2
+    assert coord._lost_timer is not None
+    assert _plan(hass, entry).state == MODE_COOL  # held
+    assert calls == []  # MXZ never wrote to it
+
+
 # --- the lag on real heads: a contradiction is never a run ---------------------
 
 
