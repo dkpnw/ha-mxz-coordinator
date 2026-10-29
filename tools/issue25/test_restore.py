@@ -252,7 +252,12 @@ class Head(ClimateEntity):
 
     _attr_should_poll = False
     _attr_has_entity_name = False
-    _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
+    # HA 2026.11 renamed the unit native_temperature_unit and logs a deprecation
+    # for a class that provides the old name; older cores read only the old one.
+    if hasattr(ClimateEntity, "native_temperature_unit"):
+        _attr_native_temperature_unit = UnitOfTemperature.FAHRENHEIT
+    else:
+        _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
     _attr_hvac_modes: ClassVar = [HVACMode.OFF, HVACMode.COOL, HVACMode.HEAT, HVACMode.FAN_ONLY]
     _attr_fan_modes: ClassVar = ["auto", "quiet", "low", "medium", "middle", "high"]
     _attr_supported_features = (
