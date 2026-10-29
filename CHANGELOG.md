@@ -10,10 +10,9 @@ on your equipment.
 
 ## Unreleased (planned 3.14.0)
 
-Cloud heads (beta), a wake-up fix for heads from cloud integrations, and test-only
-preparation for Home Assistant 2026.12. Cloud heads add a head type and three cloud settings
-to a room's page. Nothing changes for an existing room until you set it to cloud, and
-ESPHome (CN105) heads are always driven as before.
+Cloud heads (beta). They add a head type and three cloud settings to a room's page.
+Nothing changes for an existing room until you set it to cloud, and ESPHome (CN105) heads
+are always driven as before.
 
 - **Cloud heads (beta).** A head that reaches Home Assistant through a cloud integration
   (MELCloud, or Kumo Cloud through comfort_HA or hass-kumo) can now be coordinated as a
@@ -53,6 +52,11 @@ ESPHome (CN105) heads are always driven as before.
   reimplemented here with no blueprint code. Prompted by @mw1029's report on the
   [Home Assistant forum](https://community.home-assistant.io/t/1018382).
 
+## 3.13.2 (October 29, 2026)
+
+A wake-up fix for heads from cloud integrations, and test-only preparation for Home
+Assistant 2026.12. No setting or default changes.
+
 - **A head from a cloud integration wakes from `fan_only` or `off`.** MXZ woke a parked
   head with one `climate.set_temperature` call carrying both the mode and the setpoint.
   ESPHome, which runs the CN105 heads, applies the mode from that call. Kumo Cloud heads
@@ -62,9 +66,8 @@ ESPHome (CN105) heads are always driven as before.
   If the mode call fails, MXZ sends no setpoint, logs the error and tries again at the
   next update. ESPHome heads, and heads with no entity registry entry, get the same single
   call as before. The suite's CN105 test heads now register on the ESPHome platform, so the
-  existing tests keep checking those calls. This fixes the wake-up for every head off
-  ESPHome, local ones included; cloud heads (beta), above, build on it. Tested on invented
-  heads, not yet on a cloud head.
+  existing tests keep checking those calls. This fixes the wake-up only; fuller cloud-head
+  support is still in progress. Tested on invented heads, not yet on a cloud head.
   Reported by @mw1029 on the
   [Home Assistant forum](https://community.home-assistant.io/t/1018382).
 
@@ -77,6 +80,9 @@ ESPHome (CN105) heads are always driven as before.
   The heads now stand on a shared test base and use only the new names. On Home
   Assistant 2024.12 to 2026.10, which know only the old names, the base stores each new
   name under the old one.
+- **Tested** with the full test suite on Home Assistant 2024.12.0, 2026.2.3, 2026.9.0,
+  2026.10.4, a 2026.11 development build, and a 2026.12 development build. **Not tested**
+  on hardware: the ESPHome (CN105) path is unchanged.
 
 ## 3.13.1 (October 28, 2026)
 
