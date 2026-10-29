@@ -10,8 +10,22 @@ on your equipment.
 
 ## Unreleased
 
-Test-only preparation for Home Assistant 2026.12. No change to the integration, its
-settings or its defaults.
+A wake-up fix for heads from cloud integrations, and test-only preparation for Home
+Assistant 2026.12. No setting or default changes.
+
+- **A head from a cloud integration wakes from `fan_only` or `off`.** MXZ woke a parked
+  head with one `climate.set_temperature` call carrying both the mode and the setpoint.
+  ESPHome, which runs the CN105 heads, applies the mode from that call. Kumo Cloud heads
+  through comfort_HA drop it, so MXZ could park them but never wake them. For a head
+  whose climate entity is not on the ESPHome platform, MXZ now sends
+  `climate.set_hvac_mode` first, then `climate.set_temperature` with only the setpoint.
+  If the mode call fails, MXZ sends no setpoint, logs the error and tries again at the
+  next update. ESPHome heads, and heads with no entity registry entry, get the same single
+  call as before. The suite's CN105 test heads now register on the ESPHome platform, so the
+  existing tests keep checking those calls. This fixes the wake-up only; fuller cloud-head
+  support is still in progress. Tested on invented heads, not yet on a cloud head.
+  Reported by @mw1029 on the
+  [Home Assistant forum](https://community.home-assistant.io/t/1018382).
 
 - **The invented test heads use Home Assistant's new climate temperature names.** Home
   Assistant 2026.11 renamed a climate entity's temperature members `native_*` (such as
