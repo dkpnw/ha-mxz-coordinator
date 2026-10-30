@@ -8,7 +8,7 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
-## 3.15.0 (unreleased)
+## 3.15.0 (October 30, 2026)
 
 Allow Dry mode, opt-in per room. Nothing changes for a room until you turn it on.
 
@@ -31,10 +31,14 @@ Allow Dry mode, opt-in per room. Nothing changes for a room until you turn it on
 - **Clearer coil-dry label.** The idle choice **Off after drying** is now **Dry the coil
   (fan only), then off**, in the UI, its translation and the docs, so it isn't mistaken
   for the heads' Dry mode. Still stored as `off_after_dry`; nothing migrates.
-- **Tested** with the full test suite (full and fakeboot) on every supported Home
-  Assistant lane, with invented heads only. **Not tested** on hardware: the heat-versus-Dry
-  case needs a shared outdoor unit with two heads, which the test house doesn't have.
-  MXZ-run dehumidifying to a humidity target is not part of this release.
+- **Tested** with the full test suite (2701 tests, full and fakeboot) on every supported
+  Home Assistant lane, and on hardware: on the Bedroom CN105 head on a house system on
+  39b008c, with Allow Dry off a head put in Dry was put back (in about 34 seconds), with it
+  on MXZ left Dry alone with no writes, leaving Dry ran the 10-minute coil dry, and a manual
+  fan pick survived a Home Assistant restart. **Not tested** on hardware: Dry as a cool
+  vote (the house's seasonal Cool lockout was on) and parking a Dry head when another room
+  wins heat; both are covered by the test suite only. MXZ-run dehumidifying to a humidity
+  target is not part of this release.
 
 ## 3.14.0 (October 29, 2026)
 
