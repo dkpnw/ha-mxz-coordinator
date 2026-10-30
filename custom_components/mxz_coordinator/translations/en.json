@@ -156,7 +156,7 @@
         "data_description": {
           "fan_boost_enable": "Runs the fan faster the further a room is from target, then eases off. Recommended.",
           "fan_boost_max": "Lower this if High is too loud for a bedroom.",
-          "idle_action": "Fan only keeps air moving. Off stops the fan and closes the vanes. Dry the coil (fan only), then off runs the fan for a while after cooling, then turns off, which helps prevent a musty smell. It isn't the head's Dry (dehumidify) mode.",
+          "idle_action": "Fan only keeps air moving. Off stops the fan and closes the vanes. Dry the coil (fan only), then off runs the fan for a while after cooling, or after the head's own Dry mode, then turns off, which helps prevent a musty smell. It isn't the head's Dry (dehumidify) mode.",
           "coil_dry_minutes": "Used only by Dry the coil (fan only), then off. Heating skips it."
         }
       },
@@ -402,7 +402,7 @@
         "data_description": {
           "fan_boost_enable": "Runs the fan faster the further a room is from target, then eases off. Recommended.",
           "fan_boost_max": "Lower this if High is too loud for a bedroom.",
-          "idle_action": "Fan only keeps air moving. Off stops the fan and closes the vanes. Dry the coil (fan only), then off runs the fan for a while after cooling, then turns off, which helps prevent a musty smell. It isn't the head's Dry (dehumidify) mode.",
+          "idle_action": "Fan only keeps air moving. Off stops the fan and closes the vanes. Dry the coil (fan only), then off runs the fan for a while after cooling, or after the head's own Dry mode, then turns off, which helps prevent a musty smell. It isn't the head's Dry (dehumidify) mode.",
           "coil_dry_minutes": "Used only by Dry the coil (fan only), then off. Heating skips it."
         }
       },
@@ -503,14 +503,16 @@
           "vane_horizontal": "Horizontal vane",
           "safety_priority_entity": "Safety priority sensor",
           "hands_off": "Let its own remote run it while disabled",
-          "hands_off_vote_basis": "While its own remote runs it, its vote counts"
+          "hands_off_vote_basis": "While its own remote runs it, its vote counts",
+          "allow_dry": "Allow Dry mode"
         },
         "data_description": {
           "head_type": "Local (the default) drives the head as MXZ always has. Cloud (beta) is for a head behind a cloud integration that polls: MXZ sends its mode on its own call, then one setpoint pushed past the target by the drive offset, writes it at most once per write interval, and waits for it to report back. A cloud head gets no vanes, airflow sensor, dual setpoint or vote by action. An ESPHome head is always local.",
           "stage": "Shows the head's real fan speed while the fan is on auto.",
           "safety_priority_entity": "A binary sensor that's on when this room is asserting a safety override (e.g. a freeze or overheat floor). While on, this room's want for heat or cool outranks every other room's, coordinated or hands-off.",
           "hands_off": "Off (the default): a disabled room's head is held off, as always. On: when you disable the room, MXZ turns the head off once, retrying until the head reports off. Then MXZ leaves the head alone until you enable the room again.",
-          "hands_off_vote_basis": "Only matters with the option above on. While a person runs this room's head in heat or cool, that is a vote for the shared mode, below any enabled room's call. \"Whenever it is set to heat or cool\" (the default) counts it for as long as the head sits in that mode, as always. \"Only while it is heating or cooling\" counts it only while the head itself reports it is running that way, and for 10 minutes after it stops, so a head resting at its own setpoint stops holding the outdoor unit. A head that doesn't report what it is doing counts whenever it is set. While its Safety priority sensor is on, it counts whenever it is set, running or not."
+          "hands_off_vote_basis": "Only matters with the option above on. While a person runs this room's head in heat or cool, that is a vote for the shared mode, below any enabled room's call. \"Whenever it is set to heat or cool\" (the default) counts it for as long as the head sits in that mode, as always. \"Only while it is heating or cooling\" counts it only while the head itself reports it is running that way, and for 10 minutes after it stops, so a head resting at its own setpoint stops holding the outdoor unit. A head that doesn't report what it is doing counts whenever it is set. While its Safety priority sensor is on, it counts whenever it is set, running or not.",
+          "allow_dry": "Off (the default): if this head is put in Dry, MXZ puts it back in about 20 seconds, as always. On: while the room is enabled, a head someone puts in Dry stays in it. MXZ sends it nothing, the room's target waits, and the head counts as a vote for cool, below any other room's call. If another room needs heat, MXZ turns this head to its idle setting and tells you once; it doesn't turn Dry back on. A cool lockout stops the vote. Shown only for a head that offers Dry."
         },
         "sections": {
           "drift": {

@@ -1,5 +1,24 @@
 # Upgrading and migrating MXZ Coordinator
 
+## Allow Dry mode, and the coil-dry label (3.15.0)
+
+A new per-room setting, **Allow Dry mode**, in Configure → Rooms → (room), shown only for
+a head that lists `dry`. It's stored in that room's record as `allow_dry: true` only while
+on; turning it off removes the key, and a room page that doesn't show it (its head lists
+no `dry` now, or is unavailable) leaves what is stored alone.
+
+**Nothing to do.** No config-entry version change and no migration. A room without
+`allow_dry: true`, which is every room saved before this option existed, is driven
+exactly as before: a head put in `dry` is put back after about 20 seconds. The plan's
+rows change only for rooms with the option on (`allow_dry`, `dry`, `dry_vote`). On a
+rollback to 3.14.x the key is ignored and a head in `dry` is put back again; that was
+checked by searching the 3.14.0 code for the key (it reads none), not run. See
+[Allow Dry mode](FEATURES.md#allow-dry-mode).
+
+The idle choice **Off after drying** is now called **Dry the coil (fan only), then off**,
+in the UI and the docs. Only the label changed: it is still stored as `off_after_dry`,
+so nothing migrates. Older notes below keep the name each release used.
+
 ## Cloud heads (beta) (3.14.0)
 
 A new per-room **Head type**, in Configure → Rooms → (room), with a collapsed **Cloud
@@ -362,7 +381,7 @@ for it. The value goes into the entry's data mirror, and into options only when 
 already holds the settings, so an entry running from the data mirror still says so. A
 v2.2 entry with no stored idle action is not rewritten and uses the new default.
 
-To adopt the new default on an existing entry, choose **Off after drying** in
+To adopt the new default on an existing entry, choose **Dry the coil (fan only), then off** (then called Off after drying) in
 Configure → Fan and idle. On a rollback to 3.4.2 or earlier, that release's migration
 accepts a v2.2 entry unchanged (it only converts v1 entries) and reads the stored
 `fan_only` like any saved choice. That rollback was checked by reading the code; it was
@@ -1174,7 +1193,7 @@ a standby hold, or a setpoint clamp.
 | Hold the heads at the protection band, still conditioning a room at the extremes | the [standby hold entity](#external-inhibit--low-power-standby-hold) (`inhibit_entity`) with its default `eco` action |
 | Request a fixed park during an active hold | the same standby hold with **During a hold** (Configure → Standby hold) set to Off or Fan only, while coordination is enabled |
 | Take one room out of coordination | that room's `switch.*_<zone>_enable` off |
-| Stop a satisfied head's fan instead of circulating | **When a room reaches target** (Configure → Fan and idle) → Off (or Off after drying) |
+| Stop a satisfied head's fan instead of circulating | **When a room reaches target** (Configure → Fan and idle) → Off (or Dry the coil (fan only), then off) |
 | Turn one head off right now | the head's own controls, with the kill-switch off |
 
 **YAML package:** `input_select.hvac_shared_mode` still lists all four options and keeps its

@@ -126,6 +126,17 @@ ZONE_DRIFT_WARMER_BY = "drift_warmer_by"
 # only while on (True); turning it off removes the key, so a room that never
 # opted in, or opted out again, stores exactly what it stored before.
 ZONE_DUAL_SETPOINT = "dual_setpoint"
+# Opt-in per room: Allow Dry mode. Stored only while on (True); off removes
+# the key, so every entry stored before this option existed is opted out, and
+# a head put in dry is put back as it always was (BANNED_MODES).
+# On, while the room is enabled: a head a person puts in dry is left in it (no
+# heal, no mode, setpoint, fan or vane writes) and the room's temperature goal
+# pauses. The head is a cool vote at hands-off rank (dry runs the outdoor unit
+# the cooling way), which a cool lockout blocks. If another room wins heat, MXZ
+# parks the head at its idle action and sends one notice; it never puts dry
+# back, and it never sends dry itself. Leaving dry starts the coil-dry run as
+# leaving cool does. The room page shows it only for a head that lists dry.
+ZONE_ALLOW_DRY = "allow_dry"
 # Per room: how MXZ reaches the head (beta). Stored only as HEAD_TYPE_CLOUD,
 # or as HEAD_TYPE_LOCAL where the head's platform suggested cloud and the user
 # kept local (in setup, or by switching a cloud room back); no key reads local,
@@ -393,6 +404,9 @@ DEFAULT_INHIBIT_ACTIVE_STATE = "on"  # grid sensors are often inverted -> "off"
 # SW5-7/8 dip options) — the only thing this changes is airflow.
 # "off_after_dry" idles in fan_only for a coil-dry period after ACTIVE COOLING
 # (heat leaves no wet coil), then powers off — so the coil isn't sealed wet.
+# Its label is "Dry the coil (fan only), then off": it is not the heads' own
+# Dry (dehumidify) mode (see ZONE_ALLOW_DRY), though leaving that mode starts
+# this run too, as leaving cool does.
 # New entries default to off_after_dry. Entries saved before that default
 # (which never stored a choice) migrate to an explicit fan_only, so an upgrade
 # does not change how an existing install idles (see async_migrate_entry).
@@ -517,6 +531,7 @@ MODE_COOL = "cool"
 MODE_HEAT = "heat"
 MODE_FAN_ONLY = "fan_only"
 MODE_OFF = "off"
+MODE_DRY = "dry"  # a head's own Dry (dehumidify); MXZ never sends it
 DEMAND_NEUTRAL = "neutral"
 ENGAGE_SATISFIED = "satisfied"
 

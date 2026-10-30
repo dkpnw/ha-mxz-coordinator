@@ -261,6 +261,8 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         while it heats. (hvac_mode stays OFF, so HomeKit's target state does
         too; only its current state follows the head.) So does a disabled room
         whose freeze/overheat floor is tripped: MXZ may be running its head.
+        So does an enabled room whose head a person runs in dry (Allow Dry
+        mode): it shows drying, not idle.
         """
         if not self._enabled and (
             self._zone.hands_off or self.coordinator.floor_tripped(self._zone.slug)
@@ -268,6 +270,9 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
             return self._head_action()
         if not self.coordinator.coordinator_enable or not self._enabled:
             return HVACAction.OFF
+        if self.coordinator.dry_state(self._zone.slug) == "held":
+            # Allow Dry mode: a person runs the head in dry, so show the head.
+            return self._head_action()
         engage = (self.coordinator.data or {}).get(f"{self._zone.slug}_engage")
         shared = (self.coordinator.data or {}).get("state")
         if engage == MODE_COOL and shared == MODE_COOL:

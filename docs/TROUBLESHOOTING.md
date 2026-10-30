@@ -108,9 +108,9 @@ An enabled room's head is parked for other reasons too, so rule those out first 
 If none of these applies, it is a satisfied room parked by its idle action. That is not a
 fault, and the room has not been dropped.
 
-- With **Off after drying** (the default for new setups) or **Off**, a room that reaches
+- With **Dry the coil (fan only), then off** (the default for new setups) or **Off**, a room that reaches
   its target asks its head to turn off, so the fan stops and the head closes its vanes.
-  After cooling, **Off after drying** first runs the fan for the coil drying time
+  After cooling, **Dry the coil (fan only), then off** first runs the fan for the coil drying time
   (default 10 min). After heating it asks for `off` straight away.
 - The coordinator stays in control. The room thermostat stays `heat_cool` and its action
   reads *Idle*. On `sensor.*_plan` the room's `engage` reads `satisfied`, and the
@@ -137,11 +137,11 @@ Want air moving instead? Choose **Fan only** in Configure → Fan and idle. See
 Check the head's own mode first.
 
 - **The head reads `fan_only`.** MXZ is idling it:
-  - **Off after drying**: after cooling, the fan runs for the coil drying time (default
+  - **Dry the coil (fan only), then off**: after cooling, the fan runs for the coil drying time (default
     10 min) to dry the coil, then the head is asked to turn off.
   - **Fan only**: a satisfied or waiting room keeps its fan moving until it needs
-    conditioning again. Installs that never chose an idle action before Off after drying
-    became the default keep Fan only.
+    conditioning again. Installs that never chose an idle action before Dry the coil
+    (fan only), then off became the default keep Fan only.
   - **Standby hold** with *During a hold* set to Fan only parks every head this way while
     the hold signal is active.
   - **A vane change** on a head parked off runs it briefly in `fan_only` so the louvre
@@ -240,7 +240,9 @@ While the coordinator is enabled it is the head's writer. A head switched to `au
 wants it running, after about 30 seconds. If you set up drift alerts, you get one. Other
 changes, such as a setpoint, are corrected on a later update. A fan speed you pick is kept
 as a hold. To run the heads by hand, turn **Coordinator enable** off; MXZ then leaves them
-alone. To hand just one room to its remote, see the next answer.
+alone. To hand just one room to its remote, see the next answer. To let a room's head run
+its own Dry (dehumidify) mode, turn on
+[Allow Dry mode](FEATURES.md#allow-dry-mode) for that room.
 
 </details>
 

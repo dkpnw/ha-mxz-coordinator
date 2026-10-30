@@ -99,6 +99,18 @@ exactly the keys above.
 | `sensor.*_plan` → `zones[]` | `vote_basis` | What the room's `hands_off_vote` follows now: `action` (counted only while the head's own `hvac_action` is `heating` in `heat` or `cooling` in `cool`, and for 10 minutes after it stops), or `mode` when the head has reported no `hvac_action` of its own since MXZ started. |
 | Same row | `vote_hold_until` | While a head that stopped running still has its vote counted, when that ends, as an ISO time. `null` otherwise, and while the head is out of sight (its vote is then kept as in the lost-head vote above). Display only; nothing about it is saved. |
 
+## Allow Dry mode (opt-in per room)
+
+Only a room with **Allow Dry mode** on has these. Every other row keeps exactly the keys
+above. See [Allow Dry mode](FEATURES.md#allow-dry-mode).
+
+| Entity surface | Fields | Meaning |
+| --- | --- | --- |
+| `sensor.*_plan` → `zones[]` | `allow_dry` | `true`. |
+| Same row | `dry` | `held` while the room is enabled and MXZ leaves its head in Dry (the room's `demand` reads `neutral` and its `engage` `satisfied`), `parked` while another room's heat has MXZ turn the head to its idle setting, otherwise `null`. |
+| Same row | `dry_vote` | `cool` while the Dry head's vote counts, `null` otherwise (not in Dry, or Cool lockout on). |
+| `climate.*_thermostat` | `hvac_action` | The head's own action (`drying`) while its room's `dry` is `held`. |
+
 ## Required — replace these
 
 | Placeholder in the package | What it is | Example of yours |

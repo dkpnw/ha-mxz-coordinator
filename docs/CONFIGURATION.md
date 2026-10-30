@@ -25,8 +25,8 @@ nothing and leave today's behavior unchanged.
 | | *Advanced:* Keep a lost head's vote for | blank = 30 minutes (range 1–240) | [When a head goes unavailable](FEATURES.md#when-a-head-goes-unavailable). |
 | **Fan and idle** | Fan boost | on | The automatic fan ladder: faster when far off target, slower near it. A manual hold takes precedence. See [Who drives the fan](FEATURES.md#who-drives-the-fan). |
 | | Fan boost top speed | `high` | The ladder's ceiling. |
-| | When a room reaches target | Off after drying (upgraded entries that never chose keep Fan only) | Fan only, Off, or Off after drying. Choices depend on common head support. See [How a satisfied head idles](FEATURES.md#how-a-satisfied-head-idles). |
-| | Coil drying time | 10 minutes | How long Off after drying runs the fan after cooling. |
+| | When a room reaches target | Dry the coil (fan only), then off (upgraded entries that never chose keep Fan only) | Fan only, Off, or Dry the coil (fan only), then off (called Off after drying before 3.15.0; not the heads' Dry mode). Choices depend on common head support. See [How a satisfied head idles](FEATURES.md#how-a-satisfied-head-idles). |
+| | Coil drying time | 10 minutes | How long Dry the coil (fan only), then off runs the fan after cooling, or after a head leaves its own Dry mode in a room with Allow Dry mode on. |
 | **Seasons** | Weather source | none | A weather entity's daily forecast, or an outdoor temperature sensor, that drives the seasonal lockouts. |
 | | Lock out heat when the high is at least | 68 / 20 | |
 | | Lock out cool when the high is at most | 50 / 10 | |
@@ -43,6 +43,7 @@ nothing and leave today's behavior unchanged.
 | | Safety priority sensor | none | See [Safety priority](FEATURES.md#safety-priority). |
 | | Let its own remote run it while disabled | off | See [Run one room from its own remote](FEATURES.md#run-one-room-from-its-own-remote). |
 | | While its own remote runs it, its vote counts | Whenever it is set to heat or cool | Or **Only while it is heating or cooling** (plus 10 minutes after it stops). Stored as `hands_off_vote_basis: action` only when chosen. See [Count its vote only while it runs](FEATURES.md#count-its-vote-only-while-it-runs). |
+| | Allow Dry mode | off | Shown only for a head that lists `dry`. On: while the room is enabled, a head someone puts in Dry stays there and votes cool. Stored as `allow_dry: true` only when on; a room page that doesn't show it leaves what is stored alone. See [Allow Dry mode](FEATURES.md#allow-dry-mode). |
 | | *Uneven drift:* Let it get cooler by / Let it get warmer by | blank | This room's own sides; see [Per-room uneven drift](FEATURES.md#per-room-uneven-drift). |
 | | *Sensor freshness:* Report interval, Maximum age, Startup grace, Freshness evidence, Sample time attribute, Sample counter attribute | empty | See [Choose a sensor freshness contract](#choose-a-sensor-freshness-contract). |
 | | *Freeze floor and overheat ceiling:* Freeze floor / Overheat ceiling | empty (range 35–65 / 2–18 and 75–100 / 24–38) | See [Freeze floor and overheat ceiling](FEATURES.md#freeze-floor-and-overheat-ceiling). |
@@ -90,7 +91,7 @@ The outdoor-unit name and **Notify on drift** service are set in setup and Recon
 
 <table>
 <tr>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-fan-idle.png" alt="Fan and idle page: Fan boost on, Fan boost top speed High, When a room reaches target Off after drying (default), and Coil drying time 10 min."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-fan-idle.png" alt="Fan and idle page: Fan boost on, Fan boost top speed High, When a room reaches target Off after drying (default; renamed Dry the coil (fan only), then off in 3.15.0), and Coil drying time 10 min."></td>
 <td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-seasons.png" alt="Seasons page: no weather source, Lock out heat when the high is at least 68 °F, Lock out cool when the high is at most 50 °F, and Safety overrides open with Heat anyway below 58 °F and Cool anyway above 80 °F."></td>
 </tr>
 <tr>

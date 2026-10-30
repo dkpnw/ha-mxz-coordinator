@@ -45,7 +45,7 @@ and makes it well.
 | | Stock AUTO | MXZ Coordinator |
 | --- | --- | --- |
 | Heat or cool | Each head decides alone; the head selected last waits in standby. Some outdoor units have an installer switch that lets the lowest-address head decide for all ([sources](docs/HOW-IT-WORKS.md#the-problem-in-detail)) | One mode for the system, chosen by your room priority |
-| A room that's done | Stays in its own mode, which can block the other | Steps aside: fan only, off, or dry the coil then off |
+| A room that's done | Stays in its own mode, which can block the other | Steps aside: fan only, off, or dry the coil (fan only), then off |
 | Fan | The head's own fan setting | Speeds up when far off, eases down near target |
 | Temperature it uses | Thermistor in the head | The room sensor you pick |
 | Seasons and away | Manual | Weather lockouts, away limits, standby hold |
@@ -89,12 +89,12 @@ Every core feature exists for a reason someone ran into:
 | --- | --- |
 | **Picks one heat or cool mode for the whole system**, from every room's temperature and target. It never asks a head for hardware AUTO. | Coordinated rooms stop fighting over heat versus cool, and the shared direction follows the rooms that need it, not whichever head was set first. |
 | **Settles a standoff by your room order**, and by default waits 10 minutes between heat/cool switches (Minimum time between mode switches). | The room you rank first wins, and the mode won't flip back and forth. |
-| **Has a room that's done step aside.** On a new setup its head runs the fan to dry the coil after cooling, then turns off; Fan only and Off are also available. | The rooms that still need conditioning get served, and the coil dries before the head closes up. |
+| **Has a room that's done step aside.** On a new setup its head runs the fan to dry the coil after cooling, then turns off (**Dry the coil (fan only), then off**); Fan only and Off are also available. This isn't the heads' Dry (dehumidify) mode; see [Allow Dry mode](docs/FEATURES.md#allow-dry-mode). | The rooms that still need conditioning get served, and the coil dries before the head closes up. |
 | **Lets a room coast** inside its drift (1 °F / 0.5 °C by default) before it runs again, then runs it all the way back to target. | A room that's close enough rests, and every run finishes where you asked. |
 | **Runs each room on the temperature sensor you pick.** | Control follows the room you sit in, not a thermistor up near the ceiling. |
 | **Boosts the fan** the further a room is from target, up to a top speed you choose, and eases it down as the room closes in. A speed you pick by hand is kept until you hand it back. | The fan works hard only while a room is far off. |
 | **Gives each room one thermostat** for Home Assistant dashboards, Apple Home, or Google Home, all set up in the UI with no YAML. | One clean control per room, instead of raw head controls that can fight the plan. |
-| **Puts a head back** if someone switches it to auto, `heat_cool`, or `dry`, or turns it off while its room needs it, and can notify you when that happens. | A stray remote press doesn't quietly break coordination. |
+| **Puts a head back** if someone switches it to auto, `heat_cool`, or `dry` (unless the room allows Dry mode), or turns it off while its room needs it, and can notify you when that happens. | A stray remote press doesn't quietly break coordination. |
 | **Follows the season** from a weather forecast or outdoor sensor, with heat-anyway and cool-anyway safety limits. | No heating on a day forecast to be warm, or cooling on a cold one. |
 | **Holds an empty house between away limits** (the Eco idle switch), and can **pause on a standby signal** such as a utility load-shed. | Less running when nobody's home, and a clean response to a grid or utility hold. |
 | **Keeps a lost head's last vote for a while** (30 minutes by default), then lets it go. | A short Wi-Fi dropout doesn't swing the shared mode, and a long one doesn't hold it forever. |
@@ -104,6 +104,19 @@ Every core feature exists for a reason someone ran into:
 Mitsubishi manuals on stock AUTO.
 
 <a id="whats-new-in-3111"></a>
+
+## What's new in 3.15.0 (unreleased)
+
+**Allow Dry mode**, per room and off by default: turn it on (Configure → Rooms → (room)),
+and a head someone puts in its own Dry (dehumidify) mode stays there while the room is
+enabled. MXZ sends that head
+nothing while it dries, the room's target waits, and the head counts as a vote for cool,
+below any other room's call. If another room needs heat, MXZ turns the drying head to its
+idle setting and tells you once; it doesn't turn Dry back on. The option shows only for a
+head that offers Dry. The idle choice that used to read "Off after drying" is now **Dry the
+coil (fan only), then off**: it was never the heads' Dry mode. Thanks to
+[@mikepell007](https://github.com/mikepell007) for the tip. See
+[Allow Dry mode](docs/FEATURES.md#allow-dry-mode).
 
 ## What's new in 3.13.0
 
@@ -230,6 +243,8 @@ Each is off or blank until you set it:
 - **Run one room from its own remote**: turn on **Let its own remote run it while
   disabled**, and a disabled room is left to its remote while its heat or cool still
   counts. [Details](docs/FEATURES.md#run-one-room-from-its-own-remote)
+- **Allow Dry mode**: a head someone puts in Dry (dehumidify) stays there instead of being
+  put back, and counts as a vote for cool. [Details](docs/FEATURES.md#allow-dry-mode)
 - **Sensor freshness**: tell MXZ how often a room's sensor reports, and a room whose sensor
   goes quiet stops asking for heat or cool.
   [Details](docs/CONFIGURATION.md#choose-a-sensor-freshness-contract)
@@ -283,7 +298,7 @@ The three settings are in the room page's **Cloud head (beta)** section.
 
 | Feature | On a cloud head |
 | --- | --- |
-| Shared heat/cool mode, room order, 10-minute switch wait, idle parking (fan only, off, off after drying), away (eco), standby hold, safety priority, freeze floor and overheat ceiling (from the room sensor), weather lockouts, restart memory, room thermostats, plan sensor | Works |
+| Shared heat/cool mode, room order, 10-minute switch wait, idle parking (fan only, off, dry the coil (fan only), then off), away (eco), standby hold, safety priority, freeze floor and overheat ceiling (from the room sensor), weather lockouts, restart memory, room thermostats, plan sensor | Works |
 | Fan boost | Slower: one speed every 5 minutes. Only speeds named like MXZ's ladder (quiet, low, medium, middle, high) that the head lists are used; a head whose speeds are named otherwise keeps its own fan. |
 | Own-remote rooms | Vote by mode only. |
 | Timing | Minutes, not seconds. |
@@ -387,7 +402,7 @@ MXZ Coordinator got this good because people ran it on their own systems, found 
 - [@helicopterrun](https://github.com/helicopterrun) validated it on 3-zone hardware and did relentless, root-caused QA through the v3 beta ([#4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4), [#5](https://github.com/dkpnw/ha-mxz-coordinator/issues/5), [#6](https://github.com/dkpnw/ha-mxz-coordinator/issues/6), [#7](https://github.com/dkpnw/ha-mxz-coordinator/issues/7)). Those reports led to the removal docs, single-setpoint head support, and entry-scoped restore.
 - [@oliverbrandmueller](https://github.com/oliverbrandmueller) asked for metric units ([#2](https://github.com/dkpnw/ha-mxz-coordinator/issues/2)). Since 2.8.0 the coordinator runs in your Home Assistant temperature unit from end to end.
 - **mw1029** on the [Home Assistant forum](https://community.home-assistant.io/t/1018382) tried MXZ with the cloud-based `comfort_HA` integration and posted both entity dumps, which showed exactly where the two don't line up. Their report led to the separate mode call (3.13.2) and to cloud heads (beta, 3.14.0).
-- [@mikepell007](https://github.com/mikepell007) (Michael Pellegrino) wrote [mxz_coordinator_blueprint](https://github.com/mikepell007/mxz_coordinator_blueprint) (MIT), a blueprint that ports MXZ's core decisions to heads behind MELCloud and Kumo Cloud. Cloud heads (beta) are their idea, and so are the setpoint drive offset and its defaults (2 °F, and a 90-second wait after writing). MXZ reimplements them in Python; no blueprint code is used.
+- [@mikepell007](https://github.com/mikepell007) (Michael Pellegrino) wrote [mxz_coordinator_blueprint](https://github.com/mikepell007/mxz_coordinator_blueprint) (MIT), a blueprint that ports MXZ's core decisions to heads behind MELCloud and Kumo Cloud. Cloud heads (beta) are their idea, and so are the setpoint drive offset and its defaults (2 °F, and a 90-second wait after writing). MXZ reimplements them in Python; no blueprint code is used. Their tip on the [Home Assistant forum](https://community.home-assistant.io/t/1018382) led to Allow Dry mode and to the clearer **Dry the coil (fan only), then off** label (3.15.0).
 - [@csingley](https://github.com/csingley) (Chris Singley):
   - **Own-remote rooms (3.6.0).** He noticed that a room left to its own remote is invisible to the heat-versus-cool standoff, even while it is really heating or cooling on the shared outdoor unit, and sent a fix with a test ([#27](https://github.com/dkpnw/ha-mxz-coordinator/pull/27)). He followed it with [#28](https://github.com/dkpnw/ha-mxz-coordinator/pull/28), which lets a disabled room's head stay under its own remote. The per-room **Let its own remote run it while disabled** setting is built from both, with him as co-author, and he tested it on his own 4-zone MXZ-4C36NA2 before release.
   - **Safety priority (3.7.0).** He designed and wrote the safety-priority arbitration ([#31](https://github.com/dkpnw/ha-mxz-coordinator/pull/31)): every room's heat or cool want ranked in one priority order, with an optional per-room **Safety priority** sensor that lifts a room's own want above every other room's. It shipped not yet tested on hardware. The 3.7.0 freeze floor and overheat ceiling build on his safety tier: a tripped floor or ceiling is one more want in that same priority order, with the freeze floor ranked first and a ceiling settled against a safety room by room order.
