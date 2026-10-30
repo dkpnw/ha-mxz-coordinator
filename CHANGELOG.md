@@ -8,7 +8,7 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
-## 3.14.0 (unreleased)
+## 3.14.0 (October 29, 2026)
 
 Cloud heads (beta). They add a head type and three cloud settings to a room's page.
 Nothing changes for an existing room until you set it to cloud, and ESPHome (CN105) heads
@@ -51,6 +51,11 @@ are always driven as before.
   [mxz_coordinator_blueprint](https://github.com/mikepell007/mxz_coordinator_blueprint),
   reimplemented here with no blueprint code. Prompted by @mw1029's report on the
   [Home Assistant forum](https://community.home-assistant.io/t/1018382).
+- **Tested** with the full test suite (2660 tests, full and fakeboot) on every supported
+  Home Assistant lane, and on hardware: the Bedroom CN105 head on a house system on
+  57cd00b stayed local, with the same single call, voting, hold and drop as before. **Not
+  tested** on a real cloud head: that hardware check was waived because the test house
+  has no cloud heads.
 
 ## 3.13.2 (October 29, 2026)
 
