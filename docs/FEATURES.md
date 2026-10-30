@@ -90,8 +90,9 @@ limit** (default 78 °F / 26 °C), with fixed eco setpoints.
   draw.
 
 **A head changed at the wall.** While the coordinator is enabled it is the head's writer.
-A head switched to `auto`, `heat_cool`, or `dry` is put back after about 20 seconds; a
-head turned off while the plan wants it running, after about 30 seconds. A head the plan
+A head switched to `auto`, `heat_cool`, or `dry` is put back after about 20 seconds (`dry`
+stays in a room with [Allow Dry mode](#allow-dry-mode) on); a head turned off while the
+plan wants it running, after about 30 seconds. A head the plan
 parked off is not treated as drift. If you set a **Notify on drift** service, you get an
 alert.
 
@@ -444,6 +445,65 @@ the order events arrived, comes from @csingley's
 **Not tested on hardware yet.** The automated tests use invented heads. The cn105 heads
 on a test system report `hvac_action` (`off`, `idle`, `heating`, `cooling`, `fan`) and
 showed the lag described above, but the option itself has not run on them.
+
+## Allow Dry mode
+
+*New in 3.15.0, off by default.* Most heads have a Dry (dehumidify) mode of their own.
+MXZ never asks a head for it, and without this option it treats a head someone puts in
+`dry` like one put in `auto`: it puts it back after about 20 seconds. Turn on **Allow Dry
+mode** for a room (Configure → Rooms → (room)) to let a person run that room's head in
+Dry. The option shows only for a head that lists `dry` among its modes. Thanks to
+[@mikepell007](https://github.com/mikepell007), whose tip on the
+[Home Assistant forum](https://community.home-assistant.io/t/1018382) prompted it.
+
+While the room is enabled and someone has its head in Dry:
+
+- **MXZ leaves the head alone.** No heal, and no mode, setpoint, fan, or vane writes.
+  A fan speed someone picks in Dry is a manual pick like any other: the room's Fan auto
+  switch turns off, and the speed is kept after Dry ends, until you hand it back.
+- **The room's target waits.** The room asks for no heat or cool of its own; its plan
+  row shows demand `neutral` and engage `satisfied`. Once the head leaves Dry, the room's
+  target counts again.
+- **The head is a vote for cool.** On a multi-split, Dry runs the refrigerant the cooling
+  way, so Dry and Cool can share the outdoor unit and Dry and Heat can't. The vote ranks
+  like a head run from its own remote: below any enabled room's heat or cool call, a
+  Safety priority want, and a tripped freeze floor, and settled with other such votes by
+  room order. The room's own Safety priority sensor doesn't raise it. With **Cool
+  lockout** on there is no vote. When nobody else calls, the vote turns the shared mode
+  to cool once the mode-change wait allows, and that change starts no new wait.
+- **If another room needs heat, the Dry head is parked.** When the shared mode is heat
+  and some room wants it (a room calling or running heat, a head run from its own remote
+  in heat, or a tripped freeze floor), MXZ turns the Dry head to its idle setting
+  (**When a room reaches target**) and sends one notice, for example "Bedroom Dry
+  paused: the outdoor unit is heating for Rec room. MXZ won't turn Dry back on; choose it
+  again when you want it." MXZ doesn't put Dry back later. Heat that is only the resting
+  mode, with no room wanting it, parks nothing.
+- **Leaving Dry dries the coil.** Dry wets the coil as cooling does, so with **Dry the
+  coil (fan only), then off** the head runs `fan_only` for the coil drying time after it
+  leaves Dry, then turns off.
+- **After a restart** a head still in Dry is left alone, and its vote counts again.
+
+What doesn't change:
+
+- With the option off, nothing changes from 3.14.0.
+- A disabled room is held off as always (or, with **Let its own remote run it while
+  disabled**, left to its remote; there `dry` still has no vote).
+- A standby hold parks a Dry head like any other. Eco idle (away) doesn't: the head is
+  left in Dry and votes as above.
+- **Cloud heads (beta)** follow the same rules. A report of Dry that may be older than
+  MXZ's last write (inside the confirm wait) isn't taken as someone's Dry, so after MXZ
+  parks a cloud head, a late poll that still shows Dry changes nothing.
+- MXZ never sends `dry`, so the commands an ESPHome (CN105) head receives are unchanged.
+
+On `sensor.*_plan`, the row of a room with the option on adds `allow_dry: true`, `dry`
+(`held` while MXZ leaves the head in Dry, `parked` while another room's heat has MXZ park
+it, otherwise null), and `dry_vote` (`cool`, or null). The room's thermostat shows
+`drying` while its head is held in Dry. A room without the option has none of these
+keys.
+
+Not tested on hardware yet: the house this was built on has one Mitsubishi head, so the
+heat-versus-Dry case on a shared outdoor unit is covered by tests with invented heads
+only.
 
 ## Safety priority
 
@@ -826,11 +886,11 @@ idle) offers three parks:
 | --- | --- |
 | `Fan only` | circulates in `fan_only`. The default through 3.4.2. |
 | `Off` | sends `off`, asking the head to stop. |
-| `Off after drying` (default) | requests `fan_only` for a dwell after **cooling** (**Coil drying time**, default 10 min), then `off`. After heating it requests `off` immediately. |
+| `Dry the coil (fan only), then off` (default) | requests `fan_only` for a dwell after **cooling**, or after the head leaves its own Dry mode in a room with [Allow Dry mode](#allow-dry-mode) on (**Coil drying time**, default 10 min), then `off`. After heating it requests `off` immediately. Until 3.15.0 it read `Off after drying`; the stored value is still `off_after_dry`. This isn't the heads' Dry (dehumidify) mode. |
 
 **Upgrading keeps what you had.** An entry that never chose an idle action was running
 `Fan only`; the upgrade stores `Fan only` for it, so it keeps idling that way. A choice
-you saved is kept. Only new setups start on `Off after drying`. See
+you saved is kept. Only new setups start on `Dry the coil (fan only), then off`. See
 [Idle action default](MIGRATION.md#idle-action-default-350).
 
 Facts to know before you switch:

@@ -30,7 +30,7 @@ _IDLE_MODES = {
 IDLE_ACTION_LABELS = {
     IDLE_ACTION_FAN_ONLY: "Fan only",
     IDLE_ACTION_OFF: "Off",
-    IDLE_ACTION_OFF_AFTER_DRY: "Off after drying",
+    IDLE_ACTION_OFF_AFTER_DRY: "Dry the coil (fan only), then off",
 }
 
 

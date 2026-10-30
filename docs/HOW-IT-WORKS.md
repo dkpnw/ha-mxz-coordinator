@@ -85,7 +85,8 @@ MXZ works out one plan for the outdoor unit:
    eco/away limits, and a standby hold limit what is commanded.
 6. **Commands go out.** Mode, a bounded setpoint, and, under fan boost, a fan speed for
    each head. MXZ never requests hardware AUTO, `heat_cool`, or `dry` on a head, and puts
-   an enabled room's head back if someone sets one.
+   an enabled room's head back if someone sets one (a `dry` stays in a room with
+   [Allow Dry mode](FEATURES.md#allow-dry-mode) on; that head then votes cool).
 
 The plan, with each room's reasons, is on `sensor.*_plan`; see
 [Diagnose a room that is waiting](TROUBLESHOOTING.md#diagnose-a-room-that-is-waiting).

@@ -157,6 +157,7 @@ from .const import (
     KEY_HEAT_LOCKOUT,
     LOST_VOTE_TTL_BOUNDS,
     MODE_COOL,
+    MODE_DRY,
     MODE_FAN_ONLY,
     MODE_HEAT,
     MODE_OFF,
@@ -170,6 +171,7 @@ from .const import (
     VOTE_BASIS_MODE,
     VOTE_EXPIRED,
     WRITE_INTERVAL_BOUNDS,
+    ZONE_ALLOW_DRY,
     ZONE_CLIMATE,
     ZONE_CONFIRM_WAIT,
     ZONE_DRIFT_COOLER_BY,
@@ -392,6 +394,8 @@ class Zone:
     drive_offset: float | None = None
     write_interval: float | None = None
     confirm_wait: float | None = None
+    # Allow Dry mode (ZONE_ALLOW_DRY), from config; only a stored True opts in.
+    allow_dry: bool = False
 
 
 # A room's optional wiring, read as ``z.get(key) or None``, so an empty value
@@ -489,6 +493,7 @@ def _parse_zones(
             drive_offset=_finite(z.get(ZONE_DRIVE_OFFSET)),
             write_interval=_finite(z.get(ZONE_WRITE_INTERVAL)),
             confirm_wait=_finite(z.get(ZONE_CONFIRM_WAIT)),
+            allow_dry=z.get(ZONE_ALLOW_DRY) is True,
         )
         for i, z in enumerate(raw)
     ]
@@ -723,6 +728,14 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # included, exactly as an opted-out room's is. Cleared when the room is
         # enabled again; restored across a restart by its enable switch.
         self._hands_off_released: set[str] = set()
+        # Allow Dry mode: each room whose head a person has in dry, as the
+        # last compute found it ("held": left alone; "parked": another room
+        # won heat, so MXZ parks it), and the rooms already told about that
+        # park, until their head reports a mode other than dry. In memory
+        # only: after a restart a head still in dry is simply held again.
+        self._dry_rooms: dict[str, str] = {}
+        self._dry_noticed: set[str] = set()
+        self._dry_heat_for: str | None = None  # the room heat is for, by name
         # The shared mode was last moved by hands-off votes alone. Going back
         # from it while no coordinated room calls is undoing the vote, not a
         # flip of ours, so that starts no dwell either (see _compute).
@@ -1199,6 +1212,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         votes: list[str | None] = []
         arb_demands: list[Demand] = []
         floors: list[str | None] = []
+        drys: list[bool] = []
+        dry_votes: list[str | None] = []
         sides: list[tuple[float, float]] = []
         starts: list[dict[str, Any]] = []
         all_ok = True
@@ -1293,6 +1308,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._engage_latch[zone.slug] = (
                     engage if engage in (MODE_COOL, MODE_HEAT) else ""
                 )
+            dry = self._in_dry(zone)
+            if dry:
+                # Allow Dry mode: a person runs this head in dry, so the
+                # room's temperature goal pauses (no call, no run). Its vote
+                # is the dry below. Out of dry it starts afresh.
+                demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED
+                if zone.slug in self._engage_latch:
+                    self._engage_latch[zone.slug] = ""
+                prior_engage = ""
             # This room let go of a run and is now coasting: it is parked at the
             # idle action, and only a later compute may engage it again (see
             # _sync_coast_timer). A disabled room (MODE_OFF) is not coasting.
@@ -1305,15 +1329,21 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 engage = floor
             safety = self._zone_safety(zone)
             vote = self._hands_off_vote(zone, clock, safety=safety)
+            # A dry head runs the outdoor unit the cooling way: a cool vote at
+            # hands-off rank, whatever the room's Safety priority sensor says,
+            # and none at all under a cool lockout.
+            dry_vote = MODE_COOL if dry and not self.cool_lockout else None
             holds = self._holds(status, safety, cloud_out)
             held_demand = demand if holds else DEMAND_NEUTRAL
             held_engage = engage if holds or floor is not None else ENGAGE_SATISFIED
             arb_demands.extend(
                 self._zone_arbitration_pair(
                     demand=held_demand, vote=vote, safety=safety, index=i,
-                    floor=floor,
+                    floor=floor, dry=dry_vote,
                 )
             )
+            drys.append(dry)
+            dry_votes.append(dry_vote)
             floors.append(floor)
             demands.append(demand)
             engages.append(engage)
@@ -1355,7 +1385,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ):
             by_votes = True
         self._floor_settle(floors, state)
-        calls = [*held_demands, *votes, *floors]
+        self._dry_settle(drys, state, held_demands, held_engages, votes, floors)
+        calls = [*held_demands, *votes, *dry_votes, *floors]
         plan.update(
             {
                 "state": state,
@@ -1401,6 +1432,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "floor_want": floors[i],
                         **self.command_attributes(zone.climate_id),
                         **self._cloud_attributes(zone),
+                        **self._dry_attributes(zone, dry_votes[i]),
                     }
                     for i, zone in enumerate(self.zones)
                 ],
@@ -1960,6 +1992,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     safety=bool(view.get("safety_priority")),
                     index=i,
                     floor=view.get("floor_want"),
+                    dry=view.get("dry_vote"),
                 )
             )
         would_flip_to = arbitrate(
@@ -2087,8 +2120,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         floors = [view.get("floor_want") for view in plan.get("zones", ())]
+        drys = [view.get("dry") for view in plan.get("zones", ())]
         tasks = []
-        for zone, engage, floor in zip(self.zones, engages, floors):
+        for zone, engage, floor, dry in zip(self.zones, engages, floors, drys):
             if zone.climate_id in self._vane_kicks:
                 continue  # mid vane-kick: leave the head alone until it finishes
             if (
@@ -2138,6 +2172,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # Do not manufacture the missing startup mode with our own
                     # park/write. A known head still follows sensor-failure parking.
                     continue
+            if dry is not None:
+                # Dry wets the coil as cooling does: whenever the head leaves
+                # dry, the coil-dry run is owed from then.
+                self._last_active[zone.climate_id] = (MODE_COOL, time.monotonic())
+                if dry == "held":
+                    # A person's dry: no mode, setpoint, fan or vane write.
+                    self._cancel_dry_timer(zone.climate_id)
+                    self._observe_dry_fan(zone.climate_id)
+                    continue
+                # Another room won heat: park it at its idle action below,
+                # once told. Dry is never sent back.
+                self._dry_notice(zone)
             idle = self._idle_act_for(zone.climate_id)
             if not zone.enable:
                 # A disabled room never idles in fan_only: a floor waiting out
@@ -4150,9 +4196,28 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         stale = self._cloud_stale_report(entity_id, mode=mode)
         self._arm_or_cancel(
             entity_id, "band",
-            mode in BANNED_MODES and not self._hands_off_head(entity_id) and not stale,
+            mode in BANNED_MODES and not self._hands_off_head(entity_id) and not stale
+            and not self._dry_allowed(entity_id, mode),
             BAND_DRIFT_DELAY,
         )
+        if (mode == MODE_DRY) != (old_mode == MODE_DRY) and any(
+            zone.climate_id == entity_id and zone.allow_dry for zone in self.zones
+        ):
+            # Allow Dry mode: into dry pauses the room and starts its vote,
+            # out of dry ends both, so recompute now, not at the heartbeat.
+            # Dry wets the coil as cooling does: leaving it owes the coil-dry
+            # run from this moment.
+            refresh_needed = True
+            if old_mode == MODE_DRY and not stale and mode not in (None, *UNAVAILABLE_STATES):
+                self._last_active[entity_id] = (MODE_COOL, time.monotonic())
+        if mode not in (None, *UNAVAILABLE_STATES, MODE_DRY) and not stale:
+            # One notice per park: a head seen in another mode has left dry
+            # (straight from dry, or back from out of sight), so a later dry
+            # parked for heat is a new notice. Read from the report, not the
+            # next compute: a person can pick dry again before that runs.
+            for zone in self.zones:
+                if zone.climate_id == entity_id:
+                    self._dry_noticed.discard(zone.slug)
         # Never heal a head the standby hold parked off (nor a wall override
         # mid-hold — a human turning a parked head on during an outage wins),
         # and never heal a head the PLAN itself parked off (idle_action) — but
@@ -4229,7 +4294,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         state = self.hass.states.get(entity_id)
         mode = state.state if state else None
         if kind == "band":
-            still = mode in BANNED_MODES and not self._hands_off_head(entity_id)
+            still = (
+                mode in BANNED_MODES and not self._hands_off_head(entity_id)
+                and not self._dry_allowed(entity_id, mode)
+            )
         else:
             still = (
                 mode == MODE_OFF
@@ -4517,16 +4585,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @staticmethod
     def _zone_arbitration_pair(
         *, demand: str, vote: str | None, safety: bool, index: int,
-        floor: str | None = None,
+        floor: str | None = None, dry: str | None = None,
     ) -> tuple[Demand, ...]:
-        """One zone's (demand, vote[, floor]) as :class:`Demand` entries.
+        """One zone's (demand, vote[, dry][, floor]) as :class:`Demand` entries.
 
         Shared by ``_compute`` (live) and ``_sync_dwell_timer`` (replayed from
         the already-computed plan) so the priority-tier math lives in exactly
-        one place. A tripped floor is a third, commanding entry: a freeze
-        floor's heat at PRIORITY_FLOOR_HEAT, a ceiling's cool at
-        PRIORITY_SAFETY (see :func:`logic.arbitrate`). It is independent of
-        the room's own Safety priority sensor.
+        one place. A dry head's cool (Allow Dry mode) is one more vote, always
+        at PRIORITY_VOTE: the room's Safety priority sensor never lifts it. A
+        tripped floor is a commanding entry: a freeze floor's heat at
+        PRIORITY_FLOOR_HEAT, a ceiling's cool at PRIORITY_SAFETY (see
+        :func:`logic.arbitrate`). It is independent of the room's own Safety
+        priority sensor.
         """
         tier = PRIORITY_SAFETY if safety else None
         pair = (
@@ -4540,6 +4610,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 read_only=True,
             ),
         )
+        if dry is not None:
+            pair = (
+                *pair,
+                Demand(direction=dry, priority=(PRIORITY_VOTE, index), read_only=True),
+            )
         if floor not in (MODE_COOL, MODE_HEAT):
             return pair
         floor_tier = PRIORITY_FLOOR_HEAT if floor == MODE_HEAT else PRIORITY_SAFETY
@@ -4566,6 +4641,129 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def hands_off_released(self, slug: str) -> bool:
         """Whether this room's park landed (what the enable switch persists)."""
         return slug in self._hands_off_released
+
+    # -- Allow Dry mode (opt-in, enabled rooms) --------------------------------
+    def _dry_allowed(self, climate_id: str, mode: str | None) -> bool:
+        """Whether this report is a head in dry that its room lets stay there.
+
+        The heals read this: an enabled room with Allow Dry on is never put
+        back from dry (a park for heat goes through the plan instead). Any
+        other room in dry is healed exactly as before the option existed.
+        """
+        return mode == MODE_DRY and any(
+            zone.climate_id == climate_id and zone.allow_dry and zone.enable
+            for zone in self.zones
+        )
+
+    def _in_dry(self, zone: Zone) -> bool:
+        """Whether a person has this room's head in dry, and MXZ honors it now.
+
+        Only with Allow Dry on, while the room is enabled and no standby hold
+        is on (a hold parks every head, a dry one too). A cloud head's report
+        of dry that may be older than MXZ's last batch (inside its confirm
+        wait), or from a head out of MXZ's control, isn't one: that report
+        isn't a person's choice MXZ can act on.
+        """
+        if not zone.allow_dry or not zone.enable or self.inhibited:
+            return False
+        head = self.hass.states.get(zone.climate_id)
+        if head is None or head.state != MODE_DRY:
+            return False
+        cloud = self._cloud.get(zone.climate_id)
+        return cloud is None or not (
+            cloud.unresponsive or cloud.stale(time.monotonic(), mode=MODE_DRY)
+        )
+
+    def _dry_settle(
+        self,
+        drys: list[bool],
+        state: str,
+        demands: list[str],
+        engages: list[str],
+        votes: list[str | None],
+        floors: list[str | None],
+    ) -> None:
+        """Settle each dry room as held or parked for this plan.
+
+        Parked while the shared mode is heat and some room wants heat: a room
+        calling or running heat (as arbitration counts it), a hands-off head
+        heating, or a tripped freeze floor. The outdoor unit can't run a dry
+        head then; it would only wait in standby. Heat that is only the
+        resting mode, with no room wanting it, parks nothing: the dry head's
+        cool vote turns the mode once the mode-change wait allows.
+        """
+        heat_for = (
+            next(
+                (
+                    zone.name
+                    for zone, *wants in zip(self.zones, demands, engages, votes, floors)
+                    if MODE_HEAT in wants
+                ),
+                None,
+            )
+            if state == MODE_HEAT else None
+        )
+        self._dry_heat_for = heat_for
+        self._dry_rooms = {
+            zone.slug: "held" if heat_for is None else "parked"
+            for zone, dry in zip(self.zones, drys)
+            if dry
+        }
+
+    def _observe_dry_fan(self, climate_id: str) -> None:
+        """Read a dry head's fan for the manual-fan hold, and write nothing.
+
+        A speed a person picks while the head is in dry holds from then on,
+        on the Fan-auto switch and across a restart, as one picked in a run
+        does, so a park for heat and every apply after it keep that pick.
+        MXZ set no speed in dry, so a speed seen there is never read as its
+        own boost or idle. A cloud head's late report of an older speed is
+        not read at all (as in a cloud batch).
+        """
+        if not self.fan_boost_enable:
+            return
+        state = self.hass.states.get(climate_id)
+        if state is None:
+            return
+        modes = state.attributes.get("fan_modes")
+        observed = state.attributes.get("fan_mode")
+        if (
+            not modes or FAN_AUTO not in modes or observed is None
+            or self._cloud_stale_report(climate_id, fan=observed)
+        ):
+            return
+        self._observe_fan_latch(climate_id, observed, MODE_DRY, 0.0)
+        self._publish_fan_state(climate_id)
+
+    def dry_state(self, slug: str) -> str | None:
+        """held or parked while this room's head is in dry it may keep; else None."""
+        return self._dry_rooms.get(slug)
+
+    def _dry_attributes(self, zone: Zone, vote: str | None) -> dict[str, Any]:
+        """An Allow Dry room's dry state and vote; nothing for a room without it.
+
+        A room that never opted in keeps exactly the row it had before.
+        """
+        if not zone.allow_dry:
+            return {}
+        return {
+            "allow_dry": True,
+            "dry": self._dry_rooms.get(zone.slug),
+            "dry_vote": vote,
+        }
+
+    def _dry_notice(self, zone: Zone) -> None:
+        """Tell people once that a dry head was parked for heat (no retry, no restore)."""
+        if zone.slug in self._dry_noticed:
+            return
+        self._dry_noticed.add(zone.slug)
+        message = (
+            f"{zone.name} Dry paused: the outdoor unit is heating for "
+            f"{self._dry_heat_for or 'another room'}. MXZ won't turn Dry back on; "
+            "choose it again when you want it."
+        )
+        _LOGGER.info("MXZ: %s", message)
+        self.hass.async_create_task(self._notify(message))
 
     # -- freeze floor / overheat ceiling (opt-in, disabled rooms) -------------
     def floor_tripped(self, slug: str) -> bool:

@@ -763,7 +763,7 @@ async def test_reconfigure_rejects_head_that_cannot_honor_stored_idle_action(
     assert result["step_id"] == "reconfigure"
     assert result["errors"] == {"heads": "idle_action_unsupported"}
     assert result["description_placeholders"] == {
-        "idle_action": "Off after drying",
+        "idle_action": "Dry the coil (fan only), then off",
         "unsupported_heads": "climate.c",
         "supported_idle_actions": "Off",
     }
@@ -1429,7 +1429,7 @@ async def test_options_flow_rejects_unsupported_idle_without_mutation(
     assert result["step_id"] == "fan_idle"
     assert result["errors"] == {CONF_IDLE_ACTION: "idle_action_unsupported"}
     assert result["description_placeholders"] == {
-        "idle_action": "Off after drying",
+        "idle_action": "Dry the coil (fan only), then off",
         "unsupported_heads": "climate.secondary",
         "supported_idle_actions": "Off",
     }

@@ -8,6 +8,38 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
+## 3.15.0 (October 30, 2026)
+
+Allow Dry mode, opt-in per room. Nothing changes for a room until you turn it on.
+
+- **Allow Dry mode.** A new per-room option (Configure → Rooms → (room)), off by default
+  and shown only for a head that lists `dry`. Off, a head put in `dry` is put back after
+  about 20 seconds, as before. On, while the room is enabled, a head someone puts in Dry
+  stays there: MXZ sends it no mode, setpoint, fan or vane write, the room's target waits
+  (its demand reads `neutral`), and the head is a cool vote at the rank of a head run from
+  its own remote, below any enabled room's heat or cool call, a Safety priority want and
+  a tripped freeze floor; the room's own Safety priority sensor doesn't raise it, and Cool
+  lockout blocks it. When another room wins heat, MXZ parks the Dry head at its idle
+  setting and sends one notice, and never turns Dry back on (MXZ never sends `dry`, so an
+  ESPHome head's commands are unchanged). Leaving Dry starts the coil-dry run, as leaving
+  cool does. A fan speed picked in Dry is held like any manual pick. After a restart a
+  head still in Dry is left alone and votes again. Cloud heads follow the same rules, and
+  a report of Dry inside a confirm wait isn't taken as someone's Dry. The plan's row for
+  such a room adds `allow_dry`, `dry` (`held` or `parked`) and `dry_vote`, and its
+  thermostat shows `drying`. Prompted by a tip from @mikepell007 on the
+  [Home Assistant forum](https://community.home-assistant.io/t/1018382).
+- **Clearer coil-dry label.** The idle choice **Off after drying** is now **Dry the coil
+  (fan only), then off**, in the UI, its translation and the docs, so it isn't mistaken
+  for the heads' Dry mode. Still stored as `off_after_dry`; nothing migrates.
+- **Tested** with the full test suite (2701 tests, full and fakeboot) on every supported
+  Home Assistant lane, and on hardware: on the Bedroom CN105 head on a house system on
+  39b008c, with Allow Dry off a head put in Dry was put back (in about 34 seconds), with it
+  on MXZ left Dry alone with no writes, leaving Dry ran the 10-minute coil dry, and a manual
+  fan pick survived a Home Assistant restart. **Not tested** on hardware: Dry as a cool
+  vote (the house's seasonal Cool lockout was on) and parking a Dry head when another room
+  wins heat; both are covered by the test suite only. MXZ-run dehumidifying to a humidity
+  target is not part of this release.
+
 ## 3.14.0 (October 29, 2026)
 
 Cloud heads (beta). They add a head type and three cloud settings to a room's page.

@@ -91,12 +91,14 @@ from .const import (
     LOST_VOTE_TTL_BOUNDS,
     MAX_ZONES,
     MIN_ZONES,
+    MODE_DRY,
     RESTING_BIAS_OPTIONS,
     UNAVAILABLE_STATES,
     VOTE_BASES,
     VOTE_BASIS_ACTION,
     VOTE_BASIS_MODE,
     WRITE_INTERVAL_BOUNDS,
+    ZONE_ALLOW_DRY,
     ZONE_CLIMATE,
     ZONE_CONFIRM_WAIT,
     ZONE_DRIFT_COOLER_BY,
@@ -212,6 +214,13 @@ def _platform(hass: HomeAssistant, climate_id: str) -> str | None:
     """The integration a head's climate entity comes from, if registered."""
     entry = er.async_get(hass).async_get(climate_id)
     return None if entry is None else entry.platform
+
+
+def _lists_dry(hass: HomeAssistant, climate_id: str) -> bool:
+    """Whether the head lists dry in its hvac_modes now (Allow Dry mode is shown)."""
+    state = hass.states.get(climate_id)
+    modes = state.attributes.get("hvac_modes") if state is not None else None
+    return isinstance(modes, (list, tuple)) and MODE_DRY in modes
 
 
 def _suggested_head_type(hass: HomeAssistant, climate_id: str) -> str:
@@ -667,6 +676,11 @@ _DRIFT_SECTION = "drift"
 # ZONE_DUAL_SETPOINT: True only while on; off removes the key.
 _DUAL_FIELD = "dual_setpoint"
 _DUAL_SECTION = "dual"
+# The room page's Allow Dry mode opt-in, shown only for a head that lists dry.
+# Stored as ZONE_ALLOW_DRY: True only while on; off removes the key. A page
+# that doesn't show it (its head lists no dry now, or is unavailable) leaves
+# whatever is stored alone.
+_ALLOW_DRY_FIELD = "allow_dry"
 # The room page's head type (beta) and, in a collapsed section, a cloud
 # head's settings (flow key, zone key). See ZONE_HEAD_TYPE for what is stored.
 _HEAD_TYPE_FIELD = "head_type"
@@ -765,6 +779,7 @@ def _flow_only_keys() -> frozenset[str]:
     room_keys.add(_HANDS_OFF_FIELD)
     room_keys.add(_VOTE_BASIS_FIELD)
     room_keys.add(_DUAL_FIELD)
+    room_keys.add(_ALLOW_DRY_FIELD)
     room_keys.add(_HEAD_TYPE_FIELD)
     room_keys.update(key for key, _ in _CLOUD_FIELDS)
     section_keys = {key for _, groups in _PAGES.values() for key in groups}
@@ -886,6 +901,7 @@ def _room_view(zone: dict[str, Any]) -> dict[str, Any]:
     view.update({key: zone.get(zone_key) for key, zone_key in _FLOOR_FIELDS})
     view.update({key: zone.get(zone_key) for key, zone_key in _ROOM_DRIFT_FIELDS})
     view[_DUAL_FIELD] = zone.get(ZONE_DUAL_SETPOINT) is True
+    view[_ALLOW_DRY_FIELD] = zone.get(ZONE_ALLOW_DRY) is True
     return view
 
 
@@ -941,10 +957,12 @@ def _room_schema(
     temperature_unit: str = UnitOfTemperature.FAHRENHEIT,
     floor_expanded: bool = False,
     drift_expanded: bool = False,
+    dry: bool = False,
 ) -> vol.Schema:
     """The room page: head type and wiring at the top, then the room's
     uneven drift, the freshness profile, the freeze floor / overheat ceiling,
-    the dual setpoint opt-in, and a cloud head's settings in sections.
+    the dual setpoint opt-in, and a cloud head's settings in sections. With
+    ``dry`` (the head lists dry), Allow Dry mode follows the vote basis.
 
     Suggested values show what is wired now, and an untouched field is
     submitted back with its value, so only an explicit clear removes wiring.
@@ -1059,6 +1077,14 @@ def _room_schema(
                     translation_key="hands_off_vote_basis",
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
+            ),
+            **(
+                {
+                    vol.Optional(
+                        _ALLOW_DRY_FIELD, default=view.get(_ALLOW_DRY_FIELD) is True
+                    ): selector.BooleanSelector(),
+                }
+                if dry else {}
             ),
             vol.Required(_DRIFT_SECTION): section(
                 vol.Schema(drift), {"collapsed": not drift_expanded}
@@ -2750,10 +2776,11 @@ class MXZOptionsFlow(OptionsFlow):
         zone = zones[index]
         unit = str(self.hass.config.units.temperature_unit)
         title = {"room": _room_name(zone, index)}
+        dry = _lists_dry(self.hass, zone[ZONE_CLIMATE])
         if user_input is None:
             return self.async_show_form(
                 step_id="room",
-                data_schema=_room_schema(_room_view(zone), temperature_unit=unit),
+                data_schema=_room_schema(_room_view(zone), temperature_unit=unit, dry=dry),
                 description_placeholders=title,
             )
         values = _flatten(user_input)
@@ -2763,7 +2790,9 @@ class MXZOptionsFlow(OptionsFlow):
         if _freshness_error(profile):
             return self.async_show_form(
                 step_id="room",
-                data_schema=_room_schema(values, expanded=True, temperature_unit=unit),
+                data_schema=_room_schema(
+                    values, expanded=True, temperature_unit=unit, dry=dry
+                ),
                 errors={"base": "freshness_profile_invalid"},
                 description_placeholders=title,
             )
@@ -2771,7 +2800,7 @@ class MXZOptionsFlow(OptionsFlow):
             return self.async_show_form(
                 step_id="room",
                 data_schema=_room_schema(
-                    values, temperature_unit=unit, floor_expanded=True
+                    values, temperature_unit=unit, floor_expanded=True, dry=dry
                 ),
                 errors={"base": "floor_out_of_range"},
                 description_placeholders=title,
@@ -2781,7 +2810,7 @@ class MXZOptionsFlow(OptionsFlow):
             return self.async_show_form(
                 step_id="room",
                 data_schema=_room_schema(
-                    values, temperature_unit=unit, drift_expanded=True
+                    values, temperature_unit=unit, drift_expanded=True, dry=dry
                 ),
                 errors={_DRIFT_SECTION: "not_a_number"},
                 description_placeholders=title,
@@ -2790,7 +2819,7 @@ class MXZOptionsFlow(OptionsFlow):
             error, where = problem
             return self.async_show_form(
                 step_id="room",
-                data_schema=_room_schema(values, temperature_unit=unit),
+                data_schema=_room_schema(values, temperature_unit=unit, dry=dry),
                 errors={where: error},
                 description_placeholders=title,
             )
@@ -2848,6 +2877,13 @@ class MXZOptionsFlow(OptionsFlow):
             zone.pop(ZONE_DUAL_SETPOINT, None)
         if (zone.get(ZONE_DUAL_SETPOINT) is True) != was_dual:
             self._hand_off_dual(zone, now_dual=not was_dual)
+        # Allow Dry mode: stored only while on. A page that didn't show it
+        # leaves what is stored alone.
+        if dry:
+            if values.get(_ALLOW_DRY_FIELD) is True:
+                zone[ZONE_ALLOW_DRY] = True
+            else:
+                zone.pop(ZONE_ALLOW_DRY, None)
         # Head type: stored as cloud; as local only where the head's platform
         # suggests cloud and the room already had an answer (it was cloud, or
         # kept local in setup); otherwise no key, so a CN105 room, and a room

@@ -105,7 +105,7 @@ change while the summary is open can send you back to correct it.
   and setpoint limits, and Standby hold pages, pre-filled with those defaults.
 - Submitting a page keeps its answers and returns to that menu. Nothing is saved until
   **Save and finish**.
-- If the selected heads cannot all use the default Off after drying idle action (it needs
+- If the selected heads cannot all use the default Dry the coil (fan only), then off idle action (it needs
   both `fan_only` and `off`), **Save and finish** opens Fan and idle so you can choose a
   supported alternative. It does not silently replace that default.
 
