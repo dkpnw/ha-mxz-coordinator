@@ -156,8 +156,8 @@
         "data_description": {
           "fan_boost_enable": "Runs the fan faster the further a room is from target, then eases off. Recommended.",
           "fan_boost_max": "Lower this if High is too loud for a bedroom.",
-          "idle_action": "Fan only keeps air moving. Off stops the fan and closes the vanes. Off after drying runs the fan for a while after cooling, then turns off, which helps prevent a musty smell.",
-          "coil_dry_minutes": "Used only by Off after drying. Heating skips it."
+          "idle_action": "Fan only keeps air moving. Off stops the fan and closes the vanes. Dry the coil (fan only), then off runs the fan for a while after cooling, then turns off, which helps prevent a musty smell. It isn't the head's Dry (dehumidify) mode.",
+          "coil_dry_minutes": "Used only by Dry the coil (fan only), then off. Heating skips it."
         }
       },
       "seasons": {
@@ -402,8 +402,8 @@
         "data_description": {
           "fan_boost_enable": "Runs the fan faster the further a room is from target, then eases off. Recommended.",
           "fan_boost_max": "Lower this if High is too loud for a bedroom.",
-          "idle_action": "Fan only keeps air moving. Off stops the fan and closes the vanes. Off after drying runs the fan for a while after cooling, then turns off, which helps prevent a musty smell.",
-          "coil_dry_minutes": "Used only by Off after drying. Heating skips it."
+          "idle_action": "Fan only keeps air moving. Off stops the fan and closes the vanes. Dry the coil (fan only), then off runs the fan for a while after cooling, then turns off, which helps prevent a musty smell. It isn't the head's Dry (dehumidify) mode.",
+          "coil_dry_minutes": "Used only by Dry the coil (fan only), then off. Heating skips it."
         }
       },
       "seasons": {
@@ -602,7 +602,7 @@
       "options": {
         "fan_only": "Fan only",
         "off": "Off",
-        "off_after_dry": "Off after drying (default)"
+        "off_after_dry": "Dry the coil (fan only), then off (default)"
       }
     },
     "fan_speed": {

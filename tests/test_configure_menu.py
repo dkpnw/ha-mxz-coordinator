@@ -530,7 +530,7 @@ async def test_menu_attention_names_stored_problems_and_their_pages(
     assert result["type"] is FlowResultType.MENU
     attention = result["description_placeholders"]["attention"]
     assert attention.startswith("**Needs attention:**"), attention
-    assert "Off after drying" in attention
+    assert "Dry the coil (fan only), then off" in attention
     assert "Fan and idle" in attention
     assert "lowest setpoint" in attention
     assert "Away and setpoint limits" in attention
@@ -554,7 +554,7 @@ async def test_menu_attention_names_stored_problems_and_their_pages(
     ("stored", "expected"),
     [
         (True, "the saved idle action *Fan only*"),
-        (False, "the default idle action *Off after drying*"),
+        (False, "the default idle action *Dry the coil (fan only), then off*"),
     ],
     ids=["stored", "default"],
 )
