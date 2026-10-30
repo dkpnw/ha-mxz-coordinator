@@ -39,6 +39,7 @@ from homeassistant.const import (
 from homeassistant.core import CoreState, Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceNotFound
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity_component import DATA_INSTANCES
 from homeassistant.helpers.event import (
     async_call_later,
@@ -55,12 +56,24 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .capabilities import head_has_fan_auto
+from .cloud import (
+    CLOUD_NOT_CONTROLLABLE,
+    CloudHead,
+    clamp,
+    drive_setpoint,
+    snap_to_step,
+)
 from .const import (
     ACTION_VOTE_HOLD,
     ACTION_VOTE_SETTLE,
     BAND_DRIFT_DELAY,
     BANNED_MODES,
     CHANGEOVER_INTERVAL_MINUTES,
+    CLOUD_FAN_STEP_SECONDS,
+    CLOUD_SILENT_SECONDS,
+    CLOUD_STALE_SECONDS,
+    CLOUD_STEP_C,
+    CLOUD_STEP_F,
     CONF_CHANGEOVER_COOL_BELOW,
     CONF_CHANGEOVER_ENTITY,
     CONF_CHANGEOVER_HEAT_ABOVE,
@@ -96,7 +109,11 @@ from .const import (
     CONF_SECONDARY_VANE_HORIZONTAL,
     CONF_SECONDARY_VANE_VERTICAL,
     CONF_ZONES,
+    CONFIRM_WAIT_BOUNDS,
     DEFAULT_COIL_DRY_MINUTES,
+    DEFAULT_CONFIRM_WAIT,
+    DEFAULT_DRIVE_OFFSET_C,
+    DEFAULT_DRIVE_OFFSET_F,
     DEFAULT_FAN_BOOST_ENABLE,
     DEFAULT_FAN_BOOST_MAX,
     DEFAULT_IDLE_ACTION,
@@ -105,8 +122,11 @@ from .const import (
     DEFAULT_LOST_VOTE_TTL,
     DEFAULT_MODE_HYSTERESIS,
     DEFAULT_RESTING_MODE_BIAS,
+    DEFAULT_WRITE_INTERVAL,
     DEMAND_NEUTRAL,
     DOMAIN,
+    DRIVE_OFFSET_MAX_C,
+    DRIVE_OFFSET_MAX_F,
     DUAL_HANDOFF_KEY,
     DUAL_ZONE_ENTITY_SUFFIXES,
     ENGAGE_SATISFIED,
@@ -117,6 +137,8 @@ from .const import (
     FLOOR_NOTICE_SECONDS,
     FLOOR_STALL_SECONDS,
     FLOOR_YIELD_SECONDS,
+    HEAD_TYPE_CLOUD,
+    HEAD_TYPE_LOCAL,
     HEALTH_AWAITING,
     HEALTH_ELIGIBLE,
     HEALTH_HEALTHY,
@@ -147,15 +169,19 @@ from .const import (
     VOTE_BASIS_ACTION,
     VOTE_BASIS_MODE,
     VOTE_EXPIRED,
+    WRITE_INTERVAL_BOUNDS,
     ZONE_CLIMATE,
+    ZONE_CONFIRM_WAIT,
     ZONE_DRIFT_COOLER_BY,
     ZONE_DRIFT_WARMER_BY,
+    ZONE_DRIVE_OFFSET,
     ZONE_DUAL_SETPOINT,
     ZONE_EVIDENCE_BASIS,
     ZONE_FLOOR_HIGH,
     ZONE_FLOOR_LOW,
     ZONE_HANDS_OFF,
     ZONE_HANDS_OFF_VOTE_BASIS,
+    ZONE_HEAD_TYPE,
     ZONE_MAX_AGE,
     ZONE_NAME,
     ZONE_REPORT_INTERVAL,
@@ -167,6 +193,7 @@ from .const import (
     ZONE_STARTUP_GRACE,
     ZONE_VANE_HORIZONTAL,
     ZONE_VANE_VERTICAL,
+    ZONE_WRITE_INTERVAL,
     unit_profile,
     zone_slug,
 )
@@ -357,6 +384,14 @@ class Zone:
     # A restored range that no longer fit and was re-centered: the room's
     # detail says so until the range is next written.
     range_note: str | None = None
+    # Head type (ZONE_HEAD_TYPE), from config; only a stored "cloud" opts in,
+    # and the coordinator turns an ESPHome head back to local. A cloud room's
+    # drive offset (system unit) and its write interval and confirm wait
+    # (seconds), as stored (None = the default); resolved with the head type.
+    head_type: str = HEAD_TYPE_LOCAL
+    drive_offset: float | None = None
+    write_interval: float | None = None
+    confirm_wait: float | None = None
 
 
 # A room's optional wiring, read as ``z.get(key) or None``, so an empty value
@@ -447,6 +482,13 @@ def _parse_zones(
             drift_cooler_by=_drift_side(z.get(ZONE_DRIFT_COOLER_BY), *engage_bounds),
             drift_warmer_by=_drift_side(z.get(ZONE_DRIFT_WARMER_BY), *engage_bounds),
             dual=z.get(ZONE_DUAL_SETPOINT) is True,
+            head_type=(
+                HEAD_TYPE_CLOUD if z.get(ZONE_HEAD_TYPE) == HEAD_TYPE_CLOUD
+                else HEAD_TYPE_LOCAL
+            ),
+            drive_offset=_finite(z.get(ZONE_DRIVE_OFFSET)),
+            write_interval=_finite(z.get(ZONE_WRITE_INTERVAL)),
+            confirm_wait=_finite(z.get(ZONE_CONFIRM_WAIT)),
         )
         for i, z in enumerate(raw)
     ]
@@ -511,6 +553,16 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.zones: list[Zone] = _parse_zones(
             conf, self.target_default, self._profile["engage_bounds"]
         )
+        # Cloud heads (beta), by head: what MXZ last sent each one and what
+        # it is waiting to see (see cloud.CloudHead). A local head is never in
+        # here, and every cloud branch below keys off this map. Each opens
+        # with one confirm window: a poll from before this start is not a
+        # person's change. One wakeup serves them all (see _sync_cloud_timer).
+        self._cloud: dict[str, CloudHead] = {}
+        self._cloud_timer: Any | None = None
+        cloud_started = time.monotonic()
+        for zone in self.zones:
+            self._resolve_head_type(zone, cloud_started)
         self.dual_min_gap: float = self._profile["dual_min_gap"]
         handoffs: dict[tuple[str, str], dict[str, Any]] = hass.data.setdefault(
             DUAL_HANDOFF_KEY, {}
@@ -989,6 +1041,14 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._on_head_change,
             )
         )
+        if self._cloud:
+            # An unchanged report fires no state change, and it is the one a
+            # quiet cloud head that came back sends.
+            self._unsubs.append(
+                async_track_state_report_event(
+                    self.hass, list(self._cloud), self._on_cloud_report
+                )
+            )
         self._unsubs.append(
             async_track_time_interval(
                 self.hass, self._on_heartbeat, timedelta(minutes=15)
@@ -1066,6 +1126,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._lost_retired = True
         self._cancel_lost_timer()
         self._cancel_settle_timer()
+        self._cancel_cloud_timer()
+        for zone in self.zones:
+            if zone.climate_id in self._cloud:
+                # A stale head's issue is raised again by the next setup, if
+                # it is still stale then; a removed entry leaves none behind.
+                ir.async_delete_issue(
+                    self.hass, DOMAIN,
+                    f"cloud_head_unresponsive_{self.config_entry.entry_id}_{zone.climate_id}",
+                )
         for cancel in self._heal_timers.values():
             cancel()
         self._heal_timers.clear()
@@ -1137,6 +1206,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for i, zone in enumerate(self.zones):
             sight = self._watch_head(zone.climate_id, clock, now)
             status = sight.status(clock, self.lost_vote_ttl)
+            # A cloud head out of MXZ's control (never a local one).
+            cloud_out = self._cloud_watch(zone, now)
             state = self.hass.states.get(zone.sensor_id)
             valid, temp = _read_temp(state, self.target_default, self.temp_unit)
             health, age = self._sensor_health(zone, state, valid, now)
@@ -1234,7 +1305,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 engage = floor
             safety = self._zone_safety(zone)
             vote = self._hands_off_vote(zone, clock, safety=safety)
-            holds = self._holds(status, safety)
+            holds = self._holds(status, safety, cloud_out)
             held_demand = demand if holds else DEMAND_NEUTRAL
             held_engage = engage if holds or floor is not None else ENGAGE_SATISFIED
             arb_demands.extend(
@@ -1329,6 +1400,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         **self._floor_attributes(zone),
                         "floor_want": floors[i],
                         **self.command_attributes(zone.climate_id),
+                        **self._cloud_attributes(zone),
                     }
                     for i, zone in enumerate(self.zones)
                 ],
@@ -1787,6 +1859,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._sync_freshness_timer()
             self._sync_lost_timer()
             self._sync_settle_timer()
+            self._sync_cloud_timer()
             if self._refresh_pending or self._needs_legacy_refresh_guard:
                 self._sync_refresh_followup()
 
@@ -2262,6 +2335,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         if not self._delivery_owned(active):
             return
+        if climate_id in self._cloud:
+            await self._deliver_cloud_steps(climate_id, active, act, low, high, delta, engage)
+            return
         if engage is None:  # fixed standby park or a floor, no fan machinery
             await self._apply_head(climate_id, act, low, high)
             self._floor_accepted(climate_id, active)
@@ -2438,6 +2514,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 for view, zone in zip(plan.get("zones", ()), self.zones):
                     view.update(self.command_attributes(zone.climate_id))
                     view.update(self._floor_attributes(zone))
+                    view.update(self._cloud_attributes(zone))
                     view["control_reasons"] = self._control_reasons(zone)
         for listener in tuple(self._delivery_listeners):
             listener()
@@ -2812,6 +2889,396 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         await self.async_head_service(climate_id, "set_hvac_mode", {"hvac_mode": act})
         await self.async_head_service(climate_id, "set_temperature", setpoints)
+
+    # -- cloud heads (beta) ---------------------------------------------------
+    def _resolve_head_type(self, zone: Zone, clock: float) -> None:
+        """Settle one room's head type and, for a cloud head, its settings.
+
+        Only a stored cloud opts in. An ESPHome head is the CN105 path and is
+        always local, whatever is stored. A cloud room gets no vanes (so no
+        vane kick), no airflow sensor and no dual setpoint, and a hands-off
+        vote by mode: a cloud integration has no vane selects MXZ can kick
+        safely, no stage sensor, one setpoint here, and an hvac_action that
+        is missing or minutes late. Its numbers are clamped into the room
+        page's ranges, so a hand-edited value can't make it write faster.
+        """
+        if zone.head_type != HEAD_TYPE_CLOUD:
+            return
+        entry = er.async_get(self.hass).async_get(zone.climate_id)
+        if entry is not None and entry.platform == "esphome":
+            _LOGGER.warning(
+                "MXZ: %s's head %s is on ESPHome, so it stays local; cloud "
+                "(beta) is for heads behind a cloud integration",
+                zone.name, zone.climate_id,
+            )
+            zone.head_type = HEAD_TYPE_LOCAL
+            return
+        zone.vane_vertical_id = zone.vane_horizontal_id = None
+        zone.stage_sensor_id = None
+        zone.dual = False
+        zone.vote_basis = VOTE_BASIS_MODE
+        offset, most = (
+            (DEFAULT_DRIVE_OFFSET_C, DRIVE_OFFSET_MAX_C) if self.celsius
+            else (DEFAULT_DRIVE_OFFSET_F, DRIVE_OFFSET_MAX_F)
+        )
+        zone.drive_offset = (
+            offset if zone.drive_offset is None
+            else min(max(zone.drive_offset, 0.0), most)
+        )
+        zone.write_interval = _bounded(
+            zone.write_interval, DEFAULT_WRITE_INTERVAL, WRITE_INTERVAL_BOUNDS
+        )
+        zone.confirm_wait = _bounded(
+            zone.confirm_wait, DEFAULT_CONFIRM_WAIT, CONFIRM_WAIT_BOUNDS
+        )
+        self._cloud[zone.climate_id] = CloudHead(
+            write_interval=zone.write_interval,
+            confirm_wait=zone.confirm_wait,
+            window_until=clock + zone.confirm_wait,
+            # A start counts as a fan step: MXZ can't know when it last
+            # stepped this head, so its first boost step waits the full limit.
+            fan_at=clock,
+        )
+
+    def _zone_of(self, climate_id: str) -> Zone | None:
+        return next((zone for zone in self.zones if zone.climate_id == climate_id), None)
+
+    def cloud_setpoint(self, climate_id: str, act: str, low: float, high: float) -> float:
+        """The one setpoint a cloud head gets for heat or cool.
+
+        The room's target as a single-setpoint head gets it (the high edge in
+        cool, the low one in heat), pushed past by the room's drive offset,
+        on the head's own setpoint grid (its target_temp_step in its own
+        unit; with none, 1 °F or 0.5 °C), then inside the band the head
+        accepts.
+        """
+        zone = self._zone_of(climate_id)
+        offset = zone.drive_offset if zone is not None and zone.drive_offset else 0.0
+        value = drive_setpoint(
+            act=act, target=high if act == MODE_COOL else low, offset=offset
+        )
+        entity = self._head_entity(climate_id)
+        try:
+            step = float(entity.target_temperature_step)
+            unit = _native_unit(entity)
+        except (TypeError, ValueError, AttributeError):
+            step, unit = 0.0, None
+        if step > 0 and math.isfinite(step) and unit in (
+            UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT,
+        ):
+            native = snap_to_step(
+                TemperatureConverter.convert(value, self.temp_unit, unit), step
+            )
+            # Two places: a whole °C step back in °F is 69.8, not 69.80000000000001.
+            value = round(TemperatureConverter.convert(native, unit, self.temp_unit), 2)
+        else:
+            value = snap_to_step(value, CLOUD_STEP_C if self.celsius else CLOUD_STEP_F)
+        return clamp(value, self._head_safe_band(climate_id))
+
+    def _cloud_watch(self, zone: Zone, wall: float) -> bool:
+        """Whether a cloud room's head is out of MXZ's control now.
+
+        Out once it has been unavailable (or has no state at all, timed from
+        this coordinator's start) for CLOUD_STALE_SECONDS, or available but
+        sending no report at all, not even an unchanged one, for
+        CLOUD_SILENT_SECONDS. Each edge is logged once, and a repair issue
+        stands while it lasts.
+        """
+        cloud = self._cloud.get(zone.climate_id)
+        if cloud is None:
+            return False
+        since, limit = self._cloud_seen(zone.climate_id)
+        out = wall - since >= limit
+        if out != cloud.unresponsive:
+            cloud.unresponsive = out
+            issue_id = f"cloud_head_unresponsive_{self.config_entry.entry_id}_{zone.climate_id}"
+            if out:
+                _LOGGER.warning(
+                    "MXZ: cloud head %s (%s) has been unavailable or silent for "
+                    "%d minutes; MXZ stops writing it and its room's call no "
+                    "longer counts (unless its Safety priority sensor is on)",
+                    zone.climate_id, zone.name, limit // 60,
+                )
+                ir.async_create_issue(
+                    self.hass, DOMAIN, issue_id,
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="cloud_head_unresponsive",
+                    translation_placeholders={
+                        "room": zone.name,
+                        "head": zone.climate_id,
+                        "minutes": str(limit // 60),
+                    },
+                )
+            else:
+                _LOGGER.info(
+                    "MXZ: cloud head %s (%s) is reporting again; MXZ controls it again",
+                    zone.climate_id, zone.name,
+                )
+                ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+        return out
+
+    def _cloud_seen(self, climate_id: str) -> tuple[float, int]:
+        """When a cloud head last showed it is there (wall clock), and the limit.
+
+        Its last report, changed or not, while available (CLOUD_SILENT_SECONDS);
+        the moment it went unavailable while it is, or this coordinator's
+        start if it has no state (CLOUD_STALE_SECONDS).
+        """
+        head = self.hass.states.get(climate_id)
+        if head is None:
+            return self._started_ts, CLOUD_STALE_SECONDS
+        if head.state == STATE_UNAVAILABLE:
+            return head.last_changed.timestamp(), CLOUD_STALE_SECONDS
+        reported = getattr(head, "last_reported", None) or head.last_updated
+        return reported.timestamp(), CLOUD_SILENT_SECONDS
+
+    def _cloud_stale_report(
+        self, climate_id: str, *, mode: str | None = None, fan: str | None = None
+    ) -> bool:
+        """Whether this report of a cloud head can be an older state, not a person.
+
+        Always False for a local head, so no local check changes.
+        """
+        cloud = self._cloud.get(climate_id)
+        return cloud is not None and cloud.stale(time.monotonic(), mode=mode, fan=fan)
+
+    def _cloud_attributes(self, zone: Zone) -> dict[str, Any]:
+        """A cloud room's head type, write state and settings; nothing for a local one.
+
+        A local row stays exactly what it was before cloud heads existed (the
+        3.9.0 pins hold it), so a row with no head_type is a local head.
+        """
+        cloud = self._cloud.get(zone.climate_id)
+        if cloud is None:
+            return {}
+        clock = time.monotonic()
+        left = cloud.window_until - clock
+        return {
+            "head_type": HEAD_TYPE_CLOUD,
+            # pending / confirmed / unconfirmed / not_controllable
+            "cloud_status": cloud.status(clock),
+            "cloud_pending_until": (
+                dt_util.utc_from_timestamp(round(dt_util.utcnow().timestamp() + left)).isoformat()
+                if left > 0 else None
+            ),
+            "cloud_confirmed_at": cloud.confirmed_at,
+            "drive_offset": zone.drive_offset,
+            "write_interval": zone.write_interval,
+            "confirm_wait": zone.confirm_wait,
+        }
+
+    async def _deliver_cloud_steps(
+        self, climate_id: str, active: dict[str, Any], act: str,
+        low: float, high: float, delta: float, engage: str | None,
+    ) -> None:
+        """One cloud head's write batch, or nothing.
+
+        Nothing while the head is out of control or not reporting a mode,
+        nothing in the confirm wait a new coordinator opens, and nothing while
+        its last batch carried this same mode and setpoint and its confirm
+        wait is still running. Otherwise the batch holds only
+        what the head doesn't already show: the mode on its own call first
+        (comfort_HA drops one inside set_temperature), then one setpoint,
+        then the fan (before the mode when handing the fan back to auto on
+        the way to off, as a local head gets it). A batch that has to wait
+        out the write interval goes out later as whatever the plan wants
+        then. A head showing everything wanted, once its window is over, is
+        confirmed.
+        """
+        cloud = self._cloud[climate_id]
+        clock = time.monotonic()
+        state = self.hass.states.get(climate_id)
+        if cloud.unresponsive or state is None or state.state in UNAVAILABLE_STATES:
+            return
+        if engage is not None:
+            if act in (MODE_COOL, MODE_HEAT):
+                self._last_active[climate_id] = (act, clock)
+            if act != MODE_FAN_ONLY:
+                self._cancel_dry_timer(climate_id)
+        setpoint = (
+            self.cloud_setpoint(climate_id, act, low, high)
+            if act in (MODE_COOL, MODE_HEAT) else None
+        )
+        if cloud.pending(clock) and (
+            cloud.startup
+            or cloud.intent is not None and cloud.intent[:2] == (act, setpoint)
+        ):
+            # Sent, and waiting for the head to report it; or just started,
+            # when MXZ can't know what it sent before (a batch a moment
+            # before a reload is still pending at the head).
+            self._floor_accepted(climate_id, active)
+            return
+        fan = None
+        if engage is not None and not self.inhibited:
+            fan = self._cloud_fan(climate_id, cloud, state, act, delta, engage, clock)
+        cur_mode = state.state
+        calls: list[tuple[str, dict[str, Any]]] = []
+        if cur_mode != act:
+            calls.append(("set_hvac_mode", {"hvac_mode": act}))
+        if setpoint is not None and (
+            cur_mode != act or not self._head_already_at(
+                climate_id, _as_float(state.attributes.get("temperature")), setpoint
+            )
+        ):
+            calls.append(("set_temperature", {"temperature": setpoint}))
+        if fan is not None:
+            # Before the off of a hand-back to auto, after everything else.
+            calls.insert(0 if act == MODE_OFF else len(calls), ("set_fan_mode", {"fan_mode": fan}))
+        if not calls:
+            self._floor_accepted(climate_id, active)
+            if not cloud.pending(clock) and not cloud.confirmed:
+                cloud.confirmed = True
+                cloud.confirmed_at = dt_util.utcnow().isoformat()
+                self._publish_delivery()
+            return
+        if (wait := cloud.wait_for_slot(clock)) > 0:
+            cloud.release_at = clock + wait
+            _LOGGER.debug(
+                "MXZ: cloud head %s waits %.0f s for its write interval", climate_id, wait
+            )
+            return
+        shown_fan = state.attributes.get("fan_mode")
+        cloud.sent(
+            clock, (act, setpoint, fan), cur_mode,
+            shown_fan if isinstance(shown_fan, str) else None,
+        )
+        if fan is not None:
+            if act in (MODE_COOL, MODE_HEAT):
+                cloud.fan_at = clock
+            if fan in FAN_LADDER:
+                # A boost rung counts only once it goes out: a batch the write
+                # interval held must not climb on while it waits.
+                self._fan_idx[climate_id] = FAN_LADDER.index(fan)
+            # The latch's command memory, exactly as a local fan write keeps it.
+            if fan != self._fan_cmd.get(climate_id):
+                self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, fan)
+                self._fan_cmd[climate_id] = fan
+            self._publish_fan_state(climate_id)
+        _LOGGER.debug("MXZ: cloud head %s batch %s", climate_id, calls)
+        self._publish_delivery()
+        for service, payload in calls:
+            if not self._delivery_owned(active):
+                return
+            await self.async_head_service(climate_id, service, payload)
+        self._floor_accepted(climate_id, active)
+
+    def _cloud_fan(
+        self, climate_id: str, cloud: CloudHead, state: Any, act: str,
+        delta: float, engage: str, clock: float,
+    ) -> str | None:
+        """The fan token this cloud batch carries, else None (no fan write).
+
+        Local fan boost, with two differences. No fan decision on a report of
+        an older fan inside a confirm wait: it is a poll from before the last
+        batch, and the manual-fan latch must not read it as a person's pick
+        (a fan the head never had is read as usual). And a boost speed is
+        written at most once per
+        CLOUD_FAN_STEP_SECONDS, one ladder rung at a time (a start counts as
+        a write); a step held back sends nothing and wakes the plan when due.
+        As locally, only the head's own tokens are sent: a ladder rung it
+        doesn't list is passed over.
+        """
+        if not self.fan_boost_enable:
+            return None
+        modes = state.attributes.get("fan_modes")
+        if not modes or FAN_AUTO not in modes:
+            return None
+        observed = state.attributes.get("fan_mode")
+        if observed is None or cloud.stale(clock, fan=observed):
+            # Nothing to decide on: no speed, or a late report of an older
+            # one inside the confirm wait (not a person's pick).
+            return None
+        handback = (
+            act == MODE_OFF and self.idle_action != IDLE_ACTION_FAN_ONLY
+            and engage != MODE_OFF and not self._eco_active()
+            and state.state != MODE_OFF
+        )
+        fan_act = MODE_FAN_ONLY if handback else act
+        held = self._observe_fan_latch(climate_id, observed, fan_act, delta)
+        self._publish_fan_state(climate_id)
+        if held:
+            return None
+        if fan_act in (MODE_COOL, MODE_HEAT) and not self.eco_idle:
+            cur = self._fan_idx.get(climate_id, 0)
+            want = fan_for_delta(
+                delta=delta, cur_idx=cur, up_at=self.fan_up_at,
+                down_at=self.fan_down_at, max_idx=self._fan_max_idx(),
+            )
+            if want != cur:
+                want = cur + (1 if want > cur else -1)
+            token = FAN_LADDER[want]
+            if observed == token:
+                self._fan_idx[climate_id] = want
+                return None
+            since = clock - (cloud.fan_at if cloud.fan_at is not None else -math.inf)
+            if since < CLOUD_FAN_STEP_SECONDS:
+                # Not yet: the head keeps the fan it has, and the plan wakes
+                # when the step is due.
+                cloud.release_at = clock + CLOUD_FAN_STEP_SECONDS - since
+                return None
+            if token in modes:
+                return token  # its rung is committed when the batch goes out
+            # A rung this head doesn't list is passed over without a write,
+            # so it doesn't spend the step: the next rung can follow at once.
+            self._fan_idx[climate_id] = want
+            return None
+        elif fan_act == MODE_FAN_ONLY or self.eco_idle:
+            self._fan_idx.pop(climate_id, None)
+            token = FAN_AUTO
+        else:  # off
+            self._fan_idx.pop(climate_id, None)
+            return None
+        if token not in modes or observed == token:
+            return None
+        return token
+
+    def _sync_cloud_timer(self) -> None:
+        """Keep one wakeup armed for the nearest cloud head deadline.
+
+        The end of a confirm window (confirm, or send again), a batch or fan
+        step held back by its limit, and the moment a quiet head would become
+        not controllable. A cloud head that reports nothing new emits nothing,
+        so without this each would wait for an unrelated update.
+        """
+        self._cancel_cloud_timer()
+        if self._retired or not self._cloud:
+            return
+        clock = time.monotonic()
+        wall = dt_util.utcnow().timestamp()
+        waits: list[float] = []
+        for climate_id, cloud in self._cloud.items():
+            if cloud.pending(clock):
+                waits.append(cloud.window_until - clock)
+            if cloud.release_at is not None and cloud.release_at > clock:
+                waits.append(cloud.release_at - clock)
+            if not cloud.unresponsive:
+                since, limit = self._cloud_seen(climate_id)
+                waits.append(since + limit - wall)
+        waits = [wait for wait in waits if wait > 0]
+        if not waits:
+            return
+
+        @callback
+        def _fire(_now: Any) -> None:
+            self._cloud_timer = None
+            if self._retired:
+                return  # cancelling cannot recall a callback already in flight
+            self.hass.async_create_task(self.async_request_refresh())
+
+        self._cloud_timer = async_call_later(self.hass, min(waits), _fire)
+
+    def _cancel_cloud_timer(self) -> None:
+        if self._cloud_timer is not None:
+            self._cloud_timer()
+            self._cloud_timer = None
+
+    @callback
+    def _on_cloud_report(self, event: Event) -> None:
+        """A cloud head reported, changed or not: one out of control is back."""
+        cloud = self._cloud.get(event.data["entity_id"])
+        if cloud is not None and cloud.unresponsive:
+            self.hass.async_create_task(self.async_request_refresh())
 
     async def _apply_fan(self, climate_id: str, act: str, delta: float) -> None:
         """Drive the head's fan speed from ``delta`` (°F off-target). Idempotent.
@@ -3625,7 +4092,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             None,
         )
         if pending is not None:
-            if mode == MODE_OFF and self._planned_act_for(entity_id) != MODE_OFF:
+            if (
+                mode == MODE_OFF and self._planned_act_for(entity_id) != MODE_OFF
+                and not self._cloud_stale_report(entity_id, mode=mode)
+            ):
                 # A reported OFF beyond our own sensor-failure park cancels
                 # the remembered startup run, just like OFF present at restore.
                 self._startup_resume[pending.slug] = ""
@@ -3665,6 +4135,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             and old_mode not in (None, *UNAVAILABLE_STATES)
             and entity_id not in self._vane_kicks
             and entity_id not in self._vane_kick_woken
+            and not self._cloud_stale_report(entity_id, mode=mode)
         ):
             for zone in self.zones:
                 if (
@@ -3674,9 +4145,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ):
                     self._floor_yield_to_person(zone, dt_util.utcnow().timestamp())
                     refresh_needed = True
+        # A cloud head's report of an older state inside its confirm wait is
+        # not drift either (never true for a local head).
+        stale = self._cloud_stale_report(entity_id, mode=mode)
         self._arm_or_cancel(
             entity_id, "band",
-            mode in BANNED_MODES and not self._hands_off_head(entity_id),
+            mode in BANNED_MODES and not self._hands_off_head(entity_id) and not stale,
             BAND_DRIFT_DELAY,
         )
         # Never heal a head the standby hold parked off (nor a wall override
@@ -3690,8 +4164,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             and not self.eco_idle
             and not self.inhibited
             and self._planned_act_for(entity_id) != MODE_OFF
+            and not stale
         )
         self._arm_or_cancel(entity_id, "off", off_drift, OFF_WHILE_ENABLED_DELAY)
+        if (cloud := self._cloud.get(entity_id)) is not None and cloud.unresponsive:
+            refresh_needed = True  # an out-of-control cloud head reported again
 
         # A fan_mode change is a latch-relevant observation (a manual pick, an
         # `auto` handback, or our own write's echo): refresh promptly so the
@@ -3760,6 +4237,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 and not self.eco_idle
                 and self._planned_act_for(entity_id) != MODE_OFF
             )
+        still = still and not self._cloud_stale_report(entity_id, mode=mode)
         if still and self.coordinator_enable and not self.inhibited:
             self.hass.async_create_task(self._heal_and_notify())
 
@@ -3833,6 +4311,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._hands_off_phase(zone) != "released" or self.inhibited:
             return None  # (a standby hold is holding it off)
         sight = self._sight[zone.climate_id]
+        if (cloud := self._cloud.get(zone.climate_id)) is not None and (
+            cloud.unresponsive or cloud.stale(clock, mode=sight.mode)
+        ):
+            # A cloud head out of control, or reporting what may be an older
+            # state inside its confirm wait, shows nothing to vote on.
+            return None
         if safety or self._vote_basis(zone) != VOTE_BASIS_ACTION:
             return sight.vote(clock, self.lost_vote_ttl)
         return sight.action_vote(clock, self.lost_vote_ttl, self.action_vote_hold)
@@ -3903,16 +4387,19 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return None if wall is None else dt_util.utc_from_timestamp(wall).isoformat()
 
     @staticmethod
-    def _holds(status: str | None, safety: bool) -> bool:
+    def _holds(status: str | None, safety: bool, cloud_out: bool = False) -> bool:
         """Whether a room's own demand and run still count in arbitration.
 
         Not once its head's vote has expired: a long-lost head must not hold
         the shared mode for its room forever while a sibling waits. Kept as in
         3.10.0, pending Drew's call: a room marked Safety priority with its
         sensor on (its demand is a safety want), and a tripped floor or
-        ceiling (its own entry, never dropped here).
+        ceiling (its own entry, never dropped here). Likewise not while a
+        cloud head is out of MXZ's control (``cloud_out``): MXZ can't run it,
+        so its room's call would only hold the outdoor unit for nothing. A
+        Safety priority room still calls from its room sensor.
         """
-        return safety or status != VOTE_EXPIRED
+        return safety or (status != VOTE_EXPIRED and not cloud_out)
 
     def _held_calls(self, plan: dict[str, Any]) -> tuple[list[str], list[str]]:
         """Each room's (demand, engage) from a computed plan, as arbitration counts them.
@@ -3926,7 +4413,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for zone, view in zip(self.zones, views):
             demand = plan[f"{zone.slug}_demand"]
             engage = plan[f"{zone.slug}_engage"]
-            if self._holds(view.get("vote_status"), bool(view.get("safety_priority"))):
+            if self._holds(
+                view.get("vote_status"), bool(view.get("safety_priority")),
+                view.get("cloud_status") == CLOUD_NOT_CONTROLLABLE,
+            ):
                 demands.append(demand)
                 engages.append(engage)
             else:
@@ -4257,6 +4747,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         gets the clear line's."""
         if head.state != direction:
             return  # off, another mode: decision 5 (back to off)
+        if zone.climate_id in self._cloud:
+            # Not on a cloud head (beta): giving a person's run back reads
+            # their setpoints off the head, and a cloud head shows MXZ's
+            # offset setpoint, minutes late. Its run ends as decision 5's.
+            return
         if (setting := _floor_setting(head)) is None:
             setting = self._floor_line(zone, direction)
         self._floor_prior[zone.slug] = (direction, *setting)
@@ -5225,6 +5720,13 @@ def _lost_vote_minutes(value: Any) -> float:
     if not math.isfinite(number):
         return float(DEFAULT_LOST_VOTE_TTL)
     return min(max(number, float(low)), float(high))
+
+
+def _bounded(value: float | None, default: float, bounds: tuple[float, float]) -> float:
+    """A stored setting inside ``bounds``; None (not set) is ``default``."""
+    if value is None:
+        return float(default)
+    return float(min(max(value, bounds[0]), bounds[1]))
 
 
 def _finite(value: Any) -> float | None:

@@ -8,6 +8,55 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
+## 3.14.0 (October 29, 2026)
+
+Cloud heads (beta). They add a head type and three cloud settings to a room's page.
+Nothing changes for an existing room until you set it to cloud, and ESPHome (CN105) heads
+are always driven as before.
+
+- **Cloud heads (beta).** A head that reaches Home Assistant through a cloud integration
+  (MELCloud, or Kumo Cloud through comfort_HA or hass-kumo) can now be coordinated as a
+  cloud head, opt-in per room. Setup asks about each head from the `melcloud`,
+  `kumo_cloud` or `kumo` integration with **Cloud (beta)** filled in for you to confirm;
+  any room can be set on its page (Configure → Rooms → (room) → **Head type**). An ESPHome
+  head is always local, and an existing room stays local until you choose otherwise: a
+  room's page shows Local until you choose Cloud (beta) there, so saving it for anything
+  else never makes a room cloud. For
+  a cloud head MXZ sends the mode on its own call, then one setpoint (never a low/high
+  pair) pushed past the target by the room's **Setpoint drive offset** while the room runs
+  (2 °F / 1 °C by default, 0 for the bare target), rounded to the head's own step and
+  kept inside its limits; the room sensor still decides when the room is done. It writes
+  a head at most once per **Write interval** (60 s, 30-300 s), sending the newest change
+  when the interval ends, and waits a **Confirm wait** after each write (90 s, up to 600 s)
+  in which it sends nothing again and reads a report of an older state as late, not as
+  someone's change, so a late poll can't start a fan hold or an off-while-running alert.
+  Fan boost steps one speed at most every 5 minutes. After a restart or reload MXZ holds
+  each cloud head for one confirm wait, in which an own-remote room whose cloud head is
+  under its own remote has no vote. A head unavailable for 15 minutes, or silent for 35 (Home
+  Assistant's own MELCloud integration reports a quiet head every 15 minutes), is not
+  controllable: MXZ stops writing it, its room's call stops counting toward the
+  shared mode (unless the room's Safety priority sensor is on), and a repair issue says so
+  until it reports again. Off for cloud heads in this beta: vanes and the vane kick, the
+  airflow (stage) sensor, dual setpoint, and a vote only while running (own-remote rooms
+  vote by mode); a freeze floor over a person's own run ends with the head off rather than
+  handed back. The room's row on the plan sensor shows `head_type: cloud`,
+  `cloud_status` (`pending`, `confirmed`, `unconfirmed` or `not_controllable`),
+  `cloud_pending_until`, `cloud_confirmed_at` and the three settings; a local room's row is
+  unchanged. Tested on invented heads that behave like comfort_HA (drops the mode inside
+  `set_temperature`, 1 °F step, no `hvac_action`, late reports) and MELCloud (0.5 °C step,
+  reports when polled, drops writes when rate limited, goes unavailable), not yet on a
+  real cloud head; a new issue form, **Cloud head beta report**, asks for what we need
+  to know. The idea and the setpoint drive offset, with its 2 °F and 90-second defaults,
+  come from @mikepell007's MIT-licensed
+  [mxz_coordinator_blueprint](https://github.com/mikepell007/mxz_coordinator_blueprint),
+  reimplemented here with no blueprint code. Prompted by @mw1029's report on the
+  [Home Assistant forum](https://community.home-assistant.io/t/1018382).
+- **Tested** with the full test suite (2660 tests, full and fakeboot) on every supported
+  Home Assistant lane, and on hardware: the Bedroom CN105 head on a house system on
+  57cd00b stayed local, with the same single call, voting, hold and drop as before. **Not
+  tested** on a real cloud head: that hardware check was waived because the test house
+  has no cloud heads.
+
 ## 3.13.2 (October 29, 2026)
 
 A wake-up fix for heads from cloud integrations, and test-only preparation for Home

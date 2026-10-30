@@ -237,6 +237,75 @@ Each is off or blank until you set it:
 What happens when a head drops off the network is in
 [When a head goes unavailable](docs/FEATURES.md#when-a-head-goes-unavailable).
 
+## Cloud heads (beta)
+
+MXZ was built for heads on the
+[echavet/MitsubishiCN105ESPHome](https://github.com/echavet/MitsubishiCN105ESPHome)
+firmware. A head that reaches Home Assistant through a cloud integration instead, such as
+MELCloud or Kumo Cloud, can be coordinated too, as a beta. It's opt-in for each room.
+
+**Turn it on.** Setup asks about each head from Home Assistant's `melcloud`, the
+`kumo_cloud` integration ([comfort_HA](https://github.com/jjustinwilson/comfort_HA)), or
+the `kumo` integration ([hass-kumo](https://github.com/dlarrick/hass-kumo)), with
+**Cloud (beta)** filled in for you to confirm. For any other head, or later, use
+Configure → Rooms → (room) → **Head type**. An ESPHome head is always local. Upgrading
+changes nothing: every existing room stays local until you choose cloud on its page. A
+room's page shows **Head type** as Local until you choose Cloud (beta) there, so saving
+the page for anything else never makes a room cloud.
+Reconfigure doesn't ask about a head it adds, so set that head's type on its room page.
+
+**What MXZ does differently for a cloud head.** A cloud integration polls, so its head
+reports a command seconds to minutes late, may drop writes it gets too fast, and can't
+take your room sensor as its own. So for a cloud head MXZ:
+
+- sends the mode on its own call, then one setpoint (never a low/high pair);
+- sends a setpoint past your target while the room runs, by the room's **Setpoint drive
+  offset** (2 °F / 1 °C by default, 0 for the bare target), so the head's own sensor
+  doesn't stop it early. Your room sensor still decides when the room is done. The
+  setpoint is rounded to the head's own step (1 °F or 0.5 °C if it reports none) and kept
+  inside the head's limits;
+- writes each head at most once per **Write interval** (60 s by default, 30-300 s). A
+  newer change waits and replaces the older one;
+- waits a **Confirm wait** (90 s by default, up to 600 s) after each write. In that time it
+  sends nothing again and reads a report of an older state as late, not as someone's
+  change. A head still not showing the write after it is sent the write again;
+- steps fan boost one speed at a time, at most once every 5 minutes;
+- holds a cloud head for one confirm wait after a restart or reload, so a write just
+  before it isn't sent twice and a late report isn't taken for someone's change. For that
+  wait an own-remote room whose cloud head is under its own remote has no vote;
+- stops writing a head that has been unavailable for 15 minutes, or available but
+  silent (no report at all) for 35 minutes, and stops counting its room's heat or cool
+  call (a room with its Safety priority sensor on still calls from its room sensor). A
+  repair issue says so until the head reports again. Silence gets longer because Home
+  Assistant's own MELCloud integration reports a quiet head only every 15 minutes.
+
+The three settings are in the room page's **Cloud head (beta)** section.
+
+| Feature | On a cloud head |
+| --- | --- |
+| Shared heat/cool mode, room order, 10-minute switch wait, idle parking (fan only, off, off after drying), away (eco), standby hold, safety priority, freeze floor and overheat ceiling (from the room sensor), weather lockouts, restart memory, room thermostats, plan sensor | Works |
+| Fan boost | Slower: one speed every 5 minutes. Only speeds named like MXZ's ladder (quiet, low, medium, middle, high) that the head lists are used; a head whose speeds are named otherwise keeps its own fan. |
+| Own-remote rooms | Vote by mode only. |
+| Timing | Minutes, not seconds. |
+| Comfort accuracy | The head's own sensor plus the drive offset. |
+| A freeze floor over a person's own run (own-remote room) | MXZ runs it, then turns the head off; it doesn't give the person's run back. |
+| Room sensor fed to the head (`remote_temperature`), vanes and the vane kick, dual setpoint, vote only while running, airflow (stage) sensor | Off in this beta. MXZ itself sends `remote_temperature` to no head: on CN105 heads it's set up in the firmware. |
+
+On `sensor.*_plan`, a cloud room's row shows `head_type: cloud`, `cloud_status`
+(`pending`, `confirmed`, `unconfirmed`, or `not_controllable`), `cloud_pending_until`,
+`cloud_confirmed_at` (when MXZ last saw the head holding everything it sent), and the
+room's three settings. A row with no `head_type` is a local head.
+
+**Beta caveats.** Tested on invented heads that behave like comfort_HA and MELCloud, not
+yet on real cloud heads. Don't run MXZ and an automation such as the cloud-head blueprint
+on the same heads. If you try it, please
+[report how it went](https://github.com/dkpnw/ha-mxz-coordinator/issues/new?template=cloud_beta_report.yml),
+good or bad. The idea and the setpoint drive offset come from
+[@mikepell007](https://github.com/mikepell007)'s
+[mxz_coordinator_blueprint](https://github.com/mikepell007/mxz_coordinator_blueprint)
+(MIT), and the first report from **mw1029** on the
+[Home Assistant forum](https://community.home-assistant.io/t/1018382).
+
 <a id="configure-comfort-and-sensor-settings"></a><a id="saving-rules-warnings-and-clearing-fields"></a><a id="choose-a-sensor-freshness-contract"></a>
 
 ## Tune it
@@ -251,7 +320,7 @@ pages, and each saves only what it shows:
 | **Seasons** | A weather source and the heat and cool lockout temperatures, with safety overrides. |
 | **Away and setpoint limits** | The away band, and the lowest and highest setpoint a head may get. |
 | **Standby hold** | An optional hold signal, its active state, and what heads do during a hold. |
-| **Rooms** | One page per room: vanes, airflow sensor, safety priority, own-remote control, uneven drift, sensor freshness, freeze floor, and dual setpoint. |
+| **Rooms** | One page per room: head type (local or cloud beta), vanes, airflow sensor, safety priority, own-remote control, uneven drift, sensor freshness, freeze floor, dual setpoint, and a cloud head's settings. |
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-menu-dark.png">
@@ -317,7 +386,8 @@ MXZ Coordinator got this good because people ran it on their own systems, found 
 - [@andrewblane](https://github.com/andrewblane) found on a 6-zone system that the first two zones ignored their own names, and sent the fix ([#8](https://github.com/dkpnw/ha-mxz-coordinator/pull/8), 3.0.0-beta.16). He also caught a parked room's tile showing heating or cooling during a standoff, and sent that fix too ([#16](https://github.com/dkpnw/ha-mxz-coordinator/pull/16), 3.1.3).
 - [@helicopterrun](https://github.com/helicopterrun) validated it on 3-zone hardware and did relentless, root-caused QA through the v3 beta ([#4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4), [#5](https://github.com/dkpnw/ha-mxz-coordinator/issues/5), [#6](https://github.com/dkpnw/ha-mxz-coordinator/issues/6), [#7](https://github.com/dkpnw/ha-mxz-coordinator/issues/7)). Those reports led to the removal docs, single-setpoint head support, and entry-scoped restore.
 - [@oliverbrandmueller](https://github.com/oliverbrandmueller) asked for metric units ([#2](https://github.com/dkpnw/ha-mxz-coordinator/issues/2)). Since 2.8.0 the coordinator runs in your Home Assistant temperature unit from end to end.
-- **mw1029** on the [Home Assistant forum](https://community.home-assistant.io/t/1018382) tried MXZ with the cloud-based `comfort_HA` integration and posted both entity dumps, which showed exactly where the two don't line up. Support for it is in progress.
+- **mw1029** on the [Home Assistant forum](https://community.home-assistant.io/t/1018382) tried MXZ with the cloud-based `comfort_HA` integration and posted both entity dumps, which showed exactly where the two don't line up. Their report led to the separate mode call (3.13.2) and to cloud heads (beta, 3.14.0).
+- [@mikepell007](https://github.com/mikepell007) (Michael Pellegrino) wrote [mxz_coordinator_blueprint](https://github.com/mikepell007/mxz_coordinator_blueprint) (MIT), a blueprint that ports MXZ's core decisions to heads behind MELCloud and Kumo Cloud. Cloud heads (beta) are their idea, and so are the setpoint drive offset and its defaults (2 °F, and a 90-second wait after writing). MXZ reimplements them in Python; no blueprint code is used.
 - [@csingley](https://github.com/csingley) (Chris Singley):
   - **Own-remote rooms (3.6.0).** He noticed that a room left to its own remote is invisible to the heat-versus-cool standoff, even while it is really heating or cooling on the shared outdoor unit, and sent a fix with a test ([#27](https://github.com/dkpnw/ha-mxz-coordinator/pull/27)). He followed it with [#28](https://github.com/dkpnw/ha-mxz-coordinator/pull/28), which lets a disabled room's head stay under its own remote. The per-room **Let its own remote run it while disabled** setting is built from both, with him as co-author, and he tested it on his own 4-zone MXZ-4C36NA2 before release.
   - **Safety priority (3.7.0).** He designed and wrote the safety-priority arbitration ([#31](https://github.com/dkpnw/ha-mxz-coordinator/pull/31)): every room's heat or cool want ranked in one priority order, with an optional per-room **Safety priority** sensor that lifts a room's own want above every other room's. It shipped not yet tested on hardware. The 3.7.0 freeze floor and overheat ceiling build on his safety tier: a tripped floor or ceiling is one more want in that same priority order, with the freeze floor ranked first and a ceiling settled against a safety room by room order.

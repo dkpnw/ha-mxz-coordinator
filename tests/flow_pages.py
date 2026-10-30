@@ -62,8 +62,10 @@ ROOM_SECTION_FIELDS: dict[str, tuple[str, ...]] = {
     "drift": ("room_cooler_by", "room_warmer_by"),
     "floor": ("floor_low", "floor_high"),
     "dual": ("dual_setpoint",),
+    "cloud": ("drive_offset", "write_interval", "confirm_wait"),
 }
 ROOM_FIELDS: tuple[str, ...] = (
+    "head_type",
     "stage",
     "vane_vertical",
     "vane_horizontal",
@@ -74,11 +76,16 @@ ROOM_FIELDS: tuple[str, ...] = (
     *SECTION_FIELDS["freshness"],
     *ROOM_SECTION_FIELDS["floor"],
     *ROOM_SECTION_FIELDS["dual"],
+    *ROOM_SECTION_FIELDS["cloud"],
 )
 GLOBAL_PAGES = tuple(PAGE_FIELDS)
 # Every key that exists only as flow input and must never be stored flat.
 FLOW_ONLY_KEYS = frozenset(
-    {*SECTION_FIELDS, *ROOM_SECTION_FIELDS, *ROOM_FIELDS, "next_step_id"}
+    {
+        *SECTION_FIELDS, *ROOM_SECTION_FIELDS, *ROOM_FIELDS, "next_step_id",
+        # The setup flow's head type confirmation, one per priority slot.
+        *(f"head_type_{slot}" for slot in range(1, 9)),
+    }
 )
 
 

@@ -38,7 +38,8 @@ nothing and leave today's behavior unchanged.
 | **Standby hold** | Hold signal | none | An external signal that holds enabled coordination. Missing, `unknown`, or `unavailable` input releases the hold. |
 | | Active state | `on` | The signal state that means "hold". Many grid sensors read `off` when the grid is down. |
 | | During a hold | `eco` | `eco`, `off`, or `fan_only`. |
-| **Rooms** (one page per room, in priority order, titled by the room's name) | Airflow sensor, Vertical vane, Horizontal vane | detected at setup | Correct detection, select another entity, or clear a field to remove that optional wiring. |
+| **Rooms** (one page per room, in priority order, titled by the room's name) | Head type | Local | Local, or Cloud (beta) for a head behind a cloud integration. Only setup suggests Cloud (beta), for a `melcloud`, `kumo_cloud` or `kumo` head; this page shows Local until you choose Cloud (beta) here. An ESPHome head is always local. See [Cloud heads (beta)](../README.md#cloud-heads-beta). |
+| | Airflow sensor, Vertical vane, Horizontal vane | detected at setup | Correct detection, select another entity, or clear a field to remove that optional wiring. |
 | | Safety priority sensor | none | See [Safety priority](FEATURES.md#safety-priority). |
 | | Let its own remote run it while disabled | off | See [Run one room from its own remote](FEATURES.md#run-one-room-from-its-own-remote). |
 | | While its own remote runs it, its vote counts | Whenever it is set to heat or cool | Or **Only while it is heating or cooling** (plus 10 minutes after it stops). Stored as `hands_off_vote_basis: action` only when chosen. See [Count its vote only while it runs](FEATURES.md#count-its-vote-only-while-it-runs). |
@@ -46,6 +47,9 @@ nothing and leave today's behavior unchanged.
 | | *Sensor freshness:* Report interval, Maximum age, Startup grace, Freshness evidence, Sample time attribute, Sample counter attribute | empty | See [Choose a sensor freshness contract](#choose-a-sensor-freshness-contract). |
 | | *Freeze floor and overheat ceiling:* Freeze floor / Overheat ceiling | empty (range 35–65 / 2–18 and 75–100 / 24–38) | See [Freeze floor and overheat ceiling](FEATURES.md#freeze-floor-and-overheat-ceiling). |
 | | *Dual setpoint:* Use separate heat and cool setpoints | off | See [Dual setpoint](FEATURES.md#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint). |
+| | *Cloud head (beta):* Setpoint drive offset | 2 / 1 (range 0–6 / 0–3) | While the room runs, its cloud head gets the target plus this in heat, minus it in cool. 0 sends the bare target. |
+| | *Cloud head (beta):* Write interval | 60 seconds (range 30–300) | At most one write to the cloud head per this long; a newer change replaces the waiting one. |
+| | *Cloud head (beta):* Confirm wait | 90 seconds (range 30–600) | After a write, how long MXZ waits for the head to report it before sending again. |
 
 The outdoor-unit name and **Notify on drift** service are set in setup and Reconfigure.
 

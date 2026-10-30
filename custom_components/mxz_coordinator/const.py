@@ -126,6 +126,63 @@ ZONE_DRIFT_WARMER_BY = "drift_warmer_by"
 # only while on (True); turning it off removes the key, so a room that never
 # opted in, or opted out again, stores exactly what it stored before.
 ZONE_DUAL_SETPOINT = "dual_setpoint"
+# Per room: how MXZ reaches the head (beta). Stored only as HEAD_TYPE_CLOUD,
+# or as HEAD_TYPE_LOCAL where the head's platform suggested cloud and the user
+# kept local (in setup, or by switching a cloud room back); no key reads local,
+# so every entry stored before this option existed, and every CN105 room,
+# stores exactly what it stored before.
+# local: today's path, unchanged (ESPHome/CN105 heads, and any other head).
+# cloud: a head behind a cloud integration that polls (MELCloud, Kumo Cloud).
+# MXZ sends it the mode on its own call, then one setpoint pushed past the
+# target by the drive offset, at most one write batch per write interval, and
+# reads its reports for a confirm wait after each batch (see coordinator.py).
+# An ESPHome head is always local, whatever is stored.
+ZONE_HEAD_TYPE = "head_type"
+HEAD_TYPE_LOCAL = "local"
+HEAD_TYPE_CLOUD = "cloud"
+HEAD_TYPES = (HEAD_TYPE_LOCAL, HEAD_TYPE_CLOUD)
+# Entity platforms the setup flow suggests cloud for (the room page doesn't);
+# the user confirms. melcloud is Home Assistant's own; kumo is dlarrick/hass-kumo;
+# kumo_cloud is jjustinwilson/comfort_HA (manifest domains, read 2026-10-29).
+CLOUD_PLATFORMS = ("melcloud", "kumo", "kumo_cloud")
+# A cloud room's tunables, stored only while the room is cloud and only when
+# set to something other than the default (blank or the default stores no key,
+# so the default follows the system unit). The drive offset is in the system
+# unit; the two times are seconds.
+ZONE_DRIVE_OFFSET = "drive_offset"
+ZONE_WRITE_INTERVAL = "write_interval"
+ZONE_CONFIRM_WAIT = "confirm_wait"
+# Setpoint drive offset: while a cloud room runs, its head gets target + offset
+# in heat and target - offset in cool, so the head's own thermistor doesn't
+# stop it early; the room sensor still decides when the room is done. From
+# @mikepell007's mxz_coordinator_blueprint (MIT). 0 sends the bare target.
+DEFAULT_DRIVE_OFFSET_F = 2.0
+DEFAULT_DRIVE_OFFSET_C = 1.0
+DRIVE_OFFSET_MAX_F = 6.0
+DRIVE_OFFSET_MAX_C = 3.0
+# At most one write batch per cloud head per this many seconds; a newer
+# intent waiting out the interval replaces the older one.
+DEFAULT_WRITE_INTERVAL = 60
+WRITE_INTERVAL_BOUNDS = (30, 300)
+# After a batch, a cloud head is pending this many seconds: MXZ re-sends
+# nothing it already sent and reads a report of an older state as stale.
+DEFAULT_CONFIRM_WAIT = 90
+CONFIRM_WAIT_BOUNDS = (30, 600)
+# A cloud head's fan boost moves one rung at most per this many seconds.
+CLOUD_FAN_STEP_SECONDS = 300
+# A cloud head unavailable this long is not controllable: no writes, its
+# room's call doesn't count (unless Safety priority is on), and a repair issue
+# says so. One that is available but sends no report at all (not even an
+# unchanged one) is the same after CLOUD_SILENT_SECONDS: Home Assistant's own
+# MELCloud integration polls every 15 minutes (since 2026.2; 2024.12 polled
+# every 60 s), so a quiet MELCloud head is silent for 15 minutes at a time,
+# and that limit is two missed polls and five minutes more.
+CLOUD_STALE_SECONDS = 900
+CLOUD_SILENT_SECONDS = 2100
+# The setpoint step a cloud head that publishes none is rounded to, per
+# system unit.
+CLOUD_STEP_F = 1.0
+CLOUD_STEP_C = 0.5
 # hass.data key of the options flow's one-shot handoff to the reload it
 # triggers (unless that save is applied in place, which drops it):
 # {(entry_id, head): {"seed_range": True} | {"target": t}}.

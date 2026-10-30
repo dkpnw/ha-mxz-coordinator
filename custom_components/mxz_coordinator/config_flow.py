@@ -22,6 +22,7 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .capabilities import head_mode_problem, supported_idle_actions
 from .const import (
+    CLOUD_PLATFORMS,
     CONF_CHANGEOVER_COOL_BELOW,
     CONF_CHANGEOVER_ENTITY,
     CONF_CHANGEOVER_HEAT_ABOVE,
@@ -49,13 +50,17 @@ from .const import (
     CONF_RESTING_MODE_BIAS,
     CONF_SECONDARY_CLIMATE,
     CONF_ZONES,
+    CONFIRM_WAIT_BOUNDS,
     DEFAULT_CHANGEOVER_COOL_BELOW,
     DEFAULT_CHANGEOVER_HEAT_ABOVE,
     DEFAULT_CLAMP_MAX,
     DEFAULT_CLAMP_MIN,
     DEFAULT_COIL_DRY_MINUTES,
+    DEFAULT_CONFIRM_WAIT,
     DEFAULT_COOL_LOCKOUT_CEILING,
     DEFAULT_DEMAND_THRESHOLD,
+    DEFAULT_DRIVE_OFFSET_C,
+    DEFAULT_DRIVE_OFFSET_F,
     DEFAULT_ECO_COOL_MAX,
     DEFAULT_ECO_HEAT_MIN,
     DEFAULT_ENGAGE_DEADBAND,
@@ -67,7 +72,10 @@ from .const import (
     DEFAULT_INHIBIT_ACTIVE_STATE,
     DEFAULT_MODE_HYSTERESIS,
     DEFAULT_RESTING_MODE_BIAS,
+    DEFAULT_WRITE_INTERVAL,
     DOMAIN,
+    DRIVE_OFFSET_MAX_C,
+    DRIVE_OFFSET_MAX_F,
     DUAL_HANDOFF_KEY,
     DUAL_ZONE_ENTITY_SUFFIXES,
     EVIDENCE_BASES,
@@ -75,6 +83,9 @@ from .const import (
     FAN_LADDER,
     FLOOR_RANGE_C,
     FLOOR_RANGE_F,
+    HEAD_TYPE_CLOUD,
+    HEAD_TYPE_LOCAL,
+    HEAD_TYPES,
     IDLE_ACTION_OPTIONS,
     INHIBIT_ACTION_OPTIONS,
     LOST_VOTE_TTL_BOUNDS,
@@ -85,9 +96,12 @@ from .const import (
     VOTE_BASES,
     VOTE_BASIS_ACTION,
     VOTE_BASIS_MODE,
+    WRITE_INTERVAL_BOUNDS,
     ZONE_CLIMATE,
+    ZONE_CONFIRM_WAIT,
     ZONE_DRIFT_COOLER_BY,
     ZONE_DRIFT_WARMER_BY,
+    ZONE_DRIVE_OFFSET,
     ZONE_DUAL_SETPOINT,
     ZONE_ENTITY_SUFFIXES,
     ZONE_EVIDENCE_BASIS,
@@ -95,6 +109,7 @@ from .const import (
     ZONE_FLOOR_LOW,
     ZONE_HANDS_OFF,
     ZONE_HANDS_OFF_VOTE_BASIS,
+    ZONE_HEAD_TYPE,
     ZONE_MAX_AGE,
     ZONE_NAME,
     ZONE_REPORT_INTERVAL,
@@ -106,6 +121,7 @@ from .const import (
     ZONE_STARTUP_GRACE,
     ZONE_VANE_HORIZONTAL,
     ZONE_VANE_VERTICAL,
+    ZONE_WRITE_INTERVAL,
     unit_profile,
     zone_slug,
 )
@@ -192,6 +208,46 @@ def _detect_stage(hass: HomeAssistant, climate_id: str) -> str | None:
 
 
 # Flow-local key for the multi-head picker on the first step.
+def _platform(hass: HomeAssistant, climate_id: str) -> str | None:
+    """The integration a head's climate entity comes from, if registered."""
+    entry = er.async_get(hass).async_get(climate_id)
+    return None if entry is None else entry.platform
+
+
+def _suggested_head_type(hass: HomeAssistant, climate_id: str) -> str:
+    """Cloud (beta) for a head from a known cloud integration, else local.
+
+    Only a suggestion, shown in the setup flow, where the user confirms it.
+    The room page never suggests it: a room with no stored type shows local,
+    so saving the page for something else can't switch the room. An ESPHome
+    head, and any head MXZ can't place, is local.
+    """
+    return (
+        HEAD_TYPE_CLOUD if _platform(hass, climate_id) in CLOUD_PLATFORMS
+        else HEAD_TYPE_LOCAL
+    )
+
+
+def _cloud_defaults(temperature_unit: str) -> dict[str, float]:
+    """A cloud room's settings when none is stored, in the system unit."""
+    celsius = temperature_unit == UnitOfTemperature.CELSIUS
+    return {
+        "drive_offset": DEFAULT_DRIVE_OFFSET_C if celsius else DEFAULT_DRIVE_OFFSET_F,
+        "write_interval": float(DEFAULT_WRITE_INTERVAL),
+        "confirm_wait": float(DEFAULT_CONFIRM_WAIT),
+    }
+
+
+def _head_type_selector() -> selector.SelectSelector:
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=list(HEAD_TYPES),
+            translation_key="head_type",
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+    )
+
+
 _CONF_HEADS = "heads"
 _CONTEXT_HEADS = "mxz_selected_heads"
 _CONTEXT_ENTRY_ID = "mxz_reconfigure_entry_id"
@@ -611,6 +667,17 @@ _DRIFT_SECTION = "drift"
 # ZONE_DUAL_SETPOINT: True only while on; off removes the key.
 _DUAL_FIELD = "dual_setpoint"
 _DUAL_SECTION = "dual"
+# The room page's head type (beta) and, in a collapsed section, a cloud
+# head's settings (flow key, zone key). See ZONE_HEAD_TYPE for what is stored.
+_HEAD_TYPE_FIELD = "head_type"
+_CLOUD_FIELDS = (
+    ("drive_offset", ZONE_DRIVE_OFFSET),
+    ("write_interval", ZONE_WRITE_INTERVAL),
+    ("confirm_wait", ZONE_CONFIRM_WAIT),
+)
+_CLOUD_SECTION = "cloud"
+# The setup flow's head type fields, one per priority slot that suggests cloud.
+_SETUP_HEAD_TYPE = "head_type_{}"
 # Comfort's optional uneven drift. Blank by default; a blank field stores no
 # key (Allowed drift applies), and clearing one removes the saved key.
 _BLANK_DRIFT = (CONF_DRIFT_COOLER_BY, CONF_DRIFT_WARMER_BY)
@@ -698,6 +765,8 @@ def _flow_only_keys() -> frozenset[str]:
     room_keys.add(_HANDS_OFF_FIELD)
     room_keys.add(_VOTE_BASIS_FIELD)
     room_keys.add(_DUAL_FIELD)
+    room_keys.add(_HEAD_TYPE_FIELD)
+    room_keys.update(key for key, _ in _CLOUD_FIELDS)
     section_keys = {key for _, groups in _PAGES.values() for key in groups}
     slot_keys = {
         f"{zone_slug(index)}_{key}"
@@ -708,7 +777,11 @@ def _flow_only_keys() -> frozenset[str]:
         room_keys
         | section_keys
         | slot_keys
-        | {_FRESHNESS_SECTION, _FLOOR_SECTION, _DRIFT_SECTION, _DUAL_SECTION}
+        | {
+            _FRESHNESS_SECTION, _FLOOR_SECTION, _DRIFT_SECTION, _DUAL_SECTION,
+            _CLOUD_SECTION,
+        }
+        | {_SETUP_HEAD_TYPE.format(index + 1) for index in range(MAX_ZONES)}
     )
 
 
@@ -794,8 +867,15 @@ def _page_form(
 
 
 def _room_view(zone: dict[str, Any]) -> dict[str, Any]:
-    """A stored zone as the room page's field values."""
+    """A stored zone as the room page's field values.
+
+    The head type is the stored one; a room that never stored one shows local,
+    which it is, whatever its head's platform (the suggestion is setup's).
+    """
     view = {key: zone.get(zone_key) for key, zone_key in _ROOM_WIRING_FIELDS}
+    stored = zone.get(ZONE_HEAD_TYPE)
+    view[_HEAD_TYPE_FIELD] = stored if stored in HEAD_TYPES else HEAD_TYPE_LOCAL
+    view.update({key: zone.get(zone_key) for key, zone_key in _CLOUD_FIELDS})
     view[_HANDS_OFF_FIELD] = zone.get(ZONE_HANDS_OFF) is True
     view[_VOTE_BASIS_FIELD] = (
         VOTE_BASIS_ACTION
@@ -862,9 +942,9 @@ def _room_schema(
     floor_expanded: bool = False,
     drift_expanded: bool = False,
 ) -> vol.Schema:
-    """The room page: wiring at the top, then the room's uneven drift, the
-    freshness profile, the freeze floor / overheat ceiling, and the dual
-    setpoint opt-in in sections.
+    """The room page: head type and wiring at the top, then the room's
+    uneven drift, the freshness profile, the freeze floor / overheat ceiling,
+    the dual setpoint opt-in, and a cloud head's settings in sections.
 
     Suggested values show what is wired now, and an untouched field is
     submitted back with its value, so only an explicit clear removes wiring.
@@ -894,6 +974,27 @@ def _room_schema(
         )
         for key, _ in _FLOOR_FIELDS
     }
+    celsius = temperature_unit == UnitOfTemperature.CELSIUS
+    cloud_defaults = _cloud_defaults(temperature_unit)
+    cloud_boxes = {
+        "drive_offset": (0.0, DRIVE_OFFSET_MAX_C if celsius else DRIVE_OFFSET_MAX_F, 0.5, temperature_unit),
+        "write_interval": (*WRITE_INTERVAL_BOUNDS, 1, "s"),
+        "confirm_wait": (*CONFIRM_WAIT_BOUNDS, 1, "s"),
+    }
+    cloud = {
+        vol.Optional(
+            key,
+            description={
+                "suggested_value": cloud_defaults[key] if view.get(key) is None else view.get(key)
+            },
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                mode=selector.NumberSelectorMode.BOX,
+                min=low, max=high, step=step, unit_of_measurement=unit,
+            )
+        )
+        for key, (low, high, step, unit) in cloud_boxes.items()
+    }
     freshness: dict[Any, Any] = {}
     for key, _ in _FRESHNESS_ZONE_FIELDS:
         if key == "evidence_basis":
@@ -919,6 +1020,14 @@ def _room_schema(
             ] = _num("min")
     return vol.Schema(
         {
+            vol.Optional(
+                _HEAD_TYPE_FIELD,
+                default=(
+                    HEAD_TYPE_CLOUD
+                    if view.get(_HEAD_TYPE_FIELD) == HEAD_TYPE_CLOUD
+                    else HEAD_TYPE_LOCAL
+                ),
+            ): _head_type_selector(),
             vol.Optional(
                 "stage", description={"suggested_value": view.get("stage")}
             ): _STAGE_SELECTOR,
@@ -970,8 +1079,44 @@ def _room_schema(
                 ),
                 {"collapsed": True},
             ),
+            vol.Required(_CLOUD_SECTION): section(
+                vol.Schema(cloud),
+                {"collapsed": view.get(_HEAD_TYPE_FIELD) != HEAD_TYPE_CLOUD},
+            ),
         }
     )
+
+
+def _cloud_problem(
+    hass: HomeAssistant, climate_id: str, values: dict[str, Any]
+) -> tuple[str, str] | None:
+    """(error key, where) if a cloud room page asks for what cloud can't do.
+
+    An ESPHome head is the CN105 path, always local. A cloud head (beta)
+    takes no vanes, airflow sensor, dual setpoint or vote by action, and its
+    settings must be finite numbers (the boxes refuse anything out of range).
+    """
+    if values.get(_HEAD_TYPE_FIELD) != HEAD_TYPE_CLOUD:
+        return None
+    if _platform(hass, climate_id) == "esphome":
+        return ("cloud_esphome_head", "base")
+    if (
+        any(values.get(key) for key in ("stage", "vane_vertical", "vane_horizontal"))
+        or values.get(_DUAL_FIELD) is True
+        or values.get(_VOTE_BASIS_FIELD) == VOTE_BASIS_ACTION
+    ):
+        return ("cloud_unsupported_options", "base")
+    for key, _ in _CLOUD_FIELDS:
+        raw = values.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return ("not_a_number", _CLOUD_SECTION)
+        if not math.isfinite(value):
+            return ("not_a_number", _CLOUD_SECTION)
+    return None
 
 
 def _room_name(zone: dict[str, Any], index: int) -> str:
@@ -1511,6 +1656,10 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         self._sensors: list[str] = []
         self._zones: list[dict[str, Any]] = []
         self._tunables: dict[str, Any] | None = None
+        # The head type confirmed for each head whose platform suggested
+        # cloud (head -> local|cloud). A head not in here is local and asked
+        # nothing: an ESPHome-only setup sees no new step.
+        self._head_types: dict[str, str] = {}
 
     def _head_name(self, entity_id: str) -> str:
         """Friendly display name for a head (used as the zone name)."""
@@ -1611,6 +1760,8 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = error
             else:
                 self._room_names = names
+                if self._cloud_suggested():
+                    return await self.async_step_head_type()
                 return await self.async_step_sensors()
 
         placeholders["rooms"] = "\n".join(
@@ -1622,6 +1773,50 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=_rooms_schema(suggestions),
             errors=errors,
             description_placeholders=placeholders,
+        )
+
+    def _cloud_suggested(self) -> list[int]:
+        """The priority slots whose head comes from a known cloud integration."""
+        return [
+            index for index, head in enumerate(self._heads)
+            if _suggested_head_type(self.hass, head) == HEAD_TYPE_CLOUD
+        ]
+
+    async def async_step_head_type(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Step 2b, only for heads from a known cloud integration: confirm each
+        one's head type. Pre-filled cloud (beta); local keeps today's path."""
+        slots = self._cloud_suggested()
+        if user_input is not None:
+            self._head_types = {
+                self._heads[index]: (
+                    HEAD_TYPE_CLOUD
+                    if user_input.get(_SETUP_HEAD_TYPE.format(index + 1)) == HEAD_TYPE_CLOUD
+                    else HEAD_TYPE_LOCAL
+                )
+                for index in slots
+            }
+            return await self.async_step_sensors()
+        return self.async_show_form(
+            step_id="head_type",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        _SETUP_HEAD_TYPE.format(index + 1),
+                        default=self._head_types.get(self._heads[index], HEAD_TYPE_CLOUD),
+                    ): _head_type_selector()
+                    for index in slots
+                }
+            ),
+            description_placeholders={
+                "rooms": "\n".join(
+                    f"{index + 1}. {self._room_names[index]} — {self._heads[index]}"
+                    f" ({_platform(self.hass, self._heads[index])})"
+                    for index in slots
+                ),
+                **self._sensor_field_placeholders(),
+            },
         )
 
     def _system_unit(self) -> str:
@@ -1693,19 +1888,36 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         """Assemble the stored zone list from the answers given so far."""
         zones: list[dict[str, Any]] = []
         for index, head in enumerate(self._heads):
+            head_type = self._head_types.get(head)
+            if head_type == HEAD_TYPE_CLOUD:
+                # A cloud head (beta) takes no vanes and no airflow sensor.
+                zones.append(
+                    {
+                        ZONE_NAME: self._room_names[index],
+                        ZONE_CLIMATE: head,
+                        ZONE_SENSOR: self._sensors[index],
+                        ZONE_VANE_VERTICAL: None,
+                        ZONE_VANE_HORIZONTAL: None,
+                        ZONE_STAGE_SENSOR: None,
+                        ZONE_HEAD_TYPE: HEAD_TYPE_CLOUD,
+                    }
+                )
+                continue
             # Auto-detect each head's vane selects from its own device so
             # the user never has to pick them (overridable via Configure).
             vanes = _detect_vanes(self.hass, head)
-            zones.append(
-                {
-                    ZONE_NAME: self._room_names[index],
-                    ZONE_CLIMATE: head,
-                    ZONE_SENSOR: self._sensors[index],
-                    ZONE_VANE_VERTICAL: vanes.get("vertical"),
-                    ZONE_VANE_HORIZONTAL: vanes.get("horizontal"),
-                    ZONE_STAGE_SENSOR: _detect_stage(self.hass, head),
-                }
-            )
+            zone = {
+                ZONE_NAME: self._room_names[index],
+                ZONE_CLIMATE: head,
+                ZONE_SENSOR: self._sensors[index],
+                ZONE_VANE_VERTICAL: vanes.get("vertical"),
+                ZONE_VANE_HORIZONTAL: vanes.get("horizontal"),
+                ZONE_STAGE_SENSOR: _detect_stage(self.hass, head),
+            }
+            if head_type == HEAD_TYPE_LOCAL:
+                # Suggested cloud and kept local: the answer is remembered.
+                zone[ZONE_HEAD_TYPE] = HEAD_TYPE_LOCAL
+            zones.append(zone)
         return zones
 
     def _default_tunables(
@@ -1761,6 +1973,8 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             lines.append(
                 "  Cadence: unknown — MXZ does not time out this sensor."
             )
+            if self._head_types.get(head) == HEAD_TYPE_CLOUD:
+                lines.append("  Head type: cloud (beta)")
             lines.append("")
         if self._tunables is not None:
             lines.append(
@@ -2572,6 +2786,14 @@ class MXZOptionsFlow(OptionsFlow):
                 errors={_DRIFT_SECTION: "not_a_number"},
                 description_placeholders=title,
             )
+        if problem := _cloud_problem(self.hass, zone[ZONE_CLIMATE], values):
+            error, where = problem
+            return self.async_show_form(
+                step_id="room",
+                data_schema=_room_schema(values, temperature_unit=unit),
+                errors={where: error},
+                description_placeholders=title,
+            )
         # Every field is rendered and a pre-filled field the user leaves
         # untouched is submitted with its value, so an ABSENT/empty key means
         # the user cleared it -> drop it from the room. (Skipping absent keys
@@ -2626,6 +2848,30 @@ class MXZOptionsFlow(OptionsFlow):
             zone.pop(ZONE_DUAL_SETPOINT, None)
         if (zone.get(ZONE_DUAL_SETPOINT) is True) != was_dual:
             self._hand_off_dual(zone, now_dual=not was_dual)
+        # Head type: stored as cloud; as local only where the head's platform
+        # suggests cloud and the room already had an answer (it was cloud, or
+        # kept local in setup); otherwise no key, so a CN105 room, and a room
+        # never asked, stores exactly what it stored before. A cloud room's
+        # settings are kept only while it is cloud, and only where they differ
+        # from the default: a box left at its default stores nothing, so the
+        # default follows the unit (2 °F isn't carried into Celsius as 2 °C).
+        cloud = values.get(_HEAD_TYPE_FIELD) == HEAD_TYPE_CLOUD
+        if cloud:
+            zone[ZONE_HEAD_TYPE] = HEAD_TYPE_CLOUD
+        elif zone.get(ZONE_HEAD_TYPE) in HEAD_TYPES and _suggested_head_type(
+            self.hass, zone[ZONE_CLIMATE]
+        ) == HEAD_TYPE_CLOUD:
+            zone[ZONE_HEAD_TYPE] = HEAD_TYPE_LOCAL
+        else:
+            zone.pop(ZONE_HEAD_TYPE, None)
+        defaults = _cloud_defaults(unit)
+        for key, zone_key in _CLOUD_FIELDS:
+            if cloud and values.get(key) not in (None, "") and (
+                float(values[key]) != defaults[key]
+            ):
+                zone[zone_key] = float(values[key])
+            else:
+                zone.pop(zone_key, None)
         return self._save({}, zones)
 
     def _hand_off_dual(self, zone: dict[str, Any], *, now_dual: bool) -> None:
