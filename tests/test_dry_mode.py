@@ -37,6 +37,7 @@ import pytest
 from homeassistant.components.climate import HVACAction, HVACMode
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COOLDOWN
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import (
@@ -59,6 +60,7 @@ from custom_components.mxz_coordinator.const import (
     IDLE_ACTION_FAN_ONLY,
     IDLE_ACTION_OFF,
     IDLE_ACTION_OFF_AFTER_DRY,
+    INHIBIT_ACTION_ECO,
     INHIBIT_ACTION_OFF,
     ZONE_ALLOW_DRY,
     ZONE_CLIMATE,
@@ -345,6 +347,23 @@ async def test_a_standby_hold_parks_a_dry_head(hass: HomeAssistant) -> None:
     assert rig.row(1)["dry"] is None
 
 
+async def test_the_default_eco_hold_hands_a_dry_head_to_the_eco_plan(hass: HomeAssistant) -> None:
+    """The default standby hold (eco) runs the eco plan: the dry head is sent off, no Dry notice."""
+    hass.states.async_set(INHIBIT, "off")
+    rig = await _setup(hass, **{CONF_INHIBIT_ENTITY: INHIBIT})
+    assert rig.coord.inhibit_action == INHIBIT_ACTION_ECO  # the default, not stored
+    await rig.person(1, "dry")
+    await rig.recompute()
+    assert rig.row(1)["dry"] == "held"
+    hass.states.async_set(INHIBIT, "on")
+    await hass.async_block_till_done()
+    await rig.recompute()
+    assert rig.state(1) == "off"
+    assert rig.modes_sent(1) == ["off"]
+    assert (rig.row(1)["dry"], rig.row(1)["dry_vote"]) == (None, None)
+    assert rig.paused() == []
+
+
 # ---------------------------------------------------------------------------
 # On: a person's dry is left alone, and the room's goal pauses
 # ---------------------------------------------------------------------------
@@ -368,6 +387,19 @@ async def test_allow_dry_leaves_a_persons_dry_alone(hass: HomeAssistant) -> None
     # The room tile says what the head is doing, not idle.
     tile = hass.states.get(rig.eid("_secondary_thermostat"))
     assert tile.attributes["hvac_action"] == HVACAction.DRYING
+
+
+async def test_into_and_out_of_dry_recomputes_at_once(hass: HomeAssistant) -> None:
+    """The head's own report asks for the compute (the debounced request, one
+    cooldown at most), not the 15-minute heartbeat or an explicit refresh."""
+    rig = await _setup(hass)
+    await rig.person(1, "dry")
+    await rig.later(REQUEST_REFRESH_DEFAULT_COOLDOWN + 1)
+    assert (rig.row(1)["dry"], rig.row(1)["dry_vote"]) == ("held", "cool")
+    assert rig.plan().state == "cool"
+    await rig.person(1, "fan_only")
+    await rig.later(REQUEST_REFRESH_DEFAULT_COOLDOWN + 1)
+    assert (rig.row(1)["dry"], rig.row(1)["dry_vote"]) == (None, None)
 
 
 async def test_a_band_wait_armed_before_the_room_was_enabled_heals_nothing(
@@ -449,6 +481,27 @@ async def test_dry_vote_loses_to_an_enabled_rooms_heat_call(hass: HomeAssistant)
     assert rig.state(0) == "heat"
     assert rig.state(1) == "fan_only"  # parked at the idle action
     assert rig.paused() == [PAUSED.format("Rec room")]
+
+
+async def test_a_later_rooms_heat_call_beats_an_earlier_dry_room(hass: HomeAssistant) -> None:
+    """Rec room (dry) comes first by room order; Bedroom calls heat. Heat wins all the same."""
+    rig = await _setup(hass, zones=({ZONE_ALLOW_DRY: True}, {}))
+    await rig.person(0, "dry")
+    await rig.recompute()
+    assert (rig.plan().state, rig.row(0)["dry"]) == ("cool", "held")
+    await _set_temp(hass, SENSORS[1], 65)
+    await rig.recompute()
+    assert rig.plan().state == "heat"
+    assert rig.state(1) == "heat"
+    assert rig.state(0) == "fan_only"  # parked at the idle action
+    assert rig.modes_sent(0) == ["fan_only"]
+    await rig.recompute()
+    assert rig.paused() == [
+        (
+            "Rec room Dry paused: the outdoor unit is heating for Bedroom. "
+            "MXZ won't turn Dry back on; choose it again when you want it."
+        )
+    ]
 
 
 async def test_cool_lockout_blocks_the_dry_vote(hass: HomeAssistant) -> None:
