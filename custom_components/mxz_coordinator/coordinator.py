@@ -4210,6 +4210,14 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             refresh_needed = True
             if old_mode == MODE_DRY and not stale and mode not in (None, *UNAVAILABLE_STATES):
                 self._last_active[entity_id] = (MODE_COOL, time.monotonic())
+        if mode not in (None, *UNAVAILABLE_STATES, MODE_DRY) and not stale:
+            # One notice per park: a head seen in another mode has left dry
+            # (straight from dry, or back from out of sight), so a later dry
+            # parked for heat is a new notice. Read from the report, not the
+            # next compute: a person can pick dry again before that runs.
+            for zone in self.zones:
+                if zone.climate_id == entity_id:
+                    self._dry_noticed.discard(zone.slug)
         # Never heal a head the standby hold parked off (nor a wall override
         # mid-hold — a human turning a parked head on during an outage wins),
         # and never heal a head the PLAN itself parked off (idle_action) — but
@@ -4696,10 +4704,6 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if state == MODE_HEAT else None
         )
         self._dry_heat_for = heat_for
-        # One notice per park: a room not in dry this compute (it left dry,
-        # went out of sight, or isn't honored now) gets a new notice if a
-        # later dry of it is parked.
-        self._dry_noticed -= {zone.slug for zone, dry in zip(self.zones, drys) if not dry}
         self._dry_rooms = {
             zone.slug: "held" if heat_for is None else "parked"
             for zone, dry in zip(self.zones, drys)
