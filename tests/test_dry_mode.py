@@ -659,6 +659,35 @@ async def test_a_refused_park_is_retried_with_no_second_notice(hass: HomeAssista
     assert rig.paused() == [PAUSED.format("Rec room")]
 
 
+async def test_a_park_after_the_head_came_back_in_another_mode_is_told_again(
+    hass: HomeAssistant,
+) -> None:
+    """Parked while still in dry, the head drops out of sight and comes back in
+    fan_only: it has left dry, so a later dry parked for heat is a new notice."""
+    rig = await _setup(hass, head_cls=StubbornHead)
+    head = _head(hass, rig.heads[1])
+    await rig.person(1, "dry")
+    await _set_temp(hass, SENSORS[0], 65)
+    await rig.recompute()
+    assert (rig.state(1), rig.row(1)["dry"]) == ("dry", "parked")
+    assert rig.paused() == [PAUSED.format("Rec room")]
+    head._attr_available = False
+    head.async_write_ha_state()
+    await hass.async_block_till_done()
+    assert rig.state(1) == "unavailable"
+    await rig.recompute()
+    head._attr_available = True
+    head._attr_hvac_mode = HVACMode.FAN_ONLY
+    head.async_write_ha_state()
+    await hass.async_block_till_done()
+    await rig.recompute()
+    assert rig.row(1)["dry"] is None
+    await rig.person(1, "dry")
+    await rig.recompute()
+    assert (rig.state(1), rig.row(1)["dry"]) == ("dry", "parked")
+    assert rig.paused() == [PAUSED.format("Rec room")] * 2
+
+
 async def test_coordinator_off_parks_nothing_and_tells_nothing(hass: HomeAssistant) -> None:
     """With the Coordinator off MXZ writes no head, so it parks none and sends no notice."""
     rig = await _setup(hass)
