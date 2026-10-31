@@ -610,10 +610,15 @@ head was gone.
 
 Each room can have a **Freeze floor** and an **Overheat ceiling**: two optional numbers in
 Configure → Rooms → (room) → **Freeze floor and overheat ceiling**, in your Home Assistant
-temperature unit (floor 35–65 °F / 2–18 °C, ceiling 75–100 °F / 24–38 °C). Both are empty
-for every room, including every room of an existing install, and an empty field stores
-nothing, so nothing changes until you fill one in. Saving a room page for anything else
-never sets one. 50 °F (10 °C) is a typical freeze floor.
+temperature unit (floor 35–65 °F / 2–18 °C, ceiling 75–100 °F / 24–38 °C).
+
+- **New rooms start with a 45 °F (7 °C) freeze floor** and no ceiling (3.16.0). It is
+  written into the room when setup or Reconfigure creates it, in the unit Home Assistant
+  uses then, and is an ordinary value: shown on the room page, editable, and cleared by
+  emptying the field.
+- **A room from before 3.16.0 is unchanged.** Its fields stay empty until you fill one
+  in, and an empty field stores nothing. Saving a room page, or any other page, for
+  anything else never sets one, and a floor you cleared stays cleared.
 
 ### What it does
 
@@ -757,7 +762,10 @@ MXZ's first update of the restored run. What that means for a person:
   not a number, or stale under its
   [freshness contract](CONFIGURATION.md#choose-a-sensor-freshness-contract) never trips
   the floor, and a run whose sensor is lost ends at once. The room shows `blind`. A sensor
-  that flaps in and out ends and restarts the run each time.
+  that flaps in and out ends and restarts the run each time. For a stale sensor the
+  notice names the window that ran out (6 h on a new room) and the two fixes: clear the
+  room's Maximum age, or use a sensor that reports periodically. A sensor that reports
+  only when its reading changes goes quiet in a room that holds steady.
 - **Head unavailable.** A tripped room whose head is unavailable casts no want, so it
   cannot hold the other rooms' direction for a head that cannot run. It shows `blind`.
 - **No-progress limit.** A sensor can be stuck at a valid number, and a room whose sensor

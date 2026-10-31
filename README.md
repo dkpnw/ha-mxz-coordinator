@@ -105,6 +105,15 @@ Mitsubishi manuals on stock AUTO.
 
 <a id="whats-new-in-3111"></a>
 
+## What's new in 3.16.0 (unreleased)
+
+New rooms now start with a 45 °F (7 °C) freeze floor and a 6-hour sensor freshness limit.
+Existing rooms are unchanged; you can set both on the room page (Configure → Rooms →
+(room)). A room is new when setup or Reconfigure creates it. Turned off and below 45 °F, a
+new room is heated back up; a sensor that has sent nothing for 6 hours is treated as
+stale, which also pauses that room's floor, and MXZ tells you how to fix it. See
+[Optional extras](#optional-extras).
+
 ## What's new in 3.15.0
 
 **Allow Dry mode**, per room and off by default: turn it on (Configure → Rooms → (room)),
@@ -226,7 +235,8 @@ including [who drives the fan](docs/FEATURES.md#who-drives-the-fan) and
 
 ## Optional extras
 
-Each is off or blank until you set it:
+Each is off or blank until you set it, except that a new room (one setup or Reconfigure
+creates from 3.16.0 on) starts with a freeze floor and a sensor freshness limit:
 
 - **Uneven drift**, globally or [per room](docs/FEATURES.md#per-room-uneven-drift): let a
   room get cooler than it may get warmer, or the other way round.
@@ -235,7 +245,10 @@ Each is off or blank until you set it:
   an ecobee or a Nest. One target per room stays the default.
   [Details](docs/FEATURES.md#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint)
 - **Freeze floor and overheat ceiling**: a disabled room is heated or cooled back to
-  safety. [Details](docs/FEATURES.md#freeze-floor-and-overheat-ceiling)
+  safety. A new room starts with a 45 °F (7 °C) freeze floor and no ceiling. A room from
+  before 3.16.0 keeps what it had, so it has none unless you set one. Set, change or clear
+  either in Configure → Rooms → (room) → **Freeze floor and overheat ceiling**.
+  [Details](docs/FEATURES.md#freeze-floor-and-overheat-ceiling)
 - **Safety priority**: while a sensor you wire reads `on`, that room's own heat or cool
   outranks ordinary room demands. A tripped freeze floor ranks first; other safety
   demands and tripped overheat ceilings are settled by room order.
@@ -245,9 +258,13 @@ Each is off or blank until you set it:
   counts. [Details](docs/FEATURES.md#run-one-room-from-its-own-remote)
 - **Allow Dry mode**: a head someone puts in Dry (dehumidify) stays there instead of being
   put back, and counts as a vote for cool. [Details](docs/FEATURES.md#allow-dry-mode)
-- **Sensor freshness**: tell MXZ how often a room's sensor reports, and a room whose sensor
-  goes quiet stops asking for heat or cool.
-  [Details](docs/CONFIGURATION.md#choose-a-sensor-freshness-contract)
+- **Sensor freshness**: a room whose sensor goes quiet stops asking for heat or cool, and
+  its freeze floor pauses, with a notice. A new room starts at 6 hours (Maximum age 360
+  min, Freshness evidence "Every update is a new reading"). A room from before 3.16.0
+  keeps what it had, so it is never timed out unless you set it. A sensor that reports
+  only when its reading changes can go stale in a room that holds steady: clear Maximum
+  age, or use a sensor that reports periodically. Set it in Configure → Rooms → (room) →
+  **Sensor freshness**. [Details](docs/CONFIGURATION.md#choose-a-sensor-freshness-contract)
 
 What happens when a head drops off the network is in
 [When a head goes unavailable](docs/FEATURES.md#when-a-head-goes-unavailable).

@@ -8,6 +8,28 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
+## 3.16.0 (unreleased)
+
+New rooms now start with a 45 °F (7 °C) freeze floor and a 6-hour sensor freshness limit.
+Existing rooms are unchanged; you can set both on the room page.
+
+- **Defaults for new rooms.** A room that setup or Reconfigure creates stores a freeze
+  floor of 45 °F, or 7 °C on a Celsius system, with no overheat ceiling, and a sensor
+  freshness profile of Maximum age 360 min on the **Every update is a new reading**
+  basis (startup grace defaults to the same 6 h). They are ordinary values, shown on the
+  room page (Configure → Rooms → (room)), editable and clearable; a cleared one stays
+  cleared. The setup and Reconfigure summaries list them for each new room.
+- **Existing rooms are unchanged.** Nothing supplies these values at runtime and the
+  config entry stays at version 2.2: a room saved before 3.16.0 keeps exactly what it
+  stored, and saving any Configure page, the room's own page included, adds nothing.
+- **A stale sensor's floor notice says what to do.** When a room's sensor goes stale,
+  the floor's blind notice names the window that ran out (6 h on a new room) and the two
+  fixes: clear the room's Maximum age, or use a sensor that reports periodically. A
+  sensor that reports only when its reading changes can go stale in a room that holds
+  steady. The room page's help text for both settings says the same.
+- **Tested** with the full test suite (2720 tests, full and fakeboot) on every supported
+  Home Assistant lane. **Not tested** on hardware.
+
 ## 3.15.0 (October 30, 2026)
 
 Allow Dry mode, opt-in per room. Nothing changes for a room until you turn it on.

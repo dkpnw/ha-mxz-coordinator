@@ -1,5 +1,23 @@
 # Upgrading and migrating MXZ Coordinator
 
+## Defaults for new rooms (3.16.0, unreleased)
+
+A room that setup or Reconfigure creates now stores three values in its own record:
+`floor_low: 45` (`7` on a Celsius system), `max_age: 360` and
+`evidence_basis: ha_state_write`. They are ordinary values, the same keys a person could
+already set on the room page, and that page shows, edits and clears them. The overheat
+ceiling stays empty.
+
+**Nothing to do.** No config-entry version change (it stays 2.2) and no migration. The
+values are written only when a room is created; nothing supplies them at runtime. A room
+saved before 3.16.0 keeps exactly the keys it had, so a room with no floor and no
+freshness profile still has neither, and saving any Configure page, the room's page
+included, adds none. To give an existing room the new defaults, set them on its page:
+Freeze floor 45 °F (7 °C), and under Sensor freshness, Maximum age 360 and Freshness
+evidence **Every update is a new reading**. A floor or profile you clear stays cleared.
+On a rollback to 3.15.x a new room keeps its 45 °F floor and 6 h limit, because 3.15.0
+already reads all three keys; that was checked by reading the 3.15.0 code, not run.
+
 ## Allow Dry mode, and the coil-dry label (3.15.0)
 
 A new per-room setting, **Allow Dry mode**, in Configure → Rooms → (room), shown only for
