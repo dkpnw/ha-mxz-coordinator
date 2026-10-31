@@ -95,7 +95,11 @@ An enabled room's head is parked for other reasons too, so rule those out first 
 `sensor.*_plan`:
 
 - **Sensor health.** A room whose `sensor_health` is `stale` or `invalid` stops asking for
-  heat or cool, and its head parks by the idle action.
+  heat or cool, and its head parks by the idle action. A room created from 3.16.0 on goes
+  `stale` after 6 hours with no report. A sensor that reports only when its reading
+  changes can do that in a room that holds steady: clear **Maximum age** on the room's
+  page (Configure → Rooms → (room) → Sensor freshness), or use a sensor that reports
+  periodically.
 - **Standby hold.** While `inhibited` is true, an `off` standby hold parks every head off,
   and a `fan_only` hold parks every head in fan only. The default `eco` hold parks nothing
   by itself: rooms keep running to the eco limits, and a room inside them is satisfied, so
