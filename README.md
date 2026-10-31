@@ -64,7 +64,7 @@ target, idles. Each room has one target.
 **Start here:** [Install](#install), then [set up your outdoor unit](#set-up-your-outdoor-unit).
 No YAML is required.
 
-**Contents:** [What MXZ does for you](#what-mxz-does-for-you) · [What's new](#whats-new-in-3120) ·
+**Contents:** [What MXZ does for you](#what-mxz-does-for-you) · [What's new](#whats-new) ·
 [Before you install](#before-you-install) · [Install](#install) · [Set up](#set-up-your-outdoor-unit) ·
 [Everyday use](#everyday-use) · [Optional extras](#optional-extras) · [Tune it](#tune-it) ·
 [If something looks wrong](#if-something-looks-wrong) · [Documentation](#documentation) ·
@@ -103,7 +103,8 @@ Every core feature exists for a reason someone ran into:
 [How it works](docs/HOW-IT-WORKS.md) walks through each decision and cites the
 Mitsubishi manuals on stock AUTO.
 
-<a id="whats-new-in-3111"></a>
+<!-- "whats-new" stays above the newest What's new section; the others are old links. -->
+<a id="whats-new"></a><a id="whats-new-in-3120"></a><a id="whats-new-in-3111"></a>
 
 ## What's new in 3.16.0 (unreleased)
 
