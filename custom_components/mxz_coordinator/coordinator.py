@@ -881,6 +881,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._evidence_ts: dict[str, float] = {}
         self._evidence_spent: set[str] = set()
         self._health: dict[str, str] = {}
+        # slug -> the window (s) a stale room's last report ran out: its
+        # maximum age, or its startup grace when no report was witnessed.
+        self._stale_window: dict[str, float] = {}
         self._grace_until: dict[str, float] = {}
         self._fresh_deadline: dict[str, float] = {}
         self._unhealthy_logged: set[str] = set()
@@ -1593,6 +1596,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._grace_until.pop(zone.slug, None)  # one grace per incarnation
         self._log_health(zone, health, write_age, evidence_age)
         self._health[zone.slug] = health
+        if health == HEALTH_STALE:
+            self._stale_window[zone.slug] = window[0 if evidence_age is not None else 1]
         if health == HEALTH_HEALTHY:
             self._fresh_deadline[zone.slug] = now - evidence_age + max_age
         elif health == HEALTH_AWAITING:
@@ -4819,6 +4824,19 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._floor_follow_person(zone, head)
         if not ok:
             self._floor_end(slug, hand_back=True)
+            if self._health.get(slug) == HEALTH_STALE:
+                # Name the window that ran out and the two ways out of it: a
+                # change-only sensor goes quiet in a room that holds steady.
+                self._floor_blind(
+                    zone, f"Room sensor {zone.sensor_id} sent no report in "
+                    f"{_span(self._stale_window[slug])}, its freshness limit, "
+                    "so it is stale: no floor protection until it reports "
+                    "again. A sensor that reports only when its reading "
+                    "changes goes quiet in a steady room: clear Maximum age "
+                    f"(Configure → Rooms → {zone.name} → Sensor freshness), "
+                    "or use a sensor that reports periodically."
+                )
+                return None
             self._floor_blind(
                 zone, "Room sensor unavailable, invalid or stale: no floor "
                 "protection until it reports a usable reading."
@@ -5751,6 +5769,14 @@ _UNIT_MEMBER = (
     if hasattr(ClimateEntity, "native_temperature_unit")
     else "temperature_unit"
 )
+
+
+def _span(seconds: float) -> str:
+    """A freshness window as a person reads it: whole hours, else minutes."""
+    minutes = seconds / 60.0
+    if minutes >= 60 and minutes % 60 == 0:
+        return f"{minutes / 60:g} h"
+    return f"{minutes:g} min"
 
 
 def _native_unit(entity: Any) -> Any:
