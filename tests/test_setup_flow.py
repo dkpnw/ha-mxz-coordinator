@@ -764,10 +764,11 @@ async def test_s20_a_transient_sensor_problem_is_reported_not_blocked(
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
-async def test_s21_cadence_is_unknown_and_no_cadence_field_exists(
+async def test_s21_setup_asks_no_cadence_and_each_new_room_gets_the_6h_freshness_default(
     hass: HomeAssistant,
 ) -> None:
-    """S21 / W5a, W6a: setup asks nothing about cadence, and stores none flat.
+    """S21 / W5a, W6a: setup asks nothing about cadence and stores none flat;
+    the review shows each new room's 6 h freshness default.
 
     Since 3.16.0 each new room carries the new-room freshness default (a 6 h
     maximum age on the ha_state_write basis) inside its zone record, and the
