@@ -79,6 +79,7 @@ from .const import (
     DUAL_HANDOFF_KEY,
     DUAL_ZONE_ENTITY_SUFFIXES,
     EVIDENCE_BASES,
+    EVIDENCE_HA_WRITE,
     EVIDENCE_SAMPLE_TIMESTAMP,
     FAN_LADDER,
     FLOOR_RANGE_C,
@@ -92,6 +93,9 @@ from .const import (
     MAX_ZONES,
     MIN_ZONES,
     MODE_DRY,
+    NEW_ROOM_FLOOR_LOW_C,
+    NEW_ROOM_FLOOR_LOW_F,
+    NEW_ROOM_MAX_AGE,
     RESTING_BIAS_OPTIONS,
     UNAVAILABLE_STATES,
     VOTE_BASES,
@@ -1198,6 +1202,32 @@ def _zone_freshness_profile(zone: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _new_room_defaults(temperature_unit: str) -> dict[str, Any]:
+    """What a room stores when setup or Reconfigure creates it (3.16.0).
+
+    A freeze floor in the system unit and a 6 h maximum age on the
+    ha_state_write basis; the ceiling stays blank. Only room creation calls
+    this: an existing room, and any room page save, never gains these keys.
+    """
+    celsius = temperature_unit == UnitOfTemperature.CELSIUS
+    return {
+        ZONE_FLOOR_LOW: NEW_ROOM_FLOOR_LOW_C if celsius else NEW_ROOM_FLOOR_LOW_F,
+        ZONE_MAX_AGE: NEW_ROOM_MAX_AGE,
+        ZONE_EVIDENCE_BASIS: EVIDENCE_HA_WRITE,
+    }
+
+
+def _floor_summary(zone: dict[str, Any], temperature_unit: str) -> str | None:
+    """The review line for a room's freeze floor, if it has one."""
+    floor = zone.get(ZONE_FLOOR_LOW)
+    if floor is None:
+        return None
+    return (
+        f"Freeze floor: {float(floor):g} {temperature_unit} — heats this room "
+        "while it is turned off."
+    )
+
+
 def _effective_zones(entry: ConfigEntry) -> list[dict[str, Any]]:
     """Copy the zone list the coordinator reads after options precedence."""
     conf = {**entry.data, **entry.options}
@@ -1911,7 +1941,11 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     def _build_zones(self) -> list[dict[str, Any]]:
-        """Assemble the stored zone list from the answers given so far."""
+        """Assemble the stored zone list from the answers given so far.
+
+        Every room is new here, so each carries the new-room defaults.
+        """
+        defaults = _new_room_defaults(self._system_unit())
         zones: list[dict[str, Any]] = []
         for index, head in enumerate(self._heads):
             head_type = self._head_types.get(head)
@@ -1926,6 +1960,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                         ZONE_VANE_HORIZONTAL: None,
                         ZONE_STAGE_SENSOR: None,
                         ZONE_HEAD_TYPE: HEAD_TYPE_CLOUD,
+                        **defaults,
                     }
                 )
                 continue
@@ -1939,6 +1974,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 ZONE_VANE_VERTICAL: vanes.get("vertical"),
                 ZONE_VANE_HORIZONTAL: vanes.get("horizontal"),
                 ZONE_STAGE_SENSOR: _detect_stage(self.hass, head),
+                **defaults,
             }
             if head_type == HEAD_TYPE_LOCAL:
                 # Suggested cloud and kept local: the answer is remembered.
@@ -1996,9 +2032,10 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             lines.append(
                 f"  Sensor: {_sensor_status(self.hass, self._sensors[index], unit)}"
             )
-            lines.append(
-                "  Cadence: unknown — MXZ does not time out this sensor."
-            )
+            zone = self._zones[index] if index < len(self._zones) else {}
+            lines.append(f"  {_freshness_summary(zone)}")
+            if floor := _floor_summary(zone, unit):
+                lines.append(f"  {floor}")
             if self._head_types.get(head) == HEAD_TYPE_CLOUD:
                 lines.append("  Head type: cloud (beta)")
             lines.append("")
@@ -2429,15 +2466,21 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             lines.append(
                 f"  Sensor: {_sensor_status(self.hass, self._sensors[index], unit)}"
             )
+            # A head the entry doesn't have yet is a new room: show what
+            # Save and finish will store for it.
             zone = next(
                 (
                     candidate
                     for candidate in effective_zones
                     if candidate.get(ZONE_CLIMATE) == head
                 ),
-                {},
+                None,
             )
+            if zone is None:
+                zone = _new_room_defaults(unit)
             lines.append(f"  {_freshness_summary(zone)}")
+            if floor := _floor_summary(zone, unit):
+                lines.append(f"  {floor}")
             if head in old_order and old_order.index(head) != index:
                 lines.append(
                     f"  Moved from priority {old_order.index(head) + 1}. Its name,"
@@ -2504,6 +2547,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                     ZONE_VANE_VERTICAL: vanes.get("vertical"),
                     ZONE_VANE_HORIZONTAL: vanes.get("horizontal"),
                     ZONE_STAGE_SENSOR: _detect_stage(self.hass, head),
+                    **_new_room_defaults(self._system_unit()),
                 }
             # The room name is display copy and lands in the existing
             # ZONE_NAME; the field itself is flow-input-only.

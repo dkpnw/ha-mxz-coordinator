@@ -529,7 +529,7 @@
           },
           "freshness": {
             "name": "Sensor freshness",
-            "description": "Optional. Leave empty unless you know how often this sensor reports. Maximum age defaults to three missed reports; an explicit maximum age overrides that.",
+            "description": "New rooms start with a maximum age of 360 min and \"Every update is a new reading\": stale after 6 h with no report. A stale room makes no demand, and its freeze floor can't act, until the sensor reports again. A sensor that reports only when its reading changes can go stale in a room that holds steady: clear Maximum age, or use a sensor that reports periodically. Rooms from before 3.16.0 keep what they had. Maximum age defaults to three missed reports; an explicit maximum age overrides that.",
             "data": {
               "report_interval": "Report interval",
               "max_age": "Maximum age",
@@ -540,20 +540,20 @@
             },
             "data_description": {
               "report_interval": "How often the sensor promises to report.",
-              "max_age": "Leave empty to use three report intervals.",
+              "max_age": "Stale after 6 h with no report at 360 min, the value new rooms start with. Clear it to stop timing out this sensor (with a report interval set, empty means three report intervals).",
               "startup_grace": "Leave empty to use the maximum age.",
               "sample_timestamp_attribute": "Only for \"Sensor reports a sample time or counter\". Fill this or the counter, not both."
             }
           },
           "floor": {
             "name": "Freeze floor and overheat ceiling",
-            "description": "Optional, off by default: leave both empty for none. Acts only while this room is disabled, and can turn its head on: MXZ heats the room when it falls below the floor and cools it above the ceiling, then turns the head off again. A standby hold that parks the heads (off or fan only) or Coordinator off stops it. With a lost or stuck sensor there is no protection. 50 °F (10 °C) is a typical freeze floor.",
+            "description": "New rooms start with a 45 °F (7 °C) freeze floor and no ceiling; rooms from before 3.16.0 keep what they had. Leave a field empty for none. Acts only while this room is disabled, and can turn its head on: MXZ heats the room when it falls below the floor and cools it above the ceiling, then turns the head off again. A standby hold that parks the heads (off or fan only) or Coordinator off stops it. With a lost or stale sensor there is no protection.",
             "data": {
               "floor_low": "Freeze floor",
               "floor_high": "Overheat ceiling"
             },
             "data_description": {
-              "floor_low": "Heat this disabled room below this temperature. 35-65 °F (2-18 °C).",
+              "floor_low": "Heats this room when it is turned off and drops below this. Clear to turn off. 35-65 °F (2-18 °C).",
               "floor_high": "Cool this disabled room above this temperature. 75-100 °F (24-38 °C)."
             }
           },

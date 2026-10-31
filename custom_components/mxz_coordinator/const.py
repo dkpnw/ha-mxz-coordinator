@@ -219,6 +219,15 @@ EVIDENCE_HA_WRITE = "ha_state_write"
 EVIDENCE_SAMPLE_TIMESTAMP = "sample_timestamp"
 # The bases a setup form may offer; anything else reads as `unknown`.
 EVIDENCE_BASES = (EVIDENCE_UNKNOWN, EVIDENCE_HA_WRITE, EVIDENCE_SAMPLE_TIMESTAMP)
+# What a NEW room stores when setup or Reconfigure creates it (3.16.0): a
+# freeze floor in the system unit, and a 6 h maximum age (minutes) on the
+# ha_state_write basis. Written into the room once, at creation, as ordinary
+# values the room page shows, edits and clears. Nothing reads these at
+# runtime: a room without the keys (every room stored before 3.16.0, or one
+# whose values were cleared) has no floor and an unknown cadence.
+NEW_ROOM_FLOOR_LOW_F = 45.0
+NEW_ROOM_FLOOR_LOW_C = 7.0
+NEW_ROOM_MAX_AGE = 360.0
 MIN_ZONES = 2
 MAX_ZONES = 8
 

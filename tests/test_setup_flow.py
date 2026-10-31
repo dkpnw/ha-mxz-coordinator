@@ -46,6 +46,9 @@ from custom_components.mxz_coordinator.const import (
     IDLE_ACTION_OFF,
     IDLE_ACTION_OFF_AFTER_DRY,
     ZONE_CLIMATE,
+    ZONE_EVIDENCE_BASIS,
+    ZONE_FLOOR_LOW,
+    ZONE_MAX_AGE,
     ZONE_NAME,
     ZONE_SENSOR,
     ZONE_STAGE_SENSOR,
@@ -764,7 +767,12 @@ async def test_s20_a_transient_sensor_problem_is_reported_not_blocked(
 async def test_s21_cadence_is_unknown_and_no_cadence_field_exists(
     hass: HomeAssistant,
 ) -> None:
-    """S21 / W5a, W6a: status, never a cutoff, and nothing stored about it."""
+    """S21 / W5a, W6a: setup asks nothing about cadence, and stores none flat.
+
+    Since 3.16.0 each new room carries the new-room freshness default (a 6 h
+    maximum age on the ha_state_write basis) inside its zone record, and the
+    summary says so; it was "Cadence: unknown" before.
+    """
     result = await _start(hass)
     seen = list(_fields(result))
     result = await _submit(hass, result, {"heads": [LIVING, BEDROOM]})
@@ -778,7 +786,12 @@ async def test_s21_cadence_is_unknown_and_no_cadence_field_exists(
         hass, result, {"sensor_1": LIVING_SENSOR, "sensor_2": BEDROOM_SENSOR}
     )
     summary = result["description_placeholders"]["summary"]
-    assert summary.count("Cadence: unknown — MXZ does not time out this sensor.") == 2
+    assert "Cadence: unknown" not in summary
+    assert summary.count(
+        "Cadence: maximum age 360 min (explicit); startup grace 360 min (defaults"
+        " to maximum age); evidence: each HA state write (source contract"
+        " required)."
+    ) == 2
     assert "70.7 °F" in summary
     assert "ago" in summary
 
@@ -1062,9 +1075,13 @@ async def test_s27_no_setup_only_input_leaks_into_stored_configuration(
         ZONE_VANE_VERTICAL,
         ZONE_VANE_HORIZONTAL,
         ZONE_STAGE_SENSOR,
+        # The new-room defaults (3.16.0), stored in each room's own record.
+        ZONE_FLOOR_LOW,
+        ZONE_MAX_AGE,
+        ZONE_EVIDENCE_BASIS,
     }
     for zone in result["data"][CONF_ZONES]:
-        assert set(zone) == allowed, set(zone) - allowed
+        assert set(zone) == allowed, set(zone) ^ allowed
     assert result["data"][CONF_ZONES][0][ZONE_NAME] == "Lounge"
     assert CONF_NOTIFY_SERVICE not in result["data"]
 
