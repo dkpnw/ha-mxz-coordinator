@@ -33,9 +33,11 @@ from custom_components.mxz_coordinator.const import (
     DOMAIN,
     IDLE_ACTION_FAN_ONLY,
     ZONE_CLIMATE,
+    ZONE_DRIFT_COOLER_BY,
     ZONE_EVIDENCE_BASIS,
     ZONE_FLOOR_HIGH,
     ZONE_FLOOR_LOW,
+    ZONE_HANDS_OFF,
     ZONE_MAX_AGE,
     ZONE_NAME,
     ZONE_REPORT_INTERVAL,
@@ -362,6 +364,40 @@ async def test_a_2_2_entry_with_blank_rooms_loads_unchanged_and_no_save_adds_def
         assert entry.data[CONF_ZONES] == old_zones, page
         stored = {**entry.data, **entry.options}
         assert not [k for k in stored if k in (*DEFAULT_KEYS, ZONE_FLOOR_HIGH)], page
+    assert (entry.version, entry.minor_version) == (2, 2)
+
+
+async def test_editing_a_2_2_room_stores_only_the_edit_and_adds_no_defaults(
+    hass: HomeAssistant,
+) -> None:
+    """An edit is not a new room: on a pre-3.16.0 entry, room 1 changes its
+    cooler drift and room 2 turns on hands-off. Each record gains exactly the
+    edited key, no floor, ceiling or freshness key, and after the reload the
+    coordinator still has no floor and no cutoff for either room."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    for sensor in (SENSOR_A, SENSOR_B):
+        await _set_temp(hass, sensor, 70)
+    entry = _blank_entry(hass, head_a, head_b)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    old = deepcopy(entry.data[CONF_ZONES])
+
+    await _save_room(hass, entry, 1, {"room_cooler_by": 2})
+    await _save_room(hass, entry, 2, {"hands_off": True})
+
+    assert _zones(entry) == [
+        {**old[0], ZONE_DRIFT_COOLER_BY: 2},
+        {**old[1], ZONE_HANDS_OFF: True},
+    ]
+    assert entry.data[CONF_ZONES] == _zones(entry)
+    for zone in _zones(entry):
+        assert not [k for k in (*DEFAULT_KEYS, *FRESHNESS_KEYS, ZONE_FLOOR_HIGH) if k in zone]
+    stored = {**entry.data, **entry.options}
+    assert not [k for k in stored if k in (*DEFAULT_KEYS, ZONE_FLOOR_HIGH)]
+    coord = entry.runtime_data
+    assert [(z.floor_low, z.max_age, z.evidence_basis) for z in coord.zones] == [(None, None, None)] * 2
+    assert coord._freshness == {}
     assert (entry.version, entry.minor_version) == (2, 2)
 
 
