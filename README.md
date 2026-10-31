@@ -105,7 +105,7 @@ Mitsubishi manuals on stock AUTO.
 
 <a id="whats-new-in-3111"></a>
 
-## What's new in 3.15.0 (unreleased)
+## What's new in 3.15.0
 
 **Allow Dry mode**, per room and off by default: turn it on (Configure → Rooms → (room)),
 and a head someone puts in its own Dry (dehumidify) mode stays there while the room is
