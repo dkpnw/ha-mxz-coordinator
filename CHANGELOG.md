@@ -39,7 +39,7 @@ Existing rooms are unchanged; you can set both on the room page.
   A room without the option, every room saved before 3.15.0 included, offers Off and
   Heat/Cool exactly as before. Requested by @WhimsySpoon on the
   [Home Assistant forum](https://community.home-assistant.io/t/1018382/14).
-- **Tested** with the full test suite (2720 tests, full and fakeboot) on every supported
+- **Tested** with the full test suite (2750 tests, full and fakeboot) on every supported
   Home Assistant lane. **Not tested** on hardware.
 
 ## 3.15.0 (October 30, 2026)
