@@ -457,6 +457,10 @@ Dry. The option shows only for a head that lists `dry` among its modes. Thanks t
 [@mikepell007](https://github.com/mikepell007), whose tip on the
 [Home Assistant forum](https://community.home-assistant.io/t/1018382) prompted it.
 
+Allow Dry mode is off by default. When it's on, Home Assistant's HomeKit bridge shows Dry
+as Cool, so Apple Home may show a Cool choice (and Auto) for that room, which can be
+confusing. Leave it off if you use Apple Home and don't need Dry.
+
 While the room is enabled and someone has its head in Dry:
 
 - **MXZ leaves the head alone.** No heal, and no mode, setpoint, fan, or vane writes.
