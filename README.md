@@ -106,7 +106,7 @@ Mitsubishi manuals on stock AUTO.
 <!-- "whats-new" stays above the newest What's new section; the others are old links. -->
 <a id="whats-new"></a><a id="whats-new-in-3120"></a><a id="whats-new-in-3111"></a>
 
-## What's new in 3.16.0 (unreleased)
+## What's new in 3.16.0
 
 New rooms now start with a 45 °F (7 °C) freeze floor and a 6-hour sensor freshness limit.
 Existing rooms are unchanged; you can set both on the room page (Configure → Rooms →

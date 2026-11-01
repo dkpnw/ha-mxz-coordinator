@@ -8,7 +8,7 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
-## 3.16.0 (unreleased)
+## 3.16.0 (November 1, 2026)
 
 New rooms now start with a 45 °F (7 °C) freeze floor and a 6-hour sensor freshness limit.
 Existing rooms are unchanged; you can set both on the room page.
@@ -43,7 +43,12 @@ Existing rooms are unchanged; you can set both on the room page.
   Assistant's HomeKit bridge shows Dry as Cool, so Apple Home may show a Cool choice (and
   Auto) for a room with the option on; leave it off if you use Apple Home and don't need Dry.
 - **Tested** with the full test suite (2750 tests, full and fakeboot) on every supported
-  Home Assistant lane. **Not tested** on hardware.
+  Home Assistant lane, and on hardware: on the Bedroom CN105 head on a house system on
+  2368dfa, upgrading an existing room added no settings, picking Dry sent one `dry` with
+  no fan, vane or setpoint write, a fan pick in Dry was kept, Dry and a manual fan pick
+  survived a Home Assistant restart with no writes to the head, Heat/Cool and Off worked,
+  and turning Allow Dry off put the head back on plan with one notice. **Not tested** on
+  hardware: the defaults on a newly added room, and how Apple Home shows Dry.
 
 ## 3.15.0 (October 30, 2026)
 
