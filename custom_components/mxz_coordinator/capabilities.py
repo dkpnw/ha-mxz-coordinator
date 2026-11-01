@@ -8,13 +8,14 @@ from dataclasses import dataclass
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.components.climate.const import ATTR_FAN_MODES, ATTR_HVAC_MODES
 from homeassistant.const import ATTR_FRIENDLY_NAME, ATTR_SUPPORTED_FEATURES
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 
 from .const import (
     FAN_AUTO,
     IDLE_ACTION_FAN_ONLY,
     IDLE_ACTION_OFF,
     IDLE_ACTION_OFF_AFTER_DRY,
+    MODE_DRY,
 )
 
 _REQUIRED_MODES = frozenset((HVACMode.HEAT.value, HVACMode.COOL.value))
@@ -164,3 +165,14 @@ def head_has_fan_auto(hass: HomeAssistant, entity_id: str) -> bool:
     """Whether the head exposes fan control with the token used for handback."""
     modes = head_capabilities(hass, entity_id).fan_modes
     return modes is not None and FAN_AUTO in modes
+
+
+def head_lists_dry(hass: HomeAssistant, entity_id: str) -> bool:
+    """Whether the head lists dry in its hvac_modes now (Allow Dry mode is offered)."""
+    return state_lists_dry(hass.states.get(entity_id))
+
+
+def state_lists_dry(state: State | None) -> bool:
+    """Whether this head state lists dry in its hvac_modes."""
+    modes = state.attributes.get(ATTR_HVAC_MODES) if state is not None else None
+    return isinstance(modes, (list, tuple)) and MODE_DRY in modes

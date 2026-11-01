@@ -45,6 +45,7 @@ from homeassistant.components.climate import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
@@ -238,14 +239,31 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         target_temperature = property(lambda self: self._target_temperature())
 
     @property
+    def hvac_modes(self) -> list[HVACMode]:
+        """Off and Heat/Cool; Dry too while the room offers it (3.16.0).
+
+        Dry only with the room's Allow Dry mode on and its head listing dry
+        now, a cool lockout or not. Every other room offers exactly the two.
+        """
+        if self.coordinator.dry_offered(self._zone):
+            return [*self._attr_hvac_modes, HVACMode.DRY]
+        return self._attr_hvac_modes
+
+    @property
     def hvac_mode(self) -> HVACMode:
         """OFF when the room is disabled; otherwise the single-target auto mode.
 
         Hands-off rooms too: this mode is the room's coordinator switch (OFF =
         the coordinator is not running this room), it is what turning the tile
-        on/off writes, and HEAT_COOL is its only other mode. What a person is
-        running on the head shows in ``hvac_action`` instead.
+        on/off writes, and HEAT_COOL is its other mode. What a person is
+        running on the head shows in ``hvac_action`` instead. The one
+        exception is a room that offers Dry: while MXZ keeps its head in dry
+        (held, or parked for heat), however it got there, the mode is DRY.
         """
+        if self.coordinator.dry_offered(self._zone) and self.coordinator.dry_state(
+            self._zone.slug
+        ) is not None:
+            return HVACMode.DRY
         return HVACMode.HEAT_COOL if self._enabled else HVACMode.OFF
 
     @property
@@ -272,6 +290,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
             return HVACAction.OFF
         if self.coordinator.dry_state(self._zone.slug) == "held":
             # Allow Dry mode: a person runs the head in dry, so show the head.
+            # (Parked for heat, its engage is satisfied: idle, below.)
             return self._head_action()
         engage = (self.coordinator.data or {}).get(f"{self._zone.slug}_engage")
         shared = (self.coordinator.data or {}).get("state")
@@ -419,12 +438,36 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         )
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        """The room's switch, and (3.16.0) the head's Dry for a room that offers it.
+
+        Dry enables the room and sends the head dry once, nothing else (no
+        fan, vane or setpoint write), checked before anything is written.
+        Heat/Cool or Off from Dry takes the head out of it: Heat/Cool back to
+        the plan, Off with the room disabled.
+        """
+        if hvac_mode == HVACMode.DRY:
+            await self._pick_dry()
+            return
+        self.coordinator.release_dry(self._zone)
         await self._set_enable(hvac_mode != HVACMode.OFF)
+
+    async def _pick_dry(self) -> None:
+        if (refusal := self.coordinator.dry_pick_refusal(self._zone)) is not None:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key=refusal,
+                translation_placeholders={"zone": self._zone.name},
+            )
+        send = self.coordinator.start_dry_pick(self._zone)
+        await self._set_enable(True)
+        if send:
+            await self.coordinator.async_send_dry(self._zone)
 
     async def async_turn_on(self) -> None:
         await self._set_enable(True)
 
     async def async_turn_off(self) -> None:
+        self.coordinator.release_dry(self._zone)
         await self._set_enable(False)
 
     async def _set_enable(self, on: bool) -> None:

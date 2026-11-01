@@ -449,8 +449,9 @@ showed the lag described above, but the option itself has not run on them.
 ## Allow Dry mode
 
 *New in 3.15.0, off by default.* Most heads have a Dry (dehumidify) mode of their own.
-MXZ never asks a head for it, and without this option it treats a head someone puts in
-`dry` like one put in `auto`: it puts it back after about 20 seconds. Turn on **Allow Dry
+MXZ asks a head for it only when a person picks Dry on the room's MXZ thermostat (3.16.0,
+below), and without this option it treats a head someone puts in `dry` like one put in
+`auto`: it puts it back after about 20 seconds. Turn on **Allow Dry
 mode** for a room (Configure → Rooms → (room)) to let a person run that room's head in
 Dry. The option shows only for a head that lists `dry` among its modes. Thanks to
 [@mikepell007](https://github.com/mikepell007), whose tip on the
@@ -493,7 +494,47 @@ What doesn't change:
 - **Cloud heads (beta)** follow the same rules. A report of Dry that may be older than
   MXZ's last write (inside the confirm wait) isn't taken as someone's Dry, so after MXZ
   parks a cloud head, a late poll that still shows Dry changes nothing.
-- MXZ never sends `dry`, so the commands an ESPHome (CN105) head receives are unchanged.
+- MXZ sends `dry` only when Dry is picked on the room's thermostat (below), so the
+  commands an ESPHome (CN105) head receives are otherwise unchanged.
+
+### Dry on the room thermostat
+
+*New in 3.16.0.* With the option on, and while the room's head lists `dry`, the room's
+MXZ thermostat (`climate.*_thermostat`) offers Dry beside Off and Heat/Cool. Thanks to
+WhimsySpoon on the [Home Assistant forum](https://community.home-assistant.io/t/1018382/14)
+for the request.
+
+- **Picking Dry** enables the room and sends the head `dry` once. MXZ writes no fan, vane
+  or setpoint, so a fan speed you picked is kept. From then on it is the Dry above: the
+  room's target waits (it stays shown), the head votes cool, and heat for another room
+  parks it with one notice. Until the head reports Dry (up to 60 s, or a cloud room's
+  confirm wait if longer) MXZ treats it as in Dry and sends it nothing else; if it never
+  does, the room's plan has the head again and a warning is logged.
+- **The thermostat shows Dry** whenever MXZ keeps the head in Dry, also a Dry someone set
+  on the head's own remote: `hvac_action` is the head's own (`drying`) while held, and
+  `idle` while it is being parked for heat. Once a parked head has left Dry the
+  thermostat shows Heat/Cool.
+- **Heat/Cool** takes the head out of Dry and back to the room's plan; **Off** turns the
+  room off, and its head off, as for any room turned off. Leaving Dry starts the coil-dry
+  run as above; a room turned off holds its head off, so that run happens only if the
+  room is turned back on within the coil drying time.
+- **Dry ends with one notice** if the option is turned off, or the head stops listing
+  `dry`, while in Dry, for example "Bedroom Dry ended: Allow Dry mode was turned off. MXZ
+  is back on the room's temperature goal." The thermostat then offers Off and Heat/Cool,
+  and the plan has the head again at once.
+- **Dry can't be picked** while the Coordinator switch is off or a standby hold is on;
+  Home Assistant shows why, and nothing is written. Cool lockout doesn't hide it: Dry then
+  has no vote, as above. A stale room sensor doesn't end it either, since Dry doesn't use
+  the room's reading.
+- **After a restart** a head still in Dry is shown as Dry and left alone. Nothing new is
+  stored: the head's own mode is what MXZ goes by.
+- **Apple Home:** Home Assistant's HomeKit bridge reads a thermostat's modes when it
+  builds the accessory, and shows Dry as Cool on a thermostat with no Cool mode of its
+  own, as this one has none. So once the bridge has built this room with Dry listed, the
+  Home app shows a Cool choice that picks Dry, and shows Dry as Cool. Checked by reading
+  Home Assistant 2026.10's HomeKit code, not on a device.
+- A room without the option, or whose head lists no `dry`, offers Off and Heat/Cool
+  exactly as before.
 
 On `sensor.*_plan`, the row of a room with the option on adds `allow_dry: true`, `dry`
 (`held` while MXZ leaves the head in Dry, `parked` while another room's heat has MXZ park

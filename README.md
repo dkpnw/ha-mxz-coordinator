@@ -115,6 +115,11 @@ new room is heated back up; a sensor that has sent nothing for 6 hours is treate
 stale, which also pauses that room's floor, and MXZ tells you how to fix it. See
 [Optional extras](#optional-extras).
 
+A room with **Allow Dry mode** on now offers Dry on its MXZ thermostat, for a head that
+lists Dry. Thanks to WhimsySpoon on the
+[Home Assistant forum](https://community.home-assistant.io/t/1018382/14) for the request.
+See [Allow Dry mode](docs/FEATURES.md#allow-dry-mode).
+
 ## What's new in 3.15.0
 
 **Allow Dry mode**, per room and off by default: turn it on (Configure → Rooms → (room)),
@@ -258,7 +263,9 @@ creates from 3.16.0 on) starts with a freeze floor and a sensor freshness limit:
   disabled**, and a disabled room is left to its remote while its heat or cool still
   counts. [Details](docs/FEATURES.md#run-one-room-from-its-own-remote)
 - **Allow Dry mode**: a head someone puts in Dry (dehumidify) stays there instead of being
-  put back, and counts as a vote for cool. [Details](docs/FEATURES.md#allow-dry-mode)
+  put back, and counts as a vote for cool. With it on, the room's MXZ thermostat offers
+  Dry. Picking it puts the head in Dry; MXZ pauses that room's temperature goal until you
+  pick Heat/Cool or Off. [Details](docs/FEATURES.md#allow-dry-mode)
 - **Sensor freshness**: a room whose sensor goes quiet stops asking for heat or cool, and
   its freeze floor pauses, with a notice. A new room starts at 6 hours (Maximum age 360
   min, Freshness evidence "Every update is a new reading"). A room from before 3.16.0

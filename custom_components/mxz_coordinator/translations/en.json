@@ -720,6 +720,15 @@
     },
     "range_too_wide": {
       "message": "{zone}: the range is wider than this room's limits ({min} to {max})."
+    },
+    "dry_not_offered": {
+      "message": "{zone}: Dry isn't offered. Turn on Allow Dry mode on the room page, for a head that lists Dry."
+    },
+    "dry_coordinator_off": {
+      "message": "{zone}: Dry can't start while the Coordinator switch is off."
+    },
+    "dry_standby_hold": {
+      "message": "{zone}: Dry can't start during a standby hold."
     }
   }
 }

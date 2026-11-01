@@ -20,7 +20,7 @@ from homeassistant.helpers import selector
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
-from .capabilities import head_mode_problem, supported_idle_actions
+from .capabilities import head_lists_dry, head_mode_problem, supported_idle_actions
 from .const import (
     CLOUD_PLATFORMS,
     CONF_CHANGEOVER_COOL_BELOW,
@@ -92,7 +92,6 @@ from .const import (
     LOST_VOTE_TTL_BOUNDS,
     MAX_ZONES,
     MIN_ZONES,
-    MODE_DRY,
     NEW_ROOM_FLOOR_LOW_C,
     NEW_ROOM_FLOOR_LOW_F,
     NEW_ROOM_MAX_AGE,
@@ -218,13 +217,6 @@ def _platform(hass: HomeAssistant, climate_id: str) -> str | None:
     """The integration a head's climate entity comes from, if registered."""
     entry = er.async_get(hass).async_get(climate_id)
     return None if entry is None else entry.platform
-
-
-def _lists_dry(hass: HomeAssistant, climate_id: str) -> bool:
-    """Whether the head lists dry in its hvac_modes now (Allow Dry mode is shown)."""
-    state = hass.states.get(climate_id)
-    modes = state.attributes.get("hvac_modes") if state is not None else None
-    return isinstance(modes, (list, tuple)) and MODE_DRY in modes
 
 
 def _suggested_head_type(hass: HomeAssistant, climate_id: str) -> str:
@@ -2820,7 +2812,7 @@ class MXZOptionsFlow(OptionsFlow):
         zone = zones[index]
         unit = str(self.hass.config.units.temperature_unit)
         title = {"room": _room_name(zone, index)}
-        dry = _lists_dry(self.hass, zone[ZONE_CLIMATE])
+        dry = head_lists_dry(self.hass, zone[ZONE_CLIMATE])
         if user_input is None:
             return self.async_show_form(
                 step_id="room",

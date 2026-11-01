@@ -55,7 +55,7 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
-from .capabilities import head_has_fan_auto
+from .capabilities import head_has_fan_auto, head_lists_dry, state_lists_dry
 from .cloud import (
     CLOUD_NOT_CONTROLLABLE,
     CloudHead,
@@ -127,6 +127,7 @@ from .const import (
     DOMAIN,
     DRIVE_OFFSET_MAX_C,
     DRIVE_OFFSET_MAX_F,
+    DRY_PICK_WAIT,
     DUAL_HANDOFF_KEY,
     DUAL_ZONE_ENTITY_SUFFIXES,
     ENGAGE_SATISFIED,
@@ -736,6 +737,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._dry_rooms: dict[str, str] = {}
         self._dry_noticed: set[str] = set()
         self._dry_heat_for: str | None = None  # the room heat is for, by name
+        # Dry picked on a room's thermostat (3.16.0): each room whose head was
+        # sent dry and hasn't reported it yet, with the timer that gives up
+        # (DRY_PICK_WAIT), and each room a person took out of dry on that
+        # thermostat (Heat/Cool or Off), until its head reports another mode.
+        # In memory only: after a restart the head's own mode is the truth.
+        self._dry_picks: dict[str, Any] = {}
+        self._dry_released: set[str] = set()
         # The shared mode was last moved by hands-off votes alone. Going back
         # from it while no coordinated room calls is undoing the vote, not a
         # flip of ours, so that starts no dwell either (see _compute).
@@ -1157,6 +1165,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for cancel in self._dry_timers.values():
             cancel()
         self._dry_timers.clear()
+        for cancel in self._dry_picks.values():
+            cancel()
+        self._dry_picks.clear()
         await self._async_retire_vane_kicks()
 
     # -- decision (mirrors sensor.mxz_plan) ---------------------------------
@@ -2178,9 +2189,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # park/write. A known head still follows sensor-failure parking.
                     continue
             if dry is not None:
-                # Dry wets the coil as cooling does: whenever the head leaves
-                # dry, the coil-dry run is owed from then.
-                self._last_active[zone.climate_id] = (MODE_COOL, time.monotonic())
+                head = self.hass.states.get(zone.climate_id)
+                if head is not None and head.state == MODE_DRY:
+                    # Dry wets the coil as cooling does: whenever the head
+                    # leaves dry, the coil-dry run is owed from then. (A Dry
+                    # picked on the thermostat and not reported yet hasn't.)
+                    self._last_active[zone.climate_id] = (MODE_COOL, time.monotonic())
                 if dry == "held":
                     # A person's dry: no mode, setpoint, fan or vane write.
                     self._cancel_dry_timer(zone.climate_id)
@@ -4220,9 +4234,24 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # (straight from dry, or back from out of sight), so a later dry
             # parked for heat is a new notice. Read from the report, not the
             # next compute: a person can pick dry again before that runs.
+            # A room taken out of dry on its thermostat is out of it now.
             for zone in self.zones:
                 if zone.climate_id == entity_id:
                     self._dry_noticed.discard(zone.slug)
+                    self._dry_released.discard(zone.slug)
+        if mode == MODE_DRY and not stale:
+            for zone in self.zones:
+                if zone.climate_id != entity_id:
+                    continue
+                self._cancel_dry_pick(zone.slug)  # a Dry picked on the thermostat landed
+                if (
+                    self.dry_state(zone.slug) is not None
+                    and state_lists_dry(old_state) and not state_lists_dry(new_state)
+                ):
+                    # The head dropped dry from its list while in it: the room
+                    # offers Dry no more and the plan has the head again.
+                    refresh_needed = True
+                    self._dry_ended_notice(zone, "its head no longer offers Dry")
         # Never heal a head the standby hold parked off (nor a wall override
         # mid-hold — a human turning a parked head on during an outage wins),
         # and never heal a head the PLAN itself parked off (idle_action) — but
@@ -4648,36 +4677,136 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return slug in self._hands_off_released
 
     # -- Allow Dry mode (opt-in, enabled rooms) --------------------------------
+    def dry_offered(self, zone: Zone) -> bool:
+        """Whether this room offers Dry: Allow Dry on, and its head lists dry now.
+
+        The gate for the room thermostat's Dry and for every dry MXZ keeps.
+        A cool lockout doesn't close it (Dry just can't win the mode then).
+        """
+        return zone.allow_dry and head_lists_dry(self.hass, zone.climate_id)
+
     def _dry_allowed(self, climate_id: str, mode: str | None) -> bool:
         """Whether this report is a head in dry that its room lets stay there.
 
-        The heals read this: an enabled room with Allow Dry on is never put
-        back from dry (a park for heat goes through the plan instead). Any
-        other room in dry is healed exactly as before the option existed.
+        The heals read this: an enabled room that offers Dry is never put
+        back from dry (a park for heat goes through the plan instead), unless
+        a person took it out of dry on its thermostat. Any other room in dry
+        is healed exactly as before the option existed.
         """
         return mode == MODE_DRY and any(
-            zone.climate_id == climate_id and zone.allow_dry and zone.enable
+            zone.climate_id == climate_id and self.dry_offered(zone) and zone.enable
+            and zone.slug not in self._dry_released
             for zone in self.zones
         )
 
     def _in_dry(self, zone: Zone) -> bool:
         """Whether a person has this room's head in dry, and MXZ honors it now.
 
-        Only with Allow Dry on, while the room is enabled and no standby hold
-        is on (a hold parks every head, a dry one too). A cloud head's report
-        of dry that may be older than MXZ's last batch (inside its confirm
-        wait), or from a head out of MXZ's control, isn't one: that report
-        isn't a person's choice MXZ can act on.
+        Only while the room offers Dry and is enabled, no standby hold is on
+        (a hold parks every head, a dry one too), and no person took it out
+        of dry on its thermostat. A cloud head's report of dry that may be
+        older than MXZ's last batch (inside its confirm wait), or from a head
+        out of MXZ's control, isn't one: that report isn't a person's choice
+        MXZ can act on. A Dry just picked on the thermostat is one until the
+        head reports it, or the pick's wait runs out.
         """
-        if not zone.allow_dry or not zone.enable or self.inhibited:
+        if (
+            not self.dry_offered(zone) or not zone.enable or self.inhibited
+            or zone.slug in self._dry_released
+        ):
             return False
         head = self.hass.states.get(zone.climate_id)
-        if head is None or head.state != MODE_DRY:
+        if head is None or head.state in UNAVAILABLE_STATES:
             return False
         cloud = self._cloud.get(zone.climate_id)
-        return cloud is None or not (
-            cloud.unresponsive or cloud.stale(time.monotonic(), mode=MODE_DRY)
+        if cloud is not None and cloud.unresponsive:
+            return False
+        if head.state != MODE_DRY:
+            return zone.slug in self._dry_picks
+        return cloud is None or not cloud.stale(time.monotonic(), mode=MODE_DRY)
+
+    def dry_pick_refusal(self, zone: Zone) -> str | None:
+        """Why Dry can't be picked on this room's thermostat now, as a translation key."""
+        if not self.dry_offered(zone):
+            return "dry_not_offered"
+        if not self.coordinator_enable:
+            return "dry_coordinator_off"
+        if self.inhibited:
+            return "dry_standby_hold"
+        return None
+
+    def start_dry_pick(self, zone: Zone) -> bool:
+        """Dry picked on the thermostat: count the head as in dry until it says so.
+
+        Returns whether the head still has to be sent dry. A head already
+        reporting dry needs nothing sent; the room is just enabled.
+        """
+        self._dry_released.discard(zone.slug)
+        head = self.hass.states.get(zone.climate_id)
+        if head is not None and head.state == MODE_DRY and not self._cloud_stale_report(
+            zone.climate_id, mode=MODE_DRY
+        ):
+            return False
+        self._cancel_dry_pick(zone.slug)
+        cloud = self._cloud.get(zone.climate_id)
+        wait = max(DRY_PICK_WAIT, cloud.confirm_wait if cloud is not None else 0)
+        self._dry_picks[zone.slug] = async_call_later(
+            self.hass, wait, partial(self._dry_pick_expired, zone)
         )
+        return True
+
+    async def async_send_dry(self, zone: Zone) -> None:
+        """Send the head dry, once: the one write a Dry pick makes."""
+        try:
+            await self.async_head_service(
+                zone.climate_id, "set_hvac_mode", {"hvac_mode": MODE_DRY}, manual=True,
+            )
+        except HomeAssistantError:
+            self._cancel_dry_pick(zone.slug)
+            await self.async_request_refresh()
+            raise
+
+    def release_dry(self, zone: Zone) -> None:
+        """Heat/Cool or Off picked on the thermostat: out of dry, the plan's again."""
+        if zone.slug in self._dry_picks or self._in_dry(zone):
+            self._cancel_dry_pick(zone.slug)
+            self._dry_released.add(zone.slug)
+
+    def _cancel_dry_pick(self, slug: str) -> None:
+        if (cancel := self._dry_picks.pop(slug, None)) is not None:
+            cancel()
+
+    @callback
+    def _dry_pick_expired(self, zone: Zone, _now: Any) -> None:
+        """The head never reported the Dry picked for it: the plan has it again."""
+        self._dry_picks.pop(zone.slug, None)
+        _LOGGER.warning(
+            "MXZ: %s was sent dry but its head didn't report it in time; "
+            "back to the room's plan", zone.name,
+        )
+        self.hass.async_create_task(self.async_request_refresh())
+
+    def dry_option_turned_off(self, raw_zones: Any) -> None:
+        """Before a reload: tell people once for each room an options save took out of Dry."""
+        if not isinstance(raw_zones, list):
+            return
+        kept = {
+            z.get(ZONE_CLIMATE) for z in raw_zones
+            if isinstance(z, dict) and z.get(ZONE_ALLOW_DRY) is True
+        }
+        present = {z.get(ZONE_CLIMATE) for z in raw_zones if isinstance(z, dict)}
+        for zone in self.zones:
+            if (
+                self.dry_state(zone.slug) is not None
+                and zone.climate_id in present and zone.climate_id not in kept
+            ):
+                self._dry_ended_notice(zone, "Allow Dry mode was turned off")
+
+    def _dry_ended_notice(self, zone: Zone, why: str) -> None:
+        """Tell people once why a room's Dry ended and the plan has its head again."""
+        message = f"{zone.name} Dry ended: {why}. MXZ is back on the room's temperature goal."
+        _LOGGER.info("MXZ: %s", message)
+        self.hass.async_create_task(self._notify(message))
 
     def _dry_settle(
         self,

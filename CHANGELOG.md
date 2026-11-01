@@ -27,6 +27,18 @@ Existing rooms are unchanged; you can set both on the room page.
   fixes: clear the room's Maximum age, or use a sensor that reports periodically. A
   sensor that reports only when its reading changes can go stale in a room that holds
   steady. The room page's help text for both settings says the same.
+- **Dry on the room thermostat.** With **Allow Dry mode** on, for a head that lists
+  `dry`, the room's MXZ thermostat offers Dry beside Off and Heat/Cool. Picking it
+  enables the room and sends the head `dry` once, with no fan, vane or setpoint write (a
+  fan speed you picked is kept); from then on it is the 3.15.0 Dry: the room's target
+  waits, the head votes cool, and heat for another room parks it with one notice. The
+  thermostat shows Dry whenever MXZ keeps the head in Dry, a Dry set on the head's own
+  remote included. Heat/Cool takes the head back to the room's plan; Off turns the room
+  off. Dry is still offered with Cool lockout on, and a stale room sensor doesn't end it.
+  Turning the option off, or a head that stops listing `dry`, ends Dry with one notice.
+  A room without the option, every room saved before 3.15.0 included, offers Off and
+  Heat/Cool exactly as before. Requested by @WhimsySpoon on the
+  [Home Assistant forum](https://community.home-assistant.io/t/1018382/14).
 - **Tested** with the full test suite (2720 tests, full and fakeboot) on every supported
   Home Assistant lane. **Not tested** on hardware.
 

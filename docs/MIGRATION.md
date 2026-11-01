@@ -18,6 +18,16 @@ evidence **Every update is a new reading**. A floor or profile you clear stays c
 On a rollback to 3.15.x a new room keeps its 45 °F floor and 6 h limit, because 3.15.0
 already reads all three keys; that was checked by reading the 3.15.0 code, not run.
 
+## Dry on the room thermostat (3.16.0, unreleased)
+
+A room with **Allow Dry mode** on, for a head that lists `dry`, now offers Dry on its MXZ
+thermostat, and that thermostat's state reads `dry` while MXZ keeps the head in Dry.
+**Nothing to do**, and nothing new is stored. A room without the option keeps exactly
+the modes and attributes it had. An automation or dashboard that expects a room's
+thermostat to be only `off` or `heat_cool` sees `dry` in a room with the option on. If
+the room is bridged to Apple Home, its thermostat there can gain a Cool choice that picks
+Dry (see [Dry on the room thermostat](FEATURES.md#dry-on-the-room-thermostat)).
+
 ## Allow Dry mode, and the coil-dry label (3.15.0)
 
 A new per-room setting, **Allow Dry mode**, in Configure → Rooms → (room), shown only for
