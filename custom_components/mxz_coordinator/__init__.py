@@ -161,10 +161,12 @@ async def _async_options_updated(hass: HomeAssistant, entry: MXZConfigEntry) -> 
     place instead, so each room thermostat stays available while its features
     change (HomeKit rebuilds an accessory on a feature change only then). A
     save that mixes that switch with anything else reloads, as every other
-    change does.
+    change does. A room whose Dry the save ends (Allow Dry mode turned off)
+    is told so first, while this coordinator still knows it was in Dry.
     """
     if await entry.runtime_data.async_switch_dual_in_place():
         return
+    entry.runtime_data.dry_option_turned_off({**entry.data, **entry.options}.get(CONF_ZONES))
     await hass.config_entries.async_reload(entry.entry_id)
 
 

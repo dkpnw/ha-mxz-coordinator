@@ -45,8 +45,8 @@ nothing and leave today's behavior unchanged.
 | | While its own remote runs it, its vote counts | Whenever it is set to heat or cool | Or **Only while it is heating or cooling** (plus 10 minutes after it stops). Stored as `hands_off_vote_basis: action` only when chosen. See [Count its vote only while it runs](FEATURES.md#count-its-vote-only-while-it-runs). |
 | | Allow Dry mode | off | Shown only for a head that lists `dry`. On: while the room is enabled, a head someone puts in Dry stays there and votes cool. Stored as `allow_dry: true` only when on; a room page that doesn't show it leaves what is stored alone. See [Allow Dry mode](FEATURES.md#allow-dry-mode). |
 | | *Uneven drift:* Let it get cooler by / Let it get warmer by | blank | This room's own sides; see [Per-room uneven drift](FEATURES.md#per-room-uneven-drift). |
-| | *Sensor freshness:* Report interval, Maximum age, Startup grace, Freshness evidence, Sample time attribute, Sample counter attribute | empty | See [Choose a sensor freshness contract](#choose-a-sensor-freshness-contract). |
-| | *Freeze floor and overheat ceiling:* Freeze floor / Overheat ceiling | empty (range 35–65 / 2–18 and 75–100 / 24–38) | See [Freeze floor and overheat ceiling](FEATURES.md#freeze-floor-and-overheat-ceiling). |
+| | *Sensor freshness:* Report interval, Maximum age, Startup grace, Freshness evidence, Sample time attribute, Sample counter attribute | new room: Maximum age 360 min and Every update is a new reading, the rest empty; room from before 3.16.0: empty | See [Choose a sensor freshness contract](#choose-a-sensor-freshness-contract). |
+| | *Freeze floor and overheat ceiling:* Freeze floor / Overheat ceiling | new room: floor 45 °F / 7 °C, ceiling empty; room from before 3.16.0: empty (range 35–65 / 2–18 and 75–100 / 24–38) | See [Freeze floor and overheat ceiling](FEATURES.md#freeze-floor-and-overheat-ceiling). |
 | | *Dual setpoint:* Use separate heat and cool setpoints | off | See [Dual setpoint](FEATURES.md#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint). |
 | | *Cloud head (beta):* Setpoint drive offset | 2 / 1 (range 0–6 / 0–3) | While the room runs, its cloud head gets the target plus this in heat, minus it in cool. 0 sends the bare target. |
 | | *Cloud head (beta):* Write interval | 60 seconds (range 30–300) | At most one write to the cloud head per this long; a newer change replaces the waiting one. |
@@ -204,6 +204,16 @@ does not prove how they became empty. Review and save Configure if that warning 
 ## Choose a sensor freshness contract
 
 Each room's profile is on its page (Configure → Rooms → the room → **Sensor freshness**).
+
+**New rooms start with a 6-hour limit** (3.16.0): setup and Reconfigure store Maximum age
+360 min and **Every update is a new reading** in each room they create; startup grace
+then defaults to the same 6 h. A room from before 3.16.0 keeps its profile, or none. A
+sensor that writes to Home Assistant only when its reading changes (a template sensor,
+some MQTT setups, an ESPHome delta filter) can go stale in a room that holds steady for
+6 h. Its room then stops calling and its freeze floor pauses, with a notice. If that
+happens, clear **Maximum age** (or the whole profile, with evidence **Not set**), or use
+a sensor that reports periodically. Zigbee, Z-Wave and ESPHome sensors with a periodic
+report stay fresh, because each report counts even when the value is unchanged.
 
 **No contract? Leave it empty.** Leave the profile empty if you cannot establish a
 reporting contract. MXZ shows `cadence_unknown`, displays age, and applies no age cutoff.

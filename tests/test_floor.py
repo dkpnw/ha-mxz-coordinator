@@ -2834,7 +2834,12 @@ def test_config_floor_copy_is_in_both_english_files() -> None:
         options = json.loads(path.read_text())["options"]
         floor = options["step"]["room"]["sections"]["floor"]
         assert floor["data"] == {"floor_low": "Freeze floor", "floor_high": "Overheat ceiling"}
-        assert "off by default" in floor["description"]
+        # Since 3.16.0 a new room starts with a floor; older rooms keep theirs.
+        assert "New rooms start with a 45 °F (7 °C) freeze floor" in floor["description"]
+        assert "before 3.16.0 keep what they had" in floor["description"]
+        assert floor["data_description"]["floor_low"].startswith(
+            "Heats this room when it is turned off and drops below this. Clear to turn off."
+        )
         assert "Nothing was saved" in options["error"]["floor_out_of_range"]
         copies.append((floor, options["error"]["floor_out_of_range"]))
     assert copies[0] == copies[1]

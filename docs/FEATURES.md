@@ -449,12 +449,17 @@ showed the lag described above, but the option itself has not run on them.
 ## Allow Dry mode
 
 *New in 3.15.0, off by default.* Most heads have a Dry (dehumidify) mode of their own.
-MXZ never asks a head for it, and without this option it treats a head someone puts in
-`dry` like one put in `auto`: it puts it back after about 20 seconds. Turn on **Allow Dry
+MXZ asks a head for it only when a person picks Dry on the room's MXZ thermostat (3.16.0,
+below), and without this option it treats a head someone puts in `dry` like one put in
+`auto`: it puts it back after about 20 seconds. Turn on **Allow Dry
 mode** for a room (Configure → Rooms → (room)) to let a person run that room's head in
 Dry. The option shows only for a head that lists `dry` among its modes. Thanks to
 [@mikepell007](https://github.com/mikepell007), whose tip on the
 [Home Assistant forum](https://community.home-assistant.io/t/1018382) prompted it.
+
+Allow Dry mode is off by default. When it's on, Home Assistant's HomeKit bridge shows Dry
+as Cool, so Apple Home may show a Cool choice (and Auto) for that room, which can be
+confusing. Leave it off if you use Apple Home and don't need Dry.
 
 While the room is enabled and someone has its head in Dry:
 
@@ -493,7 +498,47 @@ What doesn't change:
 - **Cloud heads (beta)** follow the same rules. A report of Dry that may be older than
   MXZ's last write (inside the confirm wait) isn't taken as someone's Dry, so after MXZ
   parks a cloud head, a late poll that still shows Dry changes nothing.
-- MXZ never sends `dry`, so the commands an ESPHome (CN105) head receives are unchanged.
+- MXZ sends `dry` only when Dry is picked on the room's thermostat (below), so the
+  commands an ESPHome (CN105) head receives are otherwise unchanged.
+
+### Dry on the room thermostat
+
+*New in 3.16.0.* With the option on, and while the room's head lists `dry`, the room's
+MXZ thermostat (`climate.*_thermostat`) offers Dry beside Off and Heat/Cool. Thanks to
+WhimsySpoon on the [Home Assistant forum](https://community.home-assistant.io/t/1018382/14)
+for the request.
+
+- **Picking Dry** enables the room and sends the head `dry` once. MXZ writes no fan, vane
+  or setpoint, so a fan speed you picked is kept. From then on it is the Dry above: the
+  room's target waits (it stays shown), the head votes cool, and heat for another room
+  parks it with one notice. Until the head reports Dry (up to 60 s, or a cloud room's
+  confirm wait if longer) MXZ treats it as in Dry and sends it nothing else; if it never
+  does, the room's plan has the head again and a warning is logged.
+- **The thermostat shows Dry** whenever MXZ keeps the head in Dry, also a Dry someone set
+  on the head's own remote: `hvac_action` is the head's own (`drying`) while held, and
+  `idle` while it is being parked for heat. Once a parked head has left Dry the
+  thermostat shows Heat/Cool.
+- **Heat/Cool** takes the head out of Dry and back to the room's plan; **Off** turns the
+  room off, and its head off, as for any room turned off. Leaving Dry starts the coil-dry
+  run as above; a room turned off holds its head off, so that run happens only if the
+  room is turned back on within the coil drying time.
+- **Dry ends with one notice** if the option is turned off, or the head stops listing
+  `dry`, while in Dry, for example "Bedroom Dry ended: Allow Dry mode was turned off. MXZ
+  is back on the room's temperature goal." The thermostat then offers Off and Heat/Cool,
+  and the plan has the head again at once.
+- **Dry can't be picked** while the Coordinator switch is off or a standby hold is on;
+  Home Assistant shows why, and nothing is written. Cool lockout doesn't hide it: Dry then
+  has no vote, as above. A stale room sensor doesn't end it either, since Dry doesn't use
+  the room's reading.
+- **After a restart** a head still in Dry is shown as Dry and left alone. Nothing new is
+  stored: the head's own mode is what MXZ goes by.
+- **Apple Home:** Home Assistant's HomeKit bridge reads a thermostat's modes when it
+  builds the accessory, and shows Dry as Cool on a thermostat with no Cool mode of its
+  own, as this one has none. So once the bridge has built this room with Dry listed, the
+  Home app shows a Cool choice that picks Dry, and shows Dry as Cool. Checked by reading
+  Home Assistant 2026.10's HomeKit code, not on a device.
+- A room without the option, or whose head lists no `dry`, offers Off and Heat/Cool
+  exactly as before.
 
 On `sensor.*_plan`, the row of a room with the option on adds `allow_dry: true`, `dry`
 (`held` while MXZ leaves the head in Dry, `parked` while another room's heat has MXZ park
@@ -610,10 +655,15 @@ head was gone.
 
 Each room can have a **Freeze floor** and an **Overheat ceiling**: two optional numbers in
 Configure → Rooms → (room) → **Freeze floor and overheat ceiling**, in your Home Assistant
-temperature unit (floor 35–65 °F / 2–18 °C, ceiling 75–100 °F / 24–38 °C). Both are empty
-for every room, including every room of an existing install, and an empty field stores
-nothing, so nothing changes until you fill one in. Saving a room page for anything else
-never sets one. 50 °F (10 °C) is a typical freeze floor.
+temperature unit (floor 35–65 °F / 2–18 °C, ceiling 75–100 °F / 24–38 °C).
+
+- **New rooms start with a 45 °F (7 °C) freeze floor** and no ceiling (3.16.0). It is
+  written into the room when setup or Reconfigure creates it, in the unit Home Assistant
+  uses then, and is an ordinary value: shown on the room page, editable, and cleared by
+  emptying the field.
+- **A room from before 3.16.0 is unchanged.** Its fields stay empty until you fill one
+  in, and an empty field stores nothing. Saving a room page, or any other page, for
+  anything else never sets one, and a floor you cleared stays cleared.
 
 ### What it does
 
@@ -757,7 +807,10 @@ MXZ's first update of the restored run. What that means for a person:
   not a number, or stale under its
   [freshness contract](CONFIGURATION.md#choose-a-sensor-freshness-contract) never trips
   the floor, and a run whose sensor is lost ends at once. The room shows `blind`. A sensor
-  that flaps in and out ends and restarts the run each time.
+  that flaps in and out ends and restarts the run each time. For a stale sensor the
+  notice names the window that ran out (6 h on a new room) and the two fixes: clear the
+  room's Maximum age, or use a sensor that reports periodically. A sensor that reports
+  only when its reading changes goes quiet in a room that holds steady.
 - **Head unavailable.** A tripped room whose head is unavailable casts no want, so it
   cannot hold the other rooms' direction for a head that cannot run. It shows `blind`.
 - **No-progress limit.** A sensor can be stuck at a valid number, and a room whose sensor

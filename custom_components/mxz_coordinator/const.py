@@ -134,9 +134,18 @@ ZONE_DUAL_SETPOINT = "dual_setpoint"
 # pauses. The head is a cool vote at hands-off rank (dry runs the outdoor unit
 # the cooling way), which a cool lockout blocks. If another room wins heat, MXZ
 # parks the head at its idle action and sends one notice; it never puts dry
-# back, and it never sends dry itself. Leaving dry starts the coil-dry run as
-# leaving cool does. The room page shows it only for a head that lists dry.
+# back. Leaving dry starts the coil-dry run as leaving cool does. The room
+# page shows it only for a head that lists dry.
+# On, for a head that lists dry (3.16.0): the room's MXZ thermostat offers Dry
+# too. Picking it enables the room and sends the head dry once, the only time
+# MXZ sends dry; from then on it is the person's dry above. Heat/Cool takes the
+# head back to the plan; Off disables the room. A head that drops dry from its
+# list, or the option turned off, ends it with one notice.
 ZONE_ALLOW_DRY = "allow_dry"
+# How long a Dry picked on the room thermostat counts as the head's dry before
+# the head reports it (seconds; a cloud room waits its confirm wait if that is
+# longer). Past it, with no dry seen, the plan has the head again.
+DRY_PICK_WAIT = 60
 # Per room: how MXZ reaches the head (beta). Stored only as HEAD_TYPE_CLOUD,
 # or as HEAD_TYPE_LOCAL where the head's platform suggested cloud and the user
 # kept local (in setup, or by switching a cloud room back); no key reads local,
@@ -219,6 +228,15 @@ EVIDENCE_HA_WRITE = "ha_state_write"
 EVIDENCE_SAMPLE_TIMESTAMP = "sample_timestamp"
 # The bases a setup form may offer; anything else reads as `unknown`.
 EVIDENCE_BASES = (EVIDENCE_UNKNOWN, EVIDENCE_HA_WRITE, EVIDENCE_SAMPLE_TIMESTAMP)
+# What a NEW room stores when setup or Reconfigure creates it (3.16.0): a
+# freeze floor in the system unit, and a 6 h maximum age (minutes) on the
+# ha_state_write basis. Written into the room once, at creation, as ordinary
+# values the room page shows, edits and clears. Nothing reads these at
+# runtime: a room without the keys (every room stored before 3.16.0, or one
+# whose values were cleared) has no floor and an unknown cadence.
+NEW_ROOM_FLOOR_LOW_F = 45.0
+NEW_ROOM_FLOOR_LOW_C = 7.0
+NEW_ROOM_MAX_AGE = 360.0
 MIN_ZONES = 2
 MAX_ZONES = 8
 

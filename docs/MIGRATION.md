@@ -1,5 +1,33 @@
 # Upgrading and migrating MXZ Coordinator
 
+## Defaults for new rooms (3.16.0, unreleased)
+
+A room that setup or Reconfigure creates now stores three values in its own record:
+`floor_low: 45` (`7` on a Celsius system), `max_age: 360` and
+`evidence_basis: ha_state_write`. They are ordinary values, the same keys a person could
+already set on the room page, and that page shows, edits and clears them. The overheat
+ceiling stays empty.
+
+**Nothing to do.** No config-entry version change (it stays 2.2) and no migration. The
+values are written only when a room is created; nothing supplies them at runtime. A room
+saved before 3.16.0 keeps exactly the keys it had, so a room with no floor and no
+freshness profile still has neither, and saving any Configure page, the room's page
+included, adds none. To give an existing room the new defaults, set them on its page:
+Freeze floor 45 °F (7 °C), and under Sensor freshness, Maximum age 360 and Freshness
+evidence **Every update is a new reading**. A floor or profile you clear stays cleared.
+On a rollback to 3.15.x a new room keeps its 45 °F floor and 6 h limit, because 3.15.0
+already reads all three keys; that was checked by reading the 3.15.0 code, not run.
+
+## Dry on the room thermostat (3.16.0, unreleased)
+
+A room with **Allow Dry mode** on, for a head that lists `dry`, now offers Dry on its MXZ
+thermostat, and that thermostat's state reads `dry` while MXZ keeps the head in Dry.
+**Nothing to do**, and nothing new is stored. A room without the option keeps exactly
+the modes and attributes it had. An automation or dashboard that expects a room's
+thermostat to be only `off` or `heat_cool` sees `dry` in a room with the option on. If
+the room is bridged to Apple Home, its thermostat there can gain a Cool choice that picks
+Dry (see [Dry on the room thermostat](FEATURES.md#dry-on-the-room-thermostat)).
+
 ## Allow Dry mode, and the coil-dry label (3.15.0)
 
 A new per-room setting, **Allow Dry mode**, in Configure → Rooms → (room), shown only for

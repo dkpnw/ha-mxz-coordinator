@@ -64,7 +64,7 @@ target, idles. Each room has one target.
 **Start here:** [Install](#install), then [set up your outdoor unit](#set-up-your-outdoor-unit).
 No YAML is required.
 
-**Contents:** [What MXZ does for you](#what-mxz-does-for-you) · [What's new](#whats-new-in-3120) ·
+**Contents:** [What MXZ does for you](#what-mxz-does-for-you) · [What's new](#whats-new) ·
 [Before you install](#before-you-install) · [Install](#install) · [Set up](#set-up-your-outdoor-unit) ·
 [Everyday use](#everyday-use) · [Optional extras](#optional-extras) · [Tune it](#tune-it) ·
 [If something looks wrong](#if-something-looks-wrong) · [Documentation](#documentation) ·
@@ -103,7 +103,22 @@ Every core feature exists for a reason someone ran into:
 [How it works](docs/HOW-IT-WORKS.md) walks through each decision and cites the
 Mitsubishi manuals on stock AUTO.
 
-<a id="whats-new-in-3111"></a>
+<!-- "whats-new" stays above the newest What's new section; the others are old links. -->
+<a id="whats-new"></a><a id="whats-new-in-3120"></a><a id="whats-new-in-3111"></a>
+
+## What's new in 3.16.0
+
+New rooms now start with a 45 °F (7 °C) freeze floor and a 6-hour sensor freshness limit.
+Existing rooms are unchanged; you can set both on the room page (Configure → Rooms →
+(room)). A room is new when setup or Reconfigure creates it. Turned off and below 45 °F, a
+new room is heated back up; a sensor that has sent nothing for 6 hours is treated as
+stale, which also pauses that room's floor, and MXZ tells you how to fix it. See
+[Optional extras](#optional-extras).
+
+A room with **Allow Dry mode** on now offers Dry on its MXZ thermostat, for a head that
+lists Dry. Thanks to WhimsySpoon on the
+[Home Assistant forum](https://community.home-assistant.io/t/1018382/14) for the request.
+See [Allow Dry mode](docs/FEATURES.md#allow-dry-mode).
 
 ## What's new in 3.15.0
 
@@ -226,7 +241,8 @@ including [who drives the fan](docs/FEATURES.md#who-drives-the-fan) and
 
 ## Optional extras
 
-Each is off or blank until you set it:
+Each is off or blank until you set it, except that a new room (one setup or Reconfigure
+creates from 3.16.0 on) starts with a freeze floor and a sensor freshness limit:
 
 - **Uneven drift**, globally or [per room](docs/FEATURES.md#per-room-uneven-drift): let a
   room get cooler than it may get warmer, or the other way round.
@@ -235,7 +251,10 @@ Each is off or blank until you set it:
   an ecobee or a Nest. One target per room stays the default.
   [Details](docs/FEATURES.md#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint)
 - **Freeze floor and overheat ceiling**: a disabled room is heated or cooled back to
-  safety. [Details](docs/FEATURES.md#freeze-floor-and-overheat-ceiling)
+  safety. A new room starts with a 45 °F (7 °C) freeze floor and no ceiling. A room from
+  before 3.16.0 keeps what it had, so it has none unless you set one. Set, change or clear
+  either in Configure → Rooms → (room) → **Freeze floor and overheat ceiling**.
+  [Details](docs/FEATURES.md#freeze-floor-and-overheat-ceiling)
 - **Safety priority**: while a sensor you wire reads `on`, that room's own heat or cool
   outranks ordinary room demands. A tripped freeze floor ranks first; other safety
   demands and tripped overheat ceilings are settled by room order.
@@ -244,10 +263,19 @@ Each is off or blank until you set it:
   disabled**, and a disabled room is left to its remote while its heat or cool still
   counts. [Details](docs/FEATURES.md#run-one-room-from-its-own-remote)
 - **Allow Dry mode**: a head someone puts in Dry (dehumidify) stays there instead of being
-  put back, and counts as a vote for cool. [Details](docs/FEATURES.md#allow-dry-mode)
-- **Sensor freshness**: tell MXZ how often a room's sensor reports, and a room whose sensor
-  goes quiet stops asking for heat or cool.
-  [Details](docs/CONFIGURATION.md#choose-a-sensor-freshness-contract)
+  put back, and counts as a vote for cool. With it on, the room's MXZ thermostat offers
+  Dry. Picking it puts the head in Dry; MXZ pauses that room's temperature goal until you
+  pick Heat/Cool or Off. Allow Dry mode is off by default. When it's on, Home Assistant's
+  HomeKit bridge shows Dry as Cool, so Apple Home may show a Cool choice (and Auto) for
+  that room, which can be confusing. Leave it off if you use Apple Home and don't need Dry.
+  [Details](docs/FEATURES.md#allow-dry-mode)
+- **Sensor freshness**: a room whose sensor goes quiet stops asking for heat or cool, and
+  its freeze floor pauses, with a notice. A new room starts at 6 hours (Maximum age 360
+  min, Freshness evidence "Every update is a new reading"). A room from before 3.16.0
+  keeps what it had, so it is never timed out unless you set it. A sensor that reports
+  only when its reading changes can go stale in a room that holds steady: clear Maximum
+  age, or use a sensor that reports periodically. Set it in Configure → Rooms → (room) →
+  **Sensor freshness**. [Details](docs/CONFIGURATION.md#choose-a-sensor-freshness-contract)
 
 What happens when a head drops off the network is in
 [When a head goes unavailable](docs/FEATURES.md#when-a-head-goes-unavailable).

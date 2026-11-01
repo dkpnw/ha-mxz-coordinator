@@ -98,6 +98,10 @@ change while the summary is open can send you back to correct it.
 </tr>
 </table>
 
+Since 3.16.0 the summary shows each new room's 6-hour freshness limit and 45 °F (7 °C)
+freeze floor where this 3.12 screenshot shows an unknown cadence. Both can be changed or
+cleared later on the room's page in [Configure](CONFIGURATION.md).
+
 **Advanced settings are optional.**
 
 - Skip them and MXZ uses defaults for your HA temperature unit.

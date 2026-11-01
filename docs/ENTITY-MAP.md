@@ -110,6 +110,8 @@ above. See [Allow Dry mode](FEATURES.md#allow-dry-mode).
 | Same row | `dry` | `held` while the room is enabled and MXZ leaves its head in Dry (the room's `demand` reads `neutral` and its `engage` `satisfied`), `parked` while another room's heat has MXZ turn the head to its idle setting, otherwise `null`. |
 | Same row | `dry_vote` | `cool` while the Dry head's vote counts, `null` otherwise (not in Dry, or Cool lockout on). |
 | `climate.*_thermostat` | `hvac_action` | The head's own action (`drying`) while its room's `dry` is `held`. |
+| Same entity | `hvac_modes` | `off`, `heat_cool`, and `dry` while the head lists `dry` (3.16.0). A room without the option lists `off` and `heat_cool` only. |
+| Same entity | state (`hvac_mode`) | `dry` while its room's `dry` is `held` or `parked` (3.16.0); otherwise `heat_cool` or `off`, as for every room. |
 
 ## Required — replace these
 
