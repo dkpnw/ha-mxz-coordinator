@@ -1,5 +1,22 @@
 # Upgrading and migrating MXZ Coordinator
 
+## Generic heads (beta) (unreleased)
+
+A new head type, **Generic (beta)**, for a `climate` entity that isn't a Mitsubishi head.
+It's stored in that room's record as `head_type: generic`, only when you choose it in
+setup or on the room page. Its settings use the cloud keys (`drive_offset`,
+`write_interval`, `confirm_wait`), stored only when set to something other than the
+generic default. A one-head entry can exist only with a generic head.
+
+**Nothing to do.** No config-entry version change and no migration. A room without
+`head_type: generic` is driven exactly as before, local and cloud rooms included; the
+setup page's new option is off by default and is never stored. On a rollback to 3.16.x a
+generic room reads as local, since older code treats any type but `cloud` as local; that
+was checked by reading the 3.16.0 code (`_parse_zones`), not run. A one-head entry still
+loads after a rollback, since only the setup and Reconfigure flows check the head count
+(read in the code, not run), but its head is then driven as local; remove the entry
+before rolling back if that matters.
+
 ## Defaults for new rooms (3.16.0, unreleased)
 
 A room that setup or Reconfigure creates now stores three values in its own record:

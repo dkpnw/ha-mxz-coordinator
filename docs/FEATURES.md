@@ -12,6 +12,7 @@ named here live in Configure; see [Configuration](CONFIGURATION.md) for the menu
   [count its vote only while it runs](#count-its-vote-only-while-it-runs)
 - [Safety priority](#safety-priority)
 - [When a head goes unavailable](#when-a-head-goes-unavailable)
+- [Generic heads (beta)](#generic-heads-beta)
 - [Freeze floor and overheat ceiling](#freeze-floor-and-overheat-ceiling)
 - [Who drives the fan](#who-drives-the-fan)
 - [How a satisfied head idles](#how-a-satisfied-head-idles)
@@ -653,6 +654,88 @@ head was gone.
 <td>Past the limit it reads <code>expired</code>. <code>engage</code> still shows Studio's own call, but it no longer counts.</td>
 </tr>
 </table>
+
+## Generic heads (beta)
+
+A generic head is any Home Assistant `climate` entity that offers both `heat` and `cool`
+and isn't a Mitsubishi head: another brand's mini-split, a unit bridged in over HomeKit,
+a window AC that heats. MXZ drives only the heads you set it up with; it keeps no list of
+devices it refuses by brand.
+
+**Choosing it.** Off by default, and never suggested.
+
+- In setup, turn on **Generic heads (beta)** on the first page. Every head picked there
+  is generic, and setup skips the cloud head-type step. With it on, one head alone is an
+  entry; without it, one head is refused, as before.
+- On a room page, **Head type** offers **Generic (beta)** beside Local and Cloud (beta).
+  In an entry with one head, the head must stay generic: Local or Cloud (beta) is refused
+  there with a note to add heads with Reconfigure first.
+- Setup's cloud step, for a `melcloud`, `kumo_cloud` or `kumo` head, offers Generic
+  (beta) too, but fills in Cloud (beta).
+- Reconfigure keeps each room's stored type. It keeps a one-head entry only when that head
+  is already stored as generic; it doesn't ask about a head it adds.
+- An ESPHome head can't be generic: setup and the room page refuse it, and a generic type
+  stored for one is driven as local.
+
+**One outdoor unit or many.** An MXZ entry is one outdoor unit: its heads share one mode,
+chosen by room order and votes. A generic head usually has its own compressor, so the
+default is one head per entry, and that room's mode then follows only its own demand.
+Several generic heads that really share one outdoor unit can be one entry; they get the
+same shared mode and votes as Mitsubishi heads.
+
+**What a generic head must offer.** `heat` and `cool`, and `off` or `fan_only` for idle.
+Setup refuses a head without heat and cool (`head_missing_heat_cool`) or without an idle
+mode (`head_missing_idle_modes`). While a head lacks them, Configure opens on the same
+refusal, and a room page saved then is refused with it. A cool-only window AC is refused. It also needs a target
+temperature, and its room needs a room sensor.
+
+**How MXZ drives it.** Exactly as a [cloud head](../README.md#cloud-heads-beta): the mode
+on its own call, then one setpoint past the target by the **Setpoint drive offset**,
+rounded to the head's step and kept inside its limits; at most one write per **Write
+interval**; and a **Confirm wait** after each write, in which nothing is sent again and a
+report of an older state is read as late, not as someone's change. A generic head's write
+interval and confirm wait default to 30 seconds (a cloud head's are 60 and 90), and both
+can be set in the room page's **Cloud or generic head (beta)** section. A value left at
+the default stores nothing, so it follows the head type.
+
+**When it is out of MXZ's control.** Only when it has been unavailable for 15 minutes.
+Then MXZ writes it nothing, its room's heat or cool call stops counting (unless its Safety
+priority sensor is on), and a repair issue, **Generic head … is not responding**, stands
+until it is available again. Silence alone never counts: a head that reports only when
+something changes can stay quiet for hours while idle, and stays controlled. (A cloud head
+is also out after 35 minutes with no report at all.) A head that is unavailable for less
+time is sent nothing while it is, as a cloud head is.
+
+**Without optional features.** MXZ does less and never fails:
+
+- **No current temperature:** no change. MXZ never reads a head's own temperature; the
+  room sensor decides.
+- **No fan modes, or no `auto` among them:** no fan boost, and no fan write at all. Fan
+  boost uses only the speeds named like MXZ's ladder (quiet, low, medium, middle, high)
+  that the head lists, one speed every 5 minutes; a head whose speeds are named otherwise
+  keeps its own fan.
+- **No target temperature step:** the setpoint is rounded to 1 °F or 0.5 °C.
+- **No `hvac_action`:** an own-remote room votes by mode. Vote only while running is off
+  for generic heads, as for cloud heads.
+- **No `dry`:** Allow Dry mode isn't offered.
+- **Swing, vanes and the airflow sensor:** not used. A generic room gets no vanes, no
+  vane kick, no airflow sensor and no dual setpoint; the room page refuses them
+  (`generic_unsupported_options`).
+
+**What carries over.** The freeze floor and overheat ceiling, from the room sensor, as on
+any head; on an own-remote room the run ends with the head off, as on a cloud head. The
+sensor freshness rules: a stale room sensor parks the head. A fan speed someone picks on
+the head is held, and the hold survives a restart. After a restart or reload, MXZ holds
+the head for one confirm wait, so a write just before it isn't sent twice.
+
+**On the plan.** `sensor.*_plan` shows a generic room's row with `head_type: generic`,
+`cloud_status`, `cloud_pending_until`, `cloud_confirmed_at`, and its three settings.
+
+**Beta caveats.** Tested only on invented heads: a feature-poor one (heat, cool and off;
+no fan, step, current temperature or `hvac_action`) and a feature-rich one. No real
+non-Mitsubishi unit has been tried yet. A head put in `heat_cool`, `auto` or `dry`
+(without Allow Dry mode) is put back on MXZ's mode, unless its room is run from its own
+remote, as on every head.
 
 ## Freeze floor and overheat ceiling
 

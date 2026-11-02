@@ -162,7 +162,7 @@ what 2026.11 itself changes for thermostat names and attributes, are in the
 | You need | Details |
 | --- | --- |
 | Home Assistant | **2024.12.0 or newer**. |
-| Heads | **2–8 heads on one outdoor unit.** Add a separate coordinator entry for each outdoor unit. |
+| Heads | **2–8 heads on one outdoor unit.** Add a separate coordinator entry for each outdoor unit. A [generic head (beta)](#generic-heads-beta) can have an entry of its own. |
 | Head modes | Each head's `climate` entity must offer `heat`, `cool`, and a common idle action. |
 | Room sensors | A separate temperature `sensor` for each room. |
 
@@ -170,7 +170,7 @@ MXZ is built against
 [echavet/MitsubishiCN105ESPHome](https://github.com/echavet/MitsubishiCN105ESPHome).
 Earlier releases have field experience on two- and three-zone hardware, with six-zone
 and multiple-outdoor-unit reports. Kumo Cloud, MELCloud, and other climate integrations
-are unvalidated here. Simultaneous heat/cool and branch-box VRF are out of scope. The
+are unvalidated here, and so are [generic heads (beta)](#generic-heads-beta). Simultaneous heat/cool and branch-box VRF are out of scope. The
 [full requirements](docs/SETUP.md#requirements) cover idle-action and fan support.
 
 ## Install
@@ -325,7 +325,7 @@ take your room sensor as its own. So for a cloud head MXZ:
   repair issue says so until the head reports again. Silence gets longer because Home
   Assistant's own MELCloud integration reports a quiet head only every 15 minutes.
 
-The three settings are in the room page's **Cloud head (beta)** section.
+The three settings are in the room page's **Cloud or generic head (beta)** section.
 
 | Feature | On a cloud head |
 | --- | --- |
@@ -352,6 +352,52 @@ good or bad. The idea and the setpoint drive offset come from
 (MIT), and the first report from **mw1029** on the
 [Home Assistant forum](https://community.home-assistant.io/t/1018382).
 
+## Generic heads (beta)
+
+A head that isn't a Mitsubishi head at all can be coordinated too, as a beta: any Home
+Assistant `climate` entity that offers both `heat` and `cool`, such as another brand's
+mini-split or a unit bridged in over HomeKit. MXZ drives it the way it drives a
+[cloud head](#cloud-heads-beta). It's off unless you choose it, and MXZ never suggests it.
+MXZ controls only the heads you set it up with.
+
+**Turn it on.** On setup's first page, turn on **Generic heads (beta)**. Every head you
+pick there is then generic. A generic head has its own compressor, so by default add each
+one alone, as its own entry: with the option on, one head is allowed. Pick several in one
+entry only if they really share one outdoor unit; they then share one mode, chosen by
+room order and votes, as Mitsubishi heads on one outdoor unit do. One head without the
+option is still refused. For a head already in an entry, use Configure → Rooms → (room)
+→ **Head type** → **Generic (beta)**. An ESPHome head can't be generic.
+
+**What it needs.** `heat` and `cool` in its modes, and `off` or `fan_only` to idle in; a
+head without them is refused in setup and on its room page. Most window ACs are
+cool-only, so most window ACs are refused. It also needs a target temperature, and the
+room needs its own room sensor as usual. Everything else is optional, and MXZ does less
+without it rather than failing:
+
+- no current temperature: nothing changes, because MXZ reads the room sensor, not the head;
+- no fan modes, or no `auto`: no fan boost. Fan speeds named otherwise than MXZ's ladder
+  (quiet, low, medium, middle, high) are skipped, and the head keeps its own fan;
+- no target step: the setpoint is rounded to 1 °F or 0.5 °C;
+- no `hvac_action`: an own-remote room votes by mode, as cloud rooms do;
+- no `dry`: Allow Dry mode isn't offered;
+- swing and vanes: never used.
+
+**What is different from a cloud head.** Two things. The **Write interval** and **Confirm
+wait** default to 30 seconds, since a generic head usually reports back quickly. And only
+being unavailable for 15 minutes takes a generic head out of MXZ's control: a head that
+just sends nothing is still controlled, however long it stays quiet, because many such
+heads report only when something changes. The freeze floor, overheat ceiling, sensor
+freshness rules, a fan speed you pick (kept across restarts), and the hold after a
+restart work as for a cloud head.
+
+On `sensor.*_plan`, a generic room's row shows `head_type: generic` and the same cloud
+fields. A repair issue says when a generic head has been unavailable for 15 minutes.
+
+**Beta caveats.** Tested only on invented heads, not yet on any real non-Mitsubishi unit.
+MXZ's mode rule still applies: a head put in `heat_cool`, `auto` or `dry` (without
+Allow Dry mode) is put back on MXZ's mode, unless its room is run from its own remote. More in
+[Generic heads (beta)](docs/FEATURES.md#generic-heads-beta).
+
 <a id="configure-comfort-and-sensor-settings"></a><a id="saving-rules-warnings-and-clearing-fields"></a><a id="choose-a-sensor-freshness-contract"></a>
 
 ## Tune it
@@ -366,7 +412,7 @@ pages, and each saves only what it shows:
 | **Seasons** | A weather source and the heat and cool lockout temperatures, with safety overrides. |
 | **Away and setpoint limits** | The away band, and the lowest and highest setpoint a head may get. |
 | **Standby hold** | An optional hold signal, its active state, and what heads do during a hold. |
-| **Rooms** | One page per room: head type (local or cloud beta), vanes, airflow sensor, safety priority, own-remote control, uneven drift, sensor freshness, freeze floor, dual setpoint, and a cloud head's settings. |
+| **Rooms** | One page per room: head type (local, cloud beta or generic beta), vanes, airflow sensor, safety priority, own-remote control, uneven drift, sensor freshness, freeze floor, dual setpoint, and a cloud head's settings. |
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-menu-dark.png">
