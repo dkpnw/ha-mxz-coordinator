@@ -95,6 +95,21 @@ whether that still counts. A room run from its own remote shows the vote that co
 two fields are not on the room thermostat. Nothing about them is saved: after a restart
 or reload every head starts `unknown` until it is seen.
 
+## Integration comfort priority
+
+Every room's row in the plan, whatever its settings. With no Comfort priority entity
+set, every row reads `null`, `0` and `not_set`, and the flag is always false. See
+[Comfort priority](FEATURES.md#comfort-priority).
+
+| Entity surface | Fields | Meaning |
+| --- | --- | --- |
+| `sensor.*_plan` → `zones[]` | `comfort_priority_entity` | The room's Comfort priority entity, or `null`. |
+| Same row | `comfort_priority` | The comfort priority this update read from it: 1 for `on`, a number's own value, 0 for none. Never below 0. Ignored while the room's Safety priority sensor is `on`. |
+| Same row | `comfort_priority_status` | Why the value is what it is: `not_set`, `on`, `off`, `stale` (an `on` older than **Comfort priority stale limit**), `number`, `unavailable`, `unknown`, `missing` or `not_a_number`. |
+| `sensor.*_plan` | `mode_by_comfort_priority` | True only when comfort priority changed the shared mode this update: with every room's comfort priority at 0 it would have been the other mode. Right after a flip it causes, while the mode-switch wait holds the new mode, it reads false: the wait would keep that mode either way. |
+
+Nothing about these is saved. They are not on the room thermostat.
+
 ## Integration vote by action (opt-in per room)
 
 Only a room run from its own remote with **While its own remote runs it, its vote

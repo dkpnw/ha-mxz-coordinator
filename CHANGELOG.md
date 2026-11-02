@@ -27,6 +27,28 @@ on your equipment.
   fakeboot step already does. A test job that runs both may take 35 minutes instead of
   25.
 
+### Added
+
+- **Comfort priority (off by default).** Each room can have an optional **Comfort
+  priority** entity, in Configure → Rooms → (room), under Safety priority. When rooms want
+  opposite modes, a room whose entity is `on`, or reads a higher number, goes ahead of
+  rooms with less; rooms with the same value keep the room order. It can be an on/off
+  entity (`binary_sensor`, `input_boolean`) or a number entity (`number`,
+  `input_number`, numeric `sensor`). A reading that is unavailable, unknown, missing,
+  negative or not a number counts as no priority, so it can move a room up but never
+  down. Freeze floors, Safety priority rooms, overheat ceilings and the mode-switch wait
+  still come first, and a room run from its own remote still never beats an enabled
+  room's real call. An on/off entity that has been `on` for longer than the new
+  **Comfort priority stale limit** (Configure → Comfort → Advanced; 12 hours when blank,
+  0 for no limit) stops counting. The plan's room rows show `comfort_priority_entity`,
+  `comfort_priority` and `comfort_priority_status`, and `mode_by_comfort_priority` is
+  true only when comfort priority changed the mode. With no entity set, MXZ decides and
+  stores exactly what it did before. The idea is
+  [@csingley](https://github.com/csingley)'s comfort priority rank in
+  [ha-climate-zone-sequencer](https://github.com/csingley/ha-climate-zone-sequencer)
+  (commit f911e4a); no code was copied. Not tested on hardware yet. See
+  [Comfort priority](docs/FEATURES.md#comfort-priority).
+
 ## 3.17.0 (November 2, 2026)
 
 Generic heads (beta), off unless you choose them, and cleanup after 3.16.0. Existing
