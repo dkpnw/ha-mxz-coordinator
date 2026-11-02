@@ -17,7 +17,8 @@ invented entities; it covers software behavior, not physical behavior on equipme
 | 3.14.8 | 2026.10.0 | [Exact generated stable test environment](../requirements/ha2026.10/README.md) |
 
 - The first three locks belong to the existing CI lanes. Each lane, and the .10
-  qualification, also runs the full suite a second time with `-p tools.fakeboot` and
+  qualification, also runs the full suite a second time (the 2026.9.0 lane in a
+  separate parallel job) with `-p tools.fakeboot` and
   `FAKE_UPTIME=120`, on a clock that reads as if the runner had booted two minutes ago.
   The mode-change wait, the coil-dry wait, and the floor's own clocks are timed on the
   monotonic clock, which counts from boot, so a test that only passes on a long-running
