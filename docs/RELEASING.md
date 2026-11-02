@@ -62,3 +62,14 @@ A release is cut by hand, in this order. Don't tag until every step above the ta
    ```bash
    gh release create vX.Y.Z --title vX.Y.Z --notes-file notes.md
    ```
+
+## Verifying a release download
+
+From 3.18.0 on, each release has `mxz_coordinator.zip` (the `custom_components/mxz_coordinator` folder at that tag) with a GitHub build-provenance attestation. The `release-provenance` workflow builds and attaches it; it never creates releases or tags. To check a download:
+
+```sh
+gh release download v3.18.0 -R dkpnw/ha-mxz-coordinator -p mxz_coordinator.zip
+gh attestation verify mxz_coordinator.zip -R dkpnw/ha-mxz-coordinator
+```
+
+The zip is built with `git archive` from the tag, so `git archive --format=zip --mtime="$(git log -1 --format=%cI v3.18.0)" v3.18.0:custom_components/mxz_coordinator` gives the same bytes on a recent git. HACS still installs from the repository as before. Tags aren't signed yet.
