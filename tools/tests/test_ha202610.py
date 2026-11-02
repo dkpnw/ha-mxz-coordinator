@@ -375,12 +375,14 @@ def test_both_full_suite_passes_have_the_same_300_second_limit():
 INVENTED_LINES = "".join(f"INVENTED LINE {i}\n" for i in range(1, 251))
 
 
-def run_branch(tmp_path, case, ending, mode=None, limit=None, path=os.defpath):
+def run_branch(tmp_path, case, ending, mode=None, limit=None, path=os.defpath, pad=0):
     """Run one of the script's own branches against an invented interpreter that
-    writes its arguments and 250 numbered lines, then ends with ``ending``."""
+    writes its arguments and 250 numbered lines (each ``pad`` x's longer), then
+    ends with ``ending``."""
     stub = tmp_path / "invented-python"
     stub.write_text('#!/bin/bash\nprintf "ARGV %s\\n" "$*"\n'
-                    'for ((i = 1; i <= 250; i++)); do printf "INVENTED LINE %s\\n" "$i"; done\n' + ending + "\n")
+                    f'for ((i = 1; i <= 250; i++)); do printf "INVENTED LINE %s{"x" * pad}\\n" "$i"; done\n'
+                    + ending + "\n")
     stub.chmod(0o755)
     root = tmp_path / "invented-root"
     root.mkdir()
@@ -409,6 +411,17 @@ def test_failed_or_timed_out_pass_prints_the_tail_of_its_own_log(tmp_path, case,
     assert log.startswith("ARGV -m pytest ") and log.endswith(INVENTED_LINES)
     # Exactly the last 200 of the 251 lines, and nothing else on either stream.
     assert result.stdout == "".join(f"INVENTED LINE {i}\n" for i in range(51, 251))
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize("case,mode,name", FULL_PASSES, ids=["suite", "fakeboot"])
+def test_a_tail_of_long_lines_stops_at_64_kib(tmp_path, case, mode, name):
+    """200 lines of 1 KiB each: only the last 64 KiB of them, still the log's end."""
+    result, root = run_branch(tmp_path, case, "exit 1", mode, pad=1024)
+    assert result.returncode == 1 and (root / (name + ".exit")).read_text() == "1\n"
+    log = (root / (name + ".log")).read_bytes()
+    assert len(log) > 200 * 1024
+    assert result.stdout.encode() == log[-65536:]
     assert result.stderr == ""
 
 

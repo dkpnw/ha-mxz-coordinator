@@ -12,6 +12,8 @@ wall clock and states' own report times, so a test steps that clock.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 pytest.importorskip("homeassistant")
@@ -442,6 +444,50 @@ async def test_a_fan_step_held_by_the_write_interval_does_not_climb_on(
         past_window(entry, a.entity_id, 300)
         await recompute(hass, entry)
     assert fans() == ["low", "medium", "high"]
+
+
+async def test_a_fan_step_due_inside_a_setpoint_only_wait_waits_it_out(
+    hass: HomeAssistant,
+) -> None:
+    """After a batch with no fan, no fan decision runs for its confirm wait:
+    while the plan's mode and setpoint are what that batch sent, MXZ waits
+    for the head to show it, and the fan the head showed (MXZ's own last
+    step) is recorded as an older state. A boost step that comes due inside
+    the wait goes out when the wait ends. This pins today's conservative
+    behaviour (cloud review NIT 3); a person's pick inside the wait is read
+    once the wait is over too
+    (test_a_new_fan_inside_the_wait_is_a_manual_pick_once_read)."""
+    a, _b, entry = await _comfort_pair(hass)
+    await past_startup(hass, entry)
+    await _driven(hass, entry, SENSORS[0], 60)  # 10 °F off: boost climbs
+    calls = record(hass)
+
+    def sent() -> list[tuple[str, Any]]:
+        return [(w[0], next(iter(w[1].values()))) for w in writes(calls, a.entity_id)]
+
+    past_window(entry, a.entity_id, 300)  # the first fan step
+    await recompute(hass, entry)
+    assert sent() == [("set_fan_mode", "low")]
+    past_window(entry, a.entity_id, 250)  # 50 s before the next step
+    await recompute(hass, entry)
+    cloud = entry.runtime_data._cloud[a.entity_id]
+    assert row(hass, entry, 0)["cloud_status"] == "confirmed"  # the low landed
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": _eid(hass, entry, "_primary_target"), "value": 72}, blocking=True,
+    )
+    await hass.async_block_till_done()
+    await recompute(hass, entry)
+    assert sent() == [("set_fan_mode", "low"), ("set_temperature", 74.0)]  # no fan
+    assert cloud.older_fans == {"low"}  # the fan the head showed
+    past_window(entry, a.entity_id, 60)  # the step is due, the wait has 30 s left
+    await recompute(hass, entry)
+    assert sent()[2:] == []
+    assert a.device["fan"] == "low"
+    past_window(entry, a.entity_id, 30)  # the wait is over
+    await recompute(hass, entry)
+    assert sent()[2:] == [("set_fan_mode", "medium")]
+    assert a.device["fan"] == "medium"
 
 
 async def test_a_held_back_step_wakes_the_plan_by_itself(

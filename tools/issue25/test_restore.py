@@ -247,17 +247,33 @@ def public_hold(plan, room):
     return zone["fan_hold"]
 
 
+# HA 2026.11 renamed the climate temperature members native_* and logs a
+# deprecation for a class that provides or writes an old name; 2027.11 drops
+# them. Older cores read only the old names. Head writes only the native_
+# names; on an older core each one it writes is stored under the old name.
+_NATIVE = hasattr(ClimateEntity, "native_target_temperature_low")
+
+
+def _stored_as(old):
+    """A native_ name read from and written to ``old`` (cores before 2026.11)."""
+
+    def write(self, value):
+        setattr(self, old, value)
+
+    return property(lambda self: getattr(self, old), write)
+
+
 class Head(ClimateEntity):
     """Actual HA service handlers; command completion and reports are separate."""
 
     _attr_should_poll = False
     _attr_has_entity_name = False
-    # HA 2026.11 renamed the unit native_temperature_unit and logs a deprecation
-    # for a class that provides the old name; older cores read only the old one.
-    if hasattr(ClimateEntity, "native_temperature_unit"):
+    if _NATIVE:
         _attr_native_temperature_unit = UnitOfTemperature.FAHRENHEIT
     else:
         _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
+        _attr_native_target_temperature_low = _stored_as("_attr_target_temperature_low")
+        _attr_native_target_temperature_high = _stored_as("_attr_target_temperature_high")
     _attr_hvac_modes: ClassVar = [HVACMode.OFF, HVACMode.COOL, HVACMode.HEAT, HVACMode.FAN_ONLY]
     _attr_fan_modes: ClassVar = ["auto", "quiet", "low", "medium", "middle", "high"]
     _attr_supported_features = (
@@ -273,8 +289,8 @@ class Head(ClimateEntity):
         self._attr_unique_id = f"issue25_invented_{name}"
         self._attr_hvac_mode = HVACMode.OFF
         self._attr_fan_mode = "auto"
-        self._attr_target_temperature_low = None
-        self._attr_target_temperature_high = None
+        self._attr_native_target_temperature_low = None
+        self._attr_native_target_temperature_high = None
         self.calls = []
         self.delay_auto = False
         self.fail_temperature = False
@@ -304,8 +320,8 @@ class Head(ClimateEntity):
         else:
             if "hvac_mode" in args:
                 self._attr_hvac_mode = args["hvac_mode"]
-            self._attr_target_temperature_low = args.get("target_temp_low")
-            self._attr_target_temperature_high = args.get("target_temp_high")
+            self._attr_native_target_temperature_low = args.get("target_temp_low")
+            self._attr_native_target_temperature_high = args.get("target_temp_high")
         self.async_write_ha_state()
         call["returned"].set()
         call["returned_at"] = monotonic()
@@ -427,7 +443,7 @@ class Trial:
             # The same external handler fault stays active until unload on both bases.
             b = self.heads[1]
             b.fail_temperature = True
-            b._attr_target_temperature_high = None
+            b._attr_native_target_temperature_high = None
             b.async_write_ha_state()
             await self.refresh()
             self.snapshot("after-persistent-dependency-failure")

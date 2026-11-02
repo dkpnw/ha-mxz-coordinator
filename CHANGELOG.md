@@ -8,6 +8,28 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
+## Unreleased
+
+Cleanup after 3.16.0. MXZ runs exactly as before, with the same defaults.
+
+- **Apple Home note.** The Allow Dry mode note now says only that Apple Home may show a
+  Cool choice for that room. Auto was always there. Changed in the README, FEATURES, and
+  the room page's help text.
+- **Docs.** FEATURES says a dual-setpoint room's thermostat shows its Heat to and Cool
+  to, not one target. CONFIGURATION says a cloud head's drive offset that you set isn't
+  converted if Home Assistant switches between °F and °C. The README says that inside a
+  cloud head's confirm wait, a fan boost step and a fan speed you pick wait for the wait
+  to end.
+- **Tests.** New tests cover the action vote's settle wakeup (a parking room arms none,
+  one still due at unload computes nothing, and one that fires early re-arms for the
+  rest), a head report that changes only the temperature asking for no refresh, and a
+  cloud fan step waiting out the confirm wait of a write that sent no fan. The invented
+  heads of the issue-25 harness use Home Assistant's new `native_` temperature names.
+- **Code tidy.** Allow Dry's step that decides held or parked no longer reads a floor
+  list the rooms' calls already include. The plan is the same.
+- **CI.** A failed pass's log tail is capped at 64 KiB as well as 200 lines, and the
+  fresh-boot clock reads its two-minute uptime again as each test starts.
+
 ## 3.16.0 (November 1, 2026)
 
 New rooms now start with a 45 °F (7 °C) freeze floor and a 6-hour sensor freshness limit.

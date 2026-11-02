@@ -325,8 +325,7 @@ The plan sensor gains a top-level `mode_by_floor` attribute, and each room in it
 `zones` list gains `floor_low`, `floor_high`, `floor_want`, `floor_state`, and
 `floor_reason`; a room run from its own remote can read `floor` in `hands_off`.
 `mode_by_safety` is also true while a tripped floor's or ceiling's direction is the
-shared mode. On
-an install with no floor set, `mode_by_floor` is always false and every room's
+shared mode. On an install with no floor set, `mode_by_floor` is always false and every room's
 `floor_state` is `none`.
 
 A room's enable switch keeps a floor run (and a hands-off room's stand-down after a
