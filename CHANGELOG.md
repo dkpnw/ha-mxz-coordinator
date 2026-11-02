@@ -8,7 +8,11 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
-## Unreleased
+## 3.18.0 (November 2, 2026)
+
+Comfort priority (off by default) and a mode-change wait that survives restarts.
+Existing installs keep their settings; with no Comfort priority entity set, MXZ decides
+exactly as before. See [docs/MIGRATION.md](docs/MIGRATION.md).
 
 - **The mode-change wait survives a reload or restart.** The wait between two cool/heat
   changes (Minimum time between mode switches, 600 seconds by default) used to start

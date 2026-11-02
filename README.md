@@ -106,6 +106,19 @@ Mitsubishi manuals on stock AUTO.
 <!-- "whats-new" stays above the newest What's new section; the others are old links. -->
 <a id="whats-new"></a><a id="whats-new-in-3120"></a><a id="whats-new-in-3111"></a>
 
+## What's new in 3.18.0
+
+**Comfort priority (off by default).** Each room can have an optional on/off or number
+entity, such as an occupancy sensor, in Configure → Rooms → (room) → Comfort priority.
+When rooms want opposite modes, a room whose entity is `on` (or reads higher) goes first,
+after the safety rules. An `on` that hasn't changed for 12 hours stops counting; change
+that under Configure → Comfort → Advanced. Thanks to [@csingley](https://github.com/csingley)
+for the idea. See [Comfort priority](docs/FEATURES.md#comfort-priority).
+
+**The mode-change wait survives a reload or restart.** After a restart MXZ waits only for
+what is left of the wait between cool/heat changes, instead of starting it over. Each room
+thermostat shows `mode_change_hold_remaining` and `mode_change_hold_until`.
+
 ## What's new in 3.17.0
 
 **Generic heads (beta).** MXZ can now coordinate a Home Assistant `climate` entity that
@@ -496,7 +509,7 @@ MXZ Coordinator got this good because people ran it on their own systems, found 
   - **Uneven drift (3.8.0) and dual setpoint (3.10.0).** His native dual-setpoint proposal ([#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35)) was declined at first to keep one target, but the discussion led to **Let it get cooler by** and **Let it get warmer by**, which give heat and cool different tolerances around that one target. They shipped in 3.8.0. [#35](https://github.com/dkpnw/ha-mxz-coordinator/pull/35) is also the origin of the opt-in per-room **dual setpoint** (separate Heat to and Cool to): it carries forward his idea and Home Assistant's range contract (the range feature, `heat_cool`, and writes through the room's own numbers), rebuilt as an opt-in on the room's page. It shipped in 3.10.0, with only the heat side tested on hardware so far.
   - **Lost-head votes (3.11.0).** The stale, then expired, vote of a head that goes unavailable (see [When a head goes unavailable](docs/FEATURES.md#when-a-head-goes-unavailable)) adapts the observed-vote model from his [ha-climate-zone-sequencer](https://github.com/csingley/ha-climate-zone-sequencer) (commit [f911e4a](https://github.com/csingley/ha-climate-zone-sequencer/commit/f911e4a1cb70ea247205491719bb2295e2a8ebbd); MIT License; see [NOTICE](NOTICE)). It was tested on hardware with an enabled room but not with a room run from its own remote.
   - **Votes only while running (3.13.0).** The per-room option to count a room's vote only while its head runs (see [Count its vote only while it runs](docs/FEATURES.md#count-its-vote-only-while-it-runs)) builds on the same observed-vote idea from his ha-climate-zone-sequencer: derive each room's vote from what Home Assistant observes, not from event recency (commit [f911e4a](https://github.com/csingley/ha-climate-zone-sequencer/commit/f911e4a1cb70ea247205491719bb2295e2a8ebbd)). Filtering that vote by the head's running action is MXZ's extension.
-  - **Comfort priority (unreleased).** The optional per-room entity that lets an occupied room win a heat-versus-cool standoff (see [Comfort priority](docs/FEATURES.md#comfort-priority)) is his idea: the comfort priority rank in his [ha-climate-zone-sequencer](https://github.com/csingley/ha-climate-zone-sequencer) (commit [f911e4a](https://github.com/csingley/ha-climate-zone-sequencer/commit/f911e4a1cb70ea247205491719bb2295e2a8ebbd), `sensor.py`). No code is copied: MXZ reads the entity differently (an unreadable one is no boost rather than last), keeps it inside each rank so safety always comes first, and adds the stale limit for an `on` that never clears.
+  - **Comfort priority (3.18.0).** The optional per-room entity that lets an occupied room win a heat-versus-cool standoff (see [Comfort priority](docs/FEATURES.md#comfort-priority)) is his idea: the comfort priority rank in his [ha-climate-zone-sequencer](https://github.com/csingley/ha-climate-zone-sequencer) (commit [f911e4a](https://github.com/csingley/ha-climate-zone-sequencer/commit/f911e4a1cb70ea247205491719bb2295e2a8ebbd), `sensor.py`). No code is copied: MXZ reads the entity differently (an unreadable one is no boost rather than last), keeps it inside each rank so safety always comes first, and adds the stale limit for an `on` that never clears.
 
 **Prior art and references**
 
