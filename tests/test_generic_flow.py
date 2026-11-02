@@ -263,6 +263,23 @@ async def test_switching_a_room_to_generic_stores_no_cloud_defaults(hass: HomeAs
     assert entry.runtime_data._cloud == {}
 
 
+async def test_switching_a_cloud_room_to_generic_stores_no_cloud_timings(hass: HomeAssistant) -> None:
+    """The page showed the cloud room's 60/90; untouched, nothing is stored."""
+    a, b = MelcloudHead("a"), MelcloudHead("b")
+    entry = await _entry(hass, [(a, {ZONE_HEAD_TYPE: HEAD_TYPE_CLOUD}), (b, {})], MELCLOUD)
+    result = await open_options_page(hass, entry, "room_1")
+    assert default(result, "head_type") == HEAD_TYPE_CLOUD
+    values = {**prefilled(result), "head_type": HEAD_TYPE_GENERIC}
+    assert (values["write_interval"], values["confirm_wait"]) == (60.0, 90.0)
+    await submit(hass.config_entries.options, result, values)
+    await hass.async_block_till_done()
+    zone = entry.data["zones"][0]
+    assert zone[ZONE_HEAD_TYPE] == HEAD_TYPE_GENERIC
+    assert not TIMING & set(zone)
+    assert entry.runtime_data._cloud[a.entity_id].generic is True
+    assert (entry.runtime_data.zones[0].write_interval, entry.runtime_data.zones[0].confirm_wait) == (30, 30)
+
+
 @pytest.mark.parametrize("head_type", [HEAD_TYPE_LOCAL, HEAD_TYPE_CLOUD])
 async def test_a_one_head_entry_stays_generic(hass: HomeAssistant, head_type: str) -> None:
     head = RichHead("a")

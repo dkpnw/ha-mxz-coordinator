@@ -696,7 +696,9 @@ interval**; and a **Confirm wait** after each write, in which nothing is sent ag
 report of an older state is read as late, not as someone's change. A generic head's write
 interval and confirm wait default to 30 seconds (a cloud head's are 60 and 90), and both
 can be set in the room page's **Cloud or generic head (beta)** section. A value left at
-the default stores nothing, so it follows the head type.
+the default stores nothing, so it follows the head type. Switching a room to generic with
+the timings the page showed left untouched (a cloud room's 60 and 90, say) stores nothing
+either, so the room takes the generic 30 and 30.
 
 **When it is out of MXZ's control.** Only when it has been unavailable for 15 minutes.
 Then MXZ writes it nothing, its room's heat or cool call stops counting (unless its Safety
