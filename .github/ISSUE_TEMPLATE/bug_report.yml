@@ -1,0 +1,60 @@
+name: Bug report
+description: Something in MXZ Coordinator didn't work the way you expected.
+title: "[bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Before you paste anything, remove names, addresses, account e-mails,
+        tokens and passwords. Room and entity names are fine to shorten or replace.
+        For a security problem, don't open an issue: use Security → Report a vulnerability.
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      description: Settings → About.
+    validations:
+      required: true
+  - type: input
+    id: mxz_version
+    attributes:
+      label: MXZ Coordinator version
+    validations:
+      required: true
+  - type: textarea
+    id: units
+    attributes:
+      label: Indoor and outdoor units
+      description: Head model numbers, the outdoor unit if you know it, and which integration controls each head (for example ESPHome, MELCloud, or Kumo Cloud).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, with times
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead, with times
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics (plan sensor attributes)
+      description: Developer tools → States → sensor.*_plan → attributes, copied at or near the time it happened.
+      render: yaml
+    validations:
+      required: false
+  - type: textarea
+    id: log
+    attributes:
+      label: Debug log
+      description: |
+        Turn on debug logging for `custom_components.mxz_coordinator` (Settings → Devices & services → MXZ Coordinator → Enable debug logging), reproduce it, then turn it off to download the log. Remove secrets and anything else private before pasting.
+      render: text
+    validations:
+      required: false
