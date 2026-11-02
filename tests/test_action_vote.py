@@ -972,7 +972,7 @@ async def test_a_settle_wakeup_in_flight_at_unload_computes_nothing(
     """Cancelling cannot recall a wakeup HA has already picked to run. Here
     the coordinator is retired with its wakeup still armed, which is that
     case: the wakeup fires and asks for no recompute."""
-    entry, coord, head_b = await _unconfirmed(hass)
+    _entry, coord, head_b = await _unconfirmed(hass)
     assert coord._settle_timer is not None
     asked: list[str] = []
 
