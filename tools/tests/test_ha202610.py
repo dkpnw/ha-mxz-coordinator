@@ -196,7 +196,8 @@ def test_additional_workflow_permissions_and_ordinary_execution():
     assert wf["on"]["push"] == {"branches": ["**"]}
     job = wf["jobs"]["exact-ha202610"]
     assert job["runs-on"] == "ubuntu-26.04"
-    assert job["timeout-minutes"] == "25"
+    # Both 600 s passes, the 60 s sentinel, then setup, checks and export with margin.
+    assert job["timeout-minutes"] == "35"
     assert "permissions" not in job and "environment" not in job and "secrets" not in job
     assert job["needs"] == "approval" and job["if"] == "${{ !cancelled() }}"
     assert set(wf["jobs"]) == {"approval", "exact-ha202610"}
