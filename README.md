@@ -312,7 +312,10 @@ take your room sensor as its own. So for a cloud head MXZ:
 - waits a **Confirm wait** (90 s by default, up to 600 s) after each write. In that time it
   sends nothing again and reads a report of an older state as late, not as someone's
   change. A head still not showing the write after it is sent the write again;
-- steps fan boost one speed at a time, at most once every 5 minutes;
+- steps fan boost one speed at a time, at most once every 5 minutes. Inside a confirm
+  wait it makes no fan decision unless the plan's mode or setpoint changes, so a step
+  that comes due then goes out when the wait ends, and a speed you pick on the head
+  then is noticed by the time it ends;
 - holds a cloud head for one confirm wait after a restart or reload, so a write just
   before it isn't sent twice and a late report isn't taken for someone's change. For that
   wait an own-remote room whose cloud head is under its own remote has no vote;
