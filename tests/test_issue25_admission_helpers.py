@@ -402,15 +402,15 @@ def observe_external_shutdown(method, switch_state='unavailable'):
     heads = []
     for entity_id in ('head_a', 'head_b'):
         h = SimpleNamespace(entity_id=entity_id, fail_temperature=False,
-                            _attr_target_temperature_high=70, _attr_fan_mode='high',
+                            _attr_native_target_temperature_high=70, _attr_fan_mode='high',
                             pending=['old-auto'])
         h.async_write_ha_state = lambda h=h: observations.append(
-            ('publish', h.entity_id, h.fail_temperature, h._attr_target_temperature_high))
+            ('publish', h.entity_id, h.fail_temperature, h._attr_native_target_temperature_high))
         heads.append(h)
 
     async def refresh():
         observations.append(('refresh', heads[1].fail_temperature,
-                             heads[1]._attr_target_temperature_high))
+                             heads[1]._attr_native_target_temperature_high))
 
     async def drained():
         observations.append(('drain',))
@@ -459,7 +459,7 @@ def test_external_fault_survives_to_serialization(mutation):
         assert rows == original, 'external Head disappeared'
         assert trial.heads[1].fail_temperature, 'external fault absent'
         assert not trial.heads[0].fail_temperature
-        assert trial.heads[1]._attr_target_temperature_high is None
+        assert trial.heads[1]._attr_native_target_temperature_high is None
         assert ('publish', 'head_b', True, None) in observations
         assert ('refresh', True, None) in observations
         assert observations.index(('publish', 'head_b', True, None)) < observations.index(('refresh', True, None))
@@ -529,8 +529,8 @@ def test_external_temperature_handler_fault_is_persistent_and_recoverable():
         'trace': lambda event, **values: events.append((event, values))})
     head = SimpleNamespace(calls=[], entity_id='invented', fail_temperature=True,
                            delay_auto=False, pending=[], _attr_hvac_mode='cool',
-                           _attr_fan_mode='high', _attr_target_temperature_low=68,
-                           _attr_target_temperature_high=None,
+                           _attr_fan_mode='high', _attr_native_target_temperature_low=68,
+                           _attr_native_target_temperature_high=None,
                            async_write_ha_state=lambda: published.append('publish'))
 
     async def exercise():
@@ -540,7 +540,7 @@ def test_external_temperature_handler_fault_is_persistent_and_recoverable():
             with pytest.raises(RuntimeError, match='invented dependency failure'):
                 await deliver(head, 'temperature', args)
             args['entity_id'].append('later-mutation')
-        assert published == [] and head._attr_target_temperature_high is None
+        assert published == [] and head._attr_native_target_temperature_high is None
         assert all(c['args']['entity_id'] == ['invented'] and c['entered'].is_set()
                    and not c['returned'].is_set() and 'returned_at' not in c for c in head.calls)
         assert len({id(c[k]) for c in head.calls for k in ('entered', 'returned')}) == 4
@@ -551,7 +551,7 @@ def test_external_temperature_handler_fault_is_persistent_and_recoverable():
         head.fail_temperature = False
         await deliver(head, 'temperature', {'hvac_mode': 'cool', 'target_temp_low': 68,
                                            'target_temp_high': 70})
-        assert head._attr_target_temperature_high == 70 and len(published) == 2
+        assert head._attr_native_target_temperature_high == 70 and len(published) == 2
         assert head.calls[-1]['returned'].is_set()
         assert head.calls[-1]['returned_at'] >= head.calls[-1]['at']
 

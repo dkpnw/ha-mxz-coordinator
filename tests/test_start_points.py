@@ -404,5 +404,7 @@ async def test_thermostat_features_and_single_target_unchanged(
     for name in (
         "target_temperature_low", "target_temperature_high",
         "_attr_target_temperature_low", "_attr_target_temperature_high",
+        "native_target_temperature_low", "native_target_temperature_high",
+        "_attr_native_target_temperature_low", "_attr_native_target_temperature_high",
     ):
         assert name not in vars(MXZRoomClimate), name
