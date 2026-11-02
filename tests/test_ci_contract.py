@@ -11,10 +11,12 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-ALLOWED_ACTIONS = {
-    "actions/checkout@v4", "actions/setup-python@v5",
-    "home-assistant/actions/hassfest@master", "hacs/action@main",
-}
+# Every action is pinned to a full commit SHA; a floating tag or branch is unknown.
+CHECKOUT = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+SETUP_PYTHON = "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065"
+HASSFEST = "home-assistant/actions/hassfest@86d4564712fa02543c808e3a693dd04f9d3f8361"
+HACS = "hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa"
+ALLOWED_ACTIONS = {CHECKOUT, SETUP_PYTHON, HASSFEST, HACS}
 
 
 def violations(workflow):
@@ -39,9 +41,11 @@ def violations(workflow):
             action = step.get("uses")
             if action and action not in ALLOWED_ACTIONS:
                 errors.append("unknown action/cache/upload")
-            if action == "actions/checkout@v4" and step.get("with", {}).get("persist-credentials") != "false":
+            # Match on the action name so these boundaries hold for any ref, pinned or not.
+            name = (action or "").partition("@")[0]
+            if name == "actions/checkout" and step.get("with", {}).get("persist-credentials") != "false":
                 errors.append("persistent checkout")
-            if action == "actions/setup-python@v5" and "cache" in step.get("with", {}):
+            if name == "actions/setup-python" and "cache" in step.get("with", {}):
                 errors.append("dependency cache")
             if "secrets." in str(step):
                 errors.append("secret input")
@@ -158,7 +162,7 @@ def test_declared_ci_boundary(workflow):
 
 
 @pytest.mark.parametrize("change", [
-    "token", "runner", "environment", "checkout", "upload", "secret", "missing",
+    "token", "runner", "environment", "checkout", "cache", "upload", "secret", "missing",
     "fakeboot-missing", "fakeboot-one-lane", "fakeboot-skipped-after-failure", "fakeboot-uptime",
     "fakeboot-no-plugin", "fakeboot-subset", "fakeboot-duplicate", "fakeboot-not-exported",
     "fakeboot-clock-unchecked", "fakeboot-after-export",
@@ -277,19 +281,43 @@ def test_weakened_ci_boundary_rejects(workflow, change):
         return
     if change == "token":
         bad["permissions"] = {"contents": "write"}
+        expected = "token permissions"
     elif change == "runner":
         job["runs-on"] = "self-hosted"
+        expected = "runner/environment boundary"
     elif change == "environment":
         job["environment"] = "invented-private-environment"
+        expected = "runner/environment boundary"
     elif change == "checkout":
-        next(s for s in job["steps"] if s.get("uses") == "actions/checkout@v4")["with"]["persist-credentials"] = "true"
+        next(s for s in job["steps"] if s.get("uses") == CHECKOUT)["with"]["persist-credentials"] = "true"
+        expected = "persistent checkout"
+    elif change == "cache":
+        next(s for s in job["steps"] if s.get("uses") == SETUP_PYTHON)["with"]["cache"] = "pip"
+        expected = "dependency cache"
     elif change == "upload":
         job["steps"].append({"uses": "actions/upload-artifact@v4"})
+        expected = "unknown action/cache/upload"
     elif change == "secret":
         job["steps"].append({"run": "echo forbidden", "env": {"X": "${{ secrets.INVENTED }}"}})
+        expected = "secret input"
     else:
         del bad["jobs"]["hacs"]
-    assert violations(bad)
+        expected = "missing or extra job"
+    # Exactly the one boundary changed: a guard that never matches cannot hide behind another.
+    assert violations(bad) == [expected]
+
+
+# The floating refs these pins replaced; each must now be rejected as unknown.
+@pytest.mark.parametrize("pinned,floating", [
+    (CHECKOUT, "actions/checkout@v4"), (SETUP_PYTHON, "actions/setup-python@v5"),
+    (HASSFEST, "home-assistant/actions/hassfest@master"), (HACS, "hacs/action@main"),
+])
+def test_floating_action_ref_rejects(workflow, pinned, floating):
+    bad = deepcopy(workflow)
+    steps = [s for job in bad["jobs"].values() for s in job.get("steps", []) if s.get("uses") == pinned]
+    assert steps, "pinned ref unused by the workflow"
+    steps[0]["uses"] = floating
+    assert violations(bad) == ["unknown action/cache/upload"]
 
 
 def test_installer_and_tests_do_not_inherit_log_file_limits(workflow):
