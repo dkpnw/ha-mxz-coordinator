@@ -12,6 +12,16 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from .const import (
+    COMFORT_MISSING,
+    COMFORT_NOT_A_NUMBER,
+    COMFORT_NOT_SET,
+    COMFORT_NUMBER,
+    COMFORT_OFF,
+    COMFORT_ON,
+    COMFORT_ONOFF_DOMAINS,
+    COMFORT_STALE,
+    COMFORT_UNAVAILABLE,
+    COMFORT_UNKNOWN,
     ECO_COOL_HIGH,
     ECO_COOL_LOW,
     ECO_HEAT_HIGH,
@@ -35,6 +45,12 @@ from .const import (
     VOTE_STALE,
     VOTE_UNKNOWN,
 )
+
+# Home Assistant's own state strings (homeassistant.const), spelled out here
+# so this module stays importable without Home Assistant.
+STATE_ON = "on"
+STATE_UNAVAILABLE = "unavailable"
+STATE_UNKNOWN = "unknown"
 
 
 def room_call(
@@ -465,11 +481,100 @@ class Demand:
     ``read_only`` is True for an advisory want (a vote): it is never sent to the
     voting head, though a safety vote that wins can still park another room's
     head (see :class:`Grant`). False for a coordinated room's own demand.
+    ``boost`` is the room's Comfort priority (0 = none; higher sorts first
+    within the same tier). :func:`arbitrate` ignores it at PRIORITY_SAFETY and
+    above, and reads anything not a positive finite number as 0.
     """
 
     direction: str | None
     priority: tuple[int, int]
     read_only: bool = False
+    boost: float = 0.0
+
+
+def comfort_boost(demand: Demand) -> float:
+    """The Comfort priority :func:`arbitrate` actually sorts ``demand`` by.
+
+    0 for any entry at PRIORITY_SAFETY or above (a freeze floor, a Safety
+    priority room, an overheat ceiling): those settle by room order alone,
+    whatever a caller put on them. 0 too for anything that isn't a positive
+    finite number, so a boost can raise an entry and never push it down.
+    """
+    boost = demand.boost
+    if demand.priority[0] <= PRIORITY_SAFETY or isinstance(boost, bool):
+        return 0.0
+    if not isinstance(boost, (int, float)) or not math.isfinite(boost) or boost <= 0:
+        return 0.0
+    return float(boost)
+
+
+def _rank(demand: Demand) -> tuple[int, float, int]:
+    """Sort key: (tier, -comfort priority, room index); lower sorts first."""
+    return (demand.priority[0], -comfort_boost(demand), demand.priority[1])
+
+
+def comfort_priority(
+    domain: str | None,
+    state: str | None,
+    *,
+    age: float | None = None,
+    stale_after: float | None = None,
+) -> tuple[float, str]:
+    """A Comfort priority entity's reading as ``(boost, status)``.
+
+    ``domain`` is the entity's domain, or None when no entity is set.
+    ``state`` is its state string, or None when the entity doesn't exist.
+    ``age`` is seconds since its state last changed (None = unknown, read as
+    fresh). ``stale_after`` is the stale limit in seconds (None = no limit).
+
+    An on/off entity (``COMFORT_ONOFF_DOMAINS``) is 1 while exactly "on" and
+    0 otherwise; an "on" older than ``stale_after`` is 0 and ``stale``. Any
+    other domain is read as a number: its own value, where negative is 0 and
+    NaN, infinity or text are 0 and ``not_a_number``. The stale limit never
+    applies to a number. Unavailable, unknown and missing are 0. A reading
+    can only ever raise a room, never lower it.
+    """
+    if domain is None:
+        return 0.0, COMFORT_NOT_SET
+    if state is None:
+        return 0.0, COMFORT_MISSING
+    if state == STATE_UNAVAILABLE:
+        return 0.0, COMFORT_UNAVAILABLE
+    if state == STATE_UNKNOWN:
+        return 0.0, COMFORT_UNKNOWN
+    if domain in COMFORT_ONOFF_DOMAINS:
+        if state != STATE_ON:
+            return 0.0, COMFORT_OFF
+        if stale_after is not None and age is not None and age >= stale_after:
+            return 0.0, COMFORT_STALE
+        return 1.0, COMFORT_ON
+    try:
+        value = float(state)
+    except (TypeError, ValueError):
+        return 0.0, COMFORT_NOT_A_NUMBER
+    if not math.isfinite(value):
+        return 0.0, COMFORT_NOT_A_NUMBER
+    return max(value, 0.0), COMFORT_NUMBER
+
+
+def comfort_stale_in(
+    domain: str | None,
+    state: str | None,
+    *,
+    age: float | None,
+    stale_after: float | None,
+) -> float | None:
+    """Seconds until a counting "on" goes stale, or None when nothing will.
+
+    The recheck moment for :func:`comfort_priority`: positive only for an
+    on/off entity reading "on" with a known age under a set limit.
+    """
+    if (
+        domain not in COMFORT_ONOFF_DOMAINS or state != STATE_ON
+        or stale_after is None or age is None or age >= stale_after
+    ):
+        return None
+    return stale_after - age
 
 
 @dataclass(frozen=True)
@@ -533,8 +638,16 @@ def arbitrate(
     PRIORITY_SAFETY. A standoff goes to the first ranked direction, so heat
     from a floor beats cool from a ceiling whatever their rooms' order, and
     two trips of one kind settle by room order.
+
+    Comfort priority (``Demand.boost``) orders entries inside one tier only:
+    the key is ``(tier, -boost, room index)``, so a boosted lower room's
+    demand wins a standoff against an unboosted higher one, and a boosted
+    vote wins among votes. It never crosses a tier, so a boosted vote still
+    can't beat a real demand, and it is ignored at PRIORITY_SAFETY and above
+    (:func:`comfort_boost`). It changes only which direction is proposed;
+    ``allowed`` still holds every flip. All boosts 0 is exactly the old order.
     """
-    ranked = sorted(demands, key=lambda d: d.priority)
+    ranked = sorted(demands, key=_rank)
     commanding = [d for d in ranked if not d.read_only]
     safety_votes = [
         d for d in ranked if d.read_only and d.priority[0] <= PRIORITY_SAFETY
@@ -546,7 +659,7 @@ def arbitrate(
     gate_open = commanding_silent and not engaged
     active = sorted(
         commanding + safety_votes + (ordinary_votes if gate_open else []),
-        key=lambda d: d.priority,
+        key=_rank,
     )
     full = shared_mode(
         demands=[d.direction for d in active if d.direction],

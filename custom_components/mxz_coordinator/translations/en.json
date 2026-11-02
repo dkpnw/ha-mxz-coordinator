@@ -136,13 +136,15 @@
               "mode_hysteresis": "Minimum time between mode switches",
               "drift_cooler_by": "Let it get cooler by",
               "drift_warmer_by": "Let it get warmer by",
-              "lost_vote_ttl": "Keep a lost head's vote for"
+              "lost_vote_ttl": "Keep a lost head's vote for",
+              "comfort_priority_stale_hours": "Comfort priority stale limit"
             },
             "data_description": {
               "mode_hysteresis": "Protects the compressor. 600 seconds (10 minutes) is recommended.",
               "drift_cooler_by": "How far below target a room can get before heating starts. Leave blank to use Allowed drift. The room always runs back to its target. These only set how far it can wander before a head starts again. A room's own drift number, once set, replaces both. A room's own uneven drift (Rooms, then the room) replaces either one.",
               "drift_warmer_by": "How far above target a room can get before cooling starts. Leave blank to use Allowed drift. The room always runs back to its target. These only set how far it can wander before a head starts again. A room's own drift number, once set, replaces both. A room's own uneven drift (Rooms, then the room) replaces either one.",
-              "lost_vote_ttl": "How long MXZ keeps counting the heat or cool a head last showed after the head goes unavailable. After that its vote expires, and its room stops holding the shared mode, so another room can be served. Leave blank for 30 minutes. An enabled room with Safety priority on keeps its call. A room run from its own remote still lets go, Safety priority or not. A freeze floor or overheat ceiling is never dropped by this."
+              "lost_vote_ttl": "How long MXZ keeps counting the heat or cool a head last showed after the head goes unavailable. After that its vote expires, and its room stops holding the shared mode, so another room can be served. Leave blank for 30 minutes. An enabled room with Safety priority on keeps its call. A room run from its own remote still lets go, Safety priority or not. A freeze floor or overheat ceiling is never dropped by this.",
+              "comfort_priority_stale_hours": "Hours an on/off Comfort priority entity (a binary sensor or toggle) may stay on before it stops counting, so a stuck occupancy sensor doesn't keep its room ahead forever. Counted from when the entity last changed. Leave blank for 12 hours; 0 means no limit. Number entities never go stale."
             }
           }
         }
@@ -386,13 +388,15 @@
               "mode_hysteresis": "Minimum time between mode switches",
               "drift_cooler_by": "Let it get cooler by",
               "drift_warmer_by": "Let it get warmer by",
-              "lost_vote_ttl": "Keep a lost head's vote for"
+              "lost_vote_ttl": "Keep a lost head's vote for",
+              "comfort_priority_stale_hours": "Comfort priority stale limit"
             },
             "data_description": {
               "mode_hysteresis": "Protects the compressor. 600 seconds (10 minutes) is recommended.",
               "drift_cooler_by": "How far below target a room can get before heating starts. Leave blank to use Allowed drift. The room always runs back to its target. These only set how far it can wander before a head starts again. A room's own drift number, once set, replaces both. A room's own uneven drift (Rooms, then the room) replaces either one.",
               "drift_warmer_by": "How far above target a room can get before cooling starts. Leave blank to use Allowed drift. The room always runs back to its target. These only set how far it can wander before a head starts again. A room's own drift number, once set, replaces both. A room's own uneven drift (Rooms, then the room) replaces either one.",
-              "lost_vote_ttl": "How long MXZ keeps counting the heat or cool a head last showed after the head goes unavailable. After that its vote expires, and its room stops holding the shared mode, so another room can be served. Leave blank for 30 minutes. An enabled room with Safety priority on keeps its call. A room run from its own remote still lets go, Safety priority or not. A freeze floor or overheat ceiling is never dropped by this."
+              "lost_vote_ttl": "How long MXZ keeps counting the heat or cool a head last showed after the head goes unavailable. After that its vote expires, and its room stops holding the shared mode, so another room can be served. Leave blank for 30 minutes. An enabled room with Safety priority on keeps its call. A room run from its own remote still lets go, Safety priority or not. A freeze floor or overheat ceiling is never dropped by this.",
+              "comfort_priority_stale_hours": "Hours an on/off Comfort priority entity (a binary sensor or toggle) may stay on before it stops counting, so a stuck occupancy sensor doesn't keep its room ahead forever. Counted from when the entity last changed. Leave blank for 12 hours; 0 means no limit. Number entities never go stale."
             }
           }
         }
@@ -508,6 +512,7 @@
           "vane_vertical": "Vertical vane",
           "vane_horizontal": "Horizontal vane",
           "safety_priority_entity": "Safety priority sensor",
+          "comfort_priority_entity": "Comfort priority",
           "hands_off": "Let its own remote run it while disabled",
           "hands_off_vote_basis": "While its own remote runs it, its vote counts",
           "allow_dry": "Allow Dry mode"
@@ -516,6 +521,7 @@
           "head_type": "Local (the default) drives the head as MXZ always has. Cloud (beta) is for a head behind a cloud integration that polls: MXZ sends its mode on its own call, then one setpoint pushed past the target by the drive offset, writes it at most once per write interval, and waits for it to report back. A cloud head gets no vanes, airflow sensor, dual setpoint or vote by action. Generic (beta) is for any other unit that offers heat and cool (another brand, a window AC): it is driven like a cloud head, with a 30 s write interval and confirm wait by default, and only being unavailable for 15 minutes takes it out of MXZ's control, never being quiet. An ESPHome head is always local.",
           "stage": "Shows the head's real fan speed while the fan is on auto.",
           "safety_priority_entity": "A binary sensor that's on when this room is asserting a safety override (e.g. a freeze or overheat floor). While on, this room's want for heat or cool outranks every other room's, coordinated or hands-off.",
+          "comfort_priority_entity": "Optional. When rooms want opposite modes, a room whose entity is on, or has a higher number, wins over rooms with less. Safety priority, floors, ceilings and the mode-switch wait always come first. Leave empty to keep the room order.",
           "hands_off": "Off (the default): a disabled room's head is held off, as always. On: when you disable the room, MXZ turns the head off once, retrying until the head reports off. Then MXZ leaves the head alone until you enable the room again.",
           "hands_off_vote_basis": "Only matters with the option above on. While a person runs this room's head in heat or cool, that is a vote for the shared mode, below any enabled room's call. \"Whenever it is set to heat or cool\" (the default) counts it for as long as the head sits in that mode, as always. \"Only while it is heating or cooling\" counts it only while the head itself reports it is running that way, and for 10 minutes after it stops, so a head resting at its own setpoint stops holding the outdoor unit. A head that doesn't report what it is doing counts whenever it is set. While its Safety priority sensor is on, it counts whenever it is set, running or not.",
           "allow_dry": "Off (the default): if this head is put in Dry, MXZ puts it back in about 20 seconds, as always. On: while the room is enabled, a head someone puts in Dry stays in it. MXZ sends it nothing, the room's target waits, and the head counts as a vote for cool, below any other room's call. If another room needs heat, MXZ turns this head to its idle setting and tells you once; it doesn't turn Dry back on. A cool lockout stops the vote. Shown only for a head that offers Dry. Home Assistant's HomeKit bridge shows Dry as Cool, so with this on Apple Home may show a Cool choice for this room, which can be confusing. Leave it off if you use Apple Home and don't need Dry."

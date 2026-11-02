@@ -20,7 +20,7 @@ import logging
 import math
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any
@@ -75,12 +75,14 @@ from .const import (
     CLOUD_STALE_SECONDS,
     CLOUD_STEP_C,
     CLOUD_STEP_F,
+    COMFORT_STALE_HOURS_BOUNDS,
     CONF_CHANGEOVER_COOL_BELOW,
     CONF_CHANGEOVER_ENTITY,
     CONF_CHANGEOVER_HEAT_ABOVE,
     CONF_CLAMP_MAX,
     CONF_CLAMP_MIN,
     CONF_COIL_DRY_MINUTES,
+    CONF_COMFORT_STALE_HOURS,
     CONF_COOL_LOCKOUT_CEILING,
     CONF_DEMAND_THRESHOLD,
     CONF_DRIFT_COOLER_BY,
@@ -112,6 +114,7 @@ from .const import (
     CONF_ZONES,
     CONFIRM_WAIT_BOUNDS,
     DEFAULT_COIL_DRY_MINUTES,
+    DEFAULT_COMFORT_STALE_HOURS,
     DEFAULT_CONFIRM_WAIT,
     DEFAULT_DRIVE_OFFSET_C,
     DEFAULT_DRIVE_OFFSET_F,
@@ -178,6 +181,7 @@ from .const import (
     WRITE_INTERVAL_BOUNDS,
     ZONE_ALLOW_DRY,
     ZONE_CLIMATE,
+    ZONE_COMFORT_PRIORITY_ENTITY,
     ZONE_CONFIRM_WAIT,
     ZONE_DRIFT_COOLER_BY,
     ZONE_DRIFT_WARMER_BY,
@@ -215,6 +219,9 @@ from .logic import (
     RangeError,
     arbitrate,
     call_edges,
+    comfort_boost,
+    comfort_priority,
+    comfort_stale_in,
     engage_with_latch,
     evidence_contract,
     fan_for_delta,
@@ -357,6 +364,11 @@ class Zone:
     # direction comes from room_call() or a hands-off vote. Static wiring,
     # same tier as climate_id/sensor_id, not a live-adjustable number.
     safety_priority_entity: str | None = None
+    # Optional Comfort priority entity (ZONE_COMFORT_PRIORITY_ENTITY): read
+    # live every compute into this room's boost (logic.comfort_priority), which
+    # orders its demand and votes inside their own tier. Static wiring, like
+    # the Safety priority sensor.
+    comfort_priority_entity: str | None = None
     # This SENSOR's reporting contract, as configured (durations in minutes,
     # or None when the room's cadence is unknown; the basis defaults to
     # unknown). Read once into the resolved freshness window and evidence
@@ -408,7 +420,10 @@ class Zone:
 # and no key are the same room. The config flow stores None when it detects no
 # vane or stage sensor, and the room page drops an empty one on save.
 _OPTIONAL_WIRING_KEYS = frozenset(
-    (ZONE_VANE_VERTICAL, ZONE_VANE_HORIZONTAL, ZONE_STAGE_SENSOR, ZONE_SAFETY_PRIORITY_ENTITY)
+    (
+        ZONE_VANE_VERTICAL, ZONE_VANE_HORIZONTAL, ZONE_STAGE_SENSOR,
+        ZONE_SAFETY_PRIORITY_ENTITY, ZONE_COMFORT_PRIORITY_ENTITY,
+    )
 )
 
 
@@ -481,6 +496,7 @@ def _parse_zones(
                 else VOTE_BASIS_MODE
             ),
             safety_priority_entity=z.get(ZONE_SAFETY_PRIORITY_ENTITY) or None,
+            comfort_priority_entity=z.get(ZONE_COMFORT_PRIORITY_ENTITY) or None,
             report_interval=z.get(ZONE_REPORT_INTERVAL),
             max_age=z.get(ZONE_MAX_AGE),
             startup_grace=z.get(ZONE_STARTUP_GRACE),
@@ -703,6 +719,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Blank (no key) is the default; a stored value is clamped into the
         # UI's bounds, and one that isn't a finite number reads as blank.
         self.lost_vote_ttl: float = 60.0 * _lost_vote_minutes(conf.get(CONF_LOST_VOTE_TTL))
+        # How long an on/off Comfort priority entity's "on" counts, in seconds
+        # by its own last_changed; None = no limit (a stored 0). Blank is the
+        # default, read like the lost-vote limit above.
+        self.comfort_stale_after: float | None = _comfort_stale_seconds(
+            conf.get(CONF_COMFORT_STALE_HOURS)
+        )
         # How long an action-basis vote still counts after its head stops
         # running, in seconds (see logic.HeadSight.action_vote).
         self.action_vote_hold: float = float(ACTION_VOTE_HOLD)
@@ -918,6 +940,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._lost_timer: Any | None = None
         self._lost_retired = False
         self._settle_timer: Any | None = None
+        # One wakeup for the moment the nearest Comfort priority "on" goes
+        # stale (see _sync_comfort_timer). Nothing about it is stored.
+        self._comfort_timer: Any | None = None
 
         # Helper values (owned by the switch/select entities; seeded on
         # restore, mutated on user action). Kill-switch defaults OFF for safety.
@@ -1213,6 +1238,16 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self.hass, safety_entities, self._on_safety_change
                 )
             )
+        # And to a Comfort priority entity, the same way.
+        comfort_entities = [
+            zone.comfort_priority_entity for zone in self.zones if zone.comfort_priority_entity
+        ]
+        if comfort_entities:
+            self._unsubs.append(
+                async_track_state_change_event(
+                    self.hass, comfort_entities, self._on_comfort_change
+                )
+            )
         self._unsubs.append(async_at_start(self.hass, self._on_ha_start))
         self._arm_hold_end_timer()  # a hold carried over from the last run
         await self.async_refresh()
@@ -1247,6 +1282,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._lost_retired = True
         self._cancel_lost_timer()
         self._cancel_settle_timer()
+        self._cancel_comfort_timer()
         self._cancel_cloud_timer()
         for zone in self.zones:
             if zone.climate_id in self._cloud:
@@ -1327,6 +1363,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         dry_votes: list[str | None] = []
         sides: list[tuple[float, float]] = []
         starts: list[dict[str, Any]] = []
+        comforts: list[tuple[float, str]] = []
         all_ok = True
         coasted = False
         for i, zone in enumerate(self.zones):
@@ -1447,10 +1484,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             holds = self._holds(status, safety, cloud_out)
             held_demand = demand if holds else DEMAND_NEUTRAL
             held_engage = engage if holds or floor is not None else ENGAGE_SATISFIED
+            comfort = self._zone_comfort(zone, now)
+            comforts.append(comfort)
             arb_demands.extend(
                 self._zone_arbitration_pair(
                     demand=held_demand, vote=vote, safety=safety, index=i,
-                    floor=floor, dry=dry_vote,
+                    floor=floor, dry=dry_vote, boost=comfort[0],
                 )
             )
             drys.append(dry)
@@ -1489,6 +1528,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             allowed=allowed,
             resting=self._resting_bias(),
         )
+        # Comfort priority earned the answer only if the same compute with
+        # every boost at 0 answers differently. Run only when one counts.
+        by_comfort = any(comfort_boost(d) > 0 for d in arb_demands) and arbitrate(
+            [replace(d, boost=0.0) for d in arb_demands],
+            engaged=engaged,
+            current=current,
+            allowed=allowed,
+            resting=self._resting_bias(),
+        ).direction != grant.direction
         state, by_votes = grant.direction, grant.read_only
         if (
             not by_votes and self._mode_by_votes and state != current
@@ -1537,6 +1585,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         # now, and when a stopped head's held vote drops.
                         **self._vote_basis_row(zone, clock, now),
                         "safety_priority": self._zone_safety(zone),
+                        # The Comfort priority entity, the boost this compute
+                        # read from it (0 = none), and why (see
+                        # logic.comfort_priority). The dwell wakeup replays it.
+                        "comfort_priority_entity": zone.comfort_priority_entity,
+                        "comfort_priority": comforts[i][0],
+                        "comfort_priority_status": comforts[i][1],
                         "floor_low": zone.floor_low,
                         "floor_high": zone.floor_high,
                         **self._floor_attributes(zone),
@@ -1553,6 +1607,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "standoff": MODE_COOL in calls and MODE_HEAT in calls,
                 "mode_by_hands_off": by_votes,
                 "mode_by_safety": grant.by_safety,
+                "mode_by_comfort_priority": by_comfort,
                 "mode_by_floor": state in floors,
                 "sensors_ok": all_ok,
                 "seconds_since_mode_change": None if elapsed is None else int(elapsed),
@@ -2004,6 +2059,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._sync_freshness_timer()
             self._sync_lost_timer()
             self._sync_settle_timer()
+            self._sync_comfort_timer()
             self._sync_cloud_timer()
             if self._refresh_pending or self._needs_legacy_refresh_guard:
                 self._sync_refresh_followup()
@@ -2107,6 +2163,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     index=i,
                     floor=view.get("floor_want"),
                     dry=view.get("dry_vote"),
+                    boost=view.get("comfort_priority") or 0.0,
                 )
             )
         would_flip_to = arbitrate(
@@ -4810,9 +4867,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @staticmethod
     def _zone_arbitration_pair(
         *, demand: str, vote: str | None, safety: bool, index: int,
-        floor: str | None = None, dry: str | None = None,
+        floor: str | None = None, dry: str | None = None, boost: float = 0.0,
     ) -> tuple[Demand, ...]:
         """One zone's (demand, vote[, dry][, floor]) as :class:`Demand` entries.
+
+        ``boost`` is the room's Comfort priority. It goes on the demand, the
+        vote and the dry vote, never on a floor or ceiling entry, and
+        :func:`logic.arbitrate` ignores it on a Safety priority entry.
 
         Shared by ``_compute`` (live) and ``_sync_dwell_timer`` (replayed from
         the already-computed plan) so the priority-tier math lives in exactly
@@ -4828,17 +4889,22 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             Demand(
                 direction=demand if demand in (MODE_COOL, MODE_HEAT) else None,
                 priority=(tier if tier is not None else PRIORITY_DEMAND, index),
+                boost=boost,
             ),
             Demand(
                 direction=vote,
                 priority=(tier if tier is not None else PRIORITY_VOTE, index),
                 read_only=True,
+                boost=boost,
             ),
         )
         if dry is not None:
             pair = (
                 *pair,
-                Demand(direction=dry, priority=(PRIORITY_VOTE, index), read_only=True),
+                Demand(
+                    direction=dry, priority=(PRIORITY_VOTE, index), read_only=True,
+                    boost=boost,
+                ),
             )
         if floor not in (MODE_COOL, MODE_HEAT):
             return pair
@@ -4858,6 +4924,69 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
         state = self.hass.states.get(zone.safety_priority_entity)
         return state is not None and state.state == STATE_ON
+
+    def _zone_comfort_reading(self, zone: Zone, now: float) -> tuple[str | None, str | None, float | None]:
+        """This room's Comfort priority entity as (domain, state, age seconds).
+
+        (None, None, None) when none is set; a state of None when the entity
+        doesn't exist. The age is by Home Assistant's own last_changed on the
+        wall clock (a clock stepped back reads negative: fresh).
+        """
+        entity_id = zone.comfort_priority_entity
+        if entity_id is None:
+            return None, None, None
+        domain = entity_id.split(".", 1)[0]
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return domain, None, None
+        return domain, state.state, now - state.last_changed.timestamp()
+
+    def _zone_comfort(self, zone: Zone, now: float) -> tuple[float, str]:
+        """This room's Comfort priority this compute: (boost, status).
+
+        Read live, never stored. Any reading that isn't a usable "on" or a
+        positive number is no boost (see logic.comfort_priority): it never
+        blocks a decision or pushes the room down.
+        """
+        domain, state, age = self._zone_comfort_reading(zone, now)
+        return comfort_priority(domain, state, age=age, stale_after=self.comfort_stale_after)
+
+    def _sync_comfort_timer(self) -> None:
+        """Keep one wakeup armed for the moment the nearest "on" goes stale.
+
+        An entity that stays "on" emits nothing more, so without this its
+        boost would drop only at the next unrelated recompute. Like the lost
+        vote wakeup, nothing is captured: the callback only asks for a
+        refresh, which re-reads every entity as it is then.
+        """
+        self._cancel_comfort_timer()
+        if self._retired or self.comfort_stale_after is None:
+            return
+        now = dt_util.utcnow().timestamp()
+        waits = []
+        for zone in self.zones:
+            domain, state, age = self._zone_comfort_reading(zone, now)
+            wait = comfort_stale_in(
+                domain, state, age=age, stale_after=self.comfort_stale_after
+            )
+            if wait is not None:
+                waits.append(wait)
+        if not waits:
+            return
+
+        @callback
+        def _fire(_now: Any) -> None:
+            self._comfort_timer = None
+            if self._retired:
+                return  # cancelling cannot recall a callback already in flight
+            self.hass.async_create_task(self.async_request_refresh())
+
+        self._comfort_timer = async_call_later(self.hass, min(waits), _fire)
+
+    def _cancel_comfort_timer(self) -> None:
+        if self._comfort_timer is not None:
+            self._comfort_timer()
+            self._comfort_timer = None
 
     def restore_hands_off(self, slug: str) -> None:
         """The enable switch restored a released hands-off room (see switch.py)."""
@@ -6041,6 +6170,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """A zone's safety-priority sensor changed -> recompute now."""
         self.hass.async_create_task(self.async_request_refresh())
 
+    @callback
+    def _on_comfort_change(self, _event: Event) -> None:
+        """A zone's Comfort priority entity changed -> recompute now."""
+        self.hass.async_create_task(self.async_request_refresh())
+
     async def _evaluate_inhibit(self) -> None:
         """Re-read the inhibit entity; act only on a change of hold state.
 
@@ -6264,6 +6398,24 @@ def _lost_vote_minutes(value: Any) -> float:
     if not math.isfinite(number):
         return float(DEFAULT_LOST_VOTE_TTL)
     return min(max(number, float(low)), float(high))
+
+
+def _comfort_stale_seconds(value: Any) -> float | None:
+    """A stored Comfort priority stale limit (hours) in seconds; 0 is None (no limit).
+
+    Blank (None) is the default; anything that isn't a finite number reads as
+    blank rather than failing setup. A stored value is clamped into the UI's
+    bounds, so a negative one reads as 0.
+    """
+    low, high = COMFORT_STALE_HOURS_BOUNDS
+    try:
+        hours = float(value)
+    except (TypeError, ValueError):
+        hours = float(DEFAULT_COMFORT_STALE_HOURS)
+    if isinstance(value, bool) or not math.isfinite(hours):
+        hours = float(DEFAULT_COMFORT_STALE_HOURS)
+    hours = min(max(hours, float(low)), float(high))
+    return None if hours == 0 else 3600.0 * hours
 
 
 def _bounded(value: float | None, default: float, bounds: tuple[float, float]) -> float:

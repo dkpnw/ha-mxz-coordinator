@@ -1040,6 +1040,7 @@ async def test_m3_configure_is_a_menu_of_pages_for_an_existing_entry(
             "drift_cooler_by",
             "drift_warmer_by",
             "lost_vote_ttl",
+            "comfort_priority_stale_hours",
         }
     )
 

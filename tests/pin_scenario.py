@@ -416,6 +416,30 @@ def take_vote_rows(step: dict[str, Any]) -> tuple[dict[str, Any], list[tuple[Any
     return step, taken
 
 
+# Every plan zones row gained these after 3.18 (Comfort priority), and the plan
+# gained COMFORT_PLAN_KEY: the 3.9.0 record predates them. A replay takes them
+# out with take_comfort and checks them on their own: with no Comfort priority
+# entity on any room, every row reads (None, 0.0, "not_set") and the flag False.
+COMFORT_ROW_KEYS = ("comfort_priority_entity", "comfort_priority", "comfort_priority_status")
+COMFORT_PLAN_KEY = "mode_by_comfort_priority"
+COMFORT_OFF_ROW = (None, 0.0, "not_set")
+
+
+def take_comfort(step: dict[str, Any]) -> tuple[dict[str, Any], list[tuple[Any, ...]], Any]:
+    """``step`` without the Comfort priority row keys and plan flag, and their values.
+
+    A missing key reads ``"<missing>"``, so a replay that expects the keys
+    fails on a plan without them instead of passing on a default.
+    """
+    step = deepcopy(step)
+    attributes = step["entities"]["plan"]["attributes"]
+    rows = [
+        tuple(row.pop(key, "<missing>") for key in COMFORT_ROW_KEYS)
+        for row in attributes["zones"]
+    ]
+    return step, rows, attributes.pop(COMFORT_PLAN_KEY, "<missing>")
+
+
 # Home Assistant 2026.11 publishes temperature_unit, the system unit, on every
 # climate entity (the thermostats and the heads alike); the 3.9.0 record
 # predates it. A replay takes it out of each climate entity's attributes with

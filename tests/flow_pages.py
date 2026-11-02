@@ -27,6 +27,7 @@ PAGE_FIELDS: dict[str, tuple[str, ...]] = {
         "drift_cooler_by",
         "drift_warmer_by",
         "lost_vote_ttl",
+        "comfort_priority_stale_hours",
     ),
     "fan_idle": (
         "fan_boost_enable",
@@ -45,7 +46,13 @@ PAGE_FIELDS: dict[str, tuple[str, ...]] = {
     "standby": ("inhibit_entity", "inhibit_active_state", "inhibit_action"),
 }
 SECTION_FIELDS: dict[str, tuple[str, ...]] = {
-    "advanced": ("mode_hysteresis", "drift_cooler_by", "drift_warmer_by", "lost_vote_ttl"),
+    "advanced": (
+        "mode_hysteresis",
+        "drift_cooler_by",
+        "drift_warmer_by",
+        "lost_vote_ttl",
+        "comfort_priority_stale_hours",
+    ),
     "safety": ("heat_lockout_floor", "cool_lockout_ceiling"),
     "setpoint_range": ("clamp_min", "clamp_max"),
     "freshness": (
@@ -70,6 +77,7 @@ ROOM_FIELDS: tuple[str, ...] = (
     "vane_vertical",
     "vane_horizontal",
     "safety_priority_entity",
+    "comfort_priority_entity",
     "hands_off",
     "hands_off_vote_basis",
     *ROOM_SECTION_FIELDS["drift"],

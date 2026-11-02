@@ -47,6 +47,7 @@ from custom_components.mxz_coordinator.const import (
 )
 from tests.dwell import expire_dwell
 from tests.pin_scenario import (
+    COMFORT_OFF_ROW,
     SENSOR_A,
     SENSOR_B,
     Recorder,
@@ -55,6 +56,7 @@ from tests.pin_scenario import (
     room_page_pass,
     run_scenario,
     take_climate_units,
+    take_comfort,
     take_mode_hold,
     take_vote_rows,
 )
@@ -792,6 +794,8 @@ async def test_mixed_install_single_room_is_3_9_0(hass: HomeAssistant, unit: str
     for seen, want in zip(steps, pinned, strict=True):
         seen, votes = take_vote_rows(seen)  # (added after 3.10.0; see pin_scenario)
         assert votes == [("live", None), ("live", None)], seen["step"]
+        seen, comfort, by_comfort = take_comfort(seen)  # (added after 3.18; see pin_scenario)
+        assert (comfort, by_comfort) == ([COMFORT_OFF_ROW, COMFORT_OFF_ROW], False), seen["step"]
         seen, units = take_climate_units(seen)  # (added by HA 2026.11; see pin_scenario)
         assert units == climate_units(want, unit), seen["step"]
         seen, holds, since = take_mode_hold(seen)  # (added in 3.18; see pin_scenario)
@@ -804,7 +808,9 @@ async def test_mixed_install_single_room_is_3_9_0(hass: HomeAssistant, unit: str
     assert "secondary_target_low" in last["entities"]
     assert "target_low" in last["entities"]["plan"]["attributes"]["zones"][1]
     # Before the toggle, the whole install is 3.9.0.
-    first, units = take_climate_units(take_vote_rows(steps[0])[0])
+    first, comfort, by_comfort = take_comfort(take_vote_rows(steps[0])[0])
+    assert (comfort, by_comfort) == ([COMFORT_OFF_ROW, COMFORT_OFF_ROW], False)
+    first, units = take_climate_units(first)
     first, holds, since = take_mode_hold(first)
     assert (holds, since) == mode_hold(pinned[0])
     assert (first, units) == (take_mode_hold(pinned[0])[0], climate_units(pinned[0], unit))
