@@ -25,11 +25,13 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 from homeassistant.core import HomeAssistant
 
 from tests.pin_scenario import (
+    COMFORT_OFF_ROW,
     climate_units,
     dumps,
     mode_hold,
     run_scenario,
     take_climate_units,
+    take_comfort,
     take_mode_hold,
     take_vote_rows,
 )
@@ -57,6 +59,10 @@ async def test_all_single_install_is_3_9_0(hass: HomeAssistant, unit: str) -> No
         # No head is ever lost in this scenario: both rows are live every step.
         seen, votes = take_vote_rows(seen)
         assert votes == [("live", None), ("live", None)], seen["step"]
+        # No room has a Comfort priority entity: every row is off, never a boost.
+        seen, comfort, by_comfort = take_comfort(seen)
+        assert comfort == [COMFORT_OFF_ROW, COMFORT_OFF_ROW], seen["step"]
+        assert by_comfort is False, seen["step"]
         seen, units = take_climate_units(seen)
         assert units == climate_units(want, unit), seen["step"]
         seen, holds, since = take_mode_hold(seen)

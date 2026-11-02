@@ -109,6 +109,32 @@ ACTION_VOTE_SETTLE = 15
 # -- a coordinated room's own demand or a hands-off room's vote can both be
 # marked safety; see logic.arbitrate().
 ZONE_SAFETY_PRIORITY_ENTITY = "safety_priority_entity"
+# Optional per-room Comfort priority entity. When rooms want opposite modes, a
+# room whose entity reads "on" (1) or a higher number moves ahead of rooms with
+# less, within its own rank only: freeze floors, Safety priority rooms,
+# overheat ceilings and the mode-switch wait always come first, and a real
+# demand still beats a hands-off vote (see logic.arbitrate()). Stored only
+# when set; no key = no boost, so every room stored before this existed, and
+# every room left blank, decides exactly as before. The idea is @csingley's
+# comfort priority rank in ha-climate-zone-sequencer (f911e4a, see NOTICE).
+ZONE_COMFORT_PRIORITY_ENTITY = "comfort_priority_entity"
+# The domains it accepts: on/off entities ("on" = 1, anything else 0) and
+# number entities (their own value; negative, NaN, infinity and text are 0).
+COMFORT_ONOFF_DOMAINS = ("binary_sensor", "input_boolean")
+COMFORT_NUMBER_DOMAINS = ("number", "input_number", "sensor")
+COMFORT_DOMAINS = (*COMFORT_ONOFF_DOMAINS, *COMFORT_NUMBER_DOMAINS)
+# Why a room's comfort priority is what it is (the plan row's
+# comfort_priority_status). Only "on" and "number" can carry a boost.
+COMFORT_NOT_SET = "not_set"
+COMFORT_ON = "on"
+COMFORT_OFF = "off"
+COMFORT_NUMBER = "number"
+COMFORT_UNAVAILABLE = "unavailable"
+COMFORT_UNKNOWN = "unknown"
+COMFORT_MISSING = "missing"
+COMFORT_NOT_A_NUMBER = "not_a_number"
+# An on/off entity that has read "on" for longer than the stale limit.
+COMFORT_STALE = "stale"
 ZONE_SAMPLE_TIMESTAMP_ATTR = "sample_timestamp_attribute"
 ZONE_SAMPLE_SEQUENCE_ATTR = "sample_sequence_attribute"
 # Optional per-room freeze floor / overheat ceiling, in the system unit, acting
@@ -322,6 +348,11 @@ CONF_MODE_HYSTERESIS = "mode_hysteresis"
 # gone) keeps its last-known vote. No key when blank: blank means
 # DEFAULT_LOST_VOTE_TTL, so an install that never sets it stores nothing.
 CONF_LOST_VOTE_TTL = "lost_vote_ttl"
+# Optional: how many hours an on/off Comfort priority entity may read "on"
+# (by Home Assistant's own last_changed) before it stops counting. 0 = no
+# limit. No key when blank: blank means DEFAULT_COMFORT_STALE_HOURS. Never
+# applies to number entities.
+CONF_COMFORT_STALE_HOURS = "comfort_priority_stale_hours"
 CONF_ECO_COOL_MAX = "eco_cool_max"
 CONF_ECO_HEAT_MIN = "eco_heat_min"
 CONF_CLAMP_MIN = "clamp_min"
@@ -345,6 +376,8 @@ DEFAULT_MODE_HYSTERESIS = 600  # seconds minimum dwell before a heat<->cool flip
 # The default of @csingley's ha-climate-zone-sequencer (DEFAULT_LAST_KNOWN_TTL).
 DEFAULT_LOST_VOTE_TTL = 30
 LOST_VOTE_TTL_BOUNDS = (1, 240)  # minutes, the UI's and the load clamp's range
+DEFAULT_COMFORT_STALE_HOURS = 12
+COMFORT_STALE_HOURS_BOUNDS = (0, 168)  # hours, the UI's and the load clamp's range
 DEFAULT_ECO_COOL_MAX = 78.0  # away/eco cool extreme
 DEFAULT_ECO_HEAT_MIN = 50.0  # away/eco heat extreme
 DEFAULT_CLAMP_MIN = 59  # firmware min setpoint

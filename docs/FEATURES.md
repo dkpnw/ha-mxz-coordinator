@@ -11,6 +11,7 @@ named here live in Configure; see [Configuration](CONFIGURATION.md) for the menu
 - [Run one room from its own remote](#run-one-room-from-its-own-remote):
   [count its vote only while it runs](#count-its-vote-only-while-it-runs)
 - [Safety priority](#safety-priority)
+- [Comfort priority](#comfort-priority)
 - [When a head goes unavailable](#when-a-head-goes-unavailable)
 - [Generic heads (beta)](#generic-heads-beta)
 - [Freeze floor and overheat ceiling](#freeze-floor-and-overheat-ceiling)
@@ -625,6 +626,68 @@ What the sensor should mean:
 For a disabled room that must not freeze or overheat, use
 [Freeze floor and overheat ceiling](#freeze-floor-and-overheat-ceiling) instead: that does
 start heat or cool.
+
+## Comfort priority
+
+When rooms on one outdoor unit want opposite modes, the room higher in the room order
+wins. **Comfort priority** lets an occupied room go first instead. It is an optional
+entity per room, in Configure → Rooms → (room), directly under Safety priority. It is
+unset for every room, so nothing changes until you wire one.
+
+The entity can be an on/off entity (`binary_sensor` or `input_boolean`, such as an
+occupancy sensor) or a number entity (`number`, `input_number`, or a `sensor` with a
+numeric state):
+
+- `on` counts as 1. Any other on/off state counts as 0.
+- A number counts as its own value. A higher number wins: a number entity reading 2 goes
+  ahead of an occupied on/off sensor (1).
+- 0 means no comfort priority. Negative numbers, NaN, infinity and text count as 0, so the
+  entity can move a room up but never down.
+- `unavailable`, `unknown`, or a missing entity counts as 0 too. It never blocks a
+  decision; the room just keeps its normal place.
+- Rooms with the same comfort priority fall back to the room order.
+
+It only reorders rooms within the same rank. Strongest first, nothing below can override
+anything above:
+
+1. A tripped [freeze floor](#freeze-floor-and-overheat-ceiling).
+2. Rooms whose [Safety priority](#safety-priority) sensor is `on`, and tripped overheat
+   ceilings. They are settled by room order, exactly as before; comfort priority has no
+   effect on them.
+3. The mode-switch wait (**Minimum time between mode switches**), including a wait
+   carried over a restart. A room that wins by comfort priority still waits for it.
+4. An enabled room's real demand, ordered by comfort priority, then room order.
+5. A room [run from its own remote](#run-one-room-from-its-own-remote), and a head in
+   [Dry](#allow-dry-mode), ordered the same way. These votes count only when no enabled
+   room is calling or still running to its target, so a boosted vote never beats a real
+   demand.
+
+When the entity changes, MXZ recomputes at once. If that changes the winner in the middle
+of a standoff, the mode may flip once the normal mode-switch wait has run out; there is
+no extra delay.
+
+**A stuck "on" stops counting.** An on/off entity that has been `on` for longer than
+**Comfort priority stale limit** (Configure → Comfort → Advanced; 12 hours when blank)
+stops counting, and the room's status reads `stale` until the entity changes again. The
+age is Home Assistant's own `last_changed` for the entity, so MXZ stores nothing for it.
+After a Home Assistant restart the entity's state is written again at startup, so its
+age counts from then. Set the limit to 0 for no limit. It never applies to number
+entities. MXZ wakes up at the moment an `on` goes stale, so the boost drops on time.
+
+`sensor.*_plan` shows, in each room's row, `comfort_priority_entity`, the
+`comfort_priority` used (0 when none) and `comfort_priority_status`, which says why:
+`not_set`, `on`, `off`, `stale`, `number`, `unavailable`, `unknown`, `missing` or
+`not_a_number`. The top-level `mode_by_comfort_priority` is true only when comfort
+priority changed the answer: the same update with every comfort priority at 0 would have
+chosen the other mode. It stays false when the boosted room would have won by room order
+anyway, and while the mode-switch wait holds a mode that comfort priority just chose.
+
+The idea is [@csingley](https://github.com/csingley)'s comfort priority rank in
+[ha-climate-zone-sequencer](https://github.com/csingley/ha-climate-zone-sequencer)
+(commit f911e4a). MXZ maps the entity differently: an unreadable entity there sorts its
+room last, while here it is simply no boost.
+
+Not tested on hardware yet: covered by the automated tests with invented rooms only.
 
 ## When a head goes unavailable
 

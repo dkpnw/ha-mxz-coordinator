@@ -71,7 +71,8 @@ MXZ works out one plan for the outdoor unit:
    [freeze floor](FEATURES.md#freeze-floor-and-overheat-ceiling) first; then, by room
    priority, rooms whose [Safety priority](FEATURES.md#safety-priority) sensor is `on`
    and tripped overheat ceilings; then enabled rooms in priority order (position 1 wins a
-   standoff). A room [run from its own remote](FEATURES.md#run-one-room-from-its-own-remote)
+   standoff, unless a room's [Comfort priority](FEATURES.md#comfort-priority) entity puts
+   it ahead of rooms with less). A room [run from its own remote](FEATURES.md#run-one-room-from-its-own-remote)
    counts only when no enabled room is calling or still running to its target, unless its
    Safety priority sensor is `on`. A reversal
    waits out **Minimum time between mode switches** (default 600 seconds). With no room

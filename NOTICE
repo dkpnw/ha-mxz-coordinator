@@ -9,6 +9,10 @@ Used: commit f911e4a, models.py: Zone.observe, Zone.lost, Zone.status, and
 Zone.vote (a zone's vote is live, stale, expired, or unknown). Adapted as
 HeadSight in custom_components/mxz_coordinator/logic.py, which MXZ uses for a
 head it has lost sight of.
+Idea only, no code copied: commit f911e4a, sensor.py: a zone's optional
+comfort_priority entity, read as a number, that orders zones within their
+urgency tier. MXZ's Comfort priority (custom_components/mxz_coordinator/logic.py,
+comfort_priority and arbitrate) takes the idea and maps the entity differently.
 License: MIT, reproduced below as it appears in that repository.
 
 Copyright (c) 2026 Christopher Singley

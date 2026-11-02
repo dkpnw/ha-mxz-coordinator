@@ -23,12 +23,15 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 from .capabilities import head_lists_dry, head_mode_problem, supported_idle_actions
 from .const import (
     CLOUD_PLATFORMS,
+    COMFORT_DOMAINS,
+    COMFORT_STALE_HOURS_BOUNDS,
     CONF_CHANGEOVER_COOL_BELOW,
     CONF_CHANGEOVER_ENTITY,
     CONF_CHANGEOVER_HEAT_ABOVE,
     CONF_CLAMP_MAX,
     CONF_CLAMP_MIN,
     CONF_COIL_DRY_MINUTES,
+    CONF_COMFORT_STALE_HOURS,
     CONF_COOL_LOCKOUT_CEILING,
     CONF_DEMAND_THRESHOLD,
     CONF_DRIFT_COOLER_BY,
@@ -107,6 +110,7 @@ from .const import (
     WRITE_INTERVAL_BOUNDS,
     ZONE_ALLOW_DRY,
     ZONE_CLIMATE,
+    ZONE_COMFORT_PRIORITY_ENTITY,
     ZONE_CONFIRM_WAIT,
     ZONE_DRIFT_COOLER_BY,
     ZONE_DRIFT_WARMER_BY,
@@ -153,6 +157,10 @@ _STAGE_SELECTOR = selector.EntitySelector(
 )
 _SAFETY_PRIORITY_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="binary_sensor")
+)
+# Comfort priority: an on/off entity or a number entity (see COMFORT_DOMAINS).
+_COMFORT_PRIORITY_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain=list(COMFORT_DOMAINS))
 )
 _ROOM_NAME_SELECTOR = selector.TextSelector()
 
@@ -663,6 +671,7 @@ _ROOM_WIRING_FIELDS = (
     ("vane_vertical", ZONE_VANE_VERTICAL),
     ("vane_horizontal", ZONE_VANE_HORIZONTAL),
     ("safety_priority_entity", ZONE_SAFETY_PRIORITY_ENTITY),
+    ("comfort_priority_entity", ZONE_COMFORT_PRIORITY_ENTITY),
 )
 # The room page's hands-off opt-in (flow key); stored as ZONE_HANDS_OFF only
 # when on, so an opted-out room's record is exactly what it was before this option existed.
@@ -719,9 +728,10 @@ _GENERIC_FIELD = "generic_heads"
 # Comfort's optional uneven drift. Blank by default; a blank field stores no
 # key (Allowed drift applies), and clearing one removes the saved key.
 _BLANK_DRIFT = (CONF_DRIFT_COOLER_BY, CONF_DRIFT_WARMER_BY)
-# Every optional Comfort field that works that way: the uneven drift, and how
-# long a lost head's vote is kept (blank is the default time).
-_BLANK_CLEARS = (*_BLANK_DRIFT, CONF_LOST_VOTE_TTL)
+# Every optional Comfort field that works that way: the uneven drift, how
+# long a lost head's vote is kept, and the Comfort priority stale limit
+# (blank is the default time for both).
+_BLANK_CLEARS = (*_BLANK_DRIFT, CONF_LOST_VOTE_TTL, CONF_COMFORT_STALE_HOURS)
 
 # Configure and setup pages: (top-level fields, {section: fields}), in display
 # order. Every tunable sits on exactly one page, and each validated pair sits
@@ -735,6 +745,7 @@ _PAGES: dict[str, tuple[tuple[str, ...], dict[str, tuple[str, ...]]]] = {
                 CONF_DRIFT_COOLER_BY,
                 CONF_DRIFT_WARMER_BY,
                 CONF_LOST_VOTE_TTL,
+                CONF_COMFORT_STALE_HOURS,
             )
         },
     ),
@@ -1084,6 +1095,10 @@ def _room_schema(
                 description={"suggested_value": view.get("safety_priority_entity")},
             ): _SAFETY_PRIORITY_SELECTOR,
             vol.Optional(
+                "comfort_priority_entity",
+                description={"suggested_value": view.get("comfort_priority_entity")},
+            ): _COMFORT_PRIORITY_SELECTOR,
+            vol.Optional(
                 _HANDS_OFF_FIELD, default=view.get(_HANDS_OFF_FIELD) is True
             ): selector.BooleanSelector(),
             vol.Optional(
@@ -1345,6 +1360,7 @@ _NONNEGATIVE_TUNABLES = (
     CONF_DRIFT_WARMER_BY,
     CONF_MODE_HYSTERESIS,
     CONF_COIL_DRY_MINUTES,
+    CONF_COMFORT_STALE_HOURS,
 )
 # Every numeric tunable that must be a finite real number. `NumberSelector`
 # coerces via `float()`, which happily accepts "nan"/"inf" and passes them
@@ -1504,6 +1520,20 @@ def _tunables_schema(
                     unit_of_measurement="min",
                 )
             ),
+            # Whole hours, no default: blank means the default (12 h), and 0
+            # means no limit, so only a stored value is suggested.
+            vol.Optional(
+                CONF_COMFORT_STALE_HOURS,
+                description={"suggested_value": eff.get(CONF_COMFORT_STALE_HOURS)},
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    mode=selector.NumberSelectorMode.BOX,
+                    min=COMFORT_STALE_HOURS_BOUNDS[0],
+                    max=COMFORT_STALE_HOURS_BOUNDS[1],
+                    step=1,
+                    unit_of_measurement="h",
+                )
+            ),
             vol.Optional(
                 CONF_ECO_COOL_MAX,
                 default=eff.get(CONF_ECO_COOL_MAX, DEFAULT_ECO_COOL_MAX),
@@ -1621,6 +1651,7 @@ _FIELD_LABELS = {
     CONF_DEMAND_THRESHOLD: "Mode switch threshold",
     CONF_MODE_HYSTERESIS: "Minimum time between mode switches",
     CONF_LOST_VOTE_TTL: "Keep a lost head's vote for",
+    CONF_COMFORT_STALE_HOURS: "Comfort priority stale limit",
     CONF_COIL_DRY_MINUTES: "Coil drying time",
     CONF_CHANGEOVER_HEAT_ABOVE: "Lock out heat when the high is at least",
     CONF_CHANGEOVER_COOL_BELOW: "Lock out cool when the high is at most",
