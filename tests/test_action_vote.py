@@ -692,9 +692,15 @@ async def test_a_run_ending_drops_the_vote_on_its_own_report(
     assert (row["hands_off_vote"], row["vote_hold_until"]) == (None, None)
     assert _plan(hass, entry).state == MODE_HEAT  # back to rest
     assert computes == ["compute"]
+    coord = entry.runtime_data
+    assert not coord._debounced_refresh._execute_at_end_of_timer
     _head(hass, head_b)._attr_native_current_temperature = 71
-    await _report(hass, head_b, mode, action)
+    with _count_refresh_requests(coord) as requests:
+        await _report(hass, head_b, mode, action)
     assert computes == ["compute"]
+    # No compute at once, no request, and none left waiting on a cooldown.
+    assert requests == []
+    assert not coord._debounced_refresh._execute_at_end_of_timer
     assert calls == []  # MXZ never wrote to it
 
 
@@ -899,6 +905,87 @@ async def test_a_wakeup_short_of_the_window_rearms_for_the_rest(hass: HomeAssist
     assert _row(hass, entry, 1)["hands_off_vote"] is None
     assert coord._settle_timer is not None
     assert coord._sight[head_b].settles_in(time.monotonic()) == pytest.approx(5, abs=1)
+
+
+async def test_a_fired_wakeup_short_of_the_window_rearms_for_the_rest(
+    hass: HomeAssistant,
+) -> None:
+    """The same, driven by HA's own timer: the armed wakeup fires while the
+    monotonic window still has 5 s left. Its compute counts nothing and
+    re-arms, and the re-armed wakeup counts the run once the window is over.
+    Neither goes through the request debouncer; MXZ sends the head nothing."""
+    entry, coord, head_b = await _unconfirmed(hass)
+    calls = _climate_calls(hass, head_b)
+    computes = _computes(coord)
+    coord._sight[head_b].changed_at -= SETTLE - 5  # 5 s left
+    first = coord._settle_timer
+    with _count_refresh_requests(coord) as requests:
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=SETTLE))
+        await hass.async_block_till_done()
+        assert computes == ["compute"]  # the wakeup fired and computed
+        assert _row(hass, entry, 1)["hands_off_vote"] is None
+        assert coord._settle_timer is not None
+        assert coord._settle_timer is not first  # re-armed, not the old one
+        assert coord._sight[head_b].settles_in(time.monotonic()) == pytest.approx(5, abs=1)
+
+        coord._sight[head_b].changed_at -= 5  # the rest of the window
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=SETTLE + 10))
+        await hass.async_block_till_done()
+    assert requests == []
+    assert computes == ["compute", "compute"]
+    row = _row(hass, entry, 1)
+    assert (row["hands_off_vote"], row["vote_hold_until"]) == (MODE_HEAT, None)
+    assert _plan(hass, entry).state == MODE_HEAT
+    assert coord._settle_timer is None
+    assert calls == []
+
+
+async def test_a_parking_room_arms_no_settle_wakeup(hass: HomeAssistant) -> None:
+    """Only a released room's run waits on the window. Parking (the
+    coordinator is off, so MXZ's off can't be sent), a head turned to heat
+    that reports heating at once is inside a window by its own record, but
+    its room has no vote to confirm, so no wakeup is armed and none fires."""
+    entry, _a, head_b = await _setup(
+        hass, hands_off=(False, True), vote_basis=(None, "action"),
+        **{CONF_RESTING_MODE_BIAS: "cool"},
+    )
+    coord = entry.runtime_data
+    await _remote(hass, head_b, "cool")
+    await _switch(hass, _eid(hass, entry, "_coordinator_enable"), False)
+    await _switch(hass, _eid(hass, entry, "_secondary_enable"), False)
+    await _recompute(hass, entry)
+    assert _row(hass, entry, 1)["hands_off"] == "parking"
+    await _report(hass, head_b, "heat", "idle")  # a mode change
+    await _report(hass, head_b, "heat", "heating")  # running at once
+    await _recompute(hass, entry)
+    assert _row(hass, entry, 1)["hands_off"] == "parking"
+    assert coord._sight[head_b].settles_in(time.monotonic()) is not None
+    assert coord._settle_timer is None
+    computes = _computes(coord)
+    await _fire_due(hass, SETTLE)
+    assert computes == []
+
+
+async def test_a_settle_wakeup_in_flight_at_unload_computes_nothing(
+    hass: HomeAssistant,
+) -> None:
+    """Cancelling cannot recall a wakeup HA has already picked to run. Here
+    the coordinator is retired with its wakeup still armed, which is that
+    case: the wakeup fires and asks for no recompute."""
+    entry, coord, head_b = await _unconfirmed(hass)
+    assert coord._settle_timer is not None
+    asked: list[str] = []
+
+    async def refresh_now() -> None:
+        asked.append("refresh_now")
+
+    coord._async_refresh_now = refresh_now
+    coord._retired = True  # as the retire step sets it, before any cancel
+    _settled(coord, head_b)
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=SETTLE))
+    await hass.async_block_till_done()
+    assert coord._settle_timer is None  # it fired
+    assert asked == []
 
 
 async def test_a_stop_or_a_new_mode_change_cancels_or_moves_the_wakeup(
