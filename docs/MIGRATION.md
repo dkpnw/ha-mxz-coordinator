@@ -1,6 +1,6 @@
 # Upgrading and migrating MXZ Coordinator
 
-## Mode-change wait kept across reloads and restarts (Unreleased)
+## Mode-change wait kept across reloads and restarts (3.18.0)
 
 Until now the wait between two cool/heat changes started over on every reload and
 restart (see the 3.7.1 section below), so a house that needed to switch could wait a
