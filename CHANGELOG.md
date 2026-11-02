@@ -10,8 +10,21 @@ on your equipment.
 
 ## Unreleased
 
-Cleanup after 3.16.0. MXZ runs exactly as before, with the same defaults.
+Generic heads (beta), off unless you choose them, and cleanup after 3.16.0. Existing
+installs run exactly as before, with the same defaults, and need no migration.
 
+- **Generic heads (beta).** A third head type, next to Local and Cloud (beta), for any
+  Home Assistant `climate` entity that offers heat and cool and isn't a Mitsubishi head.
+  Choose it with **Generic heads (beta)** on setup's first page, or **Head type** on a
+  room page; nothing suggests it. MXZ drives it as a cloud head (mode on its own call,
+  one setpoint past the target by the drive offset), with a 30-second write interval and
+  confirm wait by default. Only being unavailable for 15 minutes takes it out of MXZ's
+  control; a head that sends nothing for hours while idle is still controlled. A generic
+  head can have an entry of its own (one head); one local or cloud head is still refused.
+  A head without heat and cool, or without off or fan only, is refused in setup and on
+  its room page, and an ESPHome head can't be generic. Missing fan modes, step, current
+  temperature, `hvac_action`, dry or swing make MXZ do less, never fail. Tested on
+  invented heads only. See [Generic heads (beta)](README.md#generic-heads-beta).
 - **Apple Home note.** The Allow Dry mode note now says only that Apple Home may show a
   Cool choice for that room. Auto was always there. Changed in the README, FEATURES, and
   the room page's help text.

@@ -84,7 +84,10 @@ from .const import (
     FAN_LADDER,
     FLOOR_RANGE_C,
     FLOOR_RANGE_F,
+    GENERIC_CONFIRM_WAIT,
+    GENERIC_WRITE_INTERVAL,
     HEAD_TYPE_CLOUD,
+    HEAD_TYPE_GENERIC,
     HEAD_TYPE_LOCAL,
     HEAD_TYPES,
     IDLE_ACTION_OPTIONS,
@@ -95,6 +98,7 @@ from .const import (
     NEW_ROOM_FLOOR_LOW_C,
     NEW_ROOM_FLOOR_LOW_F,
     NEW_ROOM_MAX_AGE,
+    OFFSET_HEAD_TYPES,
     RESTING_BIAS_OPTIONS,
     UNAVAILABLE_STATES,
     VOTE_BASES,
@@ -225,7 +229,8 @@ def _suggested_head_type(hass: HomeAssistant, climate_id: str) -> str:
     Only a suggestion, shown in the setup flow, where the user confirms it.
     The room page never suggests it: a room with no stored type shows local,
     so saving the page for something else can't switch the room. An ESPHome
-    head, and any head MXZ can't place, is local.
+    head, and any head MXZ can't place, is local. Generic (beta) is never
+    suggested: the user opts in.
     """
     return (
         HEAD_TYPE_CLOUD if _platform(hass, climate_id) in CLOUD_PLATFORMS
@@ -233,14 +238,23 @@ def _suggested_head_type(hass: HomeAssistant, climate_id: str) -> str:
     )
 
 
-def _cloud_defaults(temperature_unit: str) -> dict[str, float]:
-    """A cloud room's settings when none is stored, in the system unit."""
+def _cloud_defaults(temperature_unit: str, generic: bool = False) -> dict[str, float]:
+    """A cloud (or generic) room's settings when none is stored, in the system unit."""
     celsius = temperature_unit == UnitOfTemperature.CELSIUS
     return {
         "drive_offset": DEFAULT_DRIVE_OFFSET_C if celsius else DEFAULT_DRIVE_OFFSET_F,
-        "write_interval": float(DEFAULT_WRITE_INTERVAL),
-        "confirm_wait": float(DEFAULT_CONFIRM_WAIT),
+        "write_interval": float(GENERIC_WRITE_INTERVAL if generic else DEFAULT_WRITE_INTERVAL),
+        "confirm_wait": float(GENERIC_CONFIRM_WAIT if generic else DEFAULT_CONFIRM_WAIT),
     }
+
+
+def _one_head_allowed(heads: list[str], generic: bool) -> bool:
+    """Whether a pick of fewer than MIN_ZONES heads is still an entry.
+
+    Only one generic head (beta) stands alone: it has its own compressor, so
+    its entry is its own outdoor unit. One local or cloud head is refused.
+    """
+    return generic and len(heads) == 1
 
 
 def _head_type_selector() -> selector.SelectSelector:
@@ -562,7 +576,10 @@ def _user_schema(
     default_heads: list[str] | None = None,
     default_notify: str | None = None,
     default_title: str | None = None,
+    default_generic: bool | None = None,
 ) -> vol.Schema:
+    """The head picker. ``default_generic`` None leaves out the generic
+    (beta) opt-in (Reconfigure keeps each room's stored head type)."""
     notify_selector: selector.Selector = (
         selector.SelectSelector(
             selector.SelectSelectorConfig(
@@ -589,6 +606,15 @@ def _user_schema(
                 CONF_NOTIFY_SERVICE,
                 description={"suggested_value": default_notify},
             ): notify_selector,
+            **(
+                {}
+                if default_generic is None
+                else {
+                    vol.Optional(
+                        _GENERIC_FIELD, default=default_generic
+                    ): selector.BooleanSelector()
+                }
+            ),
         }
     )
 
@@ -688,6 +714,8 @@ _CLOUD_FIELDS = (
 _CLOUD_SECTION = "cloud"
 # The setup flow's head type fields, one per priority slot that suggests cloud.
 _SETUP_HEAD_TYPE = "head_type_{}"
+# The setup flow's first-step opt-in: every picked head is generic (beta).
+_GENERIC_FIELD = "generic_heads"
 # Comfort's optional uneven drift. Blank by default; a blank field stores no
 # key (Allowed drift applies), and clearing one removes the saved key.
 _BLANK_DRIFT = (CONF_DRIFT_COOLER_BY, CONF_DRIFT_WARMER_BY)
@@ -793,6 +821,7 @@ def _flow_only_keys() -> frozenset[str]:
             _CLOUD_SECTION,
         }
         | {_SETUP_HEAD_TYPE.format(index + 1) for index in range(MAX_ZONES)}
+        | {_GENERIC_FIELD}
     )
 
 
@@ -989,7 +1018,11 @@ def _room_schema(
         for key, _ in _FLOOR_FIELDS
     }
     celsius = temperature_unit == UnitOfTemperature.CELSIUS
-    cloud_defaults = _cloud_defaults(temperature_unit)
+    head_type = view.get(_HEAD_TYPE_FIELD)
+    head_type = head_type if head_type in HEAD_TYPES else HEAD_TYPE_LOCAL
+    cloud_defaults = _cloud_defaults(
+        temperature_unit, generic=head_type == HEAD_TYPE_GENERIC
+    )
     cloud_boxes = {
         "drive_offset": (0.0, DRIVE_OFFSET_MAX_C if celsius else DRIVE_OFFSET_MAX_F, 0.5, temperature_unit),
         "write_interval": (*WRITE_INTERVAL_BOUNDS, 1, "s"),
@@ -1034,14 +1067,7 @@ def _room_schema(
             ] = _num("min")
     return vol.Schema(
         {
-            vol.Optional(
-                _HEAD_TYPE_FIELD,
-                default=(
-                    HEAD_TYPE_CLOUD
-                    if view.get(_HEAD_TYPE_FIELD) == HEAD_TYPE_CLOUD
-                    else HEAD_TYPE_LOCAL
-                ),
-            ): _head_type_selector(),
+            vol.Optional(_HEAD_TYPE_FIELD, default=head_type): _head_type_selector(),
             vol.Optional(
                 "stage", description={"suggested_value": view.get("stage")}
             ): _STAGE_SELECTOR,
@@ -1103,7 +1129,7 @@ def _room_schema(
             ),
             vol.Required(_CLOUD_SECTION): section(
                 vol.Schema(cloud),
-                {"collapsed": view.get(_HEAD_TYPE_FIELD) != HEAD_TYPE_CLOUD},
+                {"collapsed": head_type not in OFFSET_HEAD_TYPES},
             ),
         }
     )
@@ -1117,17 +1143,24 @@ def _cloud_problem(
     An ESPHome head is the CN105 path, always local. A cloud head (beta)
     takes no vanes, airflow sensor, dual setpoint or vote by action, and its
     settings must be finite numbers (the boxes refuse anything out of range).
+    A generic head (beta) is held to the same, with its own messages.
     """
-    if values.get(_HEAD_TYPE_FIELD) != HEAD_TYPE_CLOUD:
+    head_type = values.get(_HEAD_TYPE_FIELD)
+    if head_type not in OFFSET_HEAD_TYPES:
         return None
+    generic = head_type == HEAD_TYPE_GENERIC
     if _platform(hass, climate_id) == "esphome":
-        return ("cloud_esphome_head", "base")
+        return ("generic_esphome_head", "base") if generic else ("cloud_esphome_head", "base")
     if (
         any(values.get(key) for key in ("stage", "vane_vertical", "vane_horizontal"))
         or values.get(_DUAL_FIELD) is True
         or values.get(_VOTE_BASIS_FIELD) == VOTE_BASIS_ACTION
     ):
-        return ("cloud_unsupported_options", "base")
+        return (
+            ("generic_unsupported_options", "base")
+            if generic
+            else ("cloud_unsupported_options", "base")
+        )
     for key, _ in _CLOUD_FIELDS:
         raw = values.get(key)
         if raw in (None, ""):
@@ -1708,6 +1741,8 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         # cloud (head -> local|cloud). A head not in here is local and asked
         # nothing: an ESPHome-only setup sees no new step.
         self._head_types: dict[str, str] = {}
+        # The first step's generic (beta) opt-in: every head is generic.
+        self._generic = False
 
     def _head_name(self, entity_id: str) -> str:
         """Friendly display name for a head (used as the zone name)."""
@@ -1719,14 +1754,22 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Step 1: pick 2..MAX_ZONES heads (first = highest standoff priority)."""
+        """Step 1: pick 2..MAX_ZONES heads (first = highest standoff priority).
+
+        With the generic (beta) opt-in, every head is generic, and one head
+        alone is an entry of its own (its own outdoor unit).
+        """
         errors: dict[str, str] = {}
         placeholders: dict[str, str] | None = None
         if user_input is not None:
             heads: list[str] = user_input.get(_CONF_HEADS) or []
+            generic = user_input.get(_GENERIC_FIELD) is True
+            esphome = [
+                head for head in heads if _platform(self.hass, head) == "esphome"
+            ]
             if len(set(heads)) != len(heads):
                 errors["base"] = "duplicate_heads"
-            elif len(heads) < MIN_ZONES:
+            elif len(heads) < MIN_ZONES and not _one_head_allowed(heads, generic):
                 errors["base"] = "need_two_heads"
             elif len(heads) > MAX_ZONES:
                 errors["base"] = "too_many_heads"
@@ -1739,6 +1782,9 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             elif problem := head_mode_problem(self.hass, heads):
                 error, placeholders = problem
                 errors[_CONF_HEADS] = error
+            elif generic and esphome:
+                errors[_CONF_HEADS] = "generic_esphome_head"
+                placeholders = {"esphome_heads": ", ".join(esphome)}
             else:
                 self.context[_CONTEXT_HEADS] = tuple(heads)
                 await self.async_set_unique_id("|".join(heads))
@@ -1750,6 +1796,12 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                     self._room_names = []
                     self._sensors = []
                 self._heads = heads
+                if generic:
+                    self._head_types = {head: HEAD_TYPE_GENERIC for head in heads}
+                elif self._generic:
+                    # The opt-in was taken back: no head has an answer now.
+                    self._head_types = {}
+                self._generic = generic
                 self._notify = user_input.get(CONF_NOTIFY_SERVICE) or None
                 self._title = (
                     str(user_input.get(_CONF_ENTRY_TITLE) or "").strip()
@@ -1773,6 +1825,11 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 ),
                 default_title=(
                     user_input.get(_CONF_ENTRY_TITLE) if user_input else self._title
+                ),
+                default_generic=(
+                    user_input.get(_GENERIC_FIELD) is True
+                    if user_input
+                    else self._generic
                 ),
             ),
             errors=errors,
@@ -1808,7 +1865,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = error
             else:
                 self._room_names = names
-                if self._cloud_suggested():
+                if not self._generic and self._cloud_suggested():
                     return await self.async_step_head_type()
                 return await self.async_step_sensors()
 
@@ -1834,13 +1891,15 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Step 2b, only for heads from a known cloud integration: confirm each
-        one's head type. Pre-filled cloud (beta); local keeps today's path."""
+        one's head type. Pre-filled cloud (beta); local keeps today's path;
+        generic (beta) is offered too, never pre-filled."""
         slots = self._cloud_suggested()
         if user_input is not None:
             self._head_types = {
                 self._heads[index]: (
-                    HEAD_TYPE_CLOUD
-                    if user_input.get(_SETUP_HEAD_TYPE.format(index + 1)) == HEAD_TYPE_CLOUD
+                    answer
+                    if (answer := user_input.get(_SETUP_HEAD_TYPE.format(index + 1)))
+                    in OFFSET_HEAD_TYPES
                     else HEAD_TYPE_LOCAL
                 )
                 for index in slots
@@ -1941,8 +2000,9 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         zones: list[dict[str, Any]] = []
         for index, head in enumerate(self._heads):
             head_type = self._head_types.get(head)
-            if head_type == HEAD_TYPE_CLOUD:
-                # A cloud head (beta) takes no vanes and no airflow sensor.
+            if head_type in OFFSET_HEAD_TYPES:
+                # A cloud or generic head (beta) takes no vanes and no
+                # airflow sensor.
                 zones.append(
                     {
                         ZONE_NAME: self._room_names[index],
@@ -1951,7 +2011,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                         ZONE_VANE_VERTICAL: None,
                         ZONE_VANE_HORIZONTAL: None,
                         ZONE_STAGE_SENSOR: None,
-                        ZONE_HEAD_TYPE: HEAD_TYPE_CLOUD,
+                        ZONE_HEAD_TYPE: head_type,
                         **defaults,
                     }
                 )
@@ -2030,6 +2090,8 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 lines.append(f"  {floor}")
             if self._head_types.get(head) == HEAD_TYPE_CLOUD:
                 lines.append("  Head type: cloud (beta)")
+            elif self._head_types.get(head) == HEAD_TYPE_GENERIC:
+                lines.append("  Head type: generic (beta)")
             lines.append("")
         if self._tunables is not None:
             lines.append(
@@ -2077,7 +2139,8 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=_user_schema(
-                _notify_options(self.hass), self._heads, self._notify, self._title
+                _notify_options(self.hass), self._heads, self._notify, self._title,
+                self._generic,
             ),
             errors={_CONF_HEADS: error},
             description_placeholders=placeholders,
@@ -2247,9 +2310,15 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         placeholders: dict[str, str] | None = None
         if user_input is not None:
             heads: list[str] = user_input.get(_CONF_HEADS) or []
+            # One head stays an entry only if this entry already stores it
+            # as generic (beta); a head new to the entry is local here.
+            generic = len(heads) == 1 and (
+                self._stored_zone(entry, heads[0]).get(ZONE_HEAD_TYPE)
+                == HEAD_TYPE_GENERIC
+            )
             if len(set(heads)) != len(heads):
                 errors["base"] = "duplicate_heads"
-            elif len(heads) < MIN_ZONES:
+            elif len(heads) < MIN_ZONES and not _one_head_allowed(heads, generic):
                 errors["base"] = "need_two_heads"
             elif len(heads) > MAX_ZONES:
                 errors["base"] = "too_many_heads"
@@ -2859,6 +2928,14 @@ class MXZOptionsFlow(OptionsFlow):
                 errors={where: error},
                 description_placeholders=title,
             )
+        if len(zones) < MIN_ZONES and values.get(_HEAD_TYPE_FIELD) != HEAD_TYPE_GENERIC:
+            # A 1-head entry exists only for a generic head (beta).
+            return self.async_show_form(
+                step_id="room",
+                data_schema=_room_schema(values, temperature_unit=unit, dry=dry),
+                errors={"base": "single_head_needs_generic"},
+                description_placeholders=title,
+            )
         # Every field is rendered and a pre-filled field the user leaves
         # untouched is submitted with its value, so an ABSENT/empty key means
         # the user cleared it -> drop it from the room. (Skipping absent keys
@@ -2920,26 +2997,31 @@ class MXZOptionsFlow(OptionsFlow):
                 zone[ZONE_ALLOW_DRY] = True
             else:
                 zone.pop(ZONE_ALLOW_DRY, None)
-        # Head type: stored as cloud; as local only where the head's platform
-        # suggests cloud and the room already had an answer (it was cloud, or
-        # kept local in setup); otherwise no key, so a CN105 room, and a room
-        # never asked, stores exactly what it stored before. A cloud room's
-        # settings are kept only while it is cloud, and only where they differ
-        # from the default: a box left at its default stores nothing, so the
-        # default follows the unit (2 °F isn't carried into Celsius as 2 °C).
-        cloud = values.get(_HEAD_TYPE_FIELD) == HEAD_TYPE_CLOUD
+        # Head type: stored as cloud or generic; as local only where the
+        # head's platform suggests cloud and the room already had an answer
+        # (it was cloud or generic, or kept local in setup); otherwise no key,
+        # so a CN105 room, and a room never asked, stores exactly what it
+        # stored before. A cloud or generic room's settings are kept only
+        # while it is one, and only where they differ from the default: a box
+        # left at its default stores nothing, so the default follows the unit
+        # (2 °F isn't carried into Celsius as 2 °C). The page showed the
+        # defaults of the type the room had when it opened, so a box left at
+        # those (switching cloud to generic, say) stores nothing either.
+        head_type = values.get(_HEAD_TYPE_FIELD)
+        shown = _cloud_defaults(unit, generic=zone.get(ZONE_HEAD_TYPE) == HEAD_TYPE_GENERIC)
+        cloud = head_type in OFFSET_HEAD_TYPES
         if cloud:
-            zone[ZONE_HEAD_TYPE] = HEAD_TYPE_CLOUD
+            zone[ZONE_HEAD_TYPE] = head_type
         elif zone.get(ZONE_HEAD_TYPE) in HEAD_TYPES and _suggested_head_type(
             self.hass, zone[ZONE_CLIMATE]
         ) == HEAD_TYPE_CLOUD:
             zone[ZONE_HEAD_TYPE] = HEAD_TYPE_LOCAL
         else:
             zone.pop(ZONE_HEAD_TYPE, None)
-        defaults = _cloud_defaults(unit)
+        defaults = _cloud_defaults(unit, generic=head_type == HEAD_TYPE_GENERIC)
         for key, zone_key in _CLOUD_FIELDS:
             if cloud and values.get(key) not in (None, "") and (
-                float(values[key]) != defaults[key]
+                float(values[key]) not in (defaults[key], shown[key])
             ):
                 zone[zone_key] = float(values[key])
             else:

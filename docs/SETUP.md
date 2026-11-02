@@ -20,7 +20,7 @@ README's dashboard and Configure menu follow your GitHub theme.
 | You need | Details |
 | --- | --- |
 | Home Assistant | **2024.12.0 or newer**. |
-| Heads | **2–8 heads on one outdoor unit.** Add a separate coordinator entry for each outdoor unit. |
+| Heads | **2–8 heads on one outdoor unit.** Add a separate coordinator entry for each outdoor unit. With **Generic heads (beta)** on, one head is allowed (see [Generic heads (beta)](FEATURES.md#generic-heads-beta)). |
 | Head modes | Each selected `climate` entity must advertise `heat`, `cool`, and a common idle action. |
 | Idle action support | `fan_only` needs `fan_only`; `off` needs `off`; `off_after_dry` needs both. |
 | Fan control | The advertised fan-mode feature. **Fan auto** requires the exact `auto` token. |

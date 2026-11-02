@@ -39,7 +39,7 @@ case "$mode" in
     if test "$mode" = sentinel; then
       args=(60s tests/test_changeover.py::test_changeover_from_temperature_sensor)
     else
-      # 300 s, as in ci.yml. One hosted runner took about 110 s; two slower ones
+      # 300 s, as the suite pass in ci.yml. One hosted runner took about 110 s; two slower ones
       # were still passing at 180 s, 1,716-1,771 of 1,969 tests in. Locally, in
       # the exact 2026.10 environment, a full pass takes 119-154 s.
       args=(300s tests/)
@@ -58,9 +58,10 @@ case "$mode" in
     ;;
   fakeboot)
     # The full suite again on a clock that reads as if the runner had booted
-    # two minutes ago (tools/fakeboot.py), with the same phases and limit.
+    # two minutes ago (tools/fakeboot.py), with the same phases. 600 s, as in
+    # ci.yml: there this pass hit 300 s on a hosted runner with no failing test.
     result=0
-    FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 300s "$python" -m pytest \
+    FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 600s "$python" -m pytest \
       -p tools.fakeboot -p tools.pytest_phases tests/ -q -s -p no:cacheprovider > "$root/fakeboot.log" 2>&1 || result=$?
     printf '%s\n' "$result" > "$root/fakeboot.exit"
     if test "$result" != 0; then
