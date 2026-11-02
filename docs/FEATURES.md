@@ -83,9 +83,11 @@ of a 10-minute wait; one made an hour before leaves none.
 
 Each room thermostat shows the wait as `mode_change_hold_remaining` (whole seconds left,
 `0` when a change is allowed now) and `mode_change_hold_until` (when it ends, in UTC, or
-`null`). They read the same check that decides the change, are the same on every room,
-and go to `0`/`null` when the wait ends even if nothing else updates the thermostat. The
-recorder doesn't keep them. There is no button to skip the wait.
+`null`). `mode_change_hold_remaining` is the value as of the thermostat's last state
+update, not a live countdown; `mode_change_hold_until` is the exact end time. They read
+the same check that decides the change, are the same on every room, and go to `0`/`null`
+on time when the wait ends, even if nothing else updates the thermostat. The recorder
+doesn't keep them. There is no button to skip the wait.
 
 **Seasons.** A weather source (Configure → Seasons: a forecast or an outdoor temperature)
 drives the **Heat lockout** and **Cool lockout** switches. A daily high at or above **Lock

@@ -19,10 +19,13 @@ on your equipment.
   don't wait. A stored time in the future (the clock was set back) counts as now, so
   the wait is never longer than the setting. The setting and its default are unchanged.
 - **The wait shows on each room thermostat.** `mode_change_hold_remaining` is the whole
-  seconds left (`0` when the mode may change now) and `mode_change_hold_until` is when
-  the wait ends, in UTC (`null` when there is none). There is no button to skip it.
+  seconds left as of the thermostat's last state update, not a live countdown (`0` when
+  the mode may change now), and `mode_change_hold_until` is the exact time the wait
+  ends, in UTC (`null` when there is none). Both clear on time when the wait ends. There
+  is no button to skip it.
 - **CI:** the normal test-suite step may run for 600 seconds instead of 300, as the
-  fakeboot step already does.
+  fakeboot step already does. A test job that runs both may take 35 minutes instead of
+  25.
 
 ## 3.17.0 (November 2, 2026)
 
