@@ -21,6 +21,8 @@ on your equipment.
 - **The wait shows on each room thermostat.** `mode_change_hold_remaining` is the whole
   seconds left (`0` when the mode may change now) and `mode_change_hold_until` is when
   the wait ends, in UTC (`null` when there is none). There is no button to skip it.
+- **CI:** the normal test-suite step may run for 600 seconds instead of 300, as the
+  fakeboot step already does.
 
 ## 3.17.0 (November 2, 2026)
 

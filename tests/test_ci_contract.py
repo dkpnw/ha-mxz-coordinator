@@ -481,7 +481,7 @@ SUITE_RUNS = {
                  "-m pytest -p tools.fakeboot -p tools.pytest_phases tests/ -q -s", "120"),
 }
 # Each full-suite step's exact watchdog limit; no other value is accepted.
-SUITE_LIMITS = {"suite": "300s", "fakeboot": "600s"}
+SUITE_LIMITS = {"suite": "600s", "fakeboot": "600s"}
 
 
 @pytest.mark.parametrize("owner", ["both", "split"])

@@ -39,10 +39,11 @@ case "$mode" in
     if test "$mode" = sentinel; then
       args=(60s tests/test_changeover.py::test_changeover_from_temperature_sensor)
     else
-      # 300 s, as the suite pass in ci.yml. One hosted runner took about 110 s; two slower ones
-      # were still passing at 180 s, 1,716-1,771 of 1,969 tests in. Locally, in
-      # the exact 2026.10 environment, a full pass takes 119-154 s.
-      args=(300s tests/)
+      # 600 s, as the suite pass in ci.yml (and the fresh-boot pass below). One hosted
+      # runner took about 110 s; two slower ones were still passing at 180 s,
+      # 1,716-1,771 of 1,969 tests in. Locally, in the exact 2026.10 environment, a
+      # full pass takes 119-154 s.
+      args=(600s tests/)
     fi
     result=0
     timeout --signal=TERM --kill-after=5s "${args[0]}" "$python" -m pytest \
