@@ -26,6 +26,13 @@ on your equipment.
 - **CI:** the normal test-suite step may run for 600 seconds instead of 300, as the
   fakeboot step already does. A test job that runs both may take 35 minutes instead of
   25.
+- **Tests:** entity ID renames. New tests rename every MXZ entity, both the way Home
+  Assistant does today (remove and add again) and the way 2027.11 will (in place,
+  without running MXZ's add and remove steps). They check that every control still
+  acts on its own room under the new ID. The in-place rename passes. Today's
+  remove-and-add rename can move a room's target (Home Assistant before 2026.11), and
+  can forget a run paused by a mode conflict. Those two tests are marked as expected
+  failures until that is fixed.
 
 ### Added
 
