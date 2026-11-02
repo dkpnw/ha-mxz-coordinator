@@ -1,6 +1,6 @@
 # Upgrading and migrating MXZ Coordinator
 
-## Generic heads (beta) (unreleased)
+## Generic heads (beta) (3.17.0)
 
 A new head type, **Generic (beta)**, for a `climate` entity that isn't a Mitsubishi head.
 It's stored in that room's record as `head_type: generic`, only when you choose it in
@@ -17,7 +17,7 @@ loads after a rollback, since only the setup and Reconfigure flows check the hea
 (read in the code, not run), but its head is then driven as local; remove the entry
 before rolling back if that matters.
 
-## Defaults for new rooms (3.16.0, unreleased)
+## Defaults for new rooms (3.16.0)
 
 A room that setup or Reconfigure creates now stores three values in its own record:
 `floor_low: 45` (`7` on a Celsius system), `max_age: 360` and
@@ -35,7 +35,7 @@ evidence **Every update is a new reading**. A floor or profile you clear stays c
 On a rollback to 3.15.x a new room keeps its 45 °F floor and 6 h limit, because 3.15.0
 already reads all three keys; that was checked by reading the 3.15.0 code, not run.
 
-## Dry on the room thermostat (3.16.0, unreleased)
+## Dry on the room thermostat (3.16.0)
 
 A room with **Allow Dry mode** on, for a head that lists `dry`, now offers Dry on its MXZ
 thermostat, and that thermostat's state reads `dry` while MXZ keeps the head in Dry.
