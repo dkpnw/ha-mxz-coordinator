@@ -71,7 +71,7 @@ orjson==3.12.0
 packaging==26.3
 paho-mqtt==2.1.0
 pathspec==1.1.1
-pillow==12.3.0
+pillow==13.0.0
 pipdeptree==2.26.1
 pluggy==1.6.0
 probatio==0.11.4
