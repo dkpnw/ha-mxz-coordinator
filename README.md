@@ -106,6 +106,15 @@ Mitsubishi manuals on stock AUTO.
 <!-- "whats-new" stays above the newest What's new section; the others are old links. -->
 <a id="whats-new"></a><a id="whats-new-in-3120"></a><a id="whats-new-in-3111"></a>
 
+## What's new in 3.17.0
+
+**Generic heads (beta).** MXZ can now coordinate a Home Assistant `climate` entity that
+isn't a Mitsubishi head, as a third head type next to Local and Cloud (beta). It's off
+unless you choose it, and existing installs run exactly as before. This is a beta and
+it's **untested on our side**: we have no such unit, so only automated tests on invented
+heads cover it. Reports are very welcome, good or bad, on [GitHub issues](https://github.com/dkpnw/ha-mxz-coordinator/issues) or the
+[forum thread](https://community.home-assistant.io/t/one-temperature-per-room-on-a-mitsubishi-mxz-multi-split-mxz-coordinator-hacs/1018382). See [Generic heads (beta)](#generic-heads-beta).
+
 ## What's new in 3.16.0
 
 New rooms now start with a 45 °F (7 °C) freeze floor and a 6-hour sensor freshness limit.

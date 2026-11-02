@@ -8,10 +8,15 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
-## Unreleased
+## 3.17.0 (November 2, 2026)
 
 Generic heads (beta), off unless you choose them, and cleanup after 3.16.0. Existing
 installs run exactly as before, with the same defaults, and need no migration.
+
+**Generic heads are a beta and untested on our side.** We have no non-Mitsubishi unit, so
+only the automated test suite, on invented heads, covers them. If you try one, please
+[open an issue](https://github.com/dkpnw/ha-mxz-coordinator/issues) or post on the
+[forum thread](https://community.home-assistant.io/t/one-temperature-per-room-on-a-mitsubishi-mxz-multi-split-mxz-coordinator-hacs/1018382), whether it worked or not.
 
 - **Generic heads (beta).** A third head type, next to Local and Cloud (beta), for any
   Home Assistant `climate` entity that offers heat and cool and isn't a Mitsubishi head.
