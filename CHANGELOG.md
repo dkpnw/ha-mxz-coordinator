@@ -8,6 +8,20 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
+## Unreleased
+
+- **The mode-change wait survives a reload or restart.** The wait between two cool/heat
+  changes (Minimum time between mode switches, 600 seconds by default) used to start
+  over every time the integration reloaded or Home Assistant restarted, so a house that
+  needed to switch could wait the full 10 minutes again. MXZ now stores when the last
+  real change happened and, after a reload or restart, waits only for what is left.
+  A fresh install, and the first start after this upgrade, have no stored change and
+  don't wait. A stored time in the future (the clock was set back) counts as now, so
+  the wait is never longer than the setting. The setting and its default are unchanged.
+- **The wait shows on each room thermostat.** `mode_change_hold_remaining` is the whole
+  seconds left (`0` when the mode may change now) and `mode_change_hold_until` is when
+  the wait ends, in UTC (`null` when there is none). There is no button to skip it.
+
 ## 3.17.0 (November 2, 2026)
 
 Generic heads (beta), off unless you choose them, and cleanup after 3.16.0. Existing

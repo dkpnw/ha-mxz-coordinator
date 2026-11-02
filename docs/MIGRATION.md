@@ -1,5 +1,31 @@
 # Upgrading and migrating MXZ Coordinator
 
+## Mode-change wait kept across reloads and restarts (Unreleased)
+
+Until now the wait between two cool/heat changes started over on every reload and
+restart (see the 3.7.1 section below), so a house that needed to switch could wait a
+full **Minimum time between mode switches** after each one. MXZ now stores the time of
+the last real change, in wall-clock UTC, in one small file per entry in Home
+Assistant's storage (`.storage/mxz_coordinator.<entry id>.mode_change`). It is written
+when the change happens, read once at setup, and deleted with the entry. A reload or
+restart waits only for what is left of the wait.
+
+**Nothing to change.** The setting, its default and the wait's length are the same, and
+within a run the wait is still timed on the monotonic clock. Three cases behave
+differently:
+
+- **No stored time** (a fresh install, and the first start after this upgrade): the
+  first change doesn't wait. 3.7.1 to 3.17.0 waited a full window after every start.
+  The plan's `seconds_since_mode_change` is `null` until there is a change to count from.
+- **A stored time in the future** (clock set back): it counts as now, so the wait is the
+  full setting at most.
+- **An unreadable stored file**: a full wait, with one log warning.
+
+Each room thermostat gains two attributes, `mode_change_hold_remaining` and
+`mode_change_hold_until` (see [Features](FEATURES.md#everyday-control)); the recorder
+doesn't keep them. On a rollback the older version ignores the file and waits a full
+window after each start, as it always did.
+
 ## Generic heads (beta) (3.17.0)
 
 A new head type, **Generic (beta)**, for a `climate` entity that isn't a Mitsubishi head.
