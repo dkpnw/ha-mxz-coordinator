@@ -27,8 +27,10 @@ from homeassistant.core import HomeAssistant
 from tests.pin_scenario import (
     climate_units,
     dumps,
+    mode_hold,
     run_scenario,
     take_climate_units,
+    take_mode_hold,
     take_vote_rows,
 )
 
@@ -57,6 +59,10 @@ async def test_all_single_install_is_3_9_0(hass: HomeAssistant, unit: str) -> No
         assert votes == [("live", None), ("live", None)], seen["step"]
         seen, units = take_climate_units(seen)
         assert units == climate_units(want, unit), seen["step"]
+        seen, holds, since = take_mode_hold(seen)
+        want_holds, want_since = mode_hold(want)
+        assert (holds, since) == (want_holds, want_since), seen["step"]
+        want = take_mode_hold(want)[0]
         assert seen == want, seen["step"]
 
 

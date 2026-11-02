@@ -196,7 +196,8 @@ def test_additional_workflow_permissions_and_ordinary_execution():
     assert wf["on"]["push"] == {"branches": ["**"]}
     job = wf["jobs"]["exact-ha202610"]
     assert job["runs-on"] == "ubuntu-26.04"
-    assert job["timeout-minutes"] == "25"
+    # Both 600 s passes, the 60 s sentinel, then setup, checks and export with margin.
+    assert job["timeout-minutes"] == "35"
     assert "permissions" not in job and "environment" not in job and "secrets" not in job
     assert job["needs"] == "approval" and job["if"] == "${{ !cancelled() }}"
     assert set(wf["jobs"]) == {"approval", "exact-ha202610"}
@@ -205,7 +206,7 @@ def test_additional_workflow_permissions_and_ordinary_execution():
     assert actions == [{"uses": "actions/checkout@v4", "with": {"persist-credentials": "false"}}]
     assert job["steps"][-1]["if"] == "always()"
     script = (ROOT / "tools/ci-ha202610.sh").read_text()
-    assert "args=(300s tests/)" in script
+    assert "args=(600s tests/)" in script
     assert "-p tools.pytest_phases" in script
     assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in script
     assert "--no-deps" not in (ROOT / "tools/ha202610.py").read_text()
@@ -365,11 +366,12 @@ def test_export_requires_complete_fresh_boot_evidence(tmp_path, capsys, fault):
     assert errors == expected
 
 
-def test_suite_pass_has_a_300_and_fresh_boot_pass_a_600_second_limit():
+def test_suite_pass_and_fresh_boot_pass_each_have_a_600_second_limit():
     script = (ROOT / "tools/ci-ha202610.sh").read_text()
-    assert re.findall(r"args=\((\d+)s ", script) == ["60", "300"]
+    assert re.findall(r"args=\((\d+)s ", script) == ["60", "600"]
     assert re.findall(r"--kill-after=5s (\d+)s ", script) == ["600"]
-    assert "args=(300s tests/)" in script and "180s" not in script
+    assert "args=(600s tests/)" in script
+    assert "300s" not in script and "180s" not in script
 
 
 INVENTED_LINES = "".join(f"INVENTED LINE {i}\n" for i in range(1, 251))
@@ -389,8 +391,8 @@ def run_branch(tmp_path, case, ending, mode=None, limit=None, path=os.defpath, p
     branch = script_branch(case)
     if limit:
         # A unit fixture: a short limit stands in for the branch's own limit (600 s
-        # for the fresh-boot pass, 300 s for the suite) so a real timeout fires.
-        own = "600s" if case == "fakeboot" else "300s"
+        # for the fresh-boot pass and for the suite) so a real timeout fires.
+        own = "600s"
         assert branch.count(own) == 1
         branch = branch.replace(own, limit)
     prefix = f"python={stub}; root={root}\n" + (f"mode={mode}\n" if mode else "")

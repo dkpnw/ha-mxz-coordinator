@@ -1153,6 +1153,7 @@ async def test_recovery_re_enters_arbitration_without_bypassing_the_mode_dwell(
         freezer,
         primary={ZONE_REPORT_INTERVAL: 1},
         secondary={},
+        changed_ago=0.0,  # the mode was set just now: the dwell runs from setup
         **{CONF_MODE_HYSTERESIS: 400},
     )
     coord: MXZCoordinator = entry.runtime_data

@@ -48,6 +48,7 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 from homeassistant.helpers.start import async_at_start
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import (
     REQUEST_REFRESH_DEFAULT_COOLDOWN,
     DataUpdateCoordinator,
@@ -527,13 +528,95 @@ COAST_FOLLOWUP_DELAY = REQUEST_REFRESH_DEFAULT_COOLDOWN + 1  # s
 
 
 # ---------------------------------------------------------------------------
+# The last real mode change, kept across reloads and restarts
+# ---------------------------------------------------------------------------
+# One small storage file per config entry, written when the mode changes (at
+# most once per hold window) and read once per setup. A Store, not the shared
+# mode select's restore data: restore data reaches disk only at shutdown and
+# every 15 minutes, so a crash soon after a change would forget it; a disabled
+# select restores nothing at all; and it restores only after the first plan has
+# been computed. The time is wall-clock UTC epoch seconds, the only clock that
+# means anything to the next process.
+MODE_CHANGE_STORE_VERSION = 1
+MODE_CHANGE_KEY = "last_mode_change"
+
+
+def _mode_change_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
+    """This entry's store, one instance per Home Assistant run.
+
+    Shared by every coordinator incarnation of the entry, so a reload reads a
+    change that is still waiting to be written (Store serves pending data).
+    """
+    stores: dict[str, Store[dict[str, Any]]] = hass.data.setdefault(
+        f"{DOMAIN}_mode_change_stores", {}
+    )
+    if entry_id not in stores:
+        stores[entry_id] = Store(
+            hass, MODE_CHANGE_STORE_VERSION, f"{DOMAIN}.{entry_id}.mode_change"
+        )
+    return stores[entry_id]
+
+
+async def async_load_last_mode_change(hass: HomeAssistant, entry_id: str) -> float | None:
+    """The stored time of the last real mode change, or None if there is none.
+
+    None means no change was ever recorded (a fresh install, or the first start
+    on a version that did not keep it): there is nothing to wait out. A record
+    that is there but unreadable is not a fresh install; it counts as a change
+    made now, so the hold is the full window, as it was before this was kept.
+    """
+    stored = await _mode_change_store(hass, entry_id).async_load()
+    if stored is None:
+        return None
+    value = stored.get(MODE_CHANGE_KEY) if isinstance(stored, dict) else None
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+        return float(value)
+    _LOGGER.warning(
+        "MXZ: the stored time of the last mode change is unreadable (%r); "
+        "holding the next cool/heat change for the full window",
+        stored,
+    )
+    return dt_util.utcnow().timestamp()
+
+
+async def async_remove_last_mode_change(hass: HomeAssistant, entry_id: str) -> None:
+    """Delete a removed entry's record; a re-added entry starts with none."""
+    await _mode_change_store(hass, entry_id).async_remove()
+    hass.data.get(f"{DOMAIN}_mode_change_stores", {}).pop(entry_id, None)
+
+
+def mode_change_stamp(stored: float | None) -> float | None:
+    """The monotonic-clock stamp for a stored wall-clock change time.
+
+    The gate itself runs on the monotonic clock (an NTP step inside one run
+    must not move it), so the stored time becomes "this many seconds ago" on
+    that clock once, at startup. A stored time in the future (the clock was
+    set back, or it ran ahead when the change was written) counts as now:
+    the hold is then the full window from this start, never longer.
+    """
+    if stored is None:
+        return None
+    ago = max(0.0, dt_util.utcnow().timestamp() - stored)
+    return time.monotonic() - ago
+
+
+# ---------------------------------------------------------------------------
 # Coordinator
 # ---------------------------------------------------------------------------
 class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Owns the decision state, drives the heads, and self-heals drift."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Initialise from the config entry (data) and options (tunables)."""
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        last_mode_change: float | None = None,
+    ) -> None:
+        """Initialise from the config entry (data) and options (tunables).
+
+        ``last_mode_change`` is the stored wall-clock time of the last real
+        mode change (``async_load_last_mode_change``); None when none is known.
+        """
         super().__init__(
             hass,
             _LOGGER,
@@ -850,12 +933,20 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # (see the writeback at the end of _apply).
         self._selection_seq: int = 0
 
-        # Hysteresis is armed from startup: a mode flip must wait out the dwell
-        # even right after setup/restart (#6 — 0.0 made the first flip always
-        # allowed and the plan sensor report a ~56,000-year dwell).
-        # Monotonic, not wall-clock: an NTP step correction must not be able to
-        # transiently defeat or prematurely satisfy the dwell gate.
-        self._last_mode_change_ts: float = time.monotonic()
+        # When the last real mode change was, on the monotonic clock: an NTP
+        # step correction must not be able to transiently defeat or prematurely
+        # satisfy the dwell gate. A reload or restart does not restart the
+        # dwell: it is timed from the stored wall-clock time of that change,
+        # converted once here (a future time counts as now, see
+        # mode_change_stamp). None is no change on record — a fresh install —
+        # so the first decision has nothing to wait out and the plan reports
+        # no time since a change (never an invented one; #6 was a ~56,000-year
+        # dwell read off a 0.0 stand-in).
+        self._last_mode_change_ts: float | None = mode_change_stamp(last_mode_change)
+        self._mode_change_store = _mode_change_store(hass, entry.entry_id)
+        # One-shot re-render when the hold ends, so the thermostats' hold
+        # attributes reach 0 then even if nothing else refreshes them.
+        self._hold_end_timer: Any | None = None
         # One-shot wakeup at dwell expiry, armed only while the dwell is
         # holding a flip back (see _sync_dwell_timer). Retirement is one-way
         # for this incarnation: a reload builds a new coordinator.
@@ -1123,6 +1214,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
             )
         self._unsubs.append(async_at_start(self.hass, self._on_ha_start))
+        self._arm_hold_end_timer()  # a hold carried over from the last run
         await self.async_refresh()
 
     async def async_shutdown_listeners(self) -> None:
@@ -1144,6 +1236,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # already picked up cannot be cancelled at all.
         self._dwell_retired = True
         self._cancel_dwell_timer()
+        self._cancel_hold_end_timer()
         self._coast_retired = True
         self._cancel_coast_timer()
         self._refresh_pending = False
@@ -1386,8 +1479,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         current = self._arbitration_mode()
         # Monotonic delta, not derived from `now` above (wall-clock, used for
         # display/freshness elsewhere) — an NTP step must not perturb dwell.
-        elapsed = time.monotonic() - self._last_mode_change_ts
-        allowed = elapsed >= self.hysteresis
+        elapsed = self._mode_change_elapsed()
+        allowed = elapsed is None or elapsed >= self.hysteresis
         engaged = any(e in (MODE_COOL, MODE_HEAT) for e in held_engages)
         grant = arbitrate(
             arb_demands,
@@ -1462,7 +1555,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "mode_by_safety": grant.by_safety,
                 "mode_by_floor": state in floors,
                 "sensors_ok": all_ok,
-                "seconds_since_mode_change": int(elapsed),
+                "seconds_since_mode_change": None if elapsed is None else int(elapsed),
                 "mode_change_allowed": allowed,
                 "inhibited": self.inhibited,
                 "idle_action": self.idle_action,
@@ -1988,7 +2081,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elapsed, so its own re-sync takes the ordinary path and this cannot
         chain.
         """
-        remaining = self.hysteresis - (time.monotonic() - self._last_mode_change_ts)
+        elapsed = self._mode_change_elapsed()
+        remaining = -math.inf if elapsed is None else self.hysteresis - elapsed
         if (
             self._dwell_retired
             or not self.coordinator_enable
@@ -2047,6 +2141,76 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._dwell_timer is not None:
             self._dwell_timer()
             self._dwell_timer = None
+
+    # -- the mode-change hold: clock, record, display -------------------------
+    def _mode_change_elapsed(self) -> float | None:
+        """Seconds since the last real mode change; None when none is on record."""
+        if self._last_mode_change_ts is None:
+            return None
+        return time.monotonic() - self._last_mode_change_ts
+
+    def mode_hold_remaining(self) -> float:
+        """Seconds the gate still holds a cool/heat change back (0 when it does not).
+
+        The same comparison the plan's ``mode_change_allowed`` makes, read now.
+        """
+        elapsed = self._mode_change_elapsed()
+        return 0.0 if elapsed is None else max(0.0, self.hysteresis - elapsed)
+
+    def mode_hold_attributes(self) -> dict[str, Any]:
+        """The thermostats' view of the hold: whole seconds left, and until when.
+
+        Seconds round up, so 0 means the gate is open, never "almost".
+        """
+        remaining = self.mode_hold_remaining()
+        if remaining <= 0:
+            return {"mode_change_hold_remaining": 0, "mode_change_hold_until": None}
+        until = dt_util.utcnow() + timedelta(seconds=remaining)
+        return {
+            "mode_change_hold_remaining": math.ceil(remaining),
+            "mode_change_hold_until": until.isoformat(timespec="seconds"),
+        }
+
+    def _stamp_mode_change(self) -> None:
+        """A real mode change happened now: start the hold and record it.
+
+        The record is the wall-clock time, written at once (the write itself
+        is scheduled; a reload in between reads it from the shared store, and
+        Home Assistant flushes it on shutdown).
+        """
+        self._last_mode_change_ts = time.monotonic()
+        if self._retired:
+            return
+        changed_at = dt_util.utcnow().timestamp()
+        self._mode_change_store.async_delay_save(
+            lambda: {MODE_CHANGE_KEY: changed_at}, 0
+        )
+        self._arm_hold_end_timer()
+
+    def _arm_hold_end_timer(self) -> None:
+        """Re-render the entities when the hold ends, and do nothing else.
+
+        It asks for no refresh and decides nothing: a flip the hold deferred
+        has the dwell wakeup for that. This only keeps the hold attributes
+        honest when nothing else would write them at the end.
+        """
+        self._cancel_hold_end_timer()
+        remaining = self.mode_hold_remaining()
+        if self._retired or remaining <= 0:
+            return
+
+        @callback
+        def _fire(_now: Any) -> None:
+            self._hold_end_timer = None
+            if not self._retired:
+                self.async_update_listeners()
+
+        self._hold_end_timer = async_call_later(self.hass, remaining + 1, _fire)
+
+    def _cancel_hold_end_timer(self) -> None:
+        if self._hold_end_timer is not None:
+            self._hold_end_timer()
+            self._hold_end_timer = None
 
     # -- engage-latch coast follow-up ----------------------------------------
     def _sync_coast_timer(self) -> None:
@@ -2284,13 +2448,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 bool(plan.get("mode_by_hands_off")) and state != self._resting_bias()
             )
             if not plan.get("mode_by_hands_off"):
-                self._last_mode_change_ts = time.monotonic()
+                self._stamp_mode_change()
             self.async_update_listeners()  # let the shared-mode select re-render
         elif self._mode_by_votes and state in (
             *engages, *(plan[f"{zone.slug}_demand"] for zone in self.zones)
         ):
             self._mode_by_votes = False
-            self._last_mode_change_ts = time.monotonic()
+            self._stamp_mode_change()
 
     def _queue_delivery(
         self, climate_id: str, act: str, low: float, high: float,
@@ -5778,7 +5942,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if mode != self.current_shared_mode:
             self.current_shared_mode = mode
             self._mode_by_votes = False
-            self._last_mode_change_ts = time.monotonic()
+            self._stamp_mode_change()
         await self.async_request_refresh()
 
     # -- seasonal changeover (optional, from local weather) -----------------

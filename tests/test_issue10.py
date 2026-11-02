@@ -83,7 +83,9 @@ async def test_cool_high_edge_clamped_to_native_max(hass: HomeAssistant) -> None
     is commanded 78 °F (= 25.56 °C, safely under 26.0) and runs.
     """
     heads = [CelsiusSingleHead("a"), CelsiusSingleHead("b")]
-    entry = await _setup(hass, heads)
+    # Cooling, held there by a mode change made just before: the secondary's
+    # heat call must not take the shared mode (the clamp is the subject).
+    entry = await _setup(hass, heads, changed_ago=0.0)
     await _enable(hass, entry)
     coord = entry.runtime_data
 

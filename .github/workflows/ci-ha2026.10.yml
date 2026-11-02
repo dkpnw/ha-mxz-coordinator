@@ -43,7 +43,9 @@ jobs:
     env:
       APPROVAL_ADMITTED: ${{ needs.approval.outputs.admitted }}
     runs-on: ubuntu-26.04
-    timeout-minutes: 25
+    # Covers both full passes (600 s each) plus the 60 s sentinel, setup, checks
+    # and export, with margin.
+    timeout-minutes: 35
     steps:
       - name: Public hosted source boundary
         env:

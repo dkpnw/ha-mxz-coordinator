@@ -57,6 +57,13 @@ the same computed plan.
 These are extra attributes only. A single-target room's thermostat has no
 `target_temp_low` or `target_temp_high` and keeps its single target.
 
+## Integration mode-change wait
+
+| Entity surface | Fields | Meaning |
+| --- | --- | --- |
+| Every room `climate.*_thermostat` | `mode_change_hold_remaining`, `mode_change_hold_until` | Whole seconds before the shared mode may change between cool and heat (`0` when it may now), and when that wait ends in UTC (`null` when none). The seconds are as of the thermostat's last state update, not a live countdown; the end time is exact, and both clear on time when the wait ends. The same on every room; not recorded. See [Mode-change wait](FEATURES.md#everyday-control). |
+| `sensor.*_plan` | `seconds_since_mode_change`, `mode_change_allowed` | Seconds since the last real change (`null` when none is on record, as on a fresh install), and whether a change is allowed. |
+
 ## Integration dual setpoint (opt-in per room)
 
 Only a room switched on in Configure → Rooms → (room) → **Dual setpoint** has these.

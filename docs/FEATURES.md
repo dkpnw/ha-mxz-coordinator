@@ -64,6 +64,31 @@ rooms drift further one way than the other, see [Uneven drift](#uneven-drift).
 Last used (the default), Cool, or Heat. It only sets the neutral resting mode; a real
 call for the other mode still flips it, subject to the same dwell.
 
+**Mode-change wait.** After the shared mode changes between cool and heat, the next
+change waits **Minimum time between mode switches** (default 600 seconds). The wait
+counts from the last real change and continues through a reload or a Home Assistant
+restart: MXZ stores that change's time (wall-clock UTC) when it happens and, on start,
+waits only for what is left. A change made 7 minutes before a restart leaves 3 minutes
+of a 10-minute wait; one made an hour before leaves none.
+
+- A fresh install has no change on record, so its first change doesn't wait. The first
+  start after upgrading to this version is the same: earlier versions didn't store it.
+- If the stored time is in the future (the clock was set back after the change), MXZ
+  counts it as now: the wait is the full setting, never longer.
+- A stored time that can't be read counts as a change made now, a full wait; the log
+  says so once.
+- Removing the integration entry deletes its stored time.
+- Within one run the wait is timed on a monotonic clock, so a clock correction doesn't
+  shorten or stretch it.
+
+Each room thermostat shows the wait as `mode_change_hold_remaining` (whole seconds left,
+`0` when a change is allowed now) and `mode_change_hold_until` (when it ends, in UTC, or
+`null`). `mode_change_hold_remaining` is the value as of the thermostat's last state
+update, not a live countdown; `mode_change_hold_until` is the exact end time. They read
+the same check that decides the change, are the same on every room, and go to `0`/`null`
+on time when the wait ends, even if nothing else updates the thermostat. The recorder
+doesn't keep them. There is no button to skip the wait.
+
 **Seasons.** A weather source (Configure → Seasons: a forecast or an outdoor temperature)
 drives the **Heat lockout** and **Cool lockout** switches. A daily high at or above **Lock
 out heat when the high is at least** (default 68 °F / 20 °C) locks out heat; one at or

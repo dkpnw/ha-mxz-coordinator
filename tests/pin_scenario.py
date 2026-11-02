@@ -452,5 +452,50 @@ def climate_units(recorded: dict[str, Any], unit: str) -> dict[str, Any]:
     return dict.fromkeys(_climate_attributes(recorded), value)
 
 
+# 3.18 keeps the time of the last real mode change and shows the hold it sets
+# on every room thermostat (mode_change_hold_remaining, mode_change_hold_until);
+# the 3.9.0 record predates both. A replay takes them out with take_mode_hold
+# and checks them on their own against mode_hold, which reads the expectation
+# off the record: the scenario runs with no wait (mode_hysteresis 0), so a
+# thermostat never shows a hold, and a head never carries the attributes.
+#
+# The plan's seconds_since_mode_change is taken out too. 3.9.0 counted it from
+# startup; a fresh install now has no mode change on record and shows None
+# until the first one. In this scenario that is the steps recorded before its
+# first compute (_compute stamps the clock it ages); after them the pinned
+# "<seconds>" stands.
+HOLD_KEYS = ("mode_change_hold_remaining", "mode_change_hold_until")
+BEFORE_ANY_MODE_CHANGE = ("boot", "room_pages")
+
+
+def take_mode_hold(step: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], Any]:
+    """``step`` without the hold attributes and the plan's seconds since a change.
+
+    Returns each climate entity's hold values ("<missing>" where absent) and
+    the plan's seconds_since_mode_change ("<missing>" if the plan lacks it).
+    """
+    step = deepcopy(step)
+    holds = {
+        name: tuple(attributes.pop(key, "<missing>") for key in HOLD_KEYS)
+        for name, attributes in _climate_attributes(step).items()
+    }
+    since = step["entities"]["plan"]["attributes"].pop("seconds_since_mode_change", "<missing>")
+    return step, holds, since
+
+
+def mode_hold(recorded: dict[str, Any]) -> tuple[dict[str, Any], Any]:
+    """What take_mode_hold must find in a replay of ``recorded``."""
+    thermostats = set(recorded["entities"])
+    holds = {
+        name: (0, None) if name in thermostats else ("<missing>", "<missing>")
+        for name in _climate_attributes(recorded)
+    }
+    since = (
+        None if recorded["step"] in BEFORE_ANY_MODE_CHANGE
+        else recorded["entities"]["plan"]["attributes"]["seconds_since_mode_change"]
+    )
+    return holds, since
+
+
 def dumps(record: dict[str, Any]) -> str:
     return json.dumps(record, indent=1, sort_keys=True) + "\n"

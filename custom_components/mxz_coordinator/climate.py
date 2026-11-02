@@ -102,6 +102,11 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
     _attr_hvac_modes: ClassVar[list[HVACMode]] = [HVACMode.OFF, HVACMode.HEAT_COOL]
     _attr_icon = "mdi:home-thermometer"
     _enable_turn_on_off_backwards_compatibility = False
+    # A countdown changes on every write while it runs; the recorder keeps
+    # neither it nor its end time (the plan sensor records the gate itself).
+    _unrecorded_attributes = frozenset(
+        {"mode_change_hold_remaining", "mode_change_hold_until"}
+    )
 
     def __init__(self, coordinator: MXZCoordinator, zone: Zone) -> None:
         MXZEntity.__init__(self, coordinator, f"{zone.slug}_thermostat")
@@ -147,11 +152,16 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
 
         The start points are plain read-only attributes from the plan. They
         are never target_temp_low/high: the tile stays a single target.
+
+        The mode-change hold is the shared outdoor unit's: how long the gate
+        still holds a cool/heat change back, read from the gate when written
+        (0 and None when it holds nothing). The same on every room.
         """
         return {
             **self.coordinator.command_attributes(self._head_id),
             "control_reasons": self.coordinator._control_reasons(self._zone),
             **self.coordinator.start_points(self._zone),
+            **self.coordinator.mode_hold_attributes(),
         }
 
     @property

@@ -58,7 +58,7 @@ from custom_components.mxz_coordinator.const import (
     STARTUP_RECOVER_DELAY,
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
-from tests.dwell import assert_restamped, expire_dwell
+from tests.dwell import assert_restamped, expire_dwell, record_mode_change
 from tests.test_drive import (
     INHIBIT,
     SENSOR_A,
@@ -87,13 +87,22 @@ HEAT_EDGES = {False: (70.0, 72.0), True: (21.0, 22.0)}
 
 
 async def _setup_dwell(
-    hass: HomeAssistant, *, celsius: bool = False, **extra: Any
+    hass: HomeAssistant,
+    *,
+    celsius: bool = False,
+    entry_id: str | None = None,
+    changed_ago: float | None = 0.0,
+    **extra: Any,
 ) -> tuple[MockConfigEntry, str, str]:
     """Two heads on a DEFAULT-dwell entry; coordinator and both rooms enabled.
 
     Unlike the other fixtures this one does NOT pin ``mode_hysteresis`` to 0 —
     the dwell is the subject. Fan boost is off so the only head writes in a
     measured window are the mode/setpoint ones.
+
+    The setup finds a mode change stored ``changed_ago`` seconds before it
+    (default: just now, so the dwell holds from the start); None is a fresh
+    install with no change on record.
     """
     hass.config.units = METRIC_SYSTEM if celsius else US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(
@@ -104,6 +113,7 @@ async def _setup_dwell(
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="MXZ Coordinator",
+        entry_id=entry_id,
         data={
             CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
             CONF_PRIMARY_CLIMATE: head_a,
@@ -115,6 +125,8 @@ async def _setup_dwell(
         },
     )
     entry.add_to_hass(hass)
+    if changed_ago is not None:
+        await record_mode_change(hass, entry.entry_id, changed_ago)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     for suffix in ("_primary_enable", "_secondary_enable", "_coordinator_enable"):

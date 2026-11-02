@@ -45,8 +45,15 @@ def violations(workflow):
                 errors.append("dependency cache")
             if "secrets." in str(step):
                 errors.append("secret input")
+    if jobs.get("pytest", {}).get("timeout-minutes") != PYTEST_JOB_MINUTES:
+        errors.append("pytest job time limit")
     errors += fresh_boot_violations(jobs.get("pytest", {}))
     return errors
+
+
+# The pytest job's exact limit: a job owning both full passes needs 600 s for each,
+# 60 s for the sentinel, and room for install and export.
+PYTEST_JOB_MINUTES = "35"
 
 
 FRESH_BOOT_RUN = (
@@ -146,6 +153,7 @@ def test_declared_ci_boundary(workflow):
     "export-all-runs", "export-all-logs", "export-ownership-unread", "export-accepts-any-runs",
     "lane-merged", "lane-fakeboot-dropped", "lane-suite-only", "lane-unknown-runs",
     "lane-runs-missing", "lane-lock-changed", "lane-renamed", "lane-extra-key",
+    "job-time-old", "job-time-longer", "job-time-missing",
 ])
 def test_weakened_ci_boundary_rejects(workflow, change):
     bad = deepcopy(workflow)
@@ -174,6 +182,13 @@ def test_weakened_ci_boundary_rejects(workflow, change):
     if change in ownership:
         ownership[change]()
         assert violations(bad) == ["fresh-boot suite guard"]
+        return
+    if change.startswith("job-time-"):
+        if change == "job-time-missing":
+            del job["timeout-minutes"]
+        else:
+            job["timeout-minutes"] = "25" if change == "job-time-old" else "60"
+        assert violations(bad) == ["pytest job time limit"]
         return
     if change.startswith("lane-"):
         py314, fresh = include[2], include[3]
@@ -481,7 +496,20 @@ SUITE_RUNS = {
                  "-m pytest -p tools.fakeboot -p tools.pytest_phases tests/ -q -s", "120"),
 }
 # Each full-suite step's exact watchdog limit; no other value is accepted.
-SUITE_LIMITS = {"suite": "300s", "fakeboot": "600s"}
+SUITE_LIMITS = {"suite": "600s", "fakeboot": "600s"}
+
+
+def test_pytest_job_limit_covers_owned_watchdogs(workflow):
+    """The job limit, read from the workflow, leaves at least 10 minutes beyond every
+    watchdog a job owning both passes runs (sentinel, suite, fresh-boot suite)."""
+    job = workflow["jobs"]["pytest"]
+    assert job["timeout-minutes"] == PYTEST_JOB_MINUTES
+    limits = [int(m) for s in job["steps"]
+              for m in re.findall(r"timeout --signal=TERM --kill-after=5s (\d+)s ", s.get("run", ""))]
+    assert sorted(limits) == [60, 600, 600]
+    assert int(job["timeout-minutes"]) * 60 - sum(limits) >= 600
+    # The old 25-minute limit left under 4 minutes for install and export.
+    assert 25 * 60 - sum(limits) < 600
 
 
 @pytest.mark.parametrize("owner", ["both", "split"])

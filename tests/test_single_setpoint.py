@@ -30,7 +30,7 @@ from custom_components.mxz_coordinator.const import (
     DOMAIN,
 )
 
-from .dwell import expire_dwell
+from .dwell import expire_dwell, record_mode_change
 from .test_drive import MockHead, _eid, _set_temp
 
 
@@ -68,7 +68,14 @@ class MockSingleSetpointHead(MockHead):
         self.async_write_ha_state()
 
 
-async def _setup(hass: HomeAssistant, heads: list) -> MockConfigEntry:
+async def _setup(
+    hass: HomeAssistant, heads: list, *, changed_ago: float | None = None
+) -> MockConfigEntry:
+    """Two heads on one entry, both rooms at 70 °F, nothing enabled.
+
+    ``changed_ago`` stores a mode change that many seconds before the setup,
+    as the run before it would have; None (the default) is a fresh install.
+    """
     hass.config.units = US_CUSTOMARY_SYSTEM
 
     async def _climate(hass, config, async_add_entities, discovery_info=None):
@@ -92,6 +99,8 @@ async def _setup(hass: HomeAssistant, heads: list) -> MockConfigEntry:
     entry.add_to_hass(hass)
     await _set_temp(hass, "sensor.room_a_temp", 70)
     await _set_temp(hass, "sensor.room_b_temp", 70)
+    if changed_ago is not None:
+        await record_mode_change(hass, entry.entry_id, changed_ago)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     return entry
@@ -157,9 +166,14 @@ async def test_fresh_target_seeds_from_head_setpoint(hass: HomeAssistant) -> Non
 
 
 async def test_hysteresis_armed_from_startup(hass: HomeAssistant) -> None:
-    """No instant mode flip after setup, and the dwell counter is sane (#6)."""
+    """No instant mode flip after setup, and the dwell counter is sane (#6).
+
+    Armed from startup by the last mode change, which a restart finds stored:
+    here one made just before this setup. A fresh install has none, and its
+    first decision waits for nothing (the next test).
+    """
     heads = [MockHead("a"), MockHead("b")]
-    entry = await _setup(hass, heads)
+    entry = await _setup(hass, heads, changed_ago=0.0)
     await _enable(hass, entry)
 
     # A room 10° below target wants heat, but the fresh hysteresis clock gates it.
@@ -176,3 +190,35 @@ async def test_hysteresis_armed_from_startup(hass: HomeAssistant) -> None:
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert hass.states.get(_eid(hass, entry, "_plan")).state == "heat"
+
+
+async def test_fresh_install_first_flip_waits_for_nothing(hass: HomeAssistant) -> None:
+    """No mode change on record: the first flip goes through, the next one is held.
+
+    The plan reports no time since a change it never saw (None), never an
+    invented count (#6 was a ~56,000-year one). The first change starts the
+    dwell like any other.
+    """
+    heads = [MockHead("a"), MockHead("b")]
+    entry = await _setup(hass, heads)
+    coord = entry.runtime_data
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.attributes["seconds_since_mode_change"] is None
+    assert plan.attributes["mode_change_allowed"] is True
+
+    await _enable(hass, entry)
+    await _set_temp(hass, "sensor.room_a_temp", 60)  # wants heat
+    await coord.async_refresh()
+    await hass.async_block_till_done()
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.state == "heat"  # not deferred: nothing to wait out
+    assert coord.current_shared_mode == "heat"
+
+    # That change started the dwell: the way back is held.
+    await _set_temp(hass, "sensor.room_a_temp", 80)  # wants cool
+    await coord.async_refresh()
+    await hass.async_block_till_done()
+    plan = hass.states.get(_eid(hass, entry, "_plan"))
+    assert plan.state == "heat"
+    assert plan.attributes["mode_change_allowed"] is False
+    assert 0 <= plan.attributes["seconds_since_mode_change"] < 3600
