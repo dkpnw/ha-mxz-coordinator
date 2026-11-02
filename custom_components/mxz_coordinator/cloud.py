@@ -11,6 +11,10 @@ setpoint is pushed past the target by a drive offset so the head's own
 thermistor doesn't stop it early; the room sensor still decides when the room
 is done. The offset is @mikepell007's (mxz_coordinator_blueprint, MIT).
 
+A generic head (beta: any other climate entity with heat and cool) takes the
+same path and the same record, with ``generic`` set: only unavailability puts
+it out of control, never silence.
+
 No Home Assistant dependency, so the math is tested directly.
 """
 
@@ -61,6 +65,8 @@ class CloudHead:
     confirmed_at: str | None = None
     # Not controllable: unavailable or silent past the limit.
     unresponsive: bool = False
+    # A generic head (beta): silence never makes it unresponsive.
+    generic: bool = False
 
     def pending(self, clock: float) -> bool:
         """Whether the head is inside a confirm window now."""

@@ -156,11 +156,21 @@ DRY_PICK_WAIT = 60
 # MXZ sends it the mode on its own call, then one setpoint pushed past the
 # target by the drive offset, at most one write batch per write interval, and
 # reads its reports for a confirm wait after each batch (see coordinator.py).
+# generic: any other Home Assistant climate entity that offers heat and cool
+# (a window AC, another brand's mini-split, a HomeKit-bridged unit), opted in
+# by the user and never suggested. It takes the cloud path above, with
+# shorter timing defaults, and only "unavailable" puts it out of control:
+# a push-only head can stay silent for hours while idle. A 1-head entry is
+# allowed only when its head is generic (it has its own compressor).
 # An ESPHome head is always local, whatever is stored.
 ZONE_HEAD_TYPE = "head_type"
 HEAD_TYPE_LOCAL = "local"
 HEAD_TYPE_CLOUD = "cloud"
-HEAD_TYPES = (HEAD_TYPE_LOCAL, HEAD_TYPE_CLOUD)
+HEAD_TYPE_GENERIC = "generic"
+HEAD_TYPES = (HEAD_TYPE_LOCAL, HEAD_TYPE_CLOUD, HEAD_TYPE_GENERIC)
+# The head types that take the cloud write path (setpoint offset, write
+# interval, confirm wait).
+OFFSET_HEAD_TYPES = (HEAD_TYPE_CLOUD, HEAD_TYPE_GENERIC)
 # Entity platforms the setup flow suggests cloud for (the room page doesn't);
 # the user confirms. melcloud is Home Assistant's own; kumo is dlarrick/hass-kumo;
 # kumo_cloud is jjustinwilson/comfort_HA (manifest domains, read 2026-10-29).
@@ -188,6 +198,10 @@ WRITE_INTERVAL_BOUNDS = (30, 300)
 # nothing it already sent and reads a report of an older state as stale.
 DEFAULT_CONFIRM_WAIT = 90
 CONFIRM_WAIT_BOUNDS = (30, 600)
+# A generic head's defaults: the low end of both bounds. A generic head is
+# usually local or push-based, so it reports back sooner than a polled cloud.
+GENERIC_WRITE_INTERVAL = WRITE_INTERVAL_BOUNDS[0]
+GENERIC_CONFIRM_WAIT = CONFIRM_WAIT_BOUNDS[0]
 # A cloud head's fan boost moves one rung at most per this many seconds.
 CLOUD_FAN_STEP_SECONDS = 300
 # A cloud head unavailable this long is not controllable: no writes, its
@@ -197,6 +211,9 @@ CLOUD_FAN_STEP_SECONDS = 300
 # MELCloud integration polls every 15 minutes (since 2026.2; 2024.12 polled
 # every 60 s), so a quiet MELCloud head is silent for 15 minutes at a time,
 # and that limit is two missed polls and five minutes more.
+# A generic head (beta) goes out only by CLOUD_STALE_SECONDS unavailable:
+# silence alone never counts, because a push-only head reports nothing while
+# nothing changes.
 CLOUD_STALE_SECONDS = 900
 CLOUD_SILENT_SECONDS = 2100
 # The setpoint step a cloud head that publishes none is rounded to, per
@@ -237,6 +254,7 @@ EVIDENCE_BASES = (EVIDENCE_UNKNOWN, EVIDENCE_HA_WRITE, EVIDENCE_SAMPLE_TIMESTAMP
 NEW_ROOM_FLOOR_LOW_F = 45.0
 NEW_ROOM_FLOOR_LOW_C = 7.0
 NEW_ROOM_MAX_AGE = 360.0
+# The setup flow and Reconfigure take one head only when it is generic (beta).
 MIN_ZONES = 2
 MAX_ZONES = 8
 

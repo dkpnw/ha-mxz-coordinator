@@ -138,7 +138,9 @@ from .const import (
     FLOOR_NOTICE_SECONDS,
     FLOOR_STALL_SECONDS,
     FLOOR_YIELD_SECONDS,
-    HEAD_TYPE_CLOUD,
+    GENERIC_CONFIRM_WAIT,
+    GENERIC_WRITE_INTERVAL,
+    HEAD_TYPE_GENERIC,
     HEAD_TYPE_LOCAL,
     HEALTH_AWAITING,
     HEALTH_ELIGIBLE,
@@ -163,6 +165,7 @@ from .const import (
     MODE_HEAT,
     MODE_OFF,
     OFF_WHILE_ENABLED_DELAY,
+    OFFSET_HEAD_TYPES,
     STARTUP_RECOVER_DELAY,
     UNAVAILABLE_STATES,
     VANE_KICK_APPLY,
@@ -387,8 +390,9 @@ class Zone:
     # A restored range that no longer fit and was re-centered: the room's
     # detail says so until the range is next written.
     range_note: str | None = None
-    # Head type (ZONE_HEAD_TYPE), from config; only a stored "cloud" opts in,
-    # and the coordinator turns an ESPHome head back to local. A cloud room's
+    # Head type (ZONE_HEAD_TYPE), from config; only a stored "cloud" or
+    # "generic" opts in, and the coordinator turns an ESPHome head back to
+    # local. A cloud or generic room's
     # drive offset (system unit) and its write interval and confirm wait
     # (seconds), as stored (None = the default); resolved with the head type.
     head_type: str = HEAD_TYPE_LOCAL
@@ -488,7 +492,7 @@ def _parse_zones(
             drift_warmer_by=_drift_side(z.get(ZONE_DRIFT_WARMER_BY), *engage_bounds),
             dual=z.get(ZONE_DUAL_SETPOINT) is True,
             head_type=(
-                HEAD_TYPE_CLOUD if z.get(ZONE_HEAD_TYPE) == HEAD_TYPE_CLOUD
+                z[ZONE_HEAD_TYPE] if z.get(ZONE_HEAD_TYPE) in OFFSET_HEAD_TYPES
                 else HEAD_TYPE_LOCAL
             ),
             drive_offset=_finite(z.get(ZONE_DRIVE_OFFSET)),
@@ -2959,23 +2963,34 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _resolve_head_type(self, zone: Zone, clock: float) -> None:
         """Settle one room's head type and, for a cloud head, its settings.
 
-        Only a stored cloud opts in. An ESPHome head is the CN105 path and is
-        always local, whatever is stored. A cloud room gets no vanes (so no
+        Only a stored cloud or generic opts in. An ESPHome head is the CN105
+        path and is always local, whatever is stored. A generic head (beta)
+        is a cloud head here in every way but two: its write interval and
+        confirm wait default to 30 s, and silence never puts it out of
+        control (see _cloud_seen). A cloud room gets no vanes (so no
         vane kick), no airflow sensor and no dual setpoint, and a hands-off
         vote by mode: a cloud integration has no vane selects MXZ can kick
         safely, no stage sensor, one setpoint here, and an hvac_action that
         is missing or minutes late. Its numbers are clamped into the room
         page's ranges, so a hand-edited value can't make it write faster.
         """
-        if zone.head_type != HEAD_TYPE_CLOUD:
+        if zone.head_type not in OFFSET_HEAD_TYPES:
             return
+        generic = zone.head_type == HEAD_TYPE_GENERIC
         entry = er.async_get(self.hass).async_get(zone.climate_id)
         if entry is not None and entry.platform == "esphome":
-            _LOGGER.warning(
-                "MXZ: %s's head %s is on ESPHome, so it stays local; cloud "
-                "(beta) is for heads behind a cloud integration",
-                zone.name, zone.climate_id,
-            )
+            if generic:
+                _LOGGER.warning(
+                    "MXZ: %s's head %s is on ESPHome, so it stays local; "
+                    "generic (beta) is for heads that are not on ESPHome",
+                    zone.name, zone.climate_id,
+                )
+            else:
+                _LOGGER.warning(
+                    "MXZ: %s's head %s is on ESPHome, so it stays local; cloud "
+                    "(beta) is for heads behind a cloud integration",
+                    zone.name, zone.climate_id,
+                )
             zone.head_type = HEAD_TYPE_LOCAL
             return
         zone.vane_vertical_id = zone.vane_horizontal_id = None
@@ -2991,14 +3006,19 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else min(max(zone.drive_offset, 0.0), most)
         )
         zone.write_interval = _bounded(
-            zone.write_interval, DEFAULT_WRITE_INTERVAL, WRITE_INTERVAL_BOUNDS
+            zone.write_interval,
+            GENERIC_WRITE_INTERVAL if generic else DEFAULT_WRITE_INTERVAL,
+            WRITE_INTERVAL_BOUNDS,
         )
         zone.confirm_wait = _bounded(
-            zone.confirm_wait, DEFAULT_CONFIRM_WAIT, CONFIRM_WAIT_BOUNDS
+            zone.confirm_wait,
+            GENERIC_CONFIRM_WAIT if generic else DEFAULT_CONFIRM_WAIT,
+            CONFIRM_WAIT_BOUNDS,
         )
         self._cloud[zone.climate_id] = CloudHead(
             write_interval=zone.write_interval,
             confirm_wait=zone.confirm_wait,
+            generic=generic,
             window_until=clock + zone.confirm_wait,
             # A start counts as a fan step: MXZ can't know when it last
             # stepped this head, so its first boost step waits the full limit.
@@ -3046,49 +3066,52 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Out once it has been unavailable (or has no state at all, timed from
         this coordinator's start) for CLOUD_STALE_SECONDS, or available but
         sending no report at all, not even an unchanged one, for
-        CLOUD_SILENT_SECONDS. Each edge is logged once, and a repair issue
-        stands while it lasts.
+        CLOUD_SILENT_SECONDS (never, for a generic head). Each edge is logged
+        once, and a repair issue stands while it lasts.
         """
         cloud = self._cloud.get(zone.climate_id)
         if cloud is None:
             return False
         since, limit = self._cloud_seen(zone.climate_id)
-        out = wall - since >= limit
+        out = limit is not None and wall - since >= limit
         if out != cloud.unresponsive:
             cloud.unresponsive = out
             issue_id = f"cloud_head_unresponsive_{self.config_entry.entry_id}_{zone.climate_id}"
+            kind = "generic" if cloud.generic else "cloud"
             if out:
+                minutes = (limit or 0) // 60
                 _LOGGER.warning(
-                    "MXZ: cloud head %s (%s) has been unavailable or silent for "
+                    "MXZ: %s head %s (%s) has been unavailable or silent for "
                     "%d minutes; MXZ stops writing it and its room's call no "
                     "longer counts (unless its Safety priority sensor is on)",
-                    zone.climate_id, zone.name, limit // 60,
+                    kind, zone.climate_id, zone.name, minutes,
                 )
                 ir.async_create_issue(
                     self.hass, DOMAIN, issue_id,
                     is_fixable=False,
                     severity=ir.IssueSeverity.WARNING,
-                    translation_key="cloud_head_unresponsive",
+                    translation_key=f"{kind}_head_unresponsive",
                     translation_placeholders={
                         "room": zone.name,
                         "head": zone.climate_id,
-                        "minutes": str(limit // 60),
+                        "minutes": str(minutes),
                     },
                 )
             else:
                 _LOGGER.info(
-                    "MXZ: cloud head %s (%s) is reporting again; MXZ controls it again",
-                    zone.climate_id, zone.name,
+                    "MXZ: %s head %s (%s) is reporting again; MXZ controls it again",
+                    kind, zone.climate_id, zone.name,
                 )
                 ir.async_delete_issue(self.hass, DOMAIN, issue_id)
         return out
 
-    def _cloud_seen(self, climate_id: str) -> tuple[float, int]:
+    def _cloud_seen(self, climate_id: str) -> tuple[float, int | None]:
         """When a cloud head last showed it is there (wall clock), and the limit.
 
-        Its last report, changed or not, while available (CLOUD_SILENT_SECONDS);
-        the moment it went unavailable while it is, or this coordinator's
-        start if it has no state (CLOUD_STALE_SECONDS).
+        Its last report, changed or not, while available (CLOUD_SILENT_SECONDS;
+        None for a generic head, which silence never puts out); the moment it
+        went unavailable while it is, or this coordinator's start if it has no
+        state (CLOUD_STALE_SECONDS).
         """
         head = self.hass.states.get(climate_id)
         if head is None:
@@ -3096,6 +3119,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if head.state == STATE_UNAVAILABLE:
             return head.last_changed.timestamp(), CLOUD_STALE_SECONDS
         reported = getattr(head, "last_reported", None) or head.last_updated
+        cloud = self._cloud.get(climate_id)
+        if cloud is not None and cloud.generic:
+            return reported.timestamp(), None
         return reported.timestamp(), CLOUD_SILENT_SECONDS
 
     def _cloud_stale_report(
@@ -3120,7 +3146,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         clock = time.monotonic()
         left = cloud.window_until - clock
         return {
-            "head_type": HEAD_TYPE_CLOUD,
+            "head_type": zone.head_type,
             # pending / confirmed / unconfirmed / not_controllable
             "cloud_status": cloud.status(clock),
             "cloud_pending_until": (
@@ -3319,7 +3345,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 waits.append(cloud.release_at - clock)
             if not cloud.unresponsive:
                 since, limit = self._cloud_seen(climate_id)
-                waits.append(since + limit - wall)
+                if limit is not None:
+                    waits.append(since + limit - wall)
         waits = [wait for wait in waits if wait > 0]
         if not waits:
             return

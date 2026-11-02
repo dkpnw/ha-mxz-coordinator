@@ -3,16 +3,18 @@
     "step": {
       "user": {
         "title": "MXZ Coordinator",
-        "description": "Pick the indoor heads on one outdoor unit, in priority order. The first head wins when rooms disagree on heat or cool. For a second outdoor unit, add the integration again.",
+        "description": "Pick the indoor heads on one outdoor unit, in priority order. The first head wins when rooms disagree on heat or cool. For a second outdoor unit, add the integration again. A generic head (beta), any other brand's unit with heat and cool, has its own compressor: add it alone, as its own entry, with Generic heads on.",
         "data": {
           "heads": "Indoor heads",
           "entry_title": "Outdoor unit name",
-          "notify_service": "Notify on drift"
+          "notify_service": "Notify on drift",
+          "generic_heads": "Generic heads (beta)"
         },
         "data_description": {
           "heads": "Order is priority.",
           "entry_title": "Shown on the integration card.",
-          "notify_service": "Optional. Who to tell when MXZ puts a head back on its mode, and when a room's freeze floor or overheat ceiling trips, cannot protect the room, or has a command rejected. With none set, or one Home Assistant does not have, floor notices appear in Home Assistant's notifications."
+          "notify_service": "Optional. Who to tell when MXZ puts a head back on its mode, and when a room's freeze floor or overheat ceiling trips, cannot protect the room, or has a command rejected. With none set, or one Home Assistant does not have, floor notices appear in Home Assistant's notifications.",
+          "generic_heads": "Off (the default): the heads are Mitsubishi heads, driven as always. On: every head picked here is a generic head (beta), any Home Assistant climate entity that offers heat and cool, such as a window AC or another brand's mini-split. MXZ sends it the mode, then one setpoint pushed past the target, and waits for it to report back. One head alone is allowed. Pick several only if they really share one outdoor unit: they then share one mode. A head on ESPHome can't be generic."
         }
       },
       "rooms": {
@@ -41,7 +43,7 @@
       },
       "head_type": {
         "title": "Head type (beta)",
-        "description": "These heads come from a cloud integration. MXZ can drive them as cloud heads (beta): the mode on its own call, one setpoint pushed past the target by a drive offset, at most one write a minute, and a wait for each head to report back. Choose Local to drive one exactly as MXZ drives an ESPHome (CN105) head. You can change this later on the room's page in Configure.\n\n{rooms}",
+        "description": "These heads come from a cloud integration. MXZ can drive them as cloud heads (beta): the mode on its own call, one setpoint pushed past the target by a drive offset, at most one write a minute, and a wait for each head to report back. Choose Local to drive one exactly as MXZ drives an ESPHome (CN105) head. Generic (beta) is for a head that is not a Mitsubishi head. You can change this later on the room's page in Configure.\n\n{rooms}",
         "data": {
           "head_type_1": "Room 1 head type",
           "head_type_2": "Room 2 head type",
@@ -308,12 +310,13 @@
       "idle_action_unsupported": "{idle_action} isn't supported by {unsupported_heads}. Choose {supported_idle_actions}.",
       "lockout_inverted": "\"Heat anyway below\" can't be above \"Cool anyway above\".",
       "must_not_be_negative": "Enter 0 or more.",
-      "need_two_heads": "Select at least two heads (a single head doesn't need a coordinator).",
+      "need_two_heads": "Select at least two heads (a single head doesn't need a coordinator), or one head with Generic heads (beta) on.",
       "not_a_number": "Enter a number.",
       "room_name_empty": "Every room needs a name.",
       "sensor_missing": "Home Assistant has no state for: {problem_sensors}. Make sure each sensor exists and is loaded, then pick it again.",
       "sensor_unit_unsupported": "MXZ Coordinator cannot read the temperature unit these sensors report: {problem_sensors}. Choose a sensor that reports a temperature unit Home Assistant can convert, such as degrees Celsius, degrees Fahrenheit, or kelvin.",
-      "too_many_heads": "A single MXZ outdoor unit supports at most 8 heads."
+      "too_many_heads": "A single MXZ outdoor unit supports at most 8 heads.",
+      "generic_esphome_head": "These heads are on ESPHome, which MXZ drives as local (CN105) heads: {esphome_heads}. Turn Generic heads off, or pick other heads."
     },
     "abort": {
       "already_configured": "This pair of heads is already configured.",
@@ -335,7 +338,10 @@
       "freshness_profile_invalid": "These freshness settings don't fit together. Times must be finite positive minutes, and maximum age can't be shorter than the report interval. \"Sensor reports a sample time or counter\" needs exactly one attribute; other choices need both attributes empty. Nothing was saved.",
       "floor_out_of_range": "The freeze floor must be 35-65 °F (2-18 °C) and the overheat ceiling 75-100 °F (24-38 °C), in your Home Assistant unit. Leave a field empty for none. Nothing was saved.",
       "cloud_esphome_head": "This head is on ESPHome, which MXZ drives as a local (CN105) head. Choose Local.",
-      "cloud_unsupported_options": "A cloud head (beta) takes no vanes, airflow sensor, dual setpoint or vote by action. Clear those, or choose Local."
+      "cloud_unsupported_options": "A cloud head (beta) takes no vanes, airflow sensor, dual setpoint or vote by action. Clear those, or choose Local.",
+      "generic_esphome_head": "This head is on ESPHome, which MXZ drives as a local (CN105) head. Choose Local.",
+      "generic_unsupported_options": "A generic head (beta) takes no vanes, airflow sensor, dual setpoint or vote by action. Clear those, or choose Local.",
+      "single_head_needs_generic": "This entry has one head, which MXZ allows only for a generic head (beta). Keep Generic, or use Reconfigure to add heads first."
     },
     "abort": {
       "empty_options": "Nothing changed."
@@ -507,7 +513,7 @@
           "allow_dry": "Allow Dry mode"
         },
         "data_description": {
-          "head_type": "Local (the default) drives the head as MXZ always has. Cloud (beta) is for a head behind a cloud integration that polls: MXZ sends its mode on its own call, then one setpoint pushed past the target by the drive offset, writes it at most once per write interval, and waits for it to report back. A cloud head gets no vanes, airflow sensor, dual setpoint or vote by action. An ESPHome head is always local.",
+          "head_type": "Local (the default) drives the head as MXZ always has. Cloud (beta) is for a head behind a cloud integration that polls: MXZ sends its mode on its own call, then one setpoint pushed past the target by the drive offset, writes it at most once per write interval, and waits for it to report back. A cloud head gets no vanes, airflow sensor, dual setpoint or vote by action. Generic (beta) is for any other unit that offers heat and cool (another brand, a window AC): it is driven like a cloud head, with a 30 s write interval and confirm wait by default, and only being unavailable for 15 minutes takes it out of MXZ's control, never being quiet. An ESPHome head is always local.",
           "stage": "Shows the head's real fan speed while the fan is on auto.",
           "safety_priority_entity": "A binary sensor that's on when this room is asserting a safety override (e.g. a freeze or overheat floor). While on, this room's want for heat or cool outranks every other room's, coordinated or hands-off.",
           "hands_off": "Off (the default): a disabled room's head is held off, as always. On: when you disable the room, MXZ turns the head off once, retrying until the head reports off. Then MXZ leaves the head alone until you enable the room again.",
@@ -568,8 +574,8 @@
             }
           },
           "cloud": {
-            "name": "Cloud head (beta)",
-            "description": "Only for a cloud head; a local head ignores these. Leave them at their defaults unless your head needs otherwise.",
+            "name": "Cloud or generic head (beta)",
+            "description": "Only for a cloud or generic head; a local head ignores these. Leave them at their defaults unless your head needs otherwise.",
             "data": {
               "drive_offset": "Setpoint drive offset",
               "write_interval": "Write interval",
@@ -577,8 +583,8 @@
             },
             "data_description": {
               "drive_offset": "While the room runs, its head gets the target plus this in heat and minus this in cool, so the head's own sensor doesn't stop it early. The room sensor still decides when the room is done. 0 sends the bare target. Default 2 °F (1 °C).",
-              "write_interval": "At most one write to this head per this many seconds; a newer change waits and replaces the older one. 30-300 s, default 60.",
-              "confirm_wait": "After a write, how long MXZ waits for the head to report it before sending again. A report of an older state in this time is read as late, not as someone's change. 30-600 s, default 90."
+              "write_interval": "At most one write to this head per this many seconds; a newer change waits and replaces the older one. 30-300 s, default 60 (30 for a generic head).",
+              "confirm_wait": "After a write, how long MXZ waits for the head to report it before sending again. A report of an older state in this time is read as late, not as someone's change. 30-600 s, default 90 (30 for a generic head)."
             }
           }
         }
@@ -632,7 +638,8 @@
     "head_type": {
       "options": {
         "local": "Local",
-        "cloud": "Cloud (beta)"
+        "cloud": "Cloud (beta)",
+        "generic": "Generic (beta)"
       }
     }
   },
@@ -650,6 +657,10 @@
     "cloud_head_unresponsive": {
       "title": "Cloud head {head} is not responding (beta)",
       "description": "MXZ's cloud head {head} ({room}) has been unavailable, or sent no report at all, for {minutes} minutes. MXZ sends it nothing, and {room}'s call for heat or cool no longer counts toward the shared mode, unless its Safety priority sensor is on. Check the head's cloud integration and its connection. This clears by itself once the head reports again."
+    },
+    "generic_head_unresponsive": {
+      "title": "Generic head {head} is not responding (beta)",
+      "description": "MXZ's generic head {head} ({room}) has been unavailable for {minutes} minutes. MXZ sends it nothing, and {room}'s call for heat or cool no longer counts toward the shared mode, unless its Safety priority sensor is on. Check the head's integration and its connection. This clears by itself once the head is available again."
     }
   },
   "entity": {
