@@ -50,7 +50,7 @@ def violations(workflow):
 
 
 FRESH_BOOT_RUN = (
-    'FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 300s python -m pytest '
+    'FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 600s python -m pytest '
     '-p tools.fakeboot -p tools.pytest_phases tests/ -q -s > "$RUNNER_TEMP/fakeboot.log" 2>&1'
 )
 
@@ -480,6 +480,8 @@ SUITE_RUNS = {
     "fakeboot": ("Full suite on a fresh-boot clock",
                  "-m pytest -p tools.fakeboot -p tools.pytest_phases tests/ -q -s", "120"),
 }
+# Each full-suite step's exact watchdog limit; no other value is accepted.
+SUITE_LIMITS = {"suite": "300s", "fakeboot": "600s"}
 
 
 @pytest.mark.parametrize("owner", ["both", "split"])
@@ -517,16 +519,17 @@ exit "$INVENTED_EXIT"
     # Keep the authored watchdog arguments under assertion; shorten only the
     # invented child's deadline so the real timeout branch is cheap to exercise.
     watchdog = bin_dir / "timeout"
-    watchdog.write_text('''#!/bin/bash
+    limit = SUITE_LIMITS[run]
+    watchdog.write_text(f'''#!/bin/bash
 set -eu
 test "$1" = --signal=TERM
 test "$2" = --kill-after=5s
-test "$3" = 300s
+test "$3" = {limit}
 shift 3
 if test "$INVENTED_OUTCOME" = timeout; then
   exec /usr/bin/timeout --signal=TERM --kill-after=1s 0.2s "$@"
 fi
-exec /usr/bin/timeout --signal=TERM --kill-after=5s 300s "$@"
+exec /usr/bin/timeout --signal=TERM --kill-after=5s {limit} "$@"
 ''')
     watchdog.chmod(0o755)
     env.update(INVENTED_OUTCOME=outcome, INVENTED_EXIT=str(expected))

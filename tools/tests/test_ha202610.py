@@ -281,7 +281,7 @@ def fakeboot_branch():
 
 def test_fresh_boot_pass_is_the_full_suite_on_the_two_minute_clock():
     branch = fakeboot_branch()
-    assert ('FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 300s "$python" -m pytest \\\n'
+    assert ('FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 600s "$python" -m pytest \\\n'
             '      -p tools.fakeboot -p tools.pytest_phases tests/ -q -s -p no:cacheprovider'
             ' > "$root/fakeboot.log" 2>&1 || result=$?') in branch
     assert "printf '%s\\n' \"$result\" > \"$root/fakeboot.exit\"" in branch
@@ -365,10 +365,10 @@ def test_export_requires_complete_fresh_boot_evidence(tmp_path, capsys, fault):
     assert errors == expected
 
 
-def test_both_full_suite_passes_have_the_same_300_second_limit():
+def test_suite_pass_has_a_300_and_fresh_boot_pass_a_600_second_limit():
     script = (ROOT / "tools/ci-ha202610.sh").read_text()
     assert re.findall(r"args=\((\d+)s ", script) == ["60", "300"]
-    assert re.findall(r"--kill-after=5s (\d+)s ", script) == ["300"]
+    assert re.findall(r"--kill-after=5s (\d+)s ", script) == ["600"]
     assert "args=(300s tests/)" in script and "180s" not in script
 
 
@@ -388,9 +388,11 @@ def run_branch(tmp_path, case, ending, mode=None, limit=None, path=os.defpath, p
     root.mkdir()
     branch = script_branch(case)
     if limit:
-        # A unit fixture: a short limit stands in for 300 s so a real timeout fires.
-        assert branch.count("300s") == 1
-        branch = branch.replace("300s", limit)
+        # A unit fixture: a short limit stands in for the branch's own limit (600 s
+        # for the fresh-boot pass, 300 s for the suite) so a real timeout fires.
+        own = "600s" if case == "fakeboot" else "300s"
+        assert branch.count(own) == 1
+        branch = branch.replace(own, limit)
     prefix = f"python={stub}; root={root}\n" + (f"mode={mode}\n" if mode else "")
     result = subprocess.run(["bash", "--noprofile", "--norc", "-euo", "pipefail", "-c", prefix + branch],
                             env={"PATH": path}, text=True, capture_output=True, check=False, timeout=30)

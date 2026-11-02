@@ -209,13 +209,14 @@ jobs:
       # The mode-flip dwell runs on time.monotonic (#32), which counts from boot:
       # the same suite again as if this runner had booted 120 s ago, below the
       # hysteresis. Runs only in a job that owns 'fakeboot', after a failed suite
-      # too; 300 s, as above.
+      # too. 600 s: this pass hit the 300 s limit on a hosted runner on main
+      # b17fc3c with no failing test.
       - name: Full suite on a fresh-boot clock
         if: ${{ !cancelled() && contains(format(' {0} ', matrix.runs), ' fakeboot ') }}
         run: |
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
           fakeboot_exit=0
-          FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 300s python -m pytest -p tools.fakeboot -p tools.pytest_phases tests/ -q -s > "$RUNNER_TEMP/fakeboot.log" 2>&1 || fakeboot_exit=$?
+          FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 600s python -m pytest -p tools.fakeboot -p tools.pytest_phases tests/ -q -s > "$RUNNER_TEMP/fakeboot.log" 2>&1 || fakeboot_exit=$?
           printf '%s\n' "$fakeboot_exit" > "$RUNNER_TEMP/fakeboot.exit"
           echo "FAKEBOOT_EXIT=$fakeboot_exit"
           exit "$fakeboot_exit"
