@@ -46,6 +46,25 @@ def test_the_clock_is_back_after_freezer():
     assert UPTIME <= time.monotonic() < UPTIME + 60
 '''
 
+LATER_TESTS = '''
+import time
+
+import tools.fakeboot as fakeboot
+
+UPTIME = {uptime}
+
+
+def test_the_host_runs_on():
+    """The real clock moves an hour on, as across a long run."""
+    real = fakeboot._real
+    fakeboot._real = lambda: real() + 3600
+    assert time.monotonic() >= UPTIME + 3600
+
+
+def test_the_next_test_starts_just_booted():
+    assert UPTIME <= time.monotonic() < UPTIME + 60
+'''
+
 REPLACED_TESTS = '''
 import time
 
@@ -109,6 +128,14 @@ def test_a_wrong_uptime_fails_the_clock_check(tmp_path):
     assert result.returncode == 1, result.stdout + result.stderr
     assert "FAKEBOOT_UPTIME=120" in result.stdout.splitlines()
     assert _outcomes(result.stdout) == {"failed": 2, "passed": 2}
+
+
+def test_each_test_starts_at_the_fake_uptime(tmp_path):
+    """Not the uptime plus the run so far: the clock reads it again at each setup."""
+    result = _child(tmp_path, LATER_TESTS.format(uptime=120), "120")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines().count("FAKEBOOT_UPTIME=120") == 1, result.stdout
+    assert _outcomes(result.stdout) == {"passed": 2}
 
 
 def test_a_replaced_clock_errors_the_next_test(tmp_path):

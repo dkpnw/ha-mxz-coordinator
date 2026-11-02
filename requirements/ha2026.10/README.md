@@ -149,8 +149,8 @@ branches. Checkout credentials are not persisted. The source SHA/tree and all
 tracked file hashes are recorded, followed by actual artifact/build/runtime
 receipts. Sentinel and full-suite exits are saved independently of export.
 A failed or timed-out full suite or fresh-boot pass also prints the last 200
-lines of its own log in its own step, with the step's exit unchanged; the export
-prints every log whole. As in the existing CI, nothing is uploaded as an artifact.
+lines of its own log, at most 64 KiB, in its own step, with the step's exit
+unchanged; the export prints every log whole. As in the existing CI, nothing is uploaded as an artifact.
 Complete ordinary phases and bounded complete logs are required; missing,
 skipped, failed, malformed, or oversize evidence fails visibly. Existing CI
 continues to own its five job families and three earlier targets.

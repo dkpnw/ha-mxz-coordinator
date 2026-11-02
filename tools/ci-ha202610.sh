@@ -48,10 +48,11 @@ case "$mode" in
     timeout --signal=TERM --kill-after=5s "${args[0]}" "$python" -m pytest \
       -p tools.pytest_phases "${args[1]}" -q -s -p no:cacheprovider > "$root/$mode.log" 2>&1 || result=$?
     printf '%s\n' "$result" > "$root/$mode.exit"
-    # A failed or timed-out full pass shows its last lines in its own step; the
-    # export still prints every log whole. The step keeps the pass's exit.
+    # A failed or timed-out full pass shows its last lines in its own step, at
+    # most 200 lines and 64 KiB (one long line can't flood it); the export still
+    # prints every log whole. The step keeps the pass's exit.
     if test "$mode" = suite && test "$result" != 0; then
-      tail -n 200 -- "$root/$mode.log" || true
+      tail -n 200 -- "$root/$mode.log" | tail -c 65536 || true
     fi
     exit "$result"
     ;;
@@ -63,7 +64,7 @@ case "$mode" in
       -p tools.fakeboot -p tools.pytest_phases tests/ -q -s -p no:cacheprovider > "$root/fakeboot.log" 2>&1 || result=$?
     printf '%s\n' "$result" > "$root/fakeboot.exit"
     if test "$result" != 0; then
-      tail -n 200 -- "$root/fakeboot.log" || true
+      tail -n 200 -- "$root/fakeboot.log" | tail -c 65536 || true
     fi
     exit "$result"
     ;;
