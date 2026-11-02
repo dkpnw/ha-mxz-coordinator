@@ -266,8 +266,8 @@ creates from 3.16.0 on) starts with a freeze floor and a sensor freshness limit:
   put back, and counts as a vote for cool. With it on, the room's MXZ thermostat offers
   Dry. Picking it puts the head in Dry; MXZ pauses that room's temperature goal until you
   pick Heat/Cool or Off. Allow Dry mode is off by default. When it's on, Home Assistant's
-  HomeKit bridge shows Dry as Cool, so Apple Home may show a Cool choice (and Auto) for
-  that room, which can be confusing. Leave it off if you use Apple Home and don't need Dry.
+  HomeKit bridge shows Dry as Cool, so Apple Home may show a Cool choice for that room,
+  which can be confusing. Leave it off if you use Apple Home and don't need Dry.
   [Details](docs/FEATURES.md#allow-dry-mode)
 - **Sensor freshness**: a room whose sensor goes quiet stops asking for heat or cool, and
   its freeze floor pauses, with a notice. A new room starts at 6 hours (Maximum age 360

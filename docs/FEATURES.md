@@ -164,8 +164,11 @@ threshold.
   `drift_source` is `room` when either side comes from the room, else `global`.
 - A disabled room shows no start points.
 
-The room's thermostat carries the same values as extra attributes. They are read-only,
-and the tile, Apple Home, Google Home, and Alexa still see one target.
+The room's thermostat carries the same values as extra attributes. They are read-only
+and change nothing the tile, Apple Home, Google Home, or Alexa see: a room with one
+target still shows that one target, and a
+[dual-setpoint](#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint) room its
+Heat to and Cool to.
 
 ### Per-room uneven drift
 
@@ -458,8 +461,8 @@ Dry. The option shows only for a head that lists `dry` among its modes. Thanks t
 [Home Assistant forum](https://community.home-assistant.io/t/1018382) prompted it.
 
 Allow Dry mode is off by default. When it's on, Home Assistant's HomeKit bridge shows Dry
-as Cool, so Apple Home may show a Cool choice (and Auto) for that room, which can be
-confusing. Leave it off if you use Apple Home and don't need Dry.
+as Cool, so Apple Home may show a Cool choice for that room, which can be confusing.
+Leave it off if you use Apple Home and don't need Dry.
 
 While the room is enabled and someone has its head in Dry:
 
