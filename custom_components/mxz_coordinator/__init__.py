@@ -46,7 +46,11 @@ from .const import (
     ZONE_VANE_HORIZONTAL,
     ZONE_VANE_VERTICAL,
 )
-from .coordinator import MXZCoordinator
+from .coordinator import (
+    MXZCoordinator,
+    async_load_last_mode_change,
+    async_remove_last_mode_change,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -123,7 +127,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
             "using the mirror. Review and save Configure to repopulate options."
         )
 
-    coordinator = MXZCoordinator(hass, entry)
+    # The last real cool/heat change, so a reload or restart continues its hold
+    # instead of starting a new one (read before the first plan is computed).
+    coordinator = MXZCoordinator(
+        hass, entry, await async_load_last_mode_change(hass, entry.entry_id)
+    )
     entry.runtime_data = coordinator
 
     # A reconfigure can shrink the zone list; prune registry entities from
@@ -152,6 +160,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool
     if unload_ok and not _other_entries_loaded(hass, entry):
         hass.services.async_remove(DOMAIN, SERVICE_RECOMPUTE)
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> None:
+    """Delete what the entry kept on disk: the time of its last mode change."""
+    await async_remove_last_mode_change(hass, entry.entry_id)
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: MXZConfigEntry) -> None:

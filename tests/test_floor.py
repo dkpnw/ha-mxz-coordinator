@@ -58,7 +58,12 @@ from custom_components.mxz_coordinator.const import (
 )
 from custom_components.mxz_coordinator.sensor import _ATTRS
 from tests.clocks import age_floor_clock, age_floor_notice, jump_wall_clock
-from tests.dwell import RESTAMP_TOLERANCE, assert_restamped, expire_dwell
+from tests.dwell import (
+    RESTAMP_TOLERANCE,
+    assert_restamped,
+    expire_dwell,
+    record_mode_change,
+)
 from tests.flow_pages import open_options_page, prefilled, submit, suggested
 from tests.restore_store import replace_stored_state, stored_state
 from tests.test_drive import (
@@ -141,7 +146,10 @@ async def _setup(
     **extra: Any,
 ) -> Floor:
     """Two mock heads. By default the primary is enabled at its target and the
-    secondary is disabled (held off) with a 50 °F floor and a 90 °F ceiling."""
+    secondary is disabled (held off) with a 50 °F floor and a 90 °F ceiling.
+
+    ``hysteresis=None`` runs the default mode-change wait, and the setup finds
+    a mode change stored just before it, so that wait holds from the start."""
     hass.config.units = METRIC_SYSTEM if metric else US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(hass, cls=MockHeadC if metric else MockHead)
     target = 21 if metric else 70
@@ -171,6 +179,8 @@ async def _setup(
         data[CONF_MODE_HYSTERESIS] = hysteresis
     entry = MockConfigEntry(domain=DOMAIN, title="MXZ Coordinator", data=data, version=2)
     entry.add_to_hass(hass)
+    if hysteresis is None:
+        await record_mode_change(hass, entry.entry_id)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     for suffix in enable:

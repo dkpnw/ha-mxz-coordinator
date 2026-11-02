@@ -10,6 +10,11 @@ runs the suite with the clock reading two minutes since boot to keep it that way
 So a test never writes a number into the stamp: it ages the dwell relative to
 the clock the coordinator reads, and checks a re-stamp against the stamp it
 wrote, never against zero.
+
+A fresh install has no mode change on record (the stamp is None) and holds
+nothing. A test whose subject needs the dwell holding says so: ``arm_dwell``
+for a change made just now in a running coordinator, ``record_mode_change``
+for one a previous run stored before this setup (as a restart finds it).
 """
 
 from __future__ import annotations
@@ -49,3 +54,31 @@ def assert_restamped(coord: Any, before: float) -> None:
     now = time.monotonic()
     assert before < stamp <= now, (before, stamp, now)
     assert now - stamp < RESTAMP_TOLERANCE, (stamp, now)
+
+
+def arm_dwell(coord: Any) -> float:
+    """A real mode change just happened: the dwell holds its whole window from now.
+
+    Returns the stamp written (``assert_restamped`` compares against it).
+    """
+    coord._last_mode_change_ts = time.monotonic()
+    return coord._last_mode_change_ts
+
+
+async def record_mode_change(hass: Any, entry_id: str, seconds_ago: float = 0.0) -> float:
+    """Store a mode change ``seconds_ago``, as the run before this setup would have.
+
+    Written through the entry's own store, so the next setup or reload reads
+    it exactly as it reads a real record. Returns the wall-clock time stored.
+    (Home Assistant is imported here, so this module stays importable without it.)
+    """
+    from homeassistant.util import dt as dt_util
+
+    from custom_components.mxz_coordinator.coordinator import (
+        MODE_CHANGE_KEY,
+        _mode_change_store,
+    )
+
+    changed_at = dt_util.utcnow().timestamp() - seconds_ago
+    await _mode_change_store(hass, entry_id).async_save({MODE_CHANGE_KEY: changed_at})
+    return changed_at

@@ -81,6 +81,7 @@ from custom_components.mxz_coordinator.coordinator import (
 )
 from custom_components.mxz_coordinator.logic import freshness_window, sensor_health
 
+from .dwell import record_mode_change
 from .test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -291,9 +292,14 @@ async def _setup_fresh(
     celsius: bool = False,
     primary: dict[str, Any] | None = None,
     secondary: dict[str, Any] | None = None,
+    changed_ago: float | None = None,
     **extra: Any,
 ) -> tuple[MockConfigEntry, str, str]:
     """Two rooms, room A hot (calling cool) and room B neutral.
+
+    ``changed_ago`` stores a mode change that many seconds before the setup
+    (a test with a real dwell passes 0 for "the mode was set just now"); None,
+    the default, is a fresh install with no change on record.
 
     ``primary``/``secondary`` carry that room's freshness configuration, on top
     of a contracted `ha_state_write` basis: the sensor these rooms model is a
@@ -346,6 +352,8 @@ async def _setup_fresh(
     # they would otherwise share the startup instant.
     freezer.tick(timedelta(seconds=1))
     entry.add_to_hass(hass)
+    if changed_ago is not None:
+        await record_mode_change(hass, entry.entry_id, changed_ago)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     for suffix in ("_primary_enable", "_secondary_enable", "_coordinator_enable"):

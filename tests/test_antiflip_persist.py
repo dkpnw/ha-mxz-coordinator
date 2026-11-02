@@ -22,17 +22,40 @@ import pytest
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
+from datetime import timedelta
+
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import (
+    async_fire_time_changed,
+    async_mock_restore_state_shutdown_restart,
+)
 
 from custom_components.mxz_coordinator.const import (
+    CONF_MODE_HYSTERESIS,
     DEFAULT_MODE_HYSTERESIS,
     MODE_COOL,
     MODE_HEAT,
 )
+from custom_components.mxz_coordinator.coordinator import COAST_FOLLOWUP_DELAY
 from tests.clocks import jump_wall_clock
 from tests.dwell import RESTAMP_TOLERANCE, expire_dwell
-from tests.test_drive import SENSOR_A, _recompute, _set_temp
-from tests.test_dwell_wakeup import COLD, HOT, _plan, _quiesce, _setup_dwell
+from tests.test_drive import SENSOR_A, _eid, _recompute, _set_temp
+from tests.test_dwell_wakeup import (
+    COLD,
+    HOT,
+    NEUTRAL,
+    _count_refresh_requests,
+    _fire_due,
+    _plan,
+    _quiesce,
+    _setup_dwell,
+)
+from tests.test_idle_action import (
+    _head_calls,
+    _record_calls,
+    _settle_requested_refreshes,
+)
 
 
 async def _flip_to_heat(hass: HomeAssistant, entry) -> None:
@@ -100,3 +123,277 @@ async def test_reload_part_way_through_the_window_keeps_only_what_is_left(
     assert plan.state == MODE_HEAT
     since = plan.attributes["seconds_since_mode_change"]
     assert 400 <= since < 400 + RESTAMP_TOLERANCE, since
+
+
+# --- what is stored, and a restart ------------------------------------------------
+
+STORE_KEY = "mxz_coordinator.{}.mode_change"  # the file name is part of the contract
+
+
+def _stored(hass_storage: dict, entry) -> float:
+    return hass_storage[STORE_KEY.format(entry.entry_id)]["data"]["last_mode_change"]
+
+
+async def _restart(hass: HomeAssistant, entry) -> None:
+    """Stop and start again: restore data dumped, the store read from storage.
+
+    The unload drops the entry; dropping the shared store instances is what a
+    new Home Assistant process starts with, so the setup reads what was written.
+    """
+    await async_mock_restore_state_shutdown_restart(hass)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    hass.data.pop("mxz_coordinator_mode_change_stores")
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_a_mode_change_is_written_at_once_as_wall_clock_time(
+    hass: HomeAssistant, hass_storage: dict
+) -> None:
+    """The record is the wall-clock time of the change, on disk without a shutdown."""
+    entry, _a, _b = await _setup_dwell(hass, changed_ago=None)
+    assert STORE_KEY.format(entry.entry_id) not in hass_storage  # nothing yet
+    before = dt_util.utcnow().timestamp()
+    await _flip_to_heat(hass, entry)
+    after = dt_util.utcnow().timestamp()
+    assert before <= _stored(hass_storage, entry) <= after
+
+
+@pytest.mark.parametrize(
+    ("passed", "held"), [(700, False), (400, True)], ids=["past", "part_way"]
+)
+async def test_restart_continues_the_hold_from_the_stored_change(
+    hass: HomeAssistant, hass_storage: dict, monkeypatch: pytest.MonkeyPatch,
+    passed: int, held: bool,
+) -> None:
+    """A Home Assistant restart times the hold from the stored change, as a reload does."""
+    entry, _a, _b = await _setup_dwell(hass)
+    await _flip_to_heat(hass, entry)
+    stored = _stored(hass_storage, entry)
+
+    jump_wall_clock(monkeypatch, passed)
+    await _set_temp(hass, SENSOR_A, HOT[False])  # wants the change back
+    await _restart(hass, entry)
+
+    plan = _plan(hass, entry)
+    if held:
+        assert plan.attributes["mode_change_allowed"] is False
+        assert plan.state == MODE_HEAT  # restored, and held there
+        since = plan.attributes["seconds_since_mode_change"]
+        assert passed <= since < passed + RESTAMP_TOLERANCE, since
+        assert _stored(hass_storage, entry) == stored  # nothing changed, nothing written
+    else:
+        assert plan.attributes["mode_change_allowed"] is True
+        assert plan.state == MODE_COOL  # changed back at once
+        await hass.async_block_till_done()  # its write is scheduled for the next turn
+        assert _stored(hass_storage, entry) > stored  # and that change was recorded
+
+
+# --- no record, a future record, an unreadable record -----------------------------
+
+
+async def test_fresh_install_does_not_wait_for_its_first_change(hass: HomeAssistant) -> None:
+    """No change on record: the first cool/heat decision goes through at once.
+
+    Negative control in the same run: that first change starts a full hold.
+    """
+    entry, _a, _b = await _setup_dwell(hass, changed_ago=None)
+    coord = entry.runtime_data
+    await _quiesce(hass, coord)
+    plan = _plan(hass, entry)
+    assert plan.attributes["seconds_since_mode_change"] is None
+    assert plan.attributes["mode_change_allowed"] is True
+    assert _hold(hass, entry) == (0, None)
+
+    await _set_temp(hass, SENSOR_A, COLD[False])
+    await _recompute(hass, entry)
+    assert _plan(hass, entry).state == MODE_HEAT  # no wait
+    remaining, _until = _hold(hass, entry)
+    assert DEFAULT_MODE_HYSTERESIS - RESTAMP_TOLERANCE < remaining <= DEFAULT_MODE_HYSTERESIS
+
+    await _set_temp(hass, SENSOR_A, HOT[False])
+    await _recompute(hass, entry)
+    plan = _plan(hass, entry)
+    assert (plan.state, plan.attributes["mode_change_allowed"]) == (MODE_HEAT, False)
+
+
+@pytest.mark.parametrize(
+    ("changed_ago", "low", "high"),
+    [
+        (-3600, 600 - RESTAMP_TOLERANCE, 600),  # an hour in the future: the full window
+        (-1, 600 - RESTAMP_TOLERANCE, 600),  # a second in the future: the same
+        (100, 500 - RESTAMP_TOLERANCE, 500),  # control: a past time is honoured
+    ],
+    ids=["hour_ahead", "second_ahead", "control_past"],
+)
+async def test_a_stored_time_in_the_future_holds_the_full_window_and_no_longer(
+    hass: HomeAssistant, changed_ago: float, low: float, high: float
+) -> None:
+    """A clock set back after the change: the stored time counts as now.
+
+    The hold is then the configured window from this start, never the window
+    plus however far ahead the stored time is.
+    """
+    entry, _a, _b = await _setup_dwell(hass, changed_ago=changed_ago)
+    coord = entry.runtime_data
+    assert low <= coord.mode_hold_remaining() <= high
+    remaining, _until = _hold(hass, entry)
+    assert low <= remaining <= high
+    await _quiesce(hass, coord)
+    await _set_temp(hass, SENSOR_A, COLD[False])
+    await _recompute(hass, entry)
+    assert _plan(hass, entry).state == MODE_COOL  # held either way
+    assert _plan(hass, entry).attributes["mode_change_allowed"] is False
+
+
+@pytest.mark.parametrize(
+    "data",
+    [{"last_mode_change": "yesterday"}, {"last_mode_change": None}, {}, ["x"]],
+    ids=["text", "null", "no_key", "not_a_dict"],
+)
+async def test_an_unreadable_record_holds_the_full_window(
+    hass: HomeAssistant, hass_storage: dict, caplog: pytest.LogCaptureFixture, data: object
+) -> None:
+    """A record that is there but unreadable is not a fresh install: full window, said once."""
+    hass_storage[STORE_KEY.format("badrecord")] = {"version": 1, "data": data}
+    entry, _a, _b = await _setup_dwell(hass, entry_id="badrecord", changed_ago=None)
+    coord = entry.runtime_data
+    remaining = coord.mode_hold_remaining()
+    assert DEFAULT_MODE_HYSTERESIS - RESTAMP_TOLERANCE < remaining <= DEFAULT_MODE_HYSTERESIS
+    assert caplog.text.count("stored time of the last mode change is unreadable") == 1
+
+
+# --- the thermostat attributes -----------------------------------------------------
+
+
+def _hold(hass: HomeAssistant, entry, room: str = "primary") -> tuple[int, str | None]:
+    attributes = hass.states.get(_eid(hass, entry, f"_{room}_thermostat")).attributes
+    return attributes["mode_change_hold_remaining"], attributes["mode_change_hold_until"]
+
+
+async def test_hold_attributes_show_the_gate_on_every_room(hass: HomeAssistant) -> None:
+    """While the gate holds: whole seconds left and the UTC end, the same on each room.
+
+    The values agree with the gate itself (``mode_change_allowed`` on the plan
+    computed at the same moment) and with each other (end = now + remaining).
+    """
+    entry, _a, _b = await _setup_dwell(hass, changed_ago=200)
+    coord = entry.runtime_data
+    await _quiesce(hass, coord)
+    await _set_temp(hass, SENSOR_A, COLD[False])
+    await _recompute(hass, entry)
+    assert _plan(hass, entry).attributes["mode_change_allowed"] is False
+
+    remaining, until = _hold(hass, entry)
+    assert isinstance(remaining, int)
+    assert 400 - RESTAMP_TOLERANCE < remaining <= 400
+    end = dt_util.parse_datetime(until)
+    assert end.utcoffset() == timedelta(0)  # UTC
+    expected = dt_util.utcnow() + timedelta(seconds=remaining)
+    assert abs((end - expected).total_seconds()) <= 2
+    assert _hold(hass, entry, "secondary") == (remaining, until)
+
+    # The gate opens with nothing waiting on it (the room is satisfied again).
+    await _set_temp(hass, SENSOR_A, NEUTRAL[False])
+    expire_dwell(coord)
+    await _recompute(hass, entry)
+    plan = _plan(hass, entry)
+    assert (plan.state, plan.attributes["mode_change_allowed"]) == (MODE_COOL, True)
+    assert _hold(hass, entry) == (0, None)
+    assert _hold(hass, entry, "secondary") == (0, None)
+
+
+async def test_no_hold_shows_zero_and_none(hass: HomeAssistant) -> None:
+    """A window of 0 never holds: 0 and None, before and after a change."""
+    entry, _a, _b = await _setup_dwell(hass, **{CONF_MODE_HYSTERESIS: 0})
+    assert _hold(hass, entry) == (0, None)
+    await _set_temp(hass, SENSOR_A, COLD[False])
+    await _recompute(hass, entry)
+    assert _plan(hass, entry).state == MODE_HEAT
+    assert _hold(hass, entry) == (0, None)
+
+
+async def test_the_hold_end_rewrites_the_attributes_and_decides_nothing(
+    hass: HomeAssistant,
+) -> None:
+    """At the end of the hold the thermostats are written again, with nothing else.
+
+    The control: aging the clock alone leaves the old countdown on screen, so
+    it is the hold-end wakeup that brings it to 0. It asks for no refresh and
+    commands no head.
+    """
+    entry, head_a, head_b = await _setup_dwell(hass, changed_ago=None)
+    coord = entry.runtime_data
+    await _quiesce(hass, coord)
+    await _set_temp(hass, SENSOR_A, COLD[False])
+    await _recompute(hass, entry)
+    assert _plan(hass, entry).state == MODE_HEAT
+    await _fire_due(hass, COAST_FOLLOWUP_DELAY + 1)  # drain the change's own follow-ups
+    await _settle_requested_refreshes(hass, coord)
+    shown = _hold(hass, entry)
+    assert shown[0] > 0
+
+    expire_dwell(coord)
+    await hass.async_block_till_done()
+    assert _hold(hass, entry) == shown  # nothing has written them yet
+
+    calls = _record_calls(hass)
+    with _count_refresh_requests(coord) as requests:
+        async_fire_time_changed(
+            hass, dt_util.utcnow() + timedelta(seconds=DEFAULT_MODE_HYSTERESIS + 2)
+        )
+        await hass.async_block_till_done()
+    assert _hold(hass, entry) == (0, None)
+    assert _hold(hass, entry, "secondary") == (0, None)
+    assert requests == []
+    assert _head_calls(calls, head_a) == [] and _head_calls(calls, head_b) == []
+    assert coord._hold_end_timer is None
+
+
+async def test_unload_cancels_the_hold_end_wakeup(hass: HomeAssistant) -> None:
+    entry, _a, _b = await _setup_dwell(hass)  # a change just now: the wakeup is armed
+    coord = entry.runtime_data
+    assert coord._hold_end_timer is not None
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert coord._hold_end_timer is None
+
+
+# --- a person's choice, and removing the entry -------------------------------------
+
+
+async def test_a_manual_shared_mode_choice_is_recorded_and_survives_a_reload(
+    hass: HomeAssistant, hass_storage: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Picking the other direction is a real change: stored, and held after a reload."""
+    entry, _a, _b = await _setup_dwell(hass, changed_ago=None)
+    await _quiesce(hass, entry.runtime_data)
+    before = dt_util.utcnow().timestamp()
+    await hass.services.async_call(
+        "select", "select_option",
+        {"entity_id": _eid(hass, entry, "_shared_mode"), "option": MODE_HEAT},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert _stored(hass_storage, entry) >= before
+
+    jump_wall_clock(monkeypatch, 100)
+    await _set_temp(hass, SENSOR_A, HOT[False])  # wants cool
+    await _reload(hass, entry)
+    plan = _plan(hass, entry)
+    assert (plan.state, plan.attributes["mode_change_allowed"]) == (MODE_HEAT, False)
+    remaining, _until = _hold(hass, entry)
+    assert 500 - RESTAMP_TOLERANCE < remaining <= 500
+
+
+async def test_removing_the_entry_deletes_its_record(
+    hass: HomeAssistant, hass_storage: dict
+) -> None:
+    """A removed entry leaves no record behind (#7: no previous install's values)."""
+    entry, _a, _b = await _setup_dwell(hass)
+    assert STORE_KEY.format(entry.entry_id) in hass_storage
+    await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+    assert STORE_KEY.format(entry.entry_id) not in hass_storage
+    assert entry.entry_id not in hass.data.get("mxz_coordinator_mode_change_stores", {})

@@ -62,7 +62,7 @@ from custom_components.mxz_coordinator.logic import (
     arbitrate,
     shared_mode,
 )
-from tests.dwell import assert_restamped, expire_dwell
+from tests.dwell import assert_restamped, expire_dwell, record_mode_change
 from tests.flow_pages import default, open_options_page, prefilled, submit
 from tests.restore_store import replace_stored_state, stored_state
 from tests.test_drive import (
@@ -137,6 +137,10 @@ async def _setup(
         data[CONF_MODE_HYSTERESIS] = hysteresis
     entry = MockConfigEntry(domain=DOMAIN, title="MXZ Coordinator", data=data, version=2)
     entry.add_to_hass(hass)
+    if hysteresis is None:
+        # The default wait runs, and holds from the start: the setup finds a
+        # mode change stored just before it.
+        await record_mode_change(hass, entry.entry_id)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     for suffix in enable:

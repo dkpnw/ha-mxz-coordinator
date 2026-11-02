@@ -234,6 +234,7 @@ async def test_stale_priority_loss_preserves_opposite_mode_dwell(
         hass,
         freezer,
         primary={ZONE_REPORT_INTERVAL: 1},
+        changed_ago=0.0,  # the mode was set just now: the dwell runs from setup
         **{CONF_MODE_HYSTERESIS: 600},
     )
     c = entry.runtime_data
