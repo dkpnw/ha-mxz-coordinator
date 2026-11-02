@@ -15,6 +15,29 @@ class MXZEntity(Entity):
     _attr_has_entity_name = True
     _attr_should_poll = False
 
+    # How many times Home Assistant has added this object. A restart and a
+    # config entry reload build new objects, so they are always on their
+    # first add. HA adds the SAME object again only when its entity ID is
+    # changed and it removes and re-adds the entity to rename it, which it
+    # does for MXZ on every release up to 2027.11.
+    _adds = 0
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._adds += 1
+
+    @property
+    def _readded(self) -> bool:
+        """True on the re-add of a rename: this object, and its room, never stopped.
+
+        Its values and the coordinator's memory are current, so the add hooks
+        restore and seed nothing; restored data could only be older (or, on HA
+        before 2026.11, missing under the new ID), and seeding as restored
+        would act as an HA start. They still register their listeners, which
+        the removal unsubscribed.
+        """
+        return self._adds > 1
+
     def _restored_state_is_stale(self, last_state) -> bool:
         """True if a restored state predates this config entry.
 
