@@ -68,16 +68,20 @@ class MXZSharedModeSelect(MXZEntity, SelectEntity, RestoreEntity):
         self._attr_current_option = MODE_COOL
 
     async def async_added_to_hass(self) -> None:
-        """Restore last mode (resting mode) and seed the coordinator."""
+        """Restore last mode (resting mode) and seed the coordinator.
+
+        A rename's re-add leaves the coordinator's mode alone (see ``_readded``).
+        """
         await super().async_added_to_hass()
-        last = await self.async_get_last_state()
-        if last is not None and not self._restored_state_is_stale(last):
-            if last.state in _OPTIONS:
-                self._attr_current_option = last.state
-            elif last.state in _LEGACY_OPTIONS:
-                self._attr_current_option = _LEGACY_OPTIONS[last.state]
-                self._explain_dropped_option(last.state)
-        self.coordinator.current_shared_mode = self._attr_current_option
+        if not self._readded:
+            last = await self.async_get_last_state()
+            if last is not None and not self._restored_state_is_stale(last):
+                if last.state in _OPTIONS:
+                    self._attr_current_option = last.state
+                elif last.state in _LEGACY_OPTIONS:
+                    self._attr_current_option = _LEGACY_OPTIONS[last.state]
+                    self._explain_dropped_option(last.state)
+            self.coordinator.current_shared_mode = self._attr_current_option
         self.async_on_remove(self.coordinator.async_add_listener(self._sync))
 
     def _explain_dropped_option(self, stored: str) -> None:

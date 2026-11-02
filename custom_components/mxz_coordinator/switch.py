@@ -151,9 +151,13 @@ class MXZBaseSwitch(MXZEntity, SwitchEntity, RestoreEntity):
 
         Restores from a PREVIOUS entry incarnation are ignored (#7) — the
         dangerous case is a deleted entry's kill-switch ON resurrecting onto a
-        freshly re-added entry.
+        freshly re-added entry. A rename's re-add neither restores nor seeds:
+        seeding as restored would mark the coordinator and its rooms as
+        resuming from an HA start (see ``_readded``).
         """
         await super().async_added_to_hass()
+        if self._readded:
+            return
         if (
             last := await self.async_get_last_state()
         ) is not None and not self._restored_state_is_stale(last):
@@ -237,11 +241,12 @@ class MXZZoneEnableSwitch(MXZBaseSwitch):
 
         Only for a room restored disabled from THIS entry (#7), still opted in
         (hands-off) or still setting that floor: anything else parks, as a
-        newly disabled room does, and its floor decides afresh.
+        newly disabled room does, and its floor decides afresh. A rename's
+        re-add restores neither (see ``_readded``).
         """
         await super().async_added_to_hass()
         floor = self._zone.floor_low is not None or self._zone.floor_high is not None
-        if self._attr_is_on or not (self._zone.hands_off or floor):
+        if self._readded or self._attr_is_on or not (self._zone.hands_off or floor):
             return
         last = await self.async_get_last_state()
         if last is None or self._restored_state_is_stale(last) or last.state != "off":
@@ -329,10 +334,14 @@ class MXZZoneFanAutoSwitch(
         memory rode along in extra restore data, which HA stores whatever the
         state says. Either way what comes back is the pre-restart hold, so a
         hold the user released restores as released and is never resurrected.
+
+        A rename's re-add hands nothing over (see ``_readded``): the
+        coordinator's live hold and echo memory are current, and a restored
+        hold would be reconciled again as if after a restart.
         """
         await super().async_added_to_hass()
-        last = await self.async_get_last_state()
         cid = self._zone.climate_id
+        last = None if self._readded else await self.async_get_last_state()
         if last is not None and self._restored_state_is_stale(last):
             self.coordinator._fan_restore_problem[cid] = "Previous fan hold belongs to an older entry."
         if last is not None and not self._restored_state_is_stale(last):

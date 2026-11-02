@@ -32,18 +32,31 @@ The in-place path is the one that can catch a 2027.11 break: an add hook that
 caches ``self.entity_id`` for a later lookup goes stale when the ID changes in
 place, while the fallback re-runs the hook and refreshes the cache.
 
-Two tests also assert that a rename changes nothing else, and the fallback
-fails both, so they are strict xfails on the paths where the gap exists:
+Further tests assert that a rename changes nothing else: every state and
+attribute, every room value, the coordinator's plain-data memory, and a run
+parked by a shared-mode mismatch still resumes. The fallback re-runs the add
+hooks on the same, already-running object, and they used to act as on a
+start, which these tests found:
 
-* gap A, HA before 2026.11 only: restore data is stored under the old entity
-  ID, so the re-added target number finds none and re-seeds the room's target
+* gap A, HA before 2026.11: restore data is stored under the old entity ID,
+  so the re-added target number found none and re-seeded the room's target
   from the head's setpoint.
-* gap B, every HA that re-adds MXZ (until 2027.11): the re-added enable
-  switches seed as restored, which marks the rooms as resuming from startup,
-  and a run parked by a shared-mode mismatch is re-seeded from the parked head
-  and forgotten.
+* gap B, every HA that re-adds MXZ: the re-added enable switches seeded as
+  restored, which marked the rooms as resuming from startup (and the
+  coordinator as restored on), and a parked run was re-seeded from the
+  parked head and forgotten.
+* on HA 2026.11 and later, the re-added Fan auto switches handed their
+  stored hold back to the coordinator as a restart's, to be reconciled again.
+* on HA before 2026.11, renaming back to an earlier ID restored what the
+  first rename had stored under it: older values, and an old hands-off
+  release over a park still to land.
+* on every HA that re-adds MXZ, the re-added select wrote its own mode into
+  the coordinator, even when the coordinator had moved on and the select had
+  not redrawn yet.
 
-The in-place path has neither: the add hooks do not run again.
+The add hooks now restore and seed only on an object's first add
+(``MXZEntity._readded``); a re-add only registers listeners again. A restart
+and a config entry reload build new objects, and still restore.
 
 The plugin ``tools.pytest_phases`` counts any skip as a failed run, so a path
 HA does not have is not collected rather than skipped;
@@ -53,6 +66,7 @@ ever stop matching the running HA.
 
 from __future__ import annotations
 
+import copy
 import logging
 from collections import Counter
 from datetime import timedelta
@@ -90,13 +104,17 @@ from tests.dwell import expire_dwell
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
+    _eid,
     _recompute,
     _set_temp,
     _setup_mock_heads,
     _user_set_fan,
 )
 from tests.test_dual_setpoint import _call, _setup, _start, _zone
+from tests.test_hands_off import _remote
+from tests.test_hands_off import _setup as _setup_hands_off
 from tests.test_registry_lifecycle import _restart
+from tests.test_startup_continuity import _switch
 
 HAS_HOOK = hasattr(Entity, "async_entity_id_changed")
 # HA before 2026.11 always re-adds; 2026.11 up to 2027.11 re-adds a custom
@@ -108,32 +126,6 @@ PATHS = [p for p, has in (("readd", HAS_READD), ("in_place", HAS_HOOK)) if has]
 # so an entity re-added under a new ID finds none. 2026.11 keys it by registry
 # entry (RestoreStateData.async_get_stored_state).
 RESTORE_BY_ENTITY_ID = not hasattr(rs.RestoreStateData, "async_get_stored_state")
-
-# Gaps of the remove + re-add fallback, found by these tests and left for a
-# product change (this module changes no product code). Strict: a fix turns
-# them into XPASS, which fails until the mark is removed.
-GAP_A = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Rename gap A: on HA before 2026.11 the re-added target number finds no "
-        "restore data under its new ID and re-seeds the room's target from the "
-        "head's setpoint"
-    ),
-)
-GAP_B = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Rename gap B: the re-added enable switches seed as restored, which marks "
-        "every room as resuming from startup, and a run parked by a shared-mode "
-        "mismatch is re-seeded from the parked head and forgotten"
-    ),
-)
-
-
-def _params(gap: pytest.MarkDecorator, has_gap) -> list:
-    """PATHS, with ``gap`` marked on each path ``has_gap(path)`` is true for."""
-    return [pytest.param(p, marks=gap) if has_gap(p) else p for p in PATHS]
-
 
 # Every entity a setup with these two rooms (Living dual, Bedroom single) owns:
 # unique ID suffix -> domain. A missing or extra entity fails the test, so a
@@ -263,6 +255,17 @@ async def _rename_all(
     assert new == {key: f"{eid.split('.', 1)[0]}.renamed_{eid.split('.', 1)[1]}"
                    for key, eid in old.items()}
     return old, new, spy
+
+
+async def _rename_to(
+    hass: HomeAssistant, entry: MockConfigEntry, target: dict[str, str]
+) -> None:
+    """Rename each entity of the entry to ``target[key]``, one by one."""
+    registry = er.async_get(hass)
+    for key, eid in _ids(hass, entry).items():
+        registry.async_update_entity(eid, new_entity_id=target[key])
+        await hass.async_block_till_done()
+    assert _ids(hass, entry) == target
 
 
 def _assert_path(path: str, spy: _Spy, old: dict[str, str]) -> None:
@@ -429,9 +432,7 @@ async def test_rename_keeps_every_entity_working(
     assert _problems(caplog) == []
 
 
-@pytest.mark.parametrize(
-    "path", _params(GAP_A, lambda p: p == "readd" and RESTORE_BY_ENTITY_ID)
-)
+@pytest.mark.parametrize("path", PATHS)
 async def test_rename_keeps_every_value(
     hass: HomeAssistant,
     monkeypatch: pytest.MonkeyPatch,
@@ -463,7 +464,7 @@ async def test_rename_keeps_every_value(
     assert _problems(caplog) == []
 
 
-@pytest.mark.parametrize("path", _params(GAP_B, lambda p: p == "readd"))
+@pytest.mark.parametrize("path", PATHS)
 async def test_rename_keeps_a_parked_run(
     hass: HomeAssistant,
     monkeypatch: pytest.MonkeyPatch,
@@ -567,3 +568,259 @@ async def test_renamed_values_survive_a_restart(
     assert coordinator.current_shared_mode == "heat"
     assert coordinator.coordinator_enable is True
     assert _problems(caplog) == []
+
+
+# Plain data in the coordinator's and the rooms' memory: what a rename must
+# leave exactly as it was. HA's own count of listeners ever added is not
+# memory MXZ keeps, and a re-add adds every listener again.
+_NOT_MEMORY = {"_last_listener_id"}
+_PLAIN = (bool, int, float, str, type(None))
+
+
+def _plain(value) -> bool:
+    if isinstance(value, _PLAIN):
+        return True
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return all(_plain(item) for item in value)
+    if isinstance(value, dict):
+        return all(_plain(k) and _plain(v) for k, v in value.items())
+    return False
+
+
+def _memory(obj) -> dict:
+    return {
+        key: copy.deepcopy(value)
+        for key, value in vars(obj).items()
+        if key not in _NOT_MEMORY and _plain(value)
+    }
+
+
+def _listeners(coordinator) -> Counter:
+    """Who listens to the coordinator: each callback's owner and function."""
+    def who(callback) -> tuple:
+        return (id(getattr(callback, "__self__", None)), getattr(callback, "__func__", callback))
+
+    return Counter(
+        [who(cb) for cb, _ in coordinator._listeners.values()]
+        + [("delivery", *who(cb)) for cb in coordinator._delivery_listeners]
+        + [("fan", cid, *who(cb)) for cid, cb in coordinator._fan_state_writers.items()]
+    )
+
+
+async def _held_and_running(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, path: str
+) -> tuple[MockConfigEntry, tuple[str, str]]:
+    """Both rooms running, turned on live, with a fan held by hand on the Bedroom head."""
+    entry, heads = await _setup_renamable(hass, monkeypatch, path)
+    await _user_set_fan(hass, heads[1], "low")
+    await _recompute(hass, entry)
+    coordinator = entry.runtime_data
+    assert coordinator.fan_auto_is_on(heads[1]) is False
+    # Turned on live, not restored: no restart continuity to act on.
+    assert coordinator._restored_coordinator_on is False
+    assert coordinator._startup_resume == {}
+    return entry, heads
+
+
+@pytest.mark.parametrize("path", PATHS)
+async def test_rename_keeps_the_coordinator_memory(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    path: str,
+) -> None:
+    """A rename leaves the coordinator's and every room's memory exactly as it was.
+
+    Including what only a restart may set: the coordinator restored on, rooms
+    resuming from a start, a fan hold awaiting reconciliation. And every
+    listener the removal unsubscribed is registered again, once.
+    """
+    entry, _ = await _held_and_running(hass, monkeypatch, path)
+    coordinator = entry.runtime_data
+    memory = _memory(coordinator)
+    rooms = [_memory(zone) for zone in coordinator.zones]
+    listeners = _listeners(coordinator)
+    assert listeners and all(count == 1 for count in listeners.values())
+    caplog.clear()
+
+    old, _, spy = await _rename_all(hass, entry, monkeypatch)
+
+    _assert_path(path, spy, old)
+    assert entry.runtime_data is coordinator
+    after = _memory(coordinator)
+    assert {k: (memory.get(k), after.get(k)) for k in memory.keys() | after.keys()
+            if memory.get(k) != after.get(k)} == {}
+    assert [_memory(zone) for zone in coordinator.zones] == rooms
+    assert _listeners(coordinator) == listeners
+    assert _problems(caplog) == []
+
+
+@pytest.mark.parametrize("path", PATHS)
+async def test_listeners_fire_after_a_rename(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """Each re-registered listener redraws its entity under the new ID."""
+    entry, (head_a, head_b) = await _held_and_running(hass, monkeypatch, path)
+    coordinator = entry.runtime_data
+    living, bedroom = _zone(entry, 0), _zone(entry, 1)
+    _, new, _ = await _rename_all(hass, entry, monkeypatch)
+
+    # Coordinator listeners: the select, the drift number (a follower redraws
+    # when the global moves), and the range numbers and target midpoint when
+    # the range moves under them.
+    assert bedroom.drift is None
+    drift = coordinator.engage_deadband + 1
+    coordinator.engage_deadband = drift
+    coordinator.current_shared_mode = "heat"
+    coordinator.set_zone_range(living, living.target_low - 1, living.target_high + 1)
+    await hass.async_block_till_done()
+    assert hass.states.get(new["shared_mode"]).state == "heat"
+    assert float(hass.states.get(new["secondary_drift"]).state) == drift
+    assert float(hass.states.get(new["primary_target_low"]).state) == living.target_low
+    assert float(hass.states.get(new["primary_target_high"]).state) == living.target_high
+    assert float(hass.states.get(new["primary_target"]).state) == living.target
+
+    # The Fan auto switch's writer, through the coordinator, and its head tracker.
+    await _call(hass, "switch", "turn_on", {"entity_id": new["secondary_fan_auto"]})
+    assert hass.states.get(new["secondary_fan_auto"]).state == "on"
+    coordinator._fan_latched[head_b] = True
+    coordinator._publish_fan_state(head_b)
+    assert hass.states.get(new["secondary_fan_auto"]).state == "off"
+    hass.states.async_set(head_a, hass.states.get(head_a).state,
+                          {**hass.states.get(head_a).attributes, "fan_mode": None})
+    await hass.async_block_till_done()
+    assert hass.states.get(new["primary_fan_auto"]).attributes["fan_control_reason"]
+
+
+@pytest.mark.parametrize("path", PATHS)
+async def test_reload_after_a_rename_still_restores(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """A reload builds new entities, and those restore and seed as on any start.
+
+    The rename's "do not restore" applies to the object HA re-adds, never to
+    an entry's next start: the coordinator restores on, its rooms resume, the
+    fan hold is handed back, under the new IDs.
+    """
+    entry, (_, head_b) = await _held_and_running(hass, monkeypatch, path)
+    _, new, _ = await _rename_all(hass, entry, monkeypatch)
+    await _call(hass, "number", "set_value", {"entity_id": new["secondary_target"], "value": 66})
+    old_coordinator = entry.runtime_data
+    old_entities = {key: _entity(hass, eid) for key, eid in new.items()}
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    coordinator = entry.runtime_data
+    assert coordinator is not old_coordinator
+    assert _ids(hass, entry) == new
+    for key, eid in new.items():
+        assert _entity(hass, eid) is not old_entities[key], key
+    assert _zone(entry, 1).target == 66
+    assert coordinator.coordinator_enable is True
+    assert coordinator._restored_coordinator_on is True
+    assert coordinator.fan_auto_is_on(head_b) is False
+
+
+@pytest.mark.parametrize("path", PATHS)
+async def test_rename_keeps_a_mode_the_select_has_not_drawn_yet(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """The coordinator's mode wins over the select's, which only redraws on its next update.
+
+    The coordinator sets its shared mode during a compute and tells its
+    listeners after it. A rename in between must not write the select's
+    older mode back into the coordinator.
+    """
+    entry, _ = await _setup_renamable(hass, monkeypatch, path)
+    coordinator = entry.runtime_data
+    assert hass.states.get(_ids(hass, entry)["shared_mode"]).state == "cool"
+    coordinator.current_shared_mode = "heat"
+
+    _, new, _ = await _rename_all(hass, entry, monkeypatch)
+
+    assert coordinator.current_shared_mode == "heat"
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+    assert hass.states.get(new["shared_mode"]).state == "heat"
+
+
+@pytest.mark.parametrize("path", PATHS)
+async def test_renaming_back_keeps_the_current_values(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    path: str,
+) -> None:
+    """Renamed back to the original IDs, every entity keeps what was set since.
+
+    Before HA 2026.11 the first rename stored each entity's data under its
+    original ID, so a re-add under that ID finds data older than the
+    entity's current value.
+    """
+    entry, (_, head_b) = await _setup_renamable(hass, monkeypatch, path)
+    coordinator = entry.runtime_data
+    living, bedroom = _zone(entry, 0), _zone(entry, 1)
+    # What the first rename stores under the original IDs: other values than
+    # the ones set after it.
+    ids = _ids(hass, entry)
+    await _call(hass, "number", "set_value", {"entity_id": ids["secondary_target"], "value": 64})
+    await _call(hass, "number", "set_value", {"entity_id": ids["secondary_drift"], "value": 2})
+    original, new, _ = await _rename_all(hass, entry, monkeypatch)
+    await _call(hass, "number", "set_value", {"entity_id": new["secondary_target"], "value": 66})
+    await _call(hass, "number", "set_value", {"entity_id": new["secondary_drift"], "value": 3})
+    await _call(hass, "climate", "set_temperature",
+                {"entity_id": new["primary_thermostat"],
+                 "target_temp_low": 64, "target_temp_high": 76})
+    await _call(hass, "switch", "turn_off", {"entity_id": new["secondary_enable"]})
+    await _call(hass, "switch", "turn_off", {"entity_id": new["secondary_fan_auto"]})
+    await _call(hass, "switch", "turn_on", {"entity_id": new["eco_idle"]})
+    await _call(hass, "select", "select_option",
+                {"entity_id": new["shared_mode"], "option": "heat"})
+    memory = _memory(coordinator)
+    rooms = [_memory(zone) for zone in coordinator.zones]
+    caplog.clear()
+
+    await _rename_to(hass, entry, original)
+
+    _assert_only_new_ids(hass, new, original)
+    assert (bedroom.target, bedroom.drift, bedroom.enable) == (66, 3, False)
+    assert (living.target_low, living.target_high) == (64, 76)
+    assert coordinator.fan_auto_is_on(head_b) is False
+    assert coordinator.eco_idle is True
+    assert coordinator.current_shared_mode == "heat"
+    assert _memory(coordinator) == memory
+    assert [_memory(zone) for zone in coordinator.zones] == rooms
+    assert _problems(caplog) == []
+
+
+@pytest.mark.parametrize("path", PATHS)
+async def test_renaming_back_keeps_a_fresh_park(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """A hands-off room disabled again since the first rename still parks.
+
+    Its first park landed before the first rename, so that rename stored the
+    room as released under the original IDs. Re-enabled and disabled since,
+    the room has a new park to land, and renaming back must not bring the
+    old release back.
+    """
+    _use_path(monkeypatch, path)
+    entry, _, head_b = await _setup_hands_off(hass, hands_off=(False, True))
+    coordinator = entry.runtime_data
+    await _remote(hass, head_b, "heat")
+    await _switch(hass, _eid(hass, entry, "_secondary_enable"), False)
+    await _recompute(hass, entry)
+    assert hass.states.get(head_b).state == "off"
+    assert coordinator.hands_off_released("secondary") is True
+    original, new, _ = await _rename_all(hass, entry, monkeypatch)
+    await _switch(hass, new["secondary_enable"], True)
+    await _remote(hass, head_b, "heat")
+    await _switch(hass, new["secondary_enable"], False)
+    assert coordinator.hands_off_released("secondary") is False
+
+    await _rename_to(hass, entry, original)
+
+    assert coordinator.hands_off_released("secondary") is False
+    await _recompute(hass, entry)
+    assert hass.states.get(head_b).state == "off"

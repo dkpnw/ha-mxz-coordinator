@@ -111,8 +111,12 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
 
         A room just switched back from a dual setpoint takes the options
         flow's handoff instead: the range's snapped midpoint.
+
+        A rename's re-add keeps the target it holds (see ``_readded``).
         """
         await super().async_added_to_hass()
+        if self._readded:
+            return
         last_state = await self.async_get_last_state()
         if (handoff := self._zone.handoff) is not None and "target" in handoff:
             self._attr_native_value = handoff["target"]
@@ -226,12 +230,14 @@ class MXZDriftNumber(MXZEntity, RestoreNumber):
         state is just yesterday's global, and writing it back would freeze the
         room on a copy. A restored value is clamped into the profile bounds
         (hand-edited or pre-upgrade values bypass the UI). zone.drift stays
-        None otherwise, so the room follows the GLOBAL drift live.
+        None otherwise, so the room follows the GLOBAL drift live. A rename's
+        re-add keeps the room's drift as it is (see ``_readded``).
         """
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
         if (
-            not self._restored_state_is_stale(last_state)
+            not self._readded
+            and not self._restored_state_is_stale(last_state)
             and last_state is not None
             and last_state.attributes.get("override")
             and (last := await self.async_get_last_number_data())
@@ -392,7 +398,7 @@ class MXZRangeNumber(MXZEntity, RestoreNumber):
         target at the minimum gap. The coordinator then re-checks the pair
         against the current bounds (``finish_range_restore``). A number added
         when the room is switched on in place finds the range already seeded
-        and restores nothing.
+        and restores nothing. Nor does a rename's re-add: its range is set.
         """
         await super().async_added_to_hass()
         zone = self._zone
