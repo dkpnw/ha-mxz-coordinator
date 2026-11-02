@@ -11,6 +11,10 @@ updates:
           - "*"
   - package-ecosystem: pip
     directory: /
+    # The per-lane HA constraint files are exact locks pinned by sha256 in CI;
+    # they are regenerated deliberately, never bumped by Dependabot.
+    exclude-paths:
+      - "requirements/**"
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
