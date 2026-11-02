@@ -135,11 +135,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # runs: the full-suite passes this job owns. py3.14 is the slowest lane, so
-        # its two passes run as two parallel jobs on the same lock.
+        # runs: the full-suite passes this job owns. py3.12 and py3.14 are the
+        # slowest lanes, so each runs its two passes as two parallel jobs on the
+        # same lock; py3.13 keeps both in one job.
         include:
           - lane: py3.12-ha2024.12.0
-            runs: suite fakeboot
+            runs: suite
+            python-version: "3.12.14"
+            constraints: requirements/constraints-py312-ha2024.12.0.txt
+            sha256: 0d0031ddca8bb870560ca4d4bcafd34233e23e9dd6f0470dc31f7bd888eb7403
+          - lane: py3.12-ha2024.12.0-fakeboot
+            runs: fakeboot
             python-version: "3.12.14"
             constraints: requirements/constraints-py312-ha2024.12.0.txt
             sha256: 0d0031ddca8bb870560ca4d4bcafd34233e23e9dd6f0470dc31f7bd888eb7403

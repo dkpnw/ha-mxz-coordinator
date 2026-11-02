@@ -69,11 +69,14 @@ SUITE_STEPS = {"suite": "Full retained suite", "fakeboot": "Full suite on a fres
 # The only ownership values the export accepts, and the runs each one owns.
 OWNED_RUNS = {"suite fakeboot": ("suite", "fakeboot"), "suite": ("suite",), "fakeboot": ("fakeboot",)}
 MATRIX_KEYS = {"lane", "runs", "python-version", "constraints", "sha256"}
-# py3.14 is split; the earlier two lanes keep both runs in one job.
+# py3.12 and py3.14 are each split into two jobs; py3.13 keeps both runs in one job.
 LANE_RUNS = [
-    ("py3.12-ha2024.12.0", "suite fakeboot"), ("py3.13-ha2026.2.3", "suite fakeboot"),
+    ("py3.12-ha2024.12.0", "suite"), ("py3.12-ha2024.12.0-fakeboot", "fakeboot"),
+    ("py3.13-ha2026.2.3", "suite fakeboot"),
     ("py3.14-ha2026.9.0", "suite"), ("py3.14-ha2026.9.0-fakeboot", "fakeboot"),
 ]
+# Each lane and the number of jobs its two runs are spread across.
+LANE_JOBS = {"py3.12-ha2024.12.0": 2, "py3.13-ha2026.2.3": 1, "py3.14-ha2026.9.0": 2}
 EXPORT_OWNERSHIP = '''case "${OWNED_RUNS:-}" in
   'suite fakeboot') runs=(suite fakeboot) ;;
   suite) runs=(suite) ;;
@@ -124,6 +127,16 @@ def fresh_boot_violations(job):
     # Three locks; each runs the suite and the fresh-boot suite exactly once.
     if len(by_lock) != 3 or any(sorted(runs) != ["fakeboot", "suite"] for runs in by_lock.values()):
         return ["suite lane ownership"]
+    # A split lane's jobs share that lane's one lock, and no two lanes share a lock,
+    # so swapping the locks of two split lanes' fresh-boot jobs is refused too.
+    by_lane = {}
+    for entry in include:
+        lock = (entry["python-version"], entry["constraints"], entry["sha256"])
+        by_lane.setdefault(entry["lane"].removesuffix("-fakeboot"), []).append(lock)
+    if ({lane: len(locks) for lane, locks in by_lane.items()} != LANE_JOBS
+            or any(len(set(locks)) != 1 for locks in by_lane.values())
+            or len({locks[0] for locks in by_lane.values()}) != len(by_lane)):
+        return ["suite lane ownership"]
     return []
 
 
@@ -153,6 +166,9 @@ def test_declared_ci_boundary(workflow):
     "export-all-runs", "export-all-logs", "export-ownership-unread", "export-accepts-any-runs",
     "lane-merged", "lane-fakeboot-dropped", "lane-suite-only", "lane-unknown-runs",
     "lane-runs-missing", "lane-lock-changed", "lane-renamed", "lane-extra-key",
+    "lane-py312-merged", "lane-py312-fakeboot-dropped", "lane-py312-suite-only",
+    "lane-py312-renamed", "lane-py312-lock-changed", "lane-py312-both-own-all",
+    "lane-split-locks-swapped",
     "job-time-old", "job-time-longer", "job-time-missing",
 ])
 def test_weakened_ci_boundary_rejects(workflow, change):
@@ -191,22 +207,41 @@ def test_weakened_ci_boundary_rejects(workflow, change):
         assert violations(bad) == ["pytest job time limit"]
         return
     if change.startswith("lane-"):
-        py314, fresh = include[2], include[3]
+        py312, py312_fresh, py313, py314, fresh = include
         if change == "lane-merged":
             py314["runs"] = "suite fakeboot"
             include.remove(fresh)
         elif change == "lane-fakeboot-dropped":
             include.remove(fresh)
         elif change == "lane-suite-only":
-            include[0]["runs"] = "suite"
+            py313["runs"] = "suite"
         elif change == "lane-unknown-runs":
             fresh["runs"] = "fakeboot extra"
         elif change == "lane-runs-missing":
-            del include[1]["runs"]
+            del py313["runs"]
         elif change == "lane-lock-changed":
-            fresh["sha256"] = include[1]["sha256"]
+            fresh["sha256"] = py313["sha256"]
         elif change == "lane-renamed":
             py314["lane"] = "py3.14-ha2026.9.0-suite"
+        elif change == "lane-py312-merged":
+            py312["runs"] = "suite fakeboot"
+            include.remove(py312_fresh)
+        elif change == "lane-py312-fakeboot-dropped":
+            include.remove(py312_fresh)
+        elif change == "lane-py312-suite-only":
+            py312_fresh["runs"] = "suite"
+        elif change == "lane-py312-renamed":
+            py312_fresh["lane"] = "py3.12-ha2024.12.0-fresh"
+        elif change == "lane-py312-lock-changed":
+            py312_fresh["sha256"] = py313["sha256"]
+        elif change == "lane-py312-both-own-all":
+            py312["runs"] = py312_fresh["runs"] = "suite fakeboot"
+        elif change == "lane-split-locks-swapped":
+            # Each lock still runs both passes once, but each on another lane's job.
+            keys = ("python-version", "constraints", "sha256")
+            swapped = {key: py312_fresh[key] for key in keys}
+            py312_fresh.update({key: fresh[key] for key in keys})
+            fresh.update(swapped)
         else:
             fresh["cache"] = "pip"
         assert violations(bad) == ["suite lane ownership"]
@@ -479,7 +514,7 @@ esac
     assert export["if"] == "always()"
     suite = next(s["run"] for s in steps if s.get("name") == "Full retained suite")
     assert export["env"] == {"OWNED_RUNS": "${{ matrix.runs }}"}
-    # A job owning both runs, as py3.12/py3.13 do; split ownership is tested separately.
+    # A job owning both runs, as py3.13 does; split ownership is tested separately.
     env = {"PATH": f"{bin_dir}:{os.defpath}", "RUNNER_TEMP": str(root), "OWNED_RUNS": "suite fakeboot"}
     return root, bin_dir, env, suite, export["run"]
 
@@ -519,7 +554,7 @@ def test_pytest_job_limit_covers_owned_watchdogs(workflow):
     ("success-oversize", 0), ("failure-oversize", 1),
 ])
 def test_actual_suite_exit_survives_export(suite_export, workflow, run, outcome, expected, owner):
-    """``both``: a py3.12/py3.13 job. ``split``: a py3.14 job owning this run alone,
+    """``both``: a py3.13 job. ``split``: a py3.12 or py3.14 job owning this run alone,
     with no evidence at all from the other run."""
     root, bin_dir, env, _suite, export = suite_export
     name, argv, uptime = SUITE_RUNS[run]
@@ -729,7 +764,7 @@ def test_actual_export_rejects_invalid_or_incomplete_fresh_boot_evidence(suite_e
     "missing-install", "missing-sentinel", "dirty-tree", "untracked-file", "fakeboot-clock",
 ])
 def test_actual_split_export_requires_owned_evidence(suite_export, run, fault):
-    """A py3.14 job owning one run still needs that run's exit and log, the install
+    """A py3.12 or py3.14 job owning one run still needs that run's exit and log, the install
     and sentinel logs, and every check on them; the other run is not required."""
     root, bin_dir, env, _suite, export = suite_export
     other = "suite" if run == "fakeboot" else "fakeboot"
@@ -971,11 +1006,22 @@ def test_recovery_route_actual_guards(workflow, case, event, ref, head, base, at
     floor_steps = jobs['pytest']['steps']
     lanes = [entry['lane'] for entry in jobs['pytest']['strategy']['matrix']['include']]
     assert lanes == [lane for lane, _runs in LANE_RUNS]
+    names = [step.get('name') for step in floor_steps]
+    admission = ('Exact admission comparison objects', 'Six exported setup controls')
+    # Setup controls run once, in the floor lane's suite job, before its full suite;
+    # the floor lane's separate fresh-boot job and every other job never run them.
+    assert [n for n in names if n in admission] == list(admission)
+    assert names.index(admission[-1]) < names.index('Full retained suite')
+    runs = dict(LANE_RUNS)
     for step in floor_steps:
-        if step.get('name') in ('Six exported setup controls', 'Exact admission comparison objects'):
+        if step.get('name') in admission:
             for lane in lanes:
                 expression = step['if'].replace('matrix.lane', repr(lane))
                 assert admitted(expression, context) is (case == 'A3-push' and lane == 'py3.12-ha2024.12.0')
+            selected_lanes = [lane for lane in lanes
+                              if admitted(step['if'].replace('matrix.lane', repr(lane)), context)]
+            assert selected_lanes == (['py3.12-ha2024.12.0'] if case == 'A3-push' else [])
+            assert all(runs[lane] == 'suite' for lane in selected_lanes)
     guard = jobs['pytest' if ordinary else 'issue25']['steps'][0]['run']
     env = {'GITHUB_EVENT_NAME': event, 'GITHUB_REF': ref, 'GITHUB_HEAD_REF': head, 'GITHUB_BASE_REF': base,
            'GITHUB_RUN_ATTEMPT': str(attempt), 'GITHUB_SHA': 'a' * 40, 'REPOSITORY_PRIVATE': 'false',
