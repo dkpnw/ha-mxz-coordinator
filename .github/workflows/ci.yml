@@ -133,16 +133,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # runs: the full-suite passes this job owns. py3.14 is the slowest lane, so
+        # its two passes run as two parallel jobs on the same lock.
         include:
           - lane: py3.12-ha2024.12.0
+            runs: suite fakeboot
             python-version: "3.12.14"
             constraints: requirements/constraints-py312-ha2024.12.0.txt
             sha256: 0d0031ddca8bb870560ca4d4bcafd34233e23e9dd6f0470dc31f7bd888eb7403
           - lane: py3.13-ha2026.2.3
+            runs: suite fakeboot
             python-version: "3.13"
             constraints: requirements/constraints-py313-ha2026.2.3.txt
             sha256: bac319038f592319b79da98347c6e2fcd6c3630be47cfa3272959c2954d568c6
           - lane: py3.14-ha2026.9.0
+            runs: suite
+            python-version: "3.14"
+            constraints: requirements/constraints-py314-ha2026.9.0.txt
+            sha256: 1609b598b44434b633b0d29b000c7650f9abd0058337821764a5a36b53ff8600
+          - lane: py3.14-ha2026.9.0-fakeboot
+            runs: fakeboot
             python-version: "3.14"
             constraints: requirements/constraints-py314-ha2026.9.0.txt
             sha256: 1609b598b44434b633b0d29b000c7650f9abd0058337821764a5a36b53ff8600
@@ -186,7 +196,9 @@ jobs:
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
           bash tools/issue25/run.sh
       # 300 s: hosted full-suite runs took ~140 s and the suite grows; only attempt 1 may run.
+      # Runs only in a job that owns 'suite' (exact token in matrix.runs).
       - name: Full retained suite
+        if: ${{ contains(format(' {0} ', matrix.runs), ' suite ') }}
         run: |
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
           suite_exit=0
@@ -196,9 +208,10 @@ jobs:
           exit "$suite_exit"
       # The mode-flip dwell runs on time.monotonic (#32), which counts from boot:
       # the same suite again as if this runner had booted 120 s ago, below the
-      # hysteresis. Runs after a failed suite too; 300 s, as above.
+      # hysteresis. Runs only in a job that owns 'fakeboot', after a failed suite
+      # too; 300 s, as above.
       - name: Full suite on a fresh-boot clock
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && contains(format(' {0} ', matrix.runs), ' fakeboot ') }}
         run: |
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
           fakeboot_exit=0
@@ -208,12 +221,22 @@ jobs:
           exit "$fakeboot_exit"
       - name: Complete logs and owned cleanup
         if: always()
+        env:
+          OWNED_RUNS: ${{ matrix.runs }}
         run: |
           result=0
           cleanup_result=0
+          # Only the runs this job owns are required; an empty or unknown set fails.
+          case "${OWNED_RUNS:-}" in
+            'suite fakeboot') runs=(suite fakeboot) ;;
+            suite) runs=(suite) ;;
+            fakeboot) runs=(fakeboot) ;;
+            *) echo "INVALID_OWNED_RUNS"; runs=(); result=1 ;;
+          esac
           # Keep each suite outcome independent of all export/cleanup checks.
-          declare -A exits=([suite]=unknown [fakeboot]=unknown)
-          for run in suite fakeboot; do
+          declare -A exits=()
+          for run in "${runs[@]}"; do
+            exits[$run]=unknown
             label=${run^^}
             exit_file="$RUNNER_TEMP/$run.exit"
             if test -f "$exit_file" && test "$(wc -c < "$exit_file")" -le 4; then
@@ -234,7 +257,7 @@ jobs:
               result=1
             fi
           done
-          logs=(install sentinel suite fakeboot)
+          logs=(install sentinel "${runs[@]}")
           for log in "${logs[@]}"; do
             file="$RUNNER_TEMP/$log.log"
             if test -f "$file"; then

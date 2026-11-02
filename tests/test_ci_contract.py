@@ -55,22 +55,68 @@ FRESH_BOOT_RUN = (
 )
 
 
+# Each full-suite step runs only in a job whose matrix.runs owns its exact token.
+SUITE_IF = "${{ contains(format(' {0} ', matrix.runs), ' suite ') }}"
+FRESH_BOOT_IF = "${{ !cancelled() && contains(format(' {0} ', matrix.runs), ' fakeboot ') }}"
+SUITE_STEPS = {"suite": "Full retained suite", "fakeboot": "Full suite on a fresh-boot clock"}
+# The only ownership values the export accepts, and the runs each one owns.
+OWNED_RUNS = {"suite fakeboot": ("suite", "fakeboot"), "suite": ("suite",), "fakeboot": ("fakeboot",)}
+MATRIX_KEYS = {"lane", "runs", "python-version", "constraints", "sha256"}
+# py3.14 is split; the earlier two lanes keep both runs in one job.
+LANE_RUNS = [
+    ("py3.12-ha2024.12.0", "suite fakeboot"), ("py3.13-ha2026.2.3", "suite fakeboot"),
+    ("py3.14-ha2026.9.0", "suite"), ("py3.14-ha2026.9.0-fakeboot", "fakeboot"),
+]
+EXPORT_OWNERSHIP = '''case "${OWNED_RUNS:-}" in
+  'suite fakeboot') runs=(suite fakeboot) ;;
+  suite) runs=(suite) ;;
+  fakeboot) runs=(fakeboot) ;;
+  *) echo "INVALID_OWNED_RUNS"; runs=(); result=1 ;;
+esac'''
+
+
+def step_runs(step, entry):
+    """Whether a step's own ``if`` admits it in the job for one matrix entry."""
+    return "if" not in step or admitted(step["if"], {}, matrix=entry)
+
+
 def fresh_boot_violations(job):
-    """Every pytest lane runs the whole suite again on a clock 120 s after boot."""
+    """Every lane runs the whole suite, and again on a clock 120 s after boot,
+    each exactly once across that lane's jobs."""
     steps = [s for s in job.get("steps", []) if "-p tools.fakeboot" in s.get("run", "")]
     names = [s.get("name") for s in job.get("steps", [])]
     if (len(steps) != 1 or steps[0].get("name") != "Full suite on a fresh-boot clock"
-            or steps[0].get("if") != "${{ !cancelled() }}"
+            or steps[0].get("if") != FRESH_BOOT_IF
             or FRESH_BOOT_RUN not in steps[0]["run"]
             or "Full retained suite" not in names
+            or names.count("Full retained suite") != 1
+            or next(s for s in job["steps"] if s.get("name") == "Full retained suite").get("if") != SUITE_IF
             or names.index("Full retained suite") > names.index("Full suite on a fresh-boot clock")
             or names.index("Full suite on a fresh-boot clock") > names.index("Complete logs and owned cleanup")):
         return ["fresh-boot suite guard"]
-    export = next(s["run"] for s in job["steps"] if s.get("name") == "Complete logs and owned cleanup")
-    if ("logs=(install sentinel suite fakeboot)" not in export
-            or "for run in suite fakeboot; do" not in export
+    export_step = next(s for s in job["steps"] if s.get("name") == "Complete logs and owned cleanup")
+    export = export_step["run"]
+    if (export_step.get("env") != {"OWNED_RUNS": "${{ matrix.runs }}"}
+            or export.count(EXPORT_OWNERSHIP) != 1
+            or 'logs=(install sentinel "${runs[@]}")' not in export
+            or 'for run in "${runs[@]}"; do' not in export
             or "grep -qx 'FAKEBOOT_UPTIME=120'" not in export):
         return ["fresh-boot suite guard"]
+    include = job.get("strategy", {}).get("matrix", {}).get("include", [])
+    if ([(e.get("lane"), e.get("runs")) for e in include] != LANE_RUNS
+            or any(set(e) != MATRIX_KEYS for e in include)):
+        return ["suite lane ownership"]
+    by_lock = {}
+    for entry in include:
+        ran = tuple(run for run, name in SUITE_STEPS.items()
+                    if step_runs(next(s for s in job["steps"] if s.get("name") == name), entry))
+        # The steps a job executes are exactly the runs its export requires.
+        if ran != OWNED_RUNS[entry["runs"]]:
+            return ["suite lane ownership"]
+        by_lock.setdefault((entry["python-version"], entry["constraints"], entry["sha256"]), []).extend(ran)
+    # Three locks; each runs the suite and the fresh-boot suite exactly once.
+    if len(by_lock) != 3 or any(sorted(runs) != ["fakeboot", "suite"] for runs in by_lock.values()):
+        return ["suite lane ownership"]
     return []
 
 
@@ -96,10 +142,60 @@ def test_declared_ci_boundary(workflow):
     "fakeboot-missing", "fakeboot-one-lane", "fakeboot-skipped-after-failure", "fakeboot-uptime",
     "fakeboot-no-plugin", "fakeboot-subset", "fakeboot-duplicate", "fakeboot-not-exported",
     "fakeboot-clock-unchecked", "fakeboot-after-export",
+    "fakeboot-substring-owner", "suite-ungated", "suite-substring-owner", "suite-duplicate",
+    "export-all-runs", "export-all-logs", "export-ownership-unread", "export-accepts-any-runs",
+    "lane-merged", "lane-fakeboot-dropped", "lane-suite-only", "lane-unknown-runs",
+    "lane-runs-missing", "lane-lock-changed", "lane-renamed", "lane-extra-key",
 ])
 def test_weakened_ci_boundary_rejects(workflow, change):
     bad = deepcopy(workflow)
     job = bad["jobs"]["pytest"]
+    include = job["strategy"]["matrix"]["include"]
+    steps = job["steps"]
+    suite = next(s for s in steps if s.get("name") == "Full retained suite")
+    export = next(s for s in steps if s.get("name") == "Complete logs and owned cleanup")
+    ownership = {
+        "fakeboot-substring-owner": lambda: next(
+            s for s in steps if s.get("name") == "Full suite on a fresh-boot clock").update(
+            {"if": "${{ !cancelled() && contains(matrix.runs, 'fakeboot') }}"}),
+        "suite-ungated": lambda: suite.pop("if"),
+        "suite-substring-owner": lambda: suite.update({"if": "${{ contains(matrix.runs, 'suite') }}"}),
+        "suite-duplicate": lambda: steps.insert(steps.index(suite), deepcopy(suite)),
+        "export-all-runs": lambda: export.update(
+            {"run": export["run"].replace('for run in "${runs[@]}"; do', "for run in suite fakeboot; do")}),
+        "export-all-logs": lambda: export.update(
+            {"run": export["run"].replace('logs=(install sentinel "${runs[@]}")',
+                                          "logs=(install sentinel suite fakeboot)")}),
+        "export-ownership-unread": lambda: export.pop("env"),
+        "export-accepts-any-runs": lambda: export.update(
+            {"run": export["run"].replace('*) echo "INVALID_OWNED_RUNS"; runs=(); result=1 ;;',
+                                          '*) runs=() ;;')}),
+    }
+    if change in ownership:
+        ownership[change]()
+        assert violations(bad) == ["fresh-boot suite guard"]
+        return
+    if change.startswith("lane-"):
+        py314, fresh = include[2], include[3]
+        if change == "lane-merged":
+            py314["runs"] = "suite fakeboot"
+            include.remove(fresh)
+        elif change == "lane-fakeboot-dropped":
+            include.remove(fresh)
+        elif change == "lane-suite-only":
+            include[0]["runs"] = "suite"
+        elif change == "lane-unknown-runs":
+            fresh["runs"] = "fakeboot extra"
+        elif change == "lane-runs-missing":
+            del include[1]["runs"]
+        elif change == "lane-lock-changed":
+            fresh["sha256"] = include[1]["sha256"]
+        elif change == "lane-renamed":
+            py314["lane"] = "py3.14-ha2026.9.0-suite"
+        else:
+            fresh["cache"] = "pip"
+        assert violations(bad) == ["suite lane ownership"]
+        return
     if change.startswith("fakeboot-"):
         steps = job["steps"]
         fresh = next(s for s in steps if s.get("name") == "Full suite on a fresh-boot clock")
@@ -120,7 +216,7 @@ def test_weakened_ci_boundary_rejects(workflow, change):
         elif change == "fakeboot-duplicate":
             steps.insert(steps.index(fresh), deepcopy(fresh))
         elif change == "fakeboot-not-exported":
-            export["run"] = export["run"].replace("logs=(install sentinel suite fakeboot)",
+            export["run"] = export["run"].replace('logs=(install sentinel "${runs[@]}")',
                                                   "logs=(install sentinel suite)")
         elif change == "fakeboot-clock-unchecked":
             export["run"] = export["run"].replace("grep -qx 'FAKEBOOT_UPTIME=120'", "true")
@@ -154,10 +250,11 @@ def test_installer_and_tests_do_not_inherit_log_file_limits(workflow):
         assert "ulimit -f" not in (Path(__file__).parents[1] / path).read_text()
 
 
-def admitted(expression, context, approval=""):
+def admitted(expression, context, approval="", matrix=None):
     """Evaluate the authored Boolean subset, with no provider call.
 
     ``approval`` is the approval job's ``admitted`` output: "" when it was skipped.
+    ``matrix`` is one strategy include entry. ``format`` takes the one ``{0}`` used.
     """
     expression = expression.removeprefix("${{").removesuffix("}}").strip()
     expression = expression.replace("&&", " and ").replace("||", " or ")
@@ -166,7 +263,23 @@ def admitted(expression, context, approval=""):
         "github": SimpleNamespace(**context), "startsWith": lambda value, prefix: value.startswith(prefix),
         "needs": SimpleNamespace(approval=SimpleNamespace(outputs=SimpleNamespace(admitted=approval))),
         "cancelled": lambda: False,
+        "matrix": SimpleNamespace(**(matrix or {})),
+        "contains": lambda value, item: item in value,
+        "format": lambda template, value: template.replace("{0}", value),
     }))
+
+
+@pytest.mark.parametrize("runs,suite,fakeboot", [
+    ("suite fakeboot", True, True), ("suite", True, False), ("fakeboot", False, True),
+    ("", False, False), ("suites", False, False), ("xsuite", False, False),
+    ("fakeboots", False, False), ("pre-fakeboot", False, False), ("suite-fakeboot", False, False),
+])
+def test_suite_steps_match_exact_owned_tokens(workflow, runs, suite, fakeboot):
+    """Ownership is by whole token: a run name inside another word owns nothing."""
+    steps = {s.get("name"): s for s in workflow["jobs"]["pytest"]["steps"]}
+    entry = {"runs": runs}
+    assert step_runs(steps["Full retained suite"], entry) is suite
+    assert step_runs(steps["Full suite on a fresh-boot clock"], entry) is fakeboot
 
 
 GATE_CASES = [
@@ -256,7 +369,8 @@ def test_checkout_binding_and_process_layout(workflow, tmp_path):
         assert ("tests/ -q" in commands) is (name == "pytest")
         assert "bash tools/issue25/run.sh" in commands
         assert "timeout --signal=TERM --kill-after=5s 60s" in commands
-    assert len(workflow["jobs"]["pytest"]["strategy"]["matrix"]["include"]) == 3
+    include = workflow["jobs"]["pytest"]["strategy"]["matrix"]["include"]
+    assert [(e["lane"], e["runs"]) for e in include] == LANE_RUNS
 
 
 @pytest.mark.parametrize("key,value", [
@@ -349,7 +463,9 @@ esac
     export = next(s for s in steps if s.get("name") == "Complete logs and owned cleanup")
     assert export["if"] == "always()"
     suite = next(s["run"] for s in steps if s.get("name") == "Full retained suite")
-    env = {"PATH": f"{bin_dir}:{os.defpath}", "RUNNER_TEMP": str(root)}
+    assert export["env"] == {"OWNED_RUNS": "${{ matrix.runs }}"}
+    # A job owning both runs, as py3.12/py3.13 do; split ownership is tested separately.
+    env = {"PATH": f"{bin_dir}:{os.defpath}", "RUNNER_TEMP": str(root), "OWNED_RUNS": "suite fakeboot"}
     return root, bin_dir, env, suite, export["run"]
 
 
@@ -366,16 +482,24 @@ SUITE_RUNS = {
 }
 
 
+@pytest.mark.parametrize("owner", ["both", "split"])
 @pytest.mark.parametrize("run", sorted(SUITE_RUNS))
 @pytest.mark.parametrize("outcome,expected", [
     ("success", 0), ("failure", 1), ("error", 2), ("timeout", 124),
     ("success-oversize", 0), ("failure-oversize", 1),
 ])
-def test_actual_suite_exit_survives_export(suite_export, workflow, run, outcome, expected):
+def test_actual_suite_exit_survives_export(suite_export, workflow, run, outcome, expected, owner):
+    """``both``: a py3.12/py3.13 job. ``split``: a py3.14 job owning this run alone,
+    with no evidence at all from the other run."""
     root, bin_dir, env, _suite, export = suite_export
     name, argv, uptime = SUITE_RUNS[run]
     suite = next(s["run"] for s in workflow["jobs"]["pytest"]["steps"] if s.get("name") == name)
     label = run.upper()
+    other = "suite" if run == "fakeboot" else "fakeboot"
+    if owner == "split":
+        env["OWNED_RUNS"] = run
+        (root / f"{other}.exit").unlink()
+        (root / f"{other}.log").unlink()
     # Execute the unmodified workflow block with an invented executable, never pytest.
     python = bin_dir / "python"
     python.write_text(f'''#!/bin/bash
@@ -437,10 +561,15 @@ exec /usr/bin/timeout --signal=TERM --kill-after=5s 300s "$@"
         assert f"INCOMPLETE_{label}_PHASES" in exported.stdout
         if run == "fakeboot":
             assert "MISSING_FAKEBOOT_CLOCK" in exported.stdout
-    # The other run's evidence is untouched and still certifies on its own.
-    other = "suite" if run == "fakeboot" else "fakeboot"
-    assert f"RETAINED_{other.upper()}_EXIT=0\n" in exported.stdout
-    assert f"INCOMPLETE_{other.upper()}_PHASES" not in exported.stdout
+    if owner == "both":
+        # The other run's evidence is untouched and still certifies on its own.
+        assert f"RETAINED_{other.upper()}_EXIT=0\n" in exported.stdout
+        assert f"INCOMPLETE_{other.upper()}_PHASES" not in exported.stdout
+    else:
+        # A run this job does not own is neither required nor reported.
+        assert f"{other.upper()}_EXIT" not in exported.stdout
+        assert f"LOG={other}" not in exported.stdout and f"={other}:" not in exported.stdout
+        assert "INVALID_OWNED_RUNS" not in exported.stdout
     assert f"LOG_EXPORT_COMPLETE result={int(incomplete)}" in exported.stdout
 
 
@@ -563,6 +692,88 @@ def test_actual_export_rejects_invalid_or_incomplete_fresh_boot_evidence(suite_e
     assert expected in result.stdout.splitlines(), result.stdout
 
 
+@pytest.mark.parametrize("run", sorted(SUITE_RUNS))
+@pytest.mark.parametrize("fault", [
+    None, "missing-exit", "invalid-exit", "missing-log", "oversize-log", "invalid-phases",
+    "missing-install", "missing-sentinel", "dirty-tree", "untracked-file", "fakeboot-clock",
+])
+def test_actual_split_export_requires_owned_evidence(suite_export, run, fault):
+    """A py3.14 job owning one run still needs that run's exit and log, the install
+    and sentinel logs, and every check on them; the other run is not required."""
+    root, bin_dir, env, _suite, export = suite_export
+    other = "suite" if run == "fakeboot" else "fakeboot"
+    env["OWNED_RUNS"] = run
+    for suffix in ("exit", "log"):
+        (root / f"{other}.{suffix}").unlink()
+    expected = None
+    if fault == "missing-exit":
+        (root / f"{run}.exit").unlink()
+        expected = f"MISSING_OR_OVERSIZE_{run.upper()}_EXIT"
+    elif fault == "invalid-exit":
+        (root / f"{run}.exit").write_text("00\n")
+        expected = f"INVALID_{run.upper()}_EXIT"
+    elif fault in ("missing-log", "missing-install", "missing-sentinel"):
+        log = run if fault == "missing-log" else fault.removeprefix("missing-")
+        (root / f"{log}.log").unlink()
+        expected = f"MISSING_LOG={log}"
+    elif fault == "oversize-log":
+        (root / f"{run}.log").write_text("x" * 5242881)
+        expected = f"LOG_BUDGET_EXCEEDED={run} COMPLETE_EXPORT=false"
+    elif fault == "invalid-phases":
+        (root / f"{run}.log").write_text(
+            suite_payload(fakeboot=run == "fakeboot").replace("PHASES_VALID=true", "PHASES_VALID=false"))
+        expected = f"INCOMPLETE_{run.upper()}_PHASES"
+    elif fault in ("dirty-tree", "untracked-file"):
+        # The stub reports a modified tracked file or an untracked one.
+        command = "diff --exit-code HEAD -- ." if fault == "dirty-tree" else "ls-files --others --exclude-standard"
+        reply = "exit 1" if fault == "dirty-tree" else "echo invented-untracked; exit 0"
+        (bin_dir / "git").write_text(f'''#!/bin/bash
+case "$*" in
+  '{command}') {reply} ;;
+  'diff --exit-code HEAD -- .'|'ls-files --others --exclude-standard') exit 0 ;;
+  *) exit 9 ;;
+esac
+''')
+    elif fault == "fakeboot-clock":
+        # The fake-clock check binds only the fresh-boot log; a suite-only job has none.
+        (root / f"{run}.log").write_text(suite_payload())
+        expected = "MISSING_FAKEBOOT_CLOCK" if run == "fakeboot" else None
+    result = run_suite_source(export, root, env)
+    failed = fault is not None and not (fault == "fakeboot-clock" and run == "suite")
+    assert result.returncode == int(failed), result.stdout
+    assert f"LOG_EXPORT_COMPLETE result={int(failed)}" in result.stdout
+    if expected:
+        assert expected in result.stdout.splitlines(), result.stdout
+    assert f"{other.upper()}_EXIT" not in result.stdout and f"={other}:" not in result.stdout
+    assert "INVALID_OWNED_RUNS" not in result.stdout
+    assert "OWNED_SCRATCH_REMOVED=true" in result.stdout
+    assert not (root / "mxz-venv").exists()
+
+
+@pytest.mark.parametrize("owned", [
+    None, "", " ", "suites", "SUITE", "suite bogus", "bogus", "suite suite", "fakeboot suite",
+    " suite", "suite ", "suite  fakeboot", "suite\tfakeboot", "suite fakeboot fakeboot",
+])
+def test_actual_export_rejects_empty_or_unknown_ownership(suite_export, owned):
+    """No valid ownership certifies nothing, yet still exports and cleans up."""
+    root, _bin_dir, env, _suite, export = suite_export
+    if owned is None:
+        del env["OWNED_RUNS"]
+    else:
+        env["OWNED_RUNS"] = owned
+    result = run_suite_source(export, root, env)
+    assert result.returncode == 1, result.stdout
+    lines = result.stdout.splitlines()
+    assert lines[0] == "INVALID_OWNED_RUNS"
+    assert "RETAINED_" not in result.stdout and "LOG_BYTES=suite" not in result.stdout
+    assert "LOG_BYTES=fakeboot" not in result.stdout
+    assert any(line.startswith("LOG_BYTES=install:") for line in lines)
+    assert any(line.startswith("LOG_BYTES=sentinel:") for line in lines)
+    assert "OWNED_SCRATCH_REMOVED=true" in lines
+    assert lines[-1] == "LOG_EXPORT_COMPLETE result=1"
+    assert not (root / "mxz-venv").exists()
+
+
 def test_suite_log_stream_keeps_warnings_while_tests_keep_info(caplog):
     """CI runs ``-s``: Home Assistant's per-setup INFO stays out of suite.log, not out of tests."""
     streams = [h for h in logging.getLogger().handlers if type(h) is logging.StreamHandler]
@@ -674,6 +885,7 @@ def test_actual_export_five_mib_boundary(tmp_path, workflow, boundary_phases, ex
     assert "suite) limit=5242880 ;;" in export["run"]
     assert "fakeboot) limit=5242880 ;;" in export["run"]
     env["RUNNER_TEMP"] = str(root)
+    env["OWNED_RUNS"] = "suite fakeboot"
     result = subprocess.run(["bash", "--noprofile", "--norc", "-euo", "pipefail", "-c", export["run"]],
                             cwd=repo, env=env, stdin=subprocess.DEVNULL,
                             check=False, capture_output=True, timeout=5)
@@ -726,9 +938,11 @@ def test_recovery_route_actual_guards(workflow, case, event, ref, head, base, at
     selected = {name for name, job in jobs.items() if name != 'approval' and admitted(job['if'], context)}
     assert selected == ({'hassfest', 'hacs', 'ruff', 'pytest', 'yamllint'} if ordinary else {'issue25'})
     floor_steps = jobs['pytest']['steps']
+    lanes = [entry['lane'] for entry in jobs['pytest']['strategy']['matrix']['include']]
+    assert lanes == [lane for lane, _runs in LANE_RUNS]
     for step in floor_steps:
         if step.get('name') in ('Six exported setup controls', 'Exact admission comparison objects'):
-            for lane in ('py3.12-ha2024.12.0', 'py3.13-ha2026.2.3', 'py3.14-ha2026.9.0'):
+            for lane in lanes:
                 expression = step['if'].replace('matrix.lane', repr(lane))
                 assert admitted(expression, context) is (case == 'A3-push' and lane == 'py3.12-ha2024.12.0')
     guard = jobs['pytest' if ordinary else 'issue25']['steps'][0]['run']
