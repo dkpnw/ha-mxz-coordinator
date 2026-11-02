@@ -1,6 +1,6 @@
 """Dry on the MXZ room thermostat (3.16.0), for a room with Allow Dry mode on.
 
-Drew's design (Oct 31, 2026, /root/mxz-work/dry-entity/DESIGN.md) and his two
+The Dry entity design (Oct 31, 2026) and its two
 decisions, each pinned by a behavior test here:
 
 * Dry shows in the room thermostat's modes only with the room's Allow Dry mode
@@ -18,7 +18,7 @@ decisions, each pinned by a behavior test here:
   Dry leaves the modes, the plan has the head back inside the band wait, the
   thermostat shows Heat/Cool, and one notice says why.
 * A restart in Dry: held, shown as Dry, no writes.
-* Drew, Q1: a stale room sensor keeps Dry held. Q2: a cool lockout still
+* Q1: a stale room sensor keeps Dry held. Q2: a cool lockout still
   offers Dry (it just can't win the mode).
 
 The heads are invented (CN105-like on the esphome platform); nothing here is a
@@ -178,7 +178,7 @@ async def test_a_pre_3_16_room_with_the_option_gains_only_the_dry_mode(
 
 
 async def test_a_cool_lockout_still_offers_dry(hass: HomeAssistant) -> None:
-    """Drew, Q2: Dry stays in the modes and can be picked; it just has no vote,
+    """Q2: Dry stays in the modes and can be picked; it just has no vote,
     and heat for another room parks it with the one notice."""
     rig = await _setup(hass)
     await rig.shared("heat")
@@ -521,7 +521,7 @@ async def test_restart_in_a_picked_dry_is_held_shown_dry_and_writes_nothing(
 
 
 async def test_a_stale_room_sensor_keeps_dry_held(hass: HomeAssistant, freezer) -> None:
-    """Drew, Q1: Dry doesn't use the room sensor, so a stale one doesn't park it."""
+    """Q1: Dry doesn't use the room sensor, so a stale one doesn't park it."""
     rig = await _setup(
         hass,
         zones=({}, {ZONE_ALLOW_DRY: True, ZONE_MAX_AGE: 10, ZONE_EVIDENCE_BASIS: EVIDENCE_HA_WRITE}),

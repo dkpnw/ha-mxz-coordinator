@@ -338,7 +338,7 @@ def test_floor_demand_tiers() -> None:
 
 
 def test_freeze_in_a_later_room_beats_a_ceiling_in_an_earlier_room() -> None:
-    """Decision 6 (changed by Drew): freeze first, regardless of room order."""
+    """Decision 6 (changed by the maintainer): freeze first, regardless of room order."""
     zones = [("off", None, False, "cool"), ("off", None, False, None), ("off", None, False, "heat")]
     assert decide(zones, current="cool")[0] == "heat"
     assert decide(zones, current="heat")[0] == "heat"

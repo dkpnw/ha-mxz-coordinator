@@ -1,6 +1,6 @@
 """3.4.1: a °C-native head's snapped setpoint echo must not cause a write loop.
 
-Drew's house (HA in °F) runs ESPHome CN105 Mitsubishi heads: °C-native, a
+A typical setup (HA in °F) runs ESPHome CN105 Mitsubishi heads: °C-native, a
 0.5 °C setpoint grid, range-capable, shown in HA at 0.5 °F display precision.
 MXZ commands a whole-°F edge (64 °F = 17.78 °C); the head latches the nearest
 0.5 °C (18.0 °C) and reports it back as 64.4 °F, displayed 64.5 °F. The old

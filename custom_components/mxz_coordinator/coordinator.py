@@ -4494,7 +4494,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         Not once its head's vote has expired: a long-lost head must not hold
         the shared mode for its room forever while a sibling waits. Kept as in
-        3.10.0, pending Drew's call: a room marked Safety priority with its
+        3.10.0, pending a maintainer decision: a room marked Safety priority with its
         sensor on (its demand is a safety want), and a tripped floor or
         ceiling (its own entry, never dropped here). Likewise not while a
         cloud head is out of MXZ's control (``cloud_out``): MXZ can't run it,
