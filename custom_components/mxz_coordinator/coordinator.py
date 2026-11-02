@@ -1399,7 +1399,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ):
             by_votes = True
         self._floor_settle(floors, state)
-        self._dry_settle(drys, state, held_demands, held_engages, votes, floors)
+        self._dry_settle(drys, state, held_demands, held_engages, votes)
         calls = [*held_demands, *votes, *dry_votes, *floors]
         plan.update(
             {
@@ -4815,13 +4815,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         demands: list[str],
         engages: list[str],
         votes: list[str | None],
-        floors: list[str | None],
     ) -> None:
         """Settle each dry room as held or parked for this plan.
 
         Parked while the shared mode is heat and some room wants heat: a room
         calling or running heat (as arbitration counts it), a hands-off head
-        heating, or a tripped freeze floor. The outdoor unit can't run a dry
+        heating, or a tripped freeze floor (a tripped floor is its room's
+        engage, so ``engages`` carries it). The outdoor unit can't run a dry
         head then; it would only wait in standby. Heat that is only the
         resting mode, with no room wanting it, parks nothing: the dry head's
         cool vote turns the mode once the mode-change wait allows.
@@ -4830,7 +4830,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             next(
                 (
                     zone.name
-                    for zone, *wants in zip(self.zones, demands, engages, votes, floors)
+                    for zone, *wants in zip(self.zones, demands, engages, votes)
                     if MODE_HEAT in wants
                 ),
                 None,
