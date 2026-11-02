@@ -12,9 +12,9 @@ the clock the coordinator reads, and checks a re-stamp against the stamp it
 wrote, never against zero.
 
 A fresh install has no mode change on record (the stamp is None) and holds
-nothing. A test whose subject needs the dwell holding says so: ``arm_dwell``
-for a change made just now in a running coordinator, ``record_mode_change``
-for one a previous run stored before this setup (as a restart finds it).
+nothing. A test whose subject needs the dwell holding from setup says so with
+``record_mode_change``: a change a previous run stored before this setup, as a
+restart finds it.
 """
 
 from __future__ import annotations
@@ -54,15 +54,6 @@ def assert_restamped(coord: Any, before: float) -> None:
     now = time.monotonic()
     assert before < stamp <= now, (before, stamp, now)
     assert now - stamp < RESTAMP_TOLERANCE, (stamp, now)
-
-
-def arm_dwell(coord: Any) -> float:
-    """A real mode change just happened: the dwell holds its whole window from now.
-
-    Returns the stamp written (``assert_restamped`` compares against it).
-    """
-    coord._last_mode_change_ts = time.monotonic()
-    return coord._last_mode_change_ts
 
 
 async def record_mode_change(hass: Any, entry_id: str, seconds_ago: float = 0.0) -> float:
