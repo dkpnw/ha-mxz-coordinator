@@ -1,6 +1,6 @@
 """Allow Dry mode: a per-room opt-in, off by default (3.15.0).
 
-Drew's decisions (Oct 30, 2026), each pinned by a behavior test here:
+Design decisions (Oct 30, 2026), each pinned by a behavior test here:
 
 * Off (the default, and every entry stored before the option existed): a head
   put in dry is put back after the band wait, with the same notice, exactly as

@@ -2707,9 +2707,9 @@ async def test_floor_touches_only_its_own_configured_head(hass: HomeAssistant, r
     only that room's own head. The other room is disabled with no floor and
     its head is already off, so nothing at all is owed to it: it receives no
     command and stays off. Run with the floor on either room, so a floor
-    sent to the wrong room's head fails either way. No other climate entity
-    (the Carrier) is ever called."""
-    hass.states.async_set("climate.carrier_infinity", "heat", {"hvac_modes": ["heat", "off"]})
+    sent to the wrong room's head fails either way. No other climate entity,
+    such as an unrelated thermostat, is ever called."""
+    hass.states.async_set("climate.unrelated_thermostat", "heat", {"hvac_modes": ["heat", "off"]})
     calls = _all_climate_calls(hass)
     floors = [(None, None), (None, None)]
     floors[room] = (50.0, 90.0)

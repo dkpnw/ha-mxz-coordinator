@@ -1081,7 +1081,7 @@ async def test_mode_basis_never_waits_on_the_window(hass: HomeAssistant, stored:
 
 
 async def test_lagging_action_never_creates_a_vote(hass: HomeAssistant) -> None:
-    """Seen on Drew's cn105 heads: off with heating, fan_only with cooling,
+    """Seen on real CN105 heads: off with heating, fan_only with cooling,
     for a poll after a mode change. None of them votes, and none leaves a
     hold behind for the next sighting."""
     entry, _a, head_b = await _released(hass)

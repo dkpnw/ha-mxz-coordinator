@@ -278,7 +278,7 @@ async def test_precedence_matrix_per_side(
     )
 
 
-# --- Drew's cases: configured vs inherited room drift -------------------------
+# --- Maintainer cases: configured vs inherited room drift --------------------
 
 GLOBAL_SIDES = {COOLER: 3.0, WARMER: 5.0}
 
