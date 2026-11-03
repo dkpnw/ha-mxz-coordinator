@@ -95,7 +95,11 @@ class CloudHead:
         shown_mode: str | None,
         shown_fan: str | None,
     ) -> None:
-        """Record one batch: a new window, and the states it supersedes."""
+        """Record one batch: a new window, and the states it supersedes.
+
+        A batch with no fan supersedes no fan: the fan the head shows then
+        is the one it should keep showing, so a report of it is current.
+        """
         if self.intent is not None and not self.confirmed:
             self.older_modes.add(self.intent[0])
             if self.intent[2] is not None:
@@ -105,7 +109,7 @@ class CloudHead:
             self.older_fans.clear()
         if shown_mode is not None:
             self.older_modes.add(shown_mode)
-        if shown_fan is not None:
+        if shown_fan is not None and intent[2] is not None:
             self.older_fans.add(shown_fan)
         self.older_modes.discard(intent[0])
         if intent[2] is not None:
@@ -143,6 +147,27 @@ def drive_setpoint(*, act: str, target: float, offset: float) -> float:
     if act == MODE_COOL:
         return target - offset
     return target
+
+
+# Home Assistant's UnitOfTemperature values, as a set drive offset's unit is
+# stored (ZONE_DRIVE_OFFSET_UNIT).
+UNIT_C = "°C"
+UNIT_F = "°F"
+
+
+def offset_in_unit(value: float, set_in: object, celsius: bool) -> float:
+    """A drive offset set in ``set_in`` (°C or °F), in the system unit.
+
+    An offset is a difference, so it scales by 5/9 or 9/5 with no 32° shift:
+    3 °F is 1.67 °C. To two places, as the room page shows it. Any other
+    ``set_in`` (none stored: an offset saved before its unit was) is taken to
+    be in the system unit already, and so is returned unchanged.
+    """
+    if set_in == UNIT_F and celsius:
+        return round(value * 5 / 9, 2)
+    if set_in == UNIT_C and not celsius:
+        return round(value * 9 / 5, 2)
+    return value
 
 
 def snap_to_step(value: float, step: float) -> float:

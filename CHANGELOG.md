@@ -26,6 +26,21 @@ on your equipment.
   unless that is newer. Before, a crash or power cut soon after a change could restart MXZ
   in the earlier mode, held there for the rest of the wait the change had started. A
   record written by an earlier version has no mode in it and is read as before.
+- **Cloud heads (beta): fan boost no longer stalls behind a new setpoint.** After a heat
+  or cool write that sent no fan, MXZ made no fan decision for that write's whole confirm
+  wait (up to 10 minutes), so a boost step that came due waited, and a speed picked on
+  the head was noticed only when the wait ended. Now a step that comes due inside that
+  wait goes out on its own once the write interval allows, and a picked speed is held
+  from the next plan. The 5-minute step limit and the write interval still apply, a
+  write that sent a fan still waits out its wait, and an off or fan-only write never has
+  a fan sent after it.
+- **Cloud and generic heads (beta): a Setpoint drive offset you set follows a °F/°C
+  switch.** It was kept as the same number, so 4 °F became 4 °C (held to 3). The room
+  page now stores the unit beside the value (`drive_offset_unit`), and after a switch
+  the offset is converted (4 °F drives by 2.22 °C, and the room page shows 2.22), held
+  to the new unit's range. An offset left at its default still stores nothing and
+  follows the unit. An offset saved before this has no unit stored and reads as before
+  until its room page is saved again. On a rollback the unit key is ignored.
 
 - **A saved Allowed drift that isn't a number no longer stops MXZ from loading.** It now
   reads as the default Allowed drift (1 °F, 0.5 °C) until you fix it. A saved Let it get

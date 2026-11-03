@@ -31,6 +31,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_CONFIRM_WAIT,
     ZONE_DRIFT_COOLER_BY,
     ZONE_DRIVE_OFFSET,
+    ZONE_DRIVE_OFFSET_UNIT,
     ZONE_HEAD_TYPE,
     ZONE_WRITE_INTERVAL,
 )
@@ -42,6 +43,7 @@ from tests.cloud_heads import (
     ComfortHead,
     MelcloudHead,
     register,
+    row,
     set_room,
     setup_rooms,
 )
@@ -224,6 +226,114 @@ async def test_settings_left_at_their_defaults_store_nothing_and_follow_the_unit
     assert zone[ZONE_DRIVE_OFFSET] == 1.5
     assert not {ZONE_WRITE_INTERVAL, ZONE_CONFIRM_WAIT} & set(zone)
     assert entry.runtime_data.zones[0].drive_offset == 1.5
+
+
+async def _reload_in(hass: HomeAssistant, entry, units) -> None:
+    hass.config.units = units
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_a_set_offset_follows_a_unit_switch(hass: HomeAssistant) -> None:
+    """Cloud review NIT 4: an offset you set is stored with the unit it was
+    set in, and after a °F/°C switch it is converted, not read as the same
+    number in the new unit. 4 °F drives by 2.22 °C (an offset is a
+    difference: 5/9, no 32° shift), the room page shows 2.22, and the
+    switch back gives 4 again. The switch itself rewrites nothing."""
+    _h, entry = await _entry(hass, [MELCLOUD, ESPHOME])
+    result = await open_options_page(hass, entry, "room_1")
+    await submit(
+        hass.config_entries.options, result,
+        {**prefilled(result), "head_type": HEAD_TYPE_CLOUD, "drive_offset": 4.0},
+    )
+    await hass.async_block_till_done()
+    zone = entry.data["zones"][0]
+    assert (zone[ZONE_DRIVE_OFFSET], zone[ZONE_DRIVE_OFFSET_UNIT]) == (4.0, "°F")
+    assert entry.runtime_data.zones[0].drive_offset == 4.0
+
+    await _reload_in(hass, entry, METRIC_SYSTEM)
+    assert entry.runtime_data.zones[0].drive_offset == 2.22
+    assert row(hass, entry, 0)["drive_offset"] == 2.22
+    zone = entry.data["zones"][0]
+    assert (zone[ZONE_DRIVE_OFFSET], zone[ZONE_DRIVE_OFFSET_UNIT]) == (4.0, "°F")
+    result = await open_options_page(hass, entry, "room_1")
+    assert prefilled(result)["drive_offset"] == 2.22
+    hass.config_entries.options.async_abort(result["flow_id"])
+
+    await _reload_in(hass, entry, US_CUSTOMARY_SYSTEM)
+    assert entry.runtime_data.zones[0].drive_offset == 4.0
+    assert row(hass, entry, 0)["drive_offset"] == 4.0
+
+
+async def test_a_converted_offset_is_held_to_the_new_units_range(hass: HomeAssistant) -> None:
+    """6 °F, the °F maximum, is 3.33 °C: held to 3, the °C maximum, both
+    where MXZ drives by it and on the room page (so the page still saves).
+    Saving that page in °C stores 3 in °C; back in °F that is 5.4."""
+    _h, entry = await _entry(hass, [MELCLOUD, ESPHOME])
+    result = await open_options_page(hass, entry, "room_1")
+    await submit(
+        hass.config_entries.options, result,
+        {**prefilled(result), "head_type": HEAD_TYPE_CLOUD, "drive_offset": 6.0},
+    )
+    await hass.async_block_till_done()
+    await _reload_in(hass, entry, METRIC_SYSTEM)
+    assert entry.runtime_data.zones[0].drive_offset == 3.0
+    result = await open_options_page(hass, entry, "room_1")
+    assert prefilled(result)["drive_offset"] == 3.0
+    result = await submit(hass.config_entries.options, result, prefilled(result))
+    assert result["type"] is FlowResultType.CREATE_ENTRY, result
+    await hass.async_block_till_done()
+    zone = entry.data["zones"][0]
+    assert (zone[ZONE_DRIVE_OFFSET], zone[ZONE_DRIVE_OFFSET_UNIT]) == (3.0, "°C")
+    await _reload_in(hass, entry, US_CUSTOMARY_SYSTEM)
+    assert entry.runtime_data.zones[0].drive_offset == 5.4
+
+
+async def test_the_offset_unit_goes_with_the_offset(hass: HomeAssistant) -> None:
+    """Negative: the unit is stored only beside a stored offset. Back to the
+    default, or the room back to local, and neither key is left."""
+    _h, entry = await _entry(hass, [MELCLOUD, ESPHOME])
+    result = await open_options_page(hass, entry, "room_1")
+    await submit(
+        hass.config_entries.options, result,
+        {**prefilled(result), "head_type": HEAD_TYPE_CLOUD, "drive_offset": 3.0},
+    )
+    await hass.async_block_till_done()
+    assert entry.data["zones"][0][ZONE_DRIVE_OFFSET_UNIT] == "°F"
+    result = await open_options_page(hass, entry, "room_1")
+    await submit(hass.config_entries.options, result, {**prefilled(result), "drive_offset": 2.0})
+    await hass.async_block_till_done()
+    assert not {ZONE_DRIVE_OFFSET, ZONE_DRIVE_OFFSET_UNIT} & set(entry.data["zones"][0])
+    result = await open_options_page(hass, entry, "room_1")
+    await submit(hass.config_entries.options, result, {**prefilled(result), "drive_offset": 3.0})
+    await hass.async_block_till_done()
+    assert entry.data["zones"][0][ZONE_DRIVE_OFFSET_UNIT] == "°F"
+    result = await open_options_page(hass, entry, "room_1")
+    await submit(
+        hass.config_entries.options, result, {**prefilled(result), "head_type": HEAD_TYPE_LOCAL}
+    )
+    await hass.async_block_till_done()
+    assert not {ZONE_DRIVE_OFFSET, ZONE_DRIVE_OFFSET_UNIT} & set(entry.data["zones"][0])
+
+
+async def test_an_offset_stored_without_a_unit_reads_as_before(hass: HomeAssistant) -> None:
+    """An offset saved before its unit was stored has no record of that unit,
+    so it is read in the system unit, as it always was (2.5 stays 2.5 after a
+    switch to °C), until the room page is saved again."""
+    _h, entry = await _entry(
+        hass, [MELCLOUD, ESPHOME], [{ZONE_HEAD_TYPE: HEAD_TYPE_CLOUD, ZONE_DRIVE_OFFSET: 2.5}, {}]
+    )
+    assert entry.runtime_data.zones[0].drive_offset == 2.5
+    await _reload_in(hass, entry, METRIC_SYSTEM)
+    assert entry.runtime_data.zones[0].drive_offset == 2.5
+    result = await open_options_page(hass, entry, "room_1")
+    assert prefilled(result)["drive_offset"] == 2.5
+    await submit(hass.config_entries.options, result, prefilled(result))
+    await hass.async_block_till_done()
+    zone = entry.data["zones"][0]
+    assert (zone[ZONE_DRIVE_OFFSET], zone[ZONE_DRIVE_OFFSET_UNIT]) == (2.5, "°C")
+    await _reload_in(hass, entry, US_CUSTOMARY_SYSTEM)
+    assert entry.runtime_data.zones[0].drive_offset == 4.5
 
 
 @pytest.mark.parametrize("platform", [MELCLOUD, COMFORT, "kumo"])
