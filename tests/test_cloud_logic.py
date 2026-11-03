@@ -17,6 +17,7 @@ from custom_components.mxz_coordinator.cloud import (
     CloudHead,
     clamp,
     drive_setpoint,
+    offset_in_unit,
     snap_to_step,
 )
 
@@ -150,3 +151,36 @@ def test_status() -> None:
     head.unresponsive = True
     assert head.status(2090.0) == CLOUD_NOT_CONTROLLABLE
     assert head.status(2050.0) == CLOUD_NOT_CONTROLLABLE  # out of control beats pending
+
+
+@pytest.mark.parametrize(
+    ("value", "set_in", "celsius", "expected"),
+    [
+        (4.0, "°F", True, 2.22),  # a difference: 5/9, no 32° shift
+        (3.0, "°F", True, 1.67),
+        (6.0, "°F", True, 3.33),  # the caller holds it to the °C range
+        (0.0, "°F", True, 0.0),
+        (2.5, "°C", False, 4.5),
+        (1.5, "°C", False, 2.7),
+        (3.0, "°C", False, 5.4),
+        # Set in the unit in use: unchanged, either way.
+        (4.0, "°F", False, 4.0),
+        (2.5, "°C", True, 2.5),
+        # No unit stored (or one MXZ never writes): the system unit, as before.
+        (4.0, None, True, 4.0),
+        (4.0, None, False, 4.0),
+        (4.0, "K", True, 4.0),
+        (4.0, "F", True, 4.0),
+    ],
+)
+def test_offset_in_unit(value: float, set_in: object, celsius: bool, expected: float) -> None:
+    assert offset_in_unit(value, set_in, celsius) == expected
+
+
+def test_offset_in_unit_round_trips() -> None:
+    """Saved again in °C and switched back, an offset comes back within one
+    hundredth (the two places the °C value is kept to): 1 °F is 0.56 °C, then
+    1.01 °F. A page never saved in between keeps the exact value it was set to."""
+    for value in (0.5, 1.0, 2.5, 3.5, 4.0, 5.5, 6.0):
+        there = offset_in_unit(value, "°F", True)
+        assert abs(offset_in_unit(there, "°C", False) - value) <= 0.01 + 1e-9

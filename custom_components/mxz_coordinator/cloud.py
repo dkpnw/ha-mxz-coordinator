@@ -149,6 +149,27 @@ def drive_setpoint(*, act: str, target: float, offset: float) -> float:
     return target
 
 
+# Home Assistant's UnitOfTemperature values, as a set drive offset's unit is
+# stored (ZONE_DRIVE_OFFSET_UNIT).
+UNIT_C = "°C"
+UNIT_F = "°F"
+
+
+def offset_in_unit(value: float, set_in: object, celsius: bool) -> float:
+    """A drive offset set in ``set_in`` (°C or °F), in the system unit.
+
+    An offset is a difference, so it scales by 5/9 or 9/5 with no 32° shift:
+    3 °F is 1.67 °C. To two places, as the room page shows it. Any other
+    ``set_in`` (none stored: an offset saved before its unit was) is taken to
+    be in the system unit already, and so is returned unchanged.
+    """
+    if set_in == UNIT_F and celsius:
+        return round(value * 5 / 9, 2)
+    if set_in == UNIT_C and not celsius:
+        return round(value * 9 / 5, 2)
+    return value
+
+
 def snap_to_step(value: float, step: float) -> float:
     """``value`` on the nearest multiple of ``step``, half up.
 

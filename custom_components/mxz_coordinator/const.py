@@ -203,9 +203,12 @@ OFFSET_HEAD_TYPES = (HEAD_TYPE_CLOUD, HEAD_TYPE_GENERIC)
 CLOUD_PLATFORMS = ("melcloud", "kumo", "kumo_cloud")
 # A cloud room's tunables, stored only while the room is cloud and only when
 # set to something other than the default (blank or the default stores no key,
-# so the default follows the system unit). The drive offset is in the system
-# unit; the two times are seconds.
+# so the default follows the system unit). The drive offset is in the unit
+# stored with it (ZONE_DRIVE_OFFSET_UNIT, the system unit when it was set) and
+# is converted into the system unit after a °F/°C switch; one stored without a
+# unit is in the system unit. The two times are seconds.
 ZONE_DRIVE_OFFSET = "drive_offset"
+ZONE_DRIVE_OFFSET_UNIT = "drive_offset_unit"
 ZONE_WRITE_INTERVAL = "write_interval"
 ZONE_CONFIRM_WAIT = "confirm_wait"
 # Setpoint drive offset: while a cloud room runs, its head gets target + offset

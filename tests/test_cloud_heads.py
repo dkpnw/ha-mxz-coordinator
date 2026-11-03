@@ -28,6 +28,7 @@ from custom_components.mxz_coordinator.const import (
     IDLE_ACTION_OFF,
     ZONE_CONFIRM_WAIT,
     ZONE_DRIVE_OFFSET,
+    ZONE_DRIVE_OFFSET_UNIT,
     ZONE_HEAD_TYPE,
     ZONE_WRITE_INTERVAL,
 )
@@ -103,6 +104,40 @@ async def test_cool_drives_below_target(hass: HomeAssistant) -> None:
         ("set_temperature", {"temperature": 68.0}),
     ]
     assert a.device == {"mode": "cool", "temperature": 68.0, "fan": "auto"}
+
+
+@pytest.mark.parametrize(
+    ("units", "head", "platform", "set_in", "room", "sent"),
+    [
+        # 4 °F set, now in °C: 2.22 °C past the 21 °C target, on 0.5 °C.
+        (METRIC_SYSTEM, MelcloudHead, MELCLOUD, "°F", 18, 23.0),
+        # The same offset with no unit stored reads as 4 °C, held to 3.
+        (METRIC_SYSTEM, MelcloudHead, MELCLOUD, None, 18, 24.0),
+        # 2.5 °C set, now in °F: 4.5 °F past 70, half up on 1 °F.
+        (US_CUSTOMARY_SYSTEM, ComfortHead, COMFORT, "°C", 65, 75.0),
+        (US_CUSTOMARY_SYSTEM, ComfortHead, COMFORT, None, 65, 73.0),
+    ],
+)
+async def test_a_set_offset_drives_in_the_unit_in_use(
+    hass: HomeAssistant, units, head, platform: str, set_in: str | None,
+    room: float, sent: float,
+) -> None:
+    """Cloud review NIT 4: after a °F/°C switch a set offset drives the head
+    by its converted value, not by the same number in the new unit. With no
+    unit stored (saved before it was) it reads as before."""
+    hass.config.units = units
+    heads = [head("a", mode="fan_only"), head("b", mode="fan_only")]
+    await register(hass, {platform: heads})
+    offset = 4.0 if units is METRIC_SYSTEM else 2.5
+    extra = {**CLOUD, ZONE_DRIVE_OFFSET: offset}
+    if set_in is not None:
+        extra[ZONE_DRIVE_OFFSET_UNIT] = set_in
+    entry = await setup_rooms(hass, [(heads[0], extra), (heads[1], CLOUD)])
+    await past_startup(hass, entry)
+    calls = record(hass)
+    await _driven(hass, entry, SENSORS[0], room)
+    assert ("set_temperature", {"temperature": sent}) in writes(calls, heads[0].entity_id)
+    assert heads[0].device["temperature"] == sent
 
 
 @pytest.mark.parametrize(

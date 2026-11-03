@@ -21,6 +21,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .capabilities import head_lists_dry, head_mode_problem, supported_idle_actions
+from .cloud import offset_in_unit
 from .const import (
     CLOUD_PLATFORMS,
     COMFORT_DOMAINS,
@@ -115,6 +116,7 @@ from .const import (
     ZONE_DRIFT_COOLER_BY,
     ZONE_DRIFT_WARMER_BY,
     ZONE_DRIVE_OFFSET,
+    ZONE_DRIVE_OFFSET_UNIT,
     ZONE_DUAL_SETPOINT,
     ZONE_ENTITY_SUFFIXES,
     ZONE_EVIDENCE_BASIS,
@@ -917,16 +919,25 @@ def _page_form(
     return _page_schema(union, page, frozenset(page_errors)), page_errors
 
 
-def _room_view(zone: dict[str, Any]) -> dict[str, Any]:
+def _room_view(zone: dict[str, Any], temperature_unit: str) -> dict[str, Any]:
     """A stored zone as the room page's field values.
 
     The head type is the stored one; a room that never stored one shows local,
-    which it is, whatever its head's platform (the suggestion is setup's).
+    which it is, whatever its head's platform (the suggestion is setup's). A
+    set drive offset shows in the system unit, converted from the unit it was
+    set in and held to the page's range: the value MXZ drives by.
     """
     view = {key: zone.get(zone_key) for key, zone_key in _ROOM_WIRING_FIELDS}
     stored = zone.get(ZONE_HEAD_TYPE)
     view[_HEAD_TYPE_FIELD] = stored if stored in HEAD_TYPES else HEAD_TYPE_LOCAL
     view.update({key: zone.get(zone_key) for key, zone_key in _CLOUD_FIELDS})
+    offset = view["drive_offset"]
+    if isinstance(offset, (int, float)) and not isinstance(offset, bool) and math.isfinite(offset):
+        celsius = temperature_unit == UnitOfTemperature.CELSIUS
+        most = DRIVE_OFFSET_MAX_C if celsius else DRIVE_OFFSET_MAX_F
+        view["drive_offset"] = min(max(
+            offset_in_unit(float(offset), zone.get(ZONE_DRIVE_OFFSET_UNIT), celsius), 0.0,
+        ), most)
     view[_HANDS_OFF_FIELD] = zone.get(ZONE_HANDS_OFF) is True
     view[_VOTE_BASIS_FIELD] = (
         VOTE_BASIS_ACTION
@@ -2916,7 +2927,9 @@ class MXZOptionsFlow(OptionsFlow):
         if user_input is None:
             return self.async_show_form(
                 step_id="room",
-                data_schema=_room_schema(_room_view(zone), temperature_unit=unit, dry=dry),
+                data_schema=_room_schema(
+                    _room_view(zone, unit), temperature_unit=unit, dry=dry
+                ),
                 description_placeholders=title,
             )
         values = _flatten(user_input)
@@ -3057,6 +3070,12 @@ class MXZOptionsFlow(OptionsFlow):
                 zone[zone_key] = float(values[key])
             else:
                 zone.pop(zone_key, None)
+        # A set offset keeps the unit it was set in, so a later °F/°C switch
+        # converts it (see cloud.offset_in_unit).
+        if ZONE_DRIVE_OFFSET in zone:
+            zone[ZONE_DRIVE_OFFSET_UNIT] = unit
+        else:
+            zone.pop(ZONE_DRIVE_OFFSET_UNIT, None)
         return self._save({}, zones)
 
     def _hand_off_dual(self, zone: dict[str, Any], *, now_dual: bool) -> None:

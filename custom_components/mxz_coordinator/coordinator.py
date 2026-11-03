@@ -62,6 +62,7 @@ from .cloud import (
     CloudHead,
     clamp,
     drive_setpoint,
+    offset_in_unit,
     snap_to_step,
 )
 from .const import (
@@ -186,6 +187,7 @@ from .const import (
     ZONE_DRIFT_COOLER_BY,
     ZONE_DRIFT_WARMER_BY,
     ZONE_DRIVE_OFFSET,
+    ZONE_DRIVE_OFFSET_UNIT,
     ZONE_DUAL_SETPOINT,
     ZONE_EVIDENCE_BASIS,
     ZONE_FLOOR_HIGH,
@@ -406,10 +408,12 @@ class Zone:
     # Head type (ZONE_HEAD_TYPE), from config; only a stored "cloud" or
     # "generic" opts in, and the coordinator turns an ESPHome head back to
     # local. A cloud or generic room's
-    # drive offset (system unit) and its write interval and confirm wait
-    # (seconds), as stored (None = the default); resolved with the head type.
+    # drive offset (in drive_offset_unit, the unit it was set in, if stored)
+    # and its write interval and confirm wait (seconds), as stored (None = the
+    # default); resolved with the head type, the offset into the system unit.
     head_type: str = HEAD_TYPE_LOCAL
     drive_offset: float | None = None
+    drive_offset_unit: str | None = None
     write_interval: float | None = None
     confirm_wait: float | None = None
     # Allow Dry mode (ZONE_ALLOW_DRY), from config; only a stored True opts in.
@@ -521,6 +525,7 @@ def _parse_zones(
                 else HEAD_TYPE_LOCAL
             ),
             drive_offset=_finite(z.get(ZONE_DRIVE_OFFSET)),
+            drive_offset_unit=z.get(ZONE_DRIVE_OFFSET_UNIT),
             write_interval=_finite(z.get(ZONE_WRITE_INTERVAL)),
             confirm_wait=_finite(z.get(ZONE_CONFIRM_WAIT)),
             allow_dry=z.get(ZONE_ALLOW_DRY) is True,
@@ -3355,9 +3360,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             (DEFAULT_DRIVE_OFFSET_C, DRIVE_OFFSET_MAX_C) if self.celsius
             else (DEFAULT_DRIVE_OFFSET_F, DRIVE_OFFSET_MAX_F)
         )
+        # A set offset follows a °F/°C switch: converted from the unit it was
+        # set in, then held inside this unit's range.
         zone.drive_offset = (
             offset if zone.drive_offset is None
-            else min(max(zone.drive_offset, 0.0), most)
+            else min(max(
+                offset_in_unit(zone.drive_offset, zone.drive_offset_unit, self.celsius), 0.0,
+            ), most)
         )
         zone.write_interval = _bounded(
             zone.write_interval,
