@@ -2792,6 +2792,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {key: view.get(key) for key in START_POINT_KEYS}
 
     @callback
+    def _redraw_rooms(self) -> None:
+        """Re-render the room surfaces (each thermostat, the plan sensor) now.
+
+        Only a re-render, no decision: the plan and the head writes are unchanged.
+        """
+        for listener in tuple(self._delivery_listeners):
+            listener()
+
+    @callback
     def async_add_delivery_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         """Observe software delivery without a refresh-completion notification."""
         self._delivery_listeners.add(listener)
@@ -5087,6 +5096,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         except HomeAssistantError:
             self._cancel_dry_pick(zone.slug)
+            self._redraw_rooms()  # Dry off the thermostat now, not when the plan runs
             await self.async_request_refresh()
             raise
 
@@ -5108,6 +5118,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "MXZ: %s was sent dry but its head didn't report it in time; "
             "back to the room's plan", zone.name,
         )
+        self._redraw_rooms()  # Dry off the thermostat now, not when the plan runs
         self.hass.async_create_task(self.async_request_refresh())
 
     def dry_option_turned_off(self, raw_zones: Any) -> None:
@@ -6057,8 +6068,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.coordinator_enable:
             self._retire_deliveries()
             await self._async_retire_vane_kicks()
-        for listener in tuple(self._delivery_listeners):
-            listener()
+        self._redraw_rooms()
         if at_once:
             await self.async_refresh()
         else:

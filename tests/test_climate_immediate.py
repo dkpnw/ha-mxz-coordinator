@@ -29,15 +29,19 @@ import pytest
 pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-from homeassistant.core import HomeAssistant, State
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.components.climate import HVACAction, HVACMode
+from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COOLDOWN
 
 from custom_components.mxz_coordinator.const import (
     CONF_INHIBIT_ACTION,
     CONF_INHIBIT_ENTITY,
+    DRY_PICK_WAIT,
     INHIBIT_ACTION_OFF,
 )
-from tests.test_dry_mode import INHIBIT
+from tests.test_dry_entity import LateHead
+from tests.test_dry_mode import INHIBIT, DryHead
 from tests.test_dry_mode import _setup as _dry_setup
 from tests.test_dual_setpoint import (
     _call,
@@ -50,6 +54,7 @@ from tests.test_dual_setpoint import (
     _start,
     _state,
 )
+from tests.test_startup_continuity import _head
 
 
 def _at_refresh(
@@ -355,3 +360,138 @@ async def test_heat_cool_after_the_head_left_dry_shows_before_the_plan(
     assert rig.coord._dry_released == set()  # nothing to release: the plan is unchanged
     await rig.recompute()
     assert (rig.row(1)["dry"], hass.states.get(tile).state) == (None, "heat_cool")
+
+
+# A Dry pick that does not hold: refused by the head, or never reported in the
+# wait. The thermostat leaves Dry at once, before the plan that follows runs.
+
+
+class _RefusingHead(DryHead):
+    """A head that rejects being sent dry (an invented definite rejection)."""
+
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        if hvac_mode == HVACMode.DRY:
+            raise HomeAssistantError("invented rejection of dry")
+        await super().async_set_hvac_mode(hvac_mode)
+
+
+async def test_a_dry_pick_the_head_refuses_leaves_dry_at_once(
+    hass: HomeAssistant, monkeypatch
+) -> None:
+    """Negative: the head rejects the pick's one write. The tile is Heat/Cool
+    again the moment the service returns its error, while the plan that error
+    asked for still waits out the request cooldown (the pick's own enable ran
+    one just before). Nothing else was sent to the head in between."""
+    rig = await _dry_setup(hass, head_cls=_RefusingHead)
+    await rig.recompute()
+    tile = rig.eid(BEDROOM)
+    assert hass.states.get(tile).state == "heat_cool"
+    seen = _at_refresh(hass, rig.entry, monkeypatch, tile)
+    rig.forget()
+
+    with pytest.raises(HomeAssistantError, match="invented rejection of dry"):
+        await _mode(hass, tile, "dry")
+    assert len(seen) == 2  # the enable's request, then the refusal's
+    assert seen[0][1][tile].state == "dry"  # the pick showed at once, as before
+    refused_at, _states = seen[1]
+    assert rig.coord._refresh_generation == refused_at  # no plan since the refusal
+    assert rig.coord._dry_picks == {}
+    at_once = hass.states.get(tile)
+    assert at_once.state == "heat_cool"
+    assert rig.modes_sent(1) == ["dry"]  # the one refused write, nothing more yet
+
+    await rig.later(REQUEST_REFRESH_DEFAULT_COOLDOWN + 1)  # the refusal's plan
+    assert rig.coord._refresh_generation == refused_at + 1
+    assert (rig.row(1)["dry"], hass.states.get(tile).state) == (None, "heat_cool")
+    # The action shown at once was already the one that plan settles.
+    assert hass.states.get(tile).attributes["hvac_action"] == at_once.attributes["hvac_action"]
+
+
+async def test_a_dry_pick_the_head_never_reports_leaves_dry_when_it_expires(
+    hass: HomeAssistant, monkeypatch
+) -> None:
+    """Negative: no dry reported within DRY_PICK_WAIT. The tile goes from Dry
+    to Heat/Cool inside the callback that ends the pick, before any plan."""
+    rig = await _dry_setup(hass, head_cls=LateHead)
+    await rig.recompute()
+    head = _head(hass, rig.heads[1])
+    head.late = True
+    tile = rig.eid(BEDROOM)
+    coord = rig.coord
+    at_expiry: list[tuple[str, str]] = []  # the tile just before and just after
+    real = coord._dry_pick_expired
+
+    @callback  # as the real one is: run on the event loop, not in a worker thread
+    def _expired(zone, now) -> None:
+        before = hass.states.get(tile).state
+        real(zone, now)  # a callback: no plan can run inside it
+        at_expiry.append((before, hass.states.get(tile).state))
+
+    monkeypatch.setattr(coord, "_dry_pick_expired", _expired)  # before the pick binds it
+    await _mode(hass, tile, "dry")
+    await rig.recompute()
+    assert rig.state(1) != "dry" and hass.states.get(tile).state == "dry"  # asked, unreported
+
+    await rig.later(DRY_PICK_WAIT - 5)
+    assert at_expiry == [] and hass.states.get(tile).state == "dry"  # still counting
+    await rig.later(DRY_PICK_WAIT + 1)
+    assert at_expiry == [("dry", "heat_cool")]
+    await rig.later(DRY_PICK_WAIT + REQUEST_REFRESH_DEFAULT_COOLDOWN + 2)
+    assert (rig.row(1)["dry"], hass.states.get(tile).state) == (None, "heat_cool")
+
+
+# The action next to the mode: what the tile shows doing follows the same live
+# Dry as its mode, so a pick or a release that lands while the plan waits out
+# the request cooldown shows the action that plan then settles, at once.
+
+
+async def _start_cooldown(hass: HomeAssistant, rig) -> int:
+    """Another room's write runs a plan now; the next request waits it out."""
+    await _call(
+        hass, "number", "set_value", {"entity_id": rig.eid("_primary_target"), "value": 71}
+    )
+    return rig.coord._refresh_generation
+
+
+async def test_a_dry_pick_shows_drying_before_the_plan(hass: HomeAssistant) -> None:
+    """Dry picked inside the cooldown: the head reports dry at once, and the
+    tile's action is drying at once, as the plan that follows holds it."""
+    rig = await _dry_setup(hass)
+    await rig.recompute()
+    tile = rig.eid(BEDROOM)
+    gen = await _start_cooldown(hass, rig)
+
+    await _mode(hass, tile, "dry")
+    assert rig.coord._refresh_generation == gen  # the pick's plan still waits
+    assert rig.state(1) == "dry"
+    shown = hass.states.get(tile)
+    assert (shown.state, shown.attributes["hvac_action"]) == ("dry", HVACAction.DRYING)
+
+    await rig.later(REQUEST_REFRESH_DEFAULT_COOLDOWN + 1)
+    assert rig.coord._refresh_generation > gen
+    assert rig.row(1)["dry"] == "held"
+    assert hass.states.get(tile).attributes["hvac_action"] == HVACAction.DRYING
+
+
+async def test_heat_cool_from_dry_drops_drying_before_the_plan(hass: HomeAssistant) -> None:
+    """Heat/Cool from a held Dry inside the cooldown: the head is still in dry
+    until the plan runs, but the tile is Heat/Cool and no longer drying, at
+    once; the action it shows is the one that plan then settles."""
+    rig = await _dry_setup(hass)
+    tile = rig.eid(BEDROOM)
+    await _mode(hass, tile, "dry")
+    await rig.recompute()
+    assert hass.states.get(tile).attributes["hvac_action"] == HVACAction.DRYING
+    await rig.later(REQUEST_REFRESH_DEFAULT_COOLDOWN + 1)
+    gen = await _start_cooldown(hass, rig)
+
+    await _mode(hass, tile, "heat_cool")
+    assert rig.coord._refresh_generation == gen
+    assert rig.state(1) == "dry"  # untouched until the plan runs
+    at_once = hass.states.get(tile)
+    assert at_once.state == "heat_cool"
+    assert at_once.attributes["hvac_action"] != HVACAction.DRYING
+
+    await rig.later(REQUEST_REFRESH_DEFAULT_COOLDOWN + 1)
+    assert rig.coord._refresh_generation > gen and rig.state(1) != "dry"
+    assert hass.states.get(tile).attributes["hvac_action"] == at_once.attributes["hvac_action"]

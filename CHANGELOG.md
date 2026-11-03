@@ -14,13 +14,32 @@ on your equipment.
 
 - **A room thermostat shows a change at once.** A dashboard card (Mushroom, tile) used
   to show a room's old mode or setpoint until the plan that follows a change finished,
-  up to 10 seconds later on a test install, so a second tap could undo the first. Now the new mode
-  (Off, Heat/Cool or Dry), target, or Heat to and Cool to shows at once, whether it was
-  set on the thermostat or on the room's enable switch or number. Dry shows from the
-  moment it is picked, and Heat/Cool or Off from Dry shows at once too. What MXZ sends
-  the heads, and when, is unchanged.
+  up to 10 seconds later on a test install, so a second tap could undo the first. Now
+  the new mode (Off, Heat/Cool or Dry), target, or Heat to and Cool to shows at once,
+  whether it was set on the thermostat or on the room's enable switch or number. Dry
+  shows from the moment it is picked, and Heat/Cool or Off from Dry shows at once too.
+  What MXZ sends the heads, and when, is unchanged.
+- **A Dry pick that doesn't take leaves Dry at once.** If the head refused Dry, or didn't
+  report it within the pick's wait (60 seconds, or a cloud room's confirm wait if
+  longer), the thermostat kept showing Dry until the plan that follows ran, up to 10
+  seconds later. It now shows Heat/Cool at once. What MXZ sends the heads, and when, is
+  unchanged.
+- **The thermostat's action follows Dry at once.** Right after Dry was picked, the
+  thermostat could show Dry with `idle` while the head was already drying, and after
+  Heat/Cool from Dry it could show `drying`, until the plan that follows ran. The action
+  now follows the same Dry as the mode: the head's own action (`drying` once it is in
+  Dry) from the pick, and the plan's action from Heat/Cool or Off. A head being parked
+  for heat still shows `idle`. Display only.
 - **README:** a Dashboard cards section with a Mushroom climate card setup tested with
-  Mushroom v5.2.3.
+  Mushroom v5.2.3. It notes that the card's + and - buttons wait about 2 seconds after
+  the last tap before sending the setpoint; that wait is the card's, not MXZ's.
+- **Tests:** a restart part way through the mode-change wait, at the default 600
+  seconds, in both directions. A change, 400 seconds, the room now wants the other
+  direction, a restart: the mode holds, and still holds 10 seconds before the end. Once
+  the wait is over, the change goes through and its new time is stored.
+- **Tests:** a Dry pick the head refuses, or never reports, shows Heat/Cool before the
+  plan that follows runs. The thermostat's action shows `drying` at once on a pick, and
+  stops at once on Heat/Cool from Dry. Each test failed before its fix.
 
 ## 3.18.0 (November 2, 2026)
 

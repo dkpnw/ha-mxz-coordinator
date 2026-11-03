@@ -290,7 +290,9 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         too; only its current state follows the head.) So does a disabled room
         whose freeze/overheat floor is tripped: MXZ may be running its head.
         So does an enabled room whose head a person runs in dry (Allow Dry
-        mode): it shows drying, not idle.
+        mode): it shows drying, not idle. That reads the same live Dry as
+        ``hvac_mode``, so a pick or a release shows its action with its mode,
+        before the plan settles the room held; parked stays the plan's idle.
         """
         if not self._enabled and (
             self._zone.hands_off or self.coordinator.floor_tripped(self._zone.slug)
@@ -298,7 +300,9 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
             return self._head_action()
         if not self.coordinator.coordinator_enable or not self._enabled:
             return HVACAction.OFF
-        if self.coordinator.dry_state(self._zone.slug) == "held":
+        if self.coordinator.in_dry(self._zone) and self.coordinator.dry_state(
+            self._zone.slug
+        ) != "parked":
             # Allow Dry mode: a person runs the head in dry, so show the head.
             # (Parked for heat, its engage is satisfied: idle, below.)
             return self._head_action()

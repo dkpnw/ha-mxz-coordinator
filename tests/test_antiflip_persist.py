@@ -190,6 +190,81 @@ async def test_restart_continues_the_hold_from_the_stored_change(
         assert _stored(hass_storage, entry) > stored  # and that change was recorded
 
 
+async def _flip_to(hass: HomeAssistant, entry, mode: str) -> None:
+    """A real automatic change into ``mode``, stamped by the coordinator."""
+    await _flip_to_heat(hass, entry)
+    if mode == MODE_HEAT:
+        return
+    coord = entry.runtime_data
+    expire_dwell(coord)  # the heat change's own hold is not the subject
+    await _set_temp(hass, SENSOR_A, HOT[False])
+    await _recompute(hass, entry)
+    assert _plan(hass, entry).state == MODE_COOL
+    assert coord.current_shared_mode == MODE_COOL
+
+
+def _let_time_pass(monkeypatch: pytest.MonkeyPatch, coord, seconds: float) -> None:
+    """``seconds`` pass for one running coordinator: both of its clocks move.
+
+    The wall clock carries the record; the monotonic stamp is what the gate
+    reads within the run (``tests/clocks.py``).
+    """
+    jump_wall_clock(monkeypatch, seconds)
+    coord._last_mode_change_ts -= seconds
+
+
+@pytest.mark.parametrize(
+    ("first", "wanted", "temp"),
+    [(MODE_HEAT, MODE_COOL, HOT[False]), (MODE_COOL, MODE_HEAT, COLD[False])],
+    ids=["heat_then_cool", "cool_then_heat"],
+)
+async def test_restart_mid_hold_keeps_the_mode_then_changes_when_the_hold_ends(
+    hass: HomeAssistant, hass_storage: dict, monkeypatch: pytest.MonkeyPatch,
+    first: str, wanted: str, temp: float,
+) -> None:
+    """End to end at the real 600 s window: a restart 400 s in holds the rest, no more.
+
+    A change, 400 s, the room now wants the other direction, a restart: the
+    plan stays where it was. 190 s later (10 s still left) it still holds,
+    although the dwell wakeup has run. Once the window is past, the wakeup
+    makes the change and a new, later change time is written.
+    """
+    entry, _a, _b = await _setup_dwell(hass)
+    assert entry.runtime_data.hysteresis == DEFAULT_MODE_HYSTERESIS == 600
+    await _flip_to(hass, entry, first)
+    stored = _stored(hass_storage, entry)
+
+    jump_wall_clock(monkeypatch, 400)
+    await _set_temp(hass, SENSOR_A, temp)  # wants the other direction
+    await _restart(hass, entry)
+    coord = entry.runtime_data
+
+    plan = _plan(hass, entry)
+    assert (plan.state, plan.attributes["mode_change_allowed"]) == (first, False)
+    assert coord.current_shared_mode == first
+    since = plan.attributes["seconds_since_mode_change"]
+    assert 400 <= since < 400 + RESTAMP_TOLERANCE, since
+    assert coord._dwell_timer is not None  # the restart armed the wakeup for the rest
+
+    # 10 s short of the window: the wakeup has fired, the hold still holds.
+    _let_time_pass(monkeypatch, coord, 190)
+    await _fire_due(hass, 190)
+    plan = _plan(hass, entry)
+    assert (plan.state, plan.attributes["mode_change_allowed"]) == (first, False)
+    assert _stored(hass_storage, entry) == stored
+    assert coord._dwell_timer is not None  # re-armed for the 10 s left
+
+    # Past the window: the change goes through on the wakeup, no manual recompute.
+    _let_time_pass(monkeypatch, coord, 10 + 2)
+    await _fire_due(hass, 10 + 2)
+    await hass.async_block_till_done()  # the record's write is scheduled for the next turn
+    plan = _plan(hass, entry)
+    assert plan.state == wanted
+    assert coord.current_shared_mode == wanted
+    new = _stored(hass_storage, entry)
+    assert new - stored >= 400 + 190 + 12, (stored, new)  # the new change, not the old one
+
+
 # --- no record, a future record, an unreadable record -----------------------------
 
 
