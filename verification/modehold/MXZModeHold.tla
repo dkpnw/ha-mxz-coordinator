@@ -35,6 +35,14 @@
 (*                                                                         *)
 (* WithVote adds one hands-off room after the coordinated ones: a person   *)
 (* runs its head, and its mode is an ordinary vote (PRIORITY_VOTE).        *)
+(*                                                                         *)
+(* WithOpenings adds the door/window pause (coordinator._opening_step):    *)
+(* a room's window opens past its open delay (Open: paused), closes past   *)
+(* its close delay (Close: resumed), or a person takes the paused room     *)
+(* over (Override: its head, or its Window Override switch) until the      *)
+(* window closes. The delays are the steps themselves. A paused room has   *)
+(* no demand and no run (MXZCoordinator._compute) and its head is off.     *)
+(* Its state is stored at once, so a reload or restart keeps it.          *)
 (* Safety priority, floors, Dry, Comfort priority, lost heads and eco are  *)
 (* not in this model; tests/test_modehold_properties.py checks them on the *)
 (* real logic.arbitrate for every input in its table.                      *)
@@ -52,7 +60,8 @@ CONSTANTS
     WithSelect,   \* a person picks the shared mode (select.async_select_option)
     WithReload,   \* config entry reload (an options save)
     WithRestart,  \* Home Assistant stops and starts
-    WithCrash     \* Home Assistant dies without its stop (power cut, kill)
+    WithCrash,    \* Home Assistant dies without its stop (power cut, kill)
+    WithOpenings  \* each room has a door/window pause
 
 None == "none"
 \* "No time": no record, no stamp. Outside every time the model reaches.
@@ -89,15 +98,23 @@ VARIABLES
     lastStamp,          \* true time of the last stamp, or NoTime
     steppedSinceStamp,  \* the wall clock was stepped since lastStamp
     holdBroken,         \* a change came sooner than the hold allows
-    runBroken           \* a running room lost the mode with no call against it
+    runBroken,          \* a running room lost the mode with no call against it
+    \* The door/window pause (coordinator._openings), kept across starts.
+    paused,             \* each room: paused or closing (off, no vote)
+    overridden,         \* each room: a person runs it with its window open
+    enabled,            \* each room's own MXZ mode (its enable switch)
+    pausedVoted,        \* ghost: a decision counted a paused room's call or run
+    stampMoved          \* ghost: a pause, resume or override moved the hold
 
 vars == <<real, boot, skew, pos, latch, head, vote, mode, byVotes, stamp,
           stored, storedMode, storedAt, storedByV, modeAt, restoreMode,
           restoreAt, applied, lastChange, steppedSince,
           restartedSince, voteOwned, picked, lastStamp, steppedSinceStamp,
-          holdBroken, runBroken>>
+          holdBroken, runBroken, paused, overridden, enabled, pausedVoted,
+          stampMoved>>
 ghosts == <<applied, lastChange, steppedSince, restartedSince, voteOwned,
             picked, lastStamp, steppedSinceStamp, holdBroken, runBroken>>
+openings == <<paused, overridden, enabled, pausedVoted, stampMoved>>
 
 Wall == real + skew
 Mono == real - boot
@@ -142,6 +159,8 @@ TypeOK ==
     /\ storedMode \in {None} \cup Modes /\ storedByV \in BOOLEAN
     /\ byVotes \in BOOLEAN /\ voteOwned \in BOOLEAN
     /\ applied \in {None} \cup Modes /\ picked \in {None} \cup Modes
+    /\ paused \in [RoomIds -> BOOLEAN] /\ overridden \in [RoomIds -> BOOLEAN]
+    /\ enabled \in [RoomIds -> BOOLEAN]
 
 Init ==
     /\ real = 0 /\ boot = 0 /\ skew = 0
@@ -160,6 +179,9 @@ Init ==
     /\ voteOwned = FALSE /\ picked = None
     /\ lastStamp = NoTime /\ steppedSinceStamp = FALSE
     /\ holdBroken = FALSE /\ runBroken = FALSE
+    /\ paused = [i \in RoomIds |-> FALSE] /\ overridden = [i \in RoomIds |-> FALSE]
+    /\ enabled = [i \in RoomIds |-> TRUE]
+    /\ pausedVoted = FALSE /\ stampMoved = FALSE
 
 (***************************************************************************)
 (* Decide: MXZCoordinator._compute then _apply.                            *)
@@ -176,8 +198,8 @@ Init ==
 (*                 async_delay_save(..., 0)): time, mode, by-votes.        *)
 (***************************************************************************)
 Decide ==
-    LET nl       == [i \in RoomIds |-> Engage(latch[i], pos[i])]
-        dem      == [i \in RoomIds |-> Demand(pos[i])]
+    LET nl       == [i \in RoomIds |-> IF paused[i] THEN "" ELSE Engage(latch[i], pos[i])]
+        dem      == [i \in RoomIds |-> IF paused[i] THEN None ELSE Demand(pos[i])]
         allowed  == stamp = NoTime \/ Mono - stamp >= H
         engaged  == \E i \in RoomIds : nl[i] \in Modes
         cmd      == SelectSeq(dem, LAMBDA d : d # None)
@@ -228,23 +250,29 @@ Decide ==
     /\ voteOwned' = IF change THEN byV /\ restOk /\ picked # state
                     ELSE IF owns THEN FALSE ELSE voteOwned
     /\ picked' = IF picked = state THEN None ELSE picked
-    /\ UNCHANGED <<real, boot, skew, pos, vote, restoreMode, restoreAt>>
+    /\ pausedVoted' = (pausedVoted \/ \E i \in RoomIds :
+                          paused[i] /\ (dem[i] # None \/ nl[i] \in Modes \/ head'[i] # ""))
+    /\ UNCHANGED <<real, boot, skew, pos, vote, restoreMode, restoreAt,
+                   paused, overridden, enabled, stampMoved>>
 
 \* The room's reading changes (any jump: a window opens, a sensor reports).
 Reading == \E i \in RoomIds, p \in Positions :
     /\ pos' = [pos EXCEPT ![i] = p]
     /\ UNCHANGED <<real, boot, skew, latch, head, vote, mode, byVotes, stamp,
                    stored, storedMode, storedAt, storedByV, modeAt, restoreMode, restoreAt>> /\ UNCHANGED ghosts
+    /\ UNCHANGED openings
 
 \* A person runs the hands-off head (its vote, coordinator._hands_off_vote).
 HandsOff == WithVote /\ \E v \in {None} \cup Modes :
     /\ v # vote /\ vote' = v
     /\ UNCHANGED <<real, boot, skew, pos, latch, head, mode, byVotes, stamp,
                    stored, storedMode, storedAt, storedByV, modeAt, restoreMode, restoreAt>> /\ UNCHANGED ghosts
+    /\ UNCHANGED openings
 
 Tick == real < MaxReal /\ real' = real + 1
     /\ UNCHANGED <<boot, skew, pos, latch, head, vote, mode, byVotes, stamp,
                    stored, storedMode, storedAt, storedByV, modeAt, restoreMode, restoreAt>> /\ UNCHANGED ghosts
+    /\ UNCHANGED openings
 
 \* NTP steps the wall clock, or a person sets it. Monotonic does not move.
 ClockStep == \E s \in Skews :
@@ -253,7 +281,7 @@ ClockStep == \E s \in Skews :
     /\ UNCHANGED <<real, boot, pos, latch, head, vote, mode, byVotes, stamp,
                    stored, storedMode, storedAt, storedByV, modeAt, restoreMode, restoreAt, applied, lastChange,
                    restartedSince, voteOwned, picked, lastStamp, holdBroken,
-                   runBroken>>
+                   runBroken>> /\ UNCHANGED openings
 
 \* select.async_select_option shows the pick, then
 \* coordinator.async_select_shared_mode: a changed direction stamps the hold
@@ -267,7 +295,7 @@ Select == WithSelect /\ \E m \in Modes :
     /\ picked' = m /\ lastChange' = real
     /\ steppedSince' = FALSE /\ restartedSince' = FALSE /\ voteOwned' = FALSE
     /\ UNCHANGED <<real, boot, skew, pos, latch, head, vote, restoreMode,
-                   restoreAt, applied, holdBroken, runBroken>>
+                   restoreAt, applied, holdBroken, runBroken>> /\ UNCHANGED openings
 
 \* A new coordinator: __init__ (stamp from the record's time; mode and
 \* _mode_by_votes from the record; latch ""), then the select's restore
@@ -296,6 +324,9 @@ NewCoordinator(newBoot, selMode, selAt, newRestore, newRestoreAt) ==
     /\ UNCHANGED <<real, skew, pos, head, vote, stored, applied, lastChange,
                    steppedSince, voteOwned, picked, lastStamp,
                    steppedSinceStamp, holdBroken, runBroken>>
+    \* The door/window record is stored at once on every change
+    \* (_save_openings) and read by the next start (async_load_openings).
+    /\ UNCHANGED openings
 
 \* __init__.async_reload: same process. The Store instance is shared
 \* (_mode_change_store), and the select restores the state it had.
@@ -318,9 +349,51 @@ RestoreDump == WithCrash /\ <<restoreMode, restoreAt>> # <<mode, modeAt>>
     /\ restoreMode' = mode /\ restoreAt' = modeAt
     /\ UNCHANGED <<real, boot, skew, pos, latch, head, vote, mode, byVotes,
                    stamp, stored, storedMode, storedAt, storedByV, modeAt>> /\ UNCHANGED ghosts
+    /\ UNCHANGED openings
+
+(***************************************************************************)
+(* The door/window pause (coordinator._opening_step, logic.opening_state). *)
+(* None of these is a mode change: each leaves the mode, the hold and the  *)
+(* record alone (stampMoved watches that). The room's own mode, its enable *)
+(* switch, is never touched by any of them.                                *)
+(***************************************************************************)
+\* Open past the open delay: paused. Never while a person overrides it.
+Open == WithOpenings /\ \E i \in RoomIds :
+    /\ ~paused[i] /\ ~overridden[i]
+    /\ paused' = [paused EXCEPT ![i] = TRUE]
+    /\ stamp' = stamp        \* a pause is not a mode change
+    /\ enabled' = enabled    \* nor does it touch the room's own mode
+    /\ UNCHANGED <<real, boot, skew, pos, latch, head, vote, mode, byVotes,
+                   stored, storedMode, storedAt, storedByV, modeAt, restoreMode,
+                   restoreAt, overridden, pausedVoted>> /\ UNCHANGED ghosts
+    /\ stampMoved' = (stampMoved \/ stamp' # stamp)
+
+\* Closed past the close delay (a paused room resumes), or closed at all (an
+\* override ends, so the next opening pauses again).
+Close == WithOpenings /\ \E i \in RoomIds :
+    /\ paused[i] \/ overridden[i]
+    /\ paused' = [paused EXCEPT ![i] = FALSE]
+    /\ overridden' = [overridden EXCEPT ![i] = FALSE]
+    /\ stamp' = stamp        \* a resume is not a mode change either
+    /\ UNCHANGED <<real, boot, skew, pos, latch, head, vote, mode, byVotes,
+                   stored, storedMode, storedAt, storedByV, modeAt, restoreMode,
+                   restoreAt, enabled, pausedVoted>> /\ UNCHANGED ghosts
+    /\ stampMoved' = (stampMoved \/ stamp' # stamp)
+
+\* A person changes the paused head, or turns on its Window Override.
+Override == WithOpenings /\ \E i \in RoomIds :
+    /\ paused[i]
+    /\ paused' = [paused EXCEPT ![i] = FALSE]
+    /\ overridden' = [overridden EXCEPT ![i] = TRUE]
+    /\ stamp' = stamp        \* nor is a takeover
+    /\ UNCHANGED <<real, boot, skew, pos, latch, head, vote, mode, byVotes,
+                   stored, storedMode, storedAt, storedByV, modeAt, restoreMode,
+                   restoreAt, enabled, pausedVoted>> /\ UNCHANGED ghosts
+    /\ stampMoved' = (stampMoved \/ stamp' # stamp)
 
 Next == Decide \/ Reading \/ HandsOff \/ Tick \/ ClockStep \/ Select
         \/ Reload \/ Restart \/ Crash \/ RestoreDump
+        \/ Open \/ Close \/ Override
 
 Spec == Init /\ [][Next]_vars
 
@@ -351,4 +424,20 @@ FreshNoWait == stored = NoTime => stamp = NoTime
 \* mode, or a person, takes it. (A room that has only drifted past its band
 \* in the other mode steps aside: it is not running.)
 PausedRunKept == ~runBroken
+
+\* A paused room never contributes a vote: no demand, no run, head off, in
+\* every decision made while it is paused.
+PausedNeverVotes == ~pausedVoted
+
+\* A pause, a resume or an override never starts, resets or shortens the
+\* hold. (HoldKept, with them in the model, is the rest: no change comes
+\* inside the hold whatever they do.)
+PauseKeepsHold == ~stampMoved
+
+\* An overridden room is never paused; only a closed reading (Close) lets
+\* the next opening pause it again.
+OverrideNeverPaused == \A i \in RoomIds : ~(paused[i] /\ overridden[i])
+
+\* A pause never sets a room's own MXZ mode to Off.
+PauseKeepsMode == \A i \in RoomIds : enabled[i]
 =============================================================================

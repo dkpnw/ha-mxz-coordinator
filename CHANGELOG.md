@@ -26,6 +26,12 @@ on your equipment.
   without it. The idea and its delays are from
   [@mikepell007](https://github.com/mikepell007)'s MIT
   [mxz_coordinator_blueprint](https://github.com/mikepell007/mxz_coordinator_blueprint).
+- **Verification.** The mode-hold model (`verification/modehold`) now has the door/window
+  pause, with two new configs (`ci-openings`, `ci-openings-restarts`) and four rules: a
+  paused room never votes, a pause never moves the hold, an overridden room is never
+  paused before a close, and a pause never turns a room off. `verification/run` also runs
+  the pause's tests, and its mutants include seven for the pause code and four for the
+  model.
 - **Resting mode no longer cuts a room's run short.** With Resting mode set to Cool or
   Heat, a room still running to its target in the other mode kept that mode only until it
   came back inside the Mode switch threshold; once the mode-change wait had passed,
