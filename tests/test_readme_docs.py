@@ -106,3 +106,46 @@ def test_changelog_section_finder_rejects_a_missing_version() -> None:
     """Negative: the section finder fails on a version the changelog doesn't have."""
     with pytest.raises(AssertionError):
         _changelog_section("## 1.0.0\n\n- x\n\n## 0.9.0\n", "3.9.0")
+
+
+def _dropped_previous_section(readme: str, changelog: str) -> str | None:
+    """The x.y.0 release just below the newest What's new section, if its section is gone.
+
+    Only x.y.0 counts: patch releases usually have no section of their own.
+    """
+    sections = re.findall(r"^## What's new in (\d+\.\d+\.\d+)\b", readme, re.MULTILINE)
+    versions = re.findall(r"^## (\d+\.\d+\.\d+)\b", changelog, re.MULTILINE)
+    earlier = versions[versions.index(sections[0]) + 1 :]
+    previous = next(version for version in earlier if version.endswith(".0"))
+    return None if previous in sections else previous
+
+
+def test_readme_keeps_the_previous_release_section() -> None:
+    """A release pushes the previous What's new section down; it doesn't replace it."""
+    assert (
+        _dropped_previous_section(
+            Path("README.md").read_text(), Path("CHANGELOG.md").read_text()
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("sections", "dropped"),
+    [
+        (["2.1.0", "2.0.0", "1.9.0"], None),
+        (["2.1.0", "2.0.0"], None),
+        (["2.0.1", "2.0.0"], None),
+        (["2.1.0", "1.9.0"], "2.0.0"),
+        (["2.1.0"], "2.0.0"),
+        (["2.0.1", "1.9.0"], "2.0.0"),
+        (["2.1.0 (unreleased)", "1.9.0"], "2.0.0"),
+    ],
+)
+def test_previous_section_check_reports_a_dropped_section(
+    sections: list[str], dropped: str | None
+) -> None:
+    """Negative included: 2.0.1 has no section of its own, but 2.0.0 must keep its."""
+    changelog = "## 2.1.0 (x)\n\n## 2.0.1 (x)\n\n## 2.0.0 (x)\n\n## 1.9.0 (x)\n"
+    readme = "\n".join(f"## What's new in {section}\n" for section in sections)
+    assert _dropped_previous_section(readme, changelog) == dropped
