@@ -169,7 +169,7 @@ def tlc(root: Path, config: str, out: Path) -> tuple[str, str]:
     if broken := re.search(r"Invariant (\w+) is violated", run.stdout):
         return "breaks", broken.group(1)
     if "Model checking completed. No error has been found." in run.stdout:
-        states = re.search(r"([\d,]+) distinct states found", run.stdout)
+        states = re.search(r"([\d,]+) distinct states found, 0 states left on queue", run.stdout)
         return "passes", states.group(1) if states else ""
     return "error", ""
 

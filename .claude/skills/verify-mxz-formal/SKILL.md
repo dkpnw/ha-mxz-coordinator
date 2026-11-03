@@ -209,7 +209,9 @@ config.
   positions; H = 2 ticks; true time 0 to 5; wall-clock offsets of -3, 0 and
   +3 ticks. `ci-restarts*` use one room with clock steps, select, reload and
   restart; `ci-votes*` use two rooms with votes and select, no restarts and
-  no clock steps. 213,118 to 508,692 distinct states each.
+  no clock steps. Distinct states: ci-restarts 936,774;
+  ci-restarts-rest-cool 1,699,080; ci-restarts-rest-heat 1,704,294; ci-votes
+  308,988; ci-votes-rest-heat 455,436.
 - One `Decide` is one `_compute` plus `_apply` with no event between; a
   person's pick or a reading arriving during an `_apply` (the
   `_selection_seq` guard) is not modeled.
