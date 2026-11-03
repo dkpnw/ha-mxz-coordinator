@@ -63,7 +63,10 @@ MXZ works out one plan for the outdoor unit:
 
 1. **Each enabled room reads its own sensor.** A room with an invalid reading, or a stale
    one under its [freshness contract](CONFIGURATION.md#choose-a-sensor-freshness-contract),
-   makes no automatic demand.
+   makes no automatic demand. Neither does a room [paused for an open door or
+   window](FEATURES.md#doorwindow-pause): it has no demand and no run, and its head is
+   off. A pause or resume never moves the mode-change wait; a resume that would flip the
+   mode waits it out like any room.
 2. **Each room asks for a mode only when it is well off target.** Past the **Mode switch
    threshold** (default 3 °F / 1.5 °C), or that side's drift if wider, a room votes for
    heat or cool. Closer than that, it reads `neutral` and waits.

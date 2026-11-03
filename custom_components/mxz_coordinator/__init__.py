@@ -36,6 +36,7 @@ from .const import (
     DOMAIN,
     DUAL_ZONE_ENTITY_SUFFIXES,
     IDLE_ACTION_FAN_ONLY,
+    OPENING_ZONE_ENTITY_SUFFIXES,
     PLATFORMS,
     SERVICE_RECOMPUTE,
     ZONE_CLIMATE,
@@ -49,7 +50,9 @@ from .const import (
 from .coordinator import (
     MXZCoordinator,
     async_load_mode_record,
+    async_load_openings,
     async_remove_last_mode_change,
+    async_remove_openings,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -130,8 +133,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
     # The last real cool/heat change, so a reload or restart continues its hold
     # instead of starting a new one, and the shared mode as last written (read
     # before the first plan is computed).
+    # And each room's door/window pause, so a pause outlives both too.
     coordinator = MXZCoordinator(
-        hass, entry, await async_load_mode_record(hass, entry.entry_id)
+        hass, entry, await async_load_mode_record(hass, entry.entry_id),
+        await async_load_openings(hass, entry.entry_id),
     )
     entry.runtime_data = coordinator
 
@@ -164,8 +169,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> None:
-    """Delete what the entry kept on disk: the time of its last mode change."""
+    """Delete what the entry kept on disk: its mode-change and door/window records."""
     await async_remove_last_mode_change(hass, entry.entry_id)
+    await async_remove_openings(hass, entry.entry_id)
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: MXZConfigEntry) -> None:
@@ -212,7 +218,12 @@ def _async_prune_stale_entities(
         # getattr: the prune needs only a zone's slug, and is also called with
         # bare stand-ins that carry nothing else (tests/test_fan_auto.py).
         dual = getattr(zone, "dual", False) is True
-        for suffix in (*ZONE_ENTITY_SUFFIXES, *(DUAL_ZONE_ENTITY_SUFFIXES if dual else ())):
+        opening = getattr(zone, "opening_active", False) is True
+        for suffix in (
+            *ZONE_ENTITY_SUFFIXES,
+            *(DUAL_ZONE_ENTITY_SUFFIXES if dual else ()),
+            *(OPENING_ZONE_ENTITY_SUFFIXES if opening else ()),
+        ):
             valid.add(f"{entry.entry_id}_{zone.slug}_{suffix}")
     registry = er.async_get(hass)
     for entity in er.async_entries_for_config_entry(registry, entry.entry_id):

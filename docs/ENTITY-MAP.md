@@ -135,6 +135,20 @@ above. See [Allow Dry mode](FEATURES.md#allow-dry-mode).
 | Same entity | `hvac_modes` | `off`, `heat_cool`, and `dry` while the head lists `dry` (3.16.0). A room without the option lists `off` and `heat_cool` only. |
 | Same entity | state (`hvac_mode`) | `dry` while its room's `dry` is `held` or `parked` (3.16.0); otherwise `heat_cool` or `off`, as for every room. |
 
+## Door/window pause (opt-in per room)
+
+Only a room with a door/window sensor and **Pause this room while it is open** on has
+these. Every other room keeps exactly the entities and keys above, and an entry with no
+such room has no `paused_rooms`. See [Door/window pause](FEATURES.md#doorwindow-pause).
+
+| Entity surface | Fields | Meaning |
+| --- | --- | --- |
+| `switch.*_<room>_window_override` | state | On while the room runs with its window open: turned on here, or by a change on the paused head. Turns itself off when the window reads closed. |
+| `binary_sensor.*_<room>_paused_open` (diagnostic) | state | On while the room is paused (`opening_state` `paused` or `closing`). |
+| `climate.*_thermostat`, the binary sensor, and `sensor.*_plan` → `zones[]` | `opening_entity`, `opening_state`, `paused_reason`, `window_override`, `paused_since`, `resumes_at` | The sensor; `closed`, `opening`, `paused`, `closing` or `overridden`; `door/window open` or `window open, manual override`; the override; when the pause began; when the room resumes (while closing). |
+| `climate.*_thermostat` | `hvac_action` | `off` while paused. The state (`hvac_mode`) stays the room's own. |
+| `sensor.*_plan` | `paused_rooms` | The names of the paused rooms. |
+
 ## Required — replace these
 
 | Placeholder in the package | What it is | Example of yours |

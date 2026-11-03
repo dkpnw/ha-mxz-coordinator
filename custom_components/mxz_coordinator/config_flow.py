@@ -75,6 +75,8 @@ from .const import (
     DEFAULT_INHIBIT_ACTION,
     DEFAULT_INHIBIT_ACTIVE_STATE,
     DEFAULT_MODE_HYSTERESIS,
+    DEFAULT_OPENING_CLOSE_DELAY,
+    DEFAULT_OPENING_OPEN_DELAY,
     DEFAULT_RESTING_MODE_BIAS,
     DEFAULT_WRITE_INTERVAL,
     DOMAIN,
@@ -103,6 +105,9 @@ from .const import (
     NEW_ROOM_FLOOR_LOW_F,
     NEW_ROOM_MAX_AGE,
     OFFSET_HEAD_TYPES,
+    OPENING_CLOSE_DELAY_BOUNDS,
+    OPENING_OPEN_DELAY_BOUNDS,
+    OPENING_ZONE_ENTITY_SUFFIXES,
     RESTING_BIAS_OPTIONS,
     UNAVAILABLE_STATES,
     VOTE_BASES,
@@ -127,6 +132,12 @@ from .const import (
     ZONE_HEAD_TYPE,
     ZONE_MAX_AGE,
     ZONE_NAME,
+    ZONE_OPENING_CLOSE_DELAY,
+    ZONE_OPENING_ENTITY,
+    ZONE_OPENING_NOTIFY,
+    ZONE_OPENING_NOTIFY_SERVICE,
+    ZONE_OPENING_OPEN_DELAY,
+    ZONE_OPENING_PAUSE,
     ZONE_REPORT_INTERVAL,
     ZONE_SAFETY_PRIORITY_ENTITY,
     ZONE_SAMPLE_SEQUENCE_ATTR,
@@ -498,7 +509,9 @@ def _async_move_room_entities(
             continue  # this room stayed put: leave its records untouched
         # A dual-setpoint room's heat-to and cool-to numbers move with it too;
         # a room without them simply has nothing registered under those.
-        for suffix in (*ZONE_ENTITY_SUFFIXES, *DUAL_ZONE_ENTITY_SUFFIXES):
+        for suffix in (
+            *ZONE_ENTITY_SUFFIXES, *DUAL_ZONE_ENTITY_SUFFIXES, *OPENING_ZONE_ENTITY_SUFFIXES,
+        ):
             entity_id = by_unique_id.get(
                 f"{entry.entry_id}_{zone_slug(old_index)}_{suffix}"
             )
@@ -723,6 +736,20 @@ _CLOUD_FIELDS = (
     ("confirm_wait", ZONE_CONFIRM_WAIT),
 )
 _CLOUD_SECTION = "cloud"
+# The room page's door/window pause, in a collapsed section (flow key = zone
+# key: these keys are scrubbed from flat storage like every room key). The
+# entity alone stores the wiring; the pause and the notices store a key only
+# while on, and a delay only where it differs from its default, so a room
+# that never sets one stores exactly what it stored before.
+_OPENING_SECTION = "opening"
+_OPENING_DELAYS = (
+    (ZONE_OPENING_OPEN_DELAY, DEFAULT_OPENING_OPEN_DELAY, OPENING_OPEN_DELAY_BOUNDS),
+    (ZONE_OPENING_CLOSE_DELAY, DEFAULT_OPENING_CLOSE_DELAY, OPENING_CLOSE_DELAY_BOUNDS),
+)
+_OPENING_KEYS = (
+    ZONE_OPENING_ENTITY, ZONE_OPENING_PAUSE, ZONE_OPENING_OPEN_DELAY,
+    ZONE_OPENING_CLOSE_DELAY, ZONE_OPENING_NOTIFY, ZONE_OPENING_NOTIFY_SERVICE,
+)
 # The setup flow's head type fields, one per priority slot that suggests cloud.
 _SETUP_HEAD_TYPE = "head_type_{}"
 # The setup flow's first-step opt-in: every picked head is generic (beta).
@@ -819,6 +846,7 @@ def _flow_only_keys() -> frozenset[str]:
     room_keys.add(_ALLOW_DRY_FIELD)
     room_keys.add(_HEAD_TYPE_FIELD)
     room_keys.update(key for key, _ in _CLOUD_FIELDS)
+    room_keys.update(_OPENING_KEYS)
     section_keys = {key for _, groups in _PAGES.values() for key in groups}
     slot_keys = {
         f"{zone_slug(index)}_{key}"
@@ -831,7 +859,7 @@ def _flow_only_keys() -> frozenset[str]:
         | slot_keys
         | {
             _FRESHNESS_SECTION, _FLOOR_SECTION, _DRIFT_SECTION, _DUAL_SECTION,
-            _CLOUD_SECTION,
+            _CLOUD_SECTION, _OPENING_SECTION,
         }
         | {_SETUP_HEAD_TYPE.format(index + 1) for index in range(MAX_ZONES)}
         | {_GENERIC_FIELD}
@@ -949,7 +977,66 @@ def _room_view(zone: dict[str, Any], temperature_unit: str) -> dict[str, Any]:
     view.update({key: zone.get(zone_key) for key, zone_key in _ROOM_DRIFT_FIELDS})
     view[_DUAL_FIELD] = zone.get(ZONE_DUAL_SETPOINT) is True
     view[_ALLOW_DRY_FIELD] = zone.get(ZONE_ALLOW_DRY) is True
+    view[ZONE_OPENING_ENTITY] = zone.get(ZONE_OPENING_ENTITY)
+    view[ZONE_OPENING_PAUSE] = zone.get(ZONE_OPENING_PAUSE) is True
+    view[ZONE_OPENING_NOTIFY] = zone.get(ZONE_OPENING_NOTIFY) is True
+    view[ZONE_OPENING_NOTIFY_SERVICE] = zone.get(ZONE_OPENING_NOTIFY_SERVICE)
+    for key, default, _bounds in _OPENING_DELAYS:
+        view[key] = zone.get(key, default)
     return view
+
+
+def _opening_error(hass: HomeAssistant, values: dict[str, Any]) -> str | None:
+    """Why the room page's door/window section can't be saved, or None.
+
+    The entity must exist and be a binary_sensor (a group of them is one);
+    the pause needs one; a delay must be a finite number in its range; a
+    room notify service must be a notify service Home Assistant has.
+    """
+    entity = values.get(ZONE_OPENING_ENTITY)
+    if entity:
+        if not isinstance(entity, str) or entity.split(".", 1)[0] != "binary_sensor" or (
+            hass.states.get(entity) is None
+        ):
+            return "opening_entity_invalid"
+    elif values.get(ZONE_OPENING_PAUSE) is True:
+        return "opening_entity_required"
+    for key, _default, (low, high) in _OPENING_DELAYS:
+        raw = values.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return "opening_delay_invalid"
+        if not math.isfinite(value) or not low <= value <= high:
+            return "opening_delay_invalid"
+    service = values.get(ZONE_OPENING_NOTIFY_SERVICE)
+    if service:
+        domain, _, name = str(service).partition(".")
+        if domain != "notify" or not name or not hass.services.has_service(domain, name):
+            return "opening_notify_service_invalid"
+    return None
+
+
+def _store_opening(zone: dict[str, Any], values: dict[str, Any]) -> None:
+    """Fold the door/window section into the room's record (see _OPENING_SECTION)."""
+    for key in (ZONE_OPENING_ENTITY, ZONE_OPENING_NOTIFY_SERVICE):
+        if value := values.get(key):
+            zone[key] = value
+        else:
+            zone.pop(key, None)
+    for key in (ZONE_OPENING_PAUSE, ZONE_OPENING_NOTIFY):
+        if values.get(key) is True:
+            zone[key] = True
+        else:
+            zone.pop(key, None)
+    for key, default, _bounds in _OPENING_DELAYS:
+        raw = values.get(key)
+        if raw in (None, "") or float(raw) == default:
+            zone.pop(key, None)
+        else:
+            zone[key] = float(raw)
 
 
 def _floor_range(temperature_unit: str) -> tuple[float, float, float, float]:
@@ -1005,6 +1092,7 @@ def _room_schema(
     floor_expanded: bool = False,
     drift_expanded: bool = False,
     dry: bool = False,
+    opening_expanded: bool = False,
 ) -> vol.Schema:
     """The room page: head type and wiring at the top, then the room's
     uneven drift, the freshness profile, the freeze floor / overheat ceiling,
@@ -1063,6 +1151,36 @@ def _room_schema(
             )
         )
         for key, (low, high, step, unit) in cloud_boxes.items()
+    }
+    opening = {
+        vol.Optional(
+            ZONE_OPENING_ENTITY,
+            description={"suggested_value": view.get(ZONE_OPENING_ENTITY)},
+        ): _SAFETY_PRIORITY_SELECTOR,
+        vol.Optional(
+            ZONE_OPENING_PAUSE, default=view.get(ZONE_OPENING_PAUSE) is True
+        ): selector.BooleanSelector(),
+        **{
+            vol.Optional(
+                key,
+                description={
+                    "suggested_value": default if view.get(key) is None else view.get(key)
+                },
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    mode=selector.NumberSelectorMode.BOX,
+                    min=low, max=high, step=1, unit_of_measurement="s",
+                )
+            )
+            for key, default, (low, high) in _OPENING_DELAYS
+        },
+        vol.Optional(
+            ZONE_OPENING_NOTIFY, default=view.get(ZONE_OPENING_NOTIFY) is True
+        ): selector.BooleanSelector(),
+        vol.Optional(
+            ZONE_OPENING_NOTIFY_SERVICE,
+            description={"suggested_value": view.get(ZONE_OPENING_NOTIFY_SERVICE)},
+        ): _ROOM_NAME_SELECTOR,
     }
     freshness: dict[Any, Any] = {}
     for key, _ in _FRESHNESS_ZONE_FIELDS:
@@ -1156,6 +1274,9 @@ def _room_schema(
             vol.Required(_CLOUD_SECTION): section(
                 vol.Schema(cloud),
                 {"collapsed": head_type not in OFFSET_HEAD_TYPES},
+            ),
+            vol.Required(_OPENING_SECTION): section(
+                vol.Schema(opening), {"collapsed": not opening_expanded}
             ),
         }
     )
@@ -2972,6 +3093,16 @@ class MXZOptionsFlow(OptionsFlow):
                 errors={where: error},
                 description_placeholders=title,
             )
+        if error := _opening_error(self.hass, values):
+            # On the section key: the frontend drops field errors in sections.
+            return self.async_show_form(
+                step_id="room",
+                data_schema=_room_schema(
+                    values, temperature_unit=unit, opening_expanded=True, dry=dry
+                ),
+                errors={_OPENING_SECTION: error},
+                description_placeholders=title,
+            )
         if len(zones) < MIN_ZONES and values.get(_HEAD_TYPE_FIELD) != HEAD_TYPE_GENERIC:
             # A 1-head entry exists only for a generic head (beta).
             return self.async_show_form(
@@ -3076,6 +3207,7 @@ class MXZOptionsFlow(OptionsFlow):
             zone[ZONE_DRIVE_OFFSET_UNIT] = unit
         else:
             zone.pop(ZONE_DRIVE_OFFSET_UNIT, None)
+        _store_opening(zone, values)
         return self._save({}, zones)
 
     def _hand_off_dual(self, zone: dict[str, Any], *, now_dual: bool) -> None:

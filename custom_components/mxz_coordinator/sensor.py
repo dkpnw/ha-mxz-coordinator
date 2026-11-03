@@ -36,6 +36,8 @@ _ATTRS = (
     "inhibited",
     "idle_action",
 )
+# Present only for an entry with a door/window pause (see _compute).
+_OPENING_ATTRS = ("paused_rooms",)
 
 
 async def async_setup_entry(
@@ -84,5 +86,6 @@ class MXZPlanSensor(MXZEntity, CoordinatorEntity[MXZCoordinator], SensorEntity):
         data = self.coordinator.data or {}
         return {
             **{key: data.get(key) for key in _ATTRS},
+            **{key: data[key] for key in _OPENING_ATTRS if key in data},
             "zones": self.coordinator.room_details(),
         }
