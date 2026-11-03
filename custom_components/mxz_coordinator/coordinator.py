@@ -6043,10 +6043,18 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         ``at_once`` skips the request debounce (a room switched to or from a
         dual setpoint in place is recomputed at once, as a reload would be).
+
+        The room surfaces (each thermostat, the plan sensor) re-render first,
+        so a room's new enable, target or range shows at once rather than
+        when the plan that follows finishes: a dashboard card showing the old
+        value invites a second tap that undoes the first. Only a re-render,
+        no decision; the plan itself is unchanged.
         """
         if not self.coordinator_enable:
             self._retire_deliveries()
             await self._async_retire_vane_kicks()
+        for listener in tuple(self._delivery_listeners):
+            listener()
         if at_once:
             await self.async_refresh()
         else:

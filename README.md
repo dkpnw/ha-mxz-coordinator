@@ -259,6 +259,29 @@ The [feature guide](docs/FEATURES.md#everyday-control) explains each control in 
 including [who drives the fan](docs/FEATURES.md#who-drives-the-fan) and
 [how a satisfied head idles](docs/FEATURES.md#how-a-satisfied-head-idles).
 
+## Dashboard cards
+
+Each room's thermostat works with the
+[Mushroom climate card](https://github.com/piitaya/lovelace-mushroom). This one was
+tested:
+
+```yaml
+type: custom:mushroom-climate-card
+entity: climate.mxz_coordinator_den_thermostat
+hvac_modes: [heat_cool, dry, "off"]
+show_temperature_control: true
+collapsible_controls: false
+```
+
+- A room with a dual setpoint shows two controls, Heat to (low) and Cool to (high), in
+  place of the single target.
+- The thermostat offers Dry only while its room offers it (Allow Dry mode).
+- The built-in tile card works with the `climate-hvac-modes` and `target-temperature`
+  features.
+- The thermostat has no preset modes, so a presets feature or control has nothing to
+  show.
+- A change shows on the card at once; the plan follows.
+
 <a id="uneven-drift"></a><a id="per-room-uneven-drift"></a><a id="give-a-room-separate-heat-and-cool-setpoints-dual-setpoint"></a><a id="run-one-room-from-its-own-remote"></a><a id="safety-priority"></a><a id="when-a-head-goes-unavailable"></a><a id="freeze-floor-and-overheat-ceiling"></a>
 
 ## Optional extras
