@@ -482,7 +482,7 @@ def _parse_zones(
         Zone(
             index=i,
             slug=zone_slug(i),
-            name=z.get(ZONE_NAME) or zone_slug(i).replace("_", " ").title(),
+            name=_zone_name(z, i),
             climate_id=z[ZONE_CLIMATE],
             sensor_id=z[ZONE_SENSOR],
             vane_vertical_id=z.get(ZONE_VANE_VERTICAL) or None,
@@ -505,8 +505,16 @@ def _parse_zones(
             sample_sequence_attribute=z.get(ZONE_SAMPLE_SEQUENCE_ATTR),
             floor_low=_finite(z.get(ZONE_FLOOR_LOW)),
             floor_high=_finite(z.get(ZONE_FLOOR_HIGH)),
-            drift_cooler_by=_drift_side(z.get(ZONE_DRIFT_COOLER_BY), *engage_bounds),
-            drift_warmer_by=_drift_side(z.get(ZONE_DRIFT_WARMER_BY), *engage_bounds),
+            drift_cooler_by=_drift_side(
+                z.get(ZONE_DRIFT_COOLER_BY),
+                *engage_bounds,
+                f'"Let it get cooler by" for {_zone_name(z, i)}',
+            ),
+            drift_warmer_by=_drift_side(
+                z.get(ZONE_DRIFT_WARMER_BY),
+                *engage_bounds,
+                f'"Let it get warmer by" for {_zone_name(z, i)}',
+            ),
             dual=z.get(ZONE_DUAL_SETPOINT) is True,
             head_type=(
                 z[ZONE_HEAD_TYPE] if z.get(ZONE_HEAD_TYPE) in OFFSET_HEAD_TYPES
@@ -698,21 +706,22 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         # Re-engage drift: clamped to the unit profile's sane range so a
         # hand-edited or legacy value can't collapse the coast window or park
-        # rooms degrees off target. The UI enforces the same bounds.
+        # rooms degrees off target. The UI enforces the same bounds. One that
+        # isn't a finite number is the unit's default: setup must not fail on
+        # it, and the Configure menu names it so it can be fixed.
         _emin, _emax = self._profile["engage_bounds"]
-        self.engage_deadband: float = min(
-            max(float(conf.get(CONF_ENGAGE_DEADBAND, _defaults[CONF_ENGAGE_DEADBAND])), _emin),
-            _emax,
-        )
+        _allowed = _stored_number(conf.get(CONF_ENGAGE_DEADBAND), '"Allowed drift"')
+        if _allowed is None:
+            _allowed = float(_defaults[CONF_ENGAGE_DEADBAND])
+        self.engage_deadband: float = min(max(_allowed, _emin), _emax)
         # Uneven drift: None (no key) means Allowed drift on that side. A
-        # stored value is clamped into the same bounds, for the same reason.
-        # One that isn't a finite number reads as blank: setup must not fail
-        # on it, and the Configure menu names it so it can be fixed.
+        # stored value is clamped into the same bounds, for the same reason,
+        # and one that isn't a finite number reads as blank.
         self.drift_cooler_by: float | None = _drift_side(
-            conf.get(CONF_DRIFT_COOLER_BY), _emin, _emax
+            conf.get(CONF_DRIFT_COOLER_BY), _emin, _emax, '"Let it get cooler by"'
         )
         self.drift_warmer_by: float | None = _drift_side(
-            conf.get(CONF_DRIFT_WARMER_BY), _emin, _emax
+            conf.get(CONF_DRIFT_WARMER_BY), _emin, _emax, '"Let it get warmer by"'
         )
         self.hysteresis: int = conf.get(CONF_MODE_HYSTERESIS, DEFAULT_MODE_HYSTERESIS)
         # How long a lost head's last-known vote still counts, in seconds.
@@ -6389,21 +6398,41 @@ def _start_points(
     return points
 
 
-def _drift_side(value: Any, low: float, high: float) -> float | None:
-    """A stored uneven-drift side clamped into ``[low, high]``, or None (blank).
+def _zone_name(z: dict[str, Any], index: int) -> str:
+    """A stored room's name, or the one its slug gives it."""
+    return z.get(ZONE_NAME) or zone_slug(index).replace("_", " ").title()
 
-    Read like Allowed drift (a numeric string counts), but anything that isn't
-    a finite number is blank rather than an error.
+
+def _stored_number(value: Any, label: str) -> float | None:
+    """A stored drift read by ``float()`` (a numeric string counts), else None.
+
+    None (blank) is None quietly. Anything else that isn't a finite number is
+    None too, logged once per load naming ``label``, never a failed setup.
     """
     if value is None:
         return None
     try:
         number = float(value)
     except (TypeError, ValueError):
-        return None
-    if not math.isfinite(number):
-        return None
-    return min(max(number, low), high)
+        number = math.nan
+    if math.isfinite(number):
+        return number
+    _LOGGER.warning(
+        "MXZ: the saved %s is %r, which isn't a number; ignoring it."
+        " Configure names it so it can be fixed",
+        label,
+        value,
+    )
+    return None
+
+
+def _drift_side(value: Any, low: float, high: float, label: str) -> float | None:
+    """A stored uneven-drift side clamped into ``[low, high]``, or None (blank).
+
+    Read like Allowed drift; anything that isn't a finite number is blank.
+    """
+    number = _stored_number(value, label)
+    return None if number is None else min(max(number, low), high)
 
 
 def _lost_vote_minutes(value: Any) -> float:
