@@ -104,20 +104,21 @@ Every core feature exists for a reason someone ran into:
 Mitsubishi manuals on stock AUTO.
 
 <!-- "whats-new" stays above the newest What's new section; the others are old links. -->
-<a id="whats-new"></a><a id="whats-new-in-3120"></a><a id="whats-new-in-3111"></a>
+<a id="whats-new"></a><a id="whats-new-in-3180"></a><a id="whats-new-in-3120"></a><a id="whats-new-in-3111"></a>
 
-## What's new in 3.18.0
+## What's new in 3.19.0
 
-**Comfort priority (off by default).** Each room can have an optional on/off or number
-entity, such as an occupancy sensor, in Configure → Rooms → (room) → Comfort priority.
-When rooms want opposite modes, a room whose entity is `on` (or reads higher) goes first,
-after the safety rules. An `on` that hasn't changed for 12 hours stops counting; change
-that under Configure → Comfort → Advanced. Thanks to [@csingley](https://github.com/csingley)
-for the idea. See [Comfort priority](docs/FEATURES.md#comfort-priority).
+**A room thermostat shows a change at once.** A new mode (Dry included), target, or Heat
+to and Cool to shows on a dashboard card as soon as you set it, instead of up to 10
+seconds later, so a second tap no longer undoes the first. What MXZ sends the heads, and
+when, is unchanged. [Dashboard cards](#dashboard-cards) has a tested Mushroom setup.
 
-**The mode-change wait survives a reload or restart.** After a restart MXZ waits only for
-what is left of the wait between cool/heat changes, instead of starting it over. Each room
-thermostat shows `mode_change_hold_remaining` and `mode_change_hold_until`.
+**Changing an MXZ entity's ID no longer acts like a restart.** A renamed room target
+number keeps its value instead of taking the head's setpoint (Home Assistant before
+2026.11), and a renamed enable switch keeps a run paused by a cool/heat conflict.
+
+Each release now has an attested `mxz_coordinator.zip`; see
+[Verifying a release download](docs/RELEASING.md#verifying-a-release-download).
 
 ## What's new in 3.17.0
 
