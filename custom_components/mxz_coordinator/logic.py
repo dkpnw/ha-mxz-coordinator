@@ -150,13 +150,14 @@ def call_edges(
       side resolves as the original two comparisons did.
 
     Holding cool off can only leave a reading in the heat region if the two
-    regions overlap, i.e. ``heat_band + cool_band`` below
-    ``heat_target - cool_target`` (below 0 for a single target). The old
-    cool-first order answered "hold" there, which no pair of strict edges can
-    express, so that one combination is refused rather than answered
-    differently. No caller passes it: drift is clamped positive, the demand
-    band is at least the drift, the latch passes 0, and a dual-setpoint
-    room's Heat to is always below its Cool to.
+    regions overlap: the cool comfort edge below the heat comfort edge
+    (negative bands, or a Heat to above Cool to). The cool-first order
+    answers "hold" for a reading past the cool edge, so there heat starts
+    only AT OR BELOW the cool comfort edge. As a strict edge that is the
+    next double above it, which the plan's six-place rounding shows as the
+    cool edge itself. No caller passes this: drift is clamped positive, the
+    demand band is at least the drift, the latch passes 0, and a
+    dual-setpoint room's Heat to is always below its Cool to.
     """
     if eco:
         return eco_heat_min, eco_cool_max
@@ -164,13 +165,11 @@ def call_edges(
     cool_from = target if cool_target is None else cool_target
     heat_below = heat_from - heat_band
     cool_above = cool_from + cool_band
+    if cool_lockout and cool_above < heat_below:
+        heat_below = math.nextafter(cool_above, math.inf)
     if heat_lockout:
         heat_below = min(heat_below, heat_lockout_floor)
     if cool_lockout:
-        if heat_band + cool_band < heat_from - cool_from:
-            raise ValueError(
-                "a cool lockout needs heat_band + cool_band >= heat_target - cool_target"
-            )
         cool_above = max(cool_above, cool_lockout_ceiling)
     return heat_below, cool_above
 

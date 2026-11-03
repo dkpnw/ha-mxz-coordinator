@@ -13,6 +13,7 @@ targets at all.
 from __future__ import annotations
 
 import itertools
+import math
 
 import pytest
 
@@ -247,27 +248,38 @@ def test_latch_never_whiplashes_and_eco_lockouts_disable_still_win():
     ) == OFF
 
 
-# --- the ValueError guard ------------------------------------------------------
-def test_guard_refuses_only_overlapping_regions():
+# --- overlapping regions under a cool lockout (once a ValueError) ---------------
+def test_only_overlapping_regions_move_the_heat_edge():
+    """A held-off cool call over overlapping regions starts heat at or below
+    the cool comfort edge (the double after it, as a strict edge). Anything
+    short of an overlap keeps the plain edges."""
     lock = {**_COMMON, "cool_lockout": True}
-    # Single target: exactly as before (a negative band sum is refused).
-    with pytest.raises(ValueError):
-        logic.call_edges(target=70.0, heat_band=-1.0, cool_band=0.5, **lock)
-    logic.call_edges(target=70.0, heat_band=0.0, cool_band=0.0, **lock)
+    # Single target: a negative band sum overlaps (heat 71 above cool 70.5).
+    assert logic.call_edges(
+        target=70.0, heat_band=-1.0, cool_band=0.5, **lock
+    ) == (math.nextafter(70.5, math.inf), 80.0)
+    assert logic.call_edges(
+        target=70.0, heat_band=0.0, cool_band=0.0, **lock
+    ) == (70.0, 80.0)
     # Dual: the regions overlap only when L - heat_band > H + cool_band.
-    logic.call_edges(
+    assert logic.call_edges(
         target=70.0, heat_band=-1.0, cool_band=-1.0, heat_target=68.0,
         cool_target=72.0, **lock,
-    )  # 69 < 71: no overlap
-    logic.call_edges(
+    ) == (69.0, 80.0)  # 69 < 71: no overlap
+    assert logic.call_edges(
         target=70.0, heat_band=-2.0, cool_band=-2.0, heat_target=68.0,
         cool_target=72.0, **lock,
-    )  # 70 == 70: touching, still no overlap
-    with pytest.raises(ValueError):
-        logic.call_edges(
-            target=70.0, heat_band=-3.0, cool_band=-2.0, heat_target=68.0,
-            cool_target=72.0, **lock,
-        )  # 71 > 70
+    ) == (70.0, 80.0)  # 70 == 70: touching, still no overlap
+    overlap = {
+        "target": 70.0, "heat_band": -3.0, "cool_band": -2.0,
+        "heat_target": 68.0, "cool_target": 72.0, **lock,
+    }
+    assert logic.call_edges(**overlap) == (math.nextafter(70.0, math.inf), 80.0)  # 71 > 70
+    call = {"enabled": True, "sensor_ok": True, "neutral": NEUTRAL, **overlap}
+    assert logic.room_call(temp=70.5, **call) == NEUTRAL  # past cool, held
+    assert logic.room_call(temp=70.0, **call) == HEAT  # at the cool edge
+    # Without the lockout nothing is held, so the plain edges stand.
+    assert logic.call_edges(**{**overlap, "cool_lockout": False}) == (71.0, 70.0)
     # The latch's band 0 never trips it for a valid range.
     assert _engage(HEAT, 67.0, cool_lockout=True) == HEAT
 
