@@ -8,6 +8,20 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
+## Unreleased
+
+### Fixed
+
+- **A room thermostat shows a change at once.** A dashboard card (Mushroom, tile) used
+  to show a room's old mode or setpoint until the plan that follows a change finished,
+  up to 10 seconds later on a test install, so a second tap could undo the first. Now the new mode
+  (Off, Heat/Cool or Dry), target, or Heat to and Cool to shows at once, whether it was
+  set on the thermostat or on the room's enable switch or number. Dry shows from the
+  moment it is picked, and Heat/Cool or Off from Dry shows at once too. What MXZ sends
+  the heads, and when, is unchanged.
+- **README:** a Dashboard cards section with a Mushroom climate card setup tested with
+  Mushroom v5.2.3.
+
 ## 3.18.0 (November 2, 2026)
 
 Comfort priority (off by default) and a mode-change wait that survives restarts.
