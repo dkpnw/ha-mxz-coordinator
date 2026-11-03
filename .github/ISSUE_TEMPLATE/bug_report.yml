@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Thanks for reporting. Before you paste anything, remove names, addresses, account e-mails,
-        tokens and passwords. Room and entity names are fine to shorten or replace.
+        tokens, and passwords. Room and entity names are fine to shorten or replace.
         For a security problem, don't open an issue: use Security → Report a vulnerability.
   - type: input
     id: ha_version
