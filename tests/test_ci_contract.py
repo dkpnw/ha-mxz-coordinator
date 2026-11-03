@@ -12,8 +12,8 @@ import pytest
 import yaml
 
 # Every action is pinned to a full commit SHA; a floating tag or branch is unknown.
-CHECKOUT = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
-SETUP_PYTHON = "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065"
+CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+SETUP_PYTHON = "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0"
 HASSFEST = "home-assistant/actions/hassfest@86d4564712fa02543c808e3a693dd04f9d3f8361"
 HACS = "hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa"
 ALLOWED_ACTIONS = {CHECKOUT, SETUP_PYTHON, HASSFEST, HACS}
@@ -309,7 +309,7 @@ def test_weakened_ci_boundary_rejects(workflow, change):
 
 # The floating refs these pins replaced; each must now be rejected as unknown.
 @pytest.mark.parametrize("pinned,floating", [
-    (CHECKOUT, "actions/checkout@v4"), (SETUP_PYTHON, "actions/setup-python@v5"),
+    (CHECKOUT, "actions/checkout@v7"), (SETUP_PYTHON, "actions/setup-python@v7"),
     (HASSFEST, "home-assistant/actions/hassfest@master"), (HACS, "hacs/action@main"),
 ])
 def test_floating_action_ref_rejects(workflow, pinned, floating):

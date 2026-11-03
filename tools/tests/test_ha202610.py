@@ -203,7 +203,7 @@ def test_additional_workflow_permissions_and_ordinary_execution():
     assert set(wf["jobs"]) == {"approval", "exact-ha202610"}
     assert wf["jobs"]["approval"]["permissions"] == {"contents": "read", "actions": "read"}
     actions = [s for s in job["steps"] if "uses" in s]
-    assert actions == [{"uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+    assert actions == [{"uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
                         "with": {"persist-credentials": "false"}}]
     assert job["steps"][-1]["if"] == "always()"
     script = (ROOT / "tools/ci-ha202610.sh").read_text()
