@@ -1,0 +1,8 @@
+#!/bin/sh
+# The mode-hold verification in one command (see .claude/skills/verify-mxz-formal/SKILL.md).
+#   verification/run              check: TLC configs, property tests, finding replays
+#   verification/run mutants [ID] each check must catch a broken copy of the code or model
+# Needs MXZ_PYTHON, JAVA and TLA2TOOLS in the environment.
+set -eu
+: "${MXZ_PYTHON:?set MXZ_PYTHON to a lane venv python}"
+exec "$MXZ_PYTHON" -I "$(dirname "$0")/verify.py" "$@"
