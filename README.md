@@ -284,6 +284,9 @@ collapsible_controls: false
   show.
 - A new mode (Dry included), target or Heat to and Cool to shows on the card at once.
   MXZ acts on it at the heads when the plan that follows runs, as before.
+- The Mushroom climate card waits about 2 seconds after the last tap on its + or -
+  button before it sends the new setpoint, so a setpoint goes out about 2 seconds after
+  you stop tapping. That wait is the card's own, not MXZ's.
 
 <a id="uneven-drift"></a><a id="per-room-uneven-drift"></a><a id="give-a-room-separate-heat-and-cool-setpoints-dual-setpoint"></a><a id="run-one-room-from-its-own-remote"></a><a id="safety-priority"></a><a id="when-a-head-goes-unavailable"></a><a id="freeze-floor-and-overheat-ceiling"></a>
 
