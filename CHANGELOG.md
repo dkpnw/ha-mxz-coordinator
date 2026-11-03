@@ -8,6 +8,14 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
+## Unreleased
+
+- **A saved Allowed drift that isn't a number no longer stops MXZ from loading.** It now
+  reads as the default Allowed drift (1 °F, 0.5 °C) until you fix it. A saved Let it get
+  cooler by or Let it get warmer by, global or for one room, that isn't a number already
+  read as blank. All three are now named once in the log when MXZ loads, and the
+  Configure menu still points to the page where you fix them. Defaults are unchanged.
+
 ## 3.19.0 (November 3, 2026)
 
 A room thermostat shows a change at once, and changing an MXZ entity's ID no longer acts
