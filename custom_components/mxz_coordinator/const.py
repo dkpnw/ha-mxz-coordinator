@@ -5,8 +5,11 @@ from __future__ import annotations
 DOMAIN = "mxz_coordinator"
 
 # climate is last of the platforms it drives, so the number/switch siblings are
-# registered first. button carries no state of its own and follows them all.
-PLATFORMS: list[str] = ["number", "switch", "select", "sensor", "climate", "button"]
+# registered first. button carries no state of its own and follows them all, as
+# does binary_sensor (only a room with a door/window pause has one).
+PLATFORMS: list[str] = [
+    "number", "switch", "select", "sensor", "climate", "button", "binary_sensor",
+]
 
 # --- Config-entry keys (collected in the config flow; household-specific) ---
 CONF_PRIMARY_CLIMATE = "primary_climate"
@@ -168,6 +171,46 @@ ZONE_DUAL_SETPOINT = "dual_setpoint"
 # head back to the plan; Off disables the room. A head that drops dry from its
 # list, or the option turned off, ends it with one notice.
 ZONE_ALLOW_DRY = "allow_dry"
+# Door/window pause (opt-in, per room; idea from @mikepell007's MIT blueprint
+# mxz_coordinator_blueprint). A room names ONE opening entity: a binary_sensor,
+# or a group of them (on = open). With the pause on, an opening that reads open
+# for the open delay pauses the room: its head goes straight to off (no
+# coil-dry run) and it drops out of the shared-mode vote. When it has read
+# closed for the close delay the room resumes. Unavailable or unknown never
+# starts a pause. Stored only in the room's record; no key is no feature, so
+# every entry stored before it existed behaves exactly as before.
+ZONE_OPENING_ENTITY = "opening_entity"
+# The pause itself, stored only while on (a sensor can stay configured with
+# the pause off).
+ZONE_OPENING_PAUSE = "opening_pause_enable"
+# Seconds open before the pause and closed before the resume; stored only
+# where they differ from the defaults.
+ZONE_OPENING_OPEN_DELAY = "opening_open_delay"
+ZONE_OPENING_CLOSE_DELAY = "opening_close_delay"
+DEFAULT_OPENING_OPEN_DELAY = 60
+DEFAULT_OPENING_CLOSE_DELAY = 120
+OPENING_OPEN_DELAY_BOUNDS = (0, 1800)
+OPENING_CLOSE_DELAY_BOUNDS = (0, 3600)
+# Phone notices on pause, resume and override, stored only while on. They go
+# through the room's own notify service when one is set, else the entry's.
+ZONE_OPENING_NOTIFY = "opening_notify"
+ZONE_OPENING_NOTIFY_SERVICE = "opening_notify_service"
+# At most one pause/resume pair of notices per room in this many seconds, so
+# a door that flaps can't flood a phone.
+OPENING_NOTIFY_SECONDS = 600
+# A room's opening state (logic.opening_state). PAUSED and CLOSING are the
+# paused room: off, no vote. OVERRIDDEN is a person running the room anyway
+# (a manual change on its head, or its Window Override switch) until the
+# opening reads closed.
+OPENING_CLOSED = "closed"
+OPENING_OPENING = "opening"
+OPENING_PAUSED = "paused"
+OPENING_CLOSING = "closing"
+OPENING_OVERRIDDEN = "overridden"
+OPENING_PAUSED_STATES = (OPENING_PAUSED, OPENING_CLOSING)
+# What the room thermostat says about it.
+OPENING_REASON_PAUSED = "door/window open"
+OPENING_REASON_OVERRIDDEN = "window open, manual override"
 # How long a Dry picked on the room thermostat counts as the head's dry before
 # the head reports it (seconds; a cloud room waits its confirm wait if that is
 # longer). Past it, with no dry seen, the plan has the head again.
@@ -623,6 +666,9 @@ ZONE_ENTITY_SUFFIXES = (
 # set only while it's opted in (so turning it off removes them), and the
 # reorder move carries them with every room that has them.
 DUAL_ZONE_ENTITY_SUFFIXES = ("target_low", "target_high")
+# The per-zone suffixes only a room with a door/window pause registers (its
+# Window Override switch and its paused binary_sensor), kept apart the same way.
+OPENING_ZONE_ENTITY_SUFFIXES = ("window_override", "paused_open")
 
 # Global helper entity keys (used for unique_id suffixes and translation keys).
 # Per-zone entities build theirs from zone_slug() instead, and translate through

@@ -53,6 +53,10 @@ nothing and leave today's behavior unchanged.
 | | *Cloud or generic head (beta):* Setpoint drive offset | 2 / 1 (range 0–6 / 0–3) | While the room runs, its cloud head gets the target plus this in heat, minus it in cool. 0 sends the bare target. Left at the default, it follows your unit. A value you set is stored with the unit it was set in (`drive_offset_unit`), and after switching Home Assistant between °F and °C it is converted: 4 °F drives by 2.22 °C, and switching back gives 4 °F again. A converted value is held to the new unit's range (6 °F becomes 3 °C). A value saved before this was stored has no unit, so it is read as a number in the unit in use, as before; save the room's page once to record its unit. |
 | | *Cloud or generic head (beta):* Write interval | 60 seconds, 30 for a generic head (range 30–300) | At most one write to the cloud or generic head per this long; a newer change replaces the waiting one. |
 | | *Cloud or generic head (beta):* Confirm wait | 90 seconds, 30 for a generic head (range 30–600) | After a write, how long MXZ waits for the head to report it before sending again. |
+| | *Door/window pause:* Door/window sensor | none | One `binary_sensor` or one group of them; `on` is open. Stored as `opening_entity` only when set. See [Door/window pause](FEATURES.md#doorwindow-pause). |
+| | *Door/window pause:* Pause this room while it is open | off | Stored as `opening_pause_enable: true` only when on, and acts only with a sensor set. |
+| | *Door/window pause:* Open delay / Close delay | 60 / 120 seconds (range 0–1800 / 0–3600) | How long the sensor must read open before the room pauses, and closed before it resumes. Stored as `opening_open_delay` / `opening_close_delay` only when not the default. |
+| | *Door/window pause:* Notify on pause and resume, Notify service for this room | off, blank | Notices at most one pause/resume pair per 10 minutes, through this service, else the integration's. Stored as `opening_notify: true` and `opening_notify_service` only when set. |
 
 The outdoor-unit name and **Notify on drift** service are set in setup and Reconfigure.
 

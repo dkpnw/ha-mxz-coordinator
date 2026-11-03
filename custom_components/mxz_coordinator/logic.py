@@ -39,6 +39,12 @@ from .const import (
     MODE_FAN_ONLY,
     MODE_HEAT,
     MODE_OFF,
+    OPENING_CLOSED,
+    OPENING_CLOSING,
+    OPENING_OPENING,
+    OPENING_OVERRIDDEN,
+    OPENING_PAUSED,
+    OPENING_PAUSED_STATES,
     STALE_MISSED_REPORTS,
     VOTE_EXPIRED,
     VOTE_LIVE,
@@ -49,6 +55,7 @@ from .const import (
 # Home Assistant's own state strings (homeassistant.const), spelled out here
 # so this module stays importable without Home Assistant.
 STATE_ON = "on"
+STATE_OFF = "off"
 STATE_UNAVAILABLE = "unavailable"
 STATE_UNKNOWN = "unknown"
 
@@ -692,6 +699,86 @@ def arbitrate(
     # coordinator causes -- so it stamps like any other flip.
     read_only = full != plain and gate_open
     return Grant(direction=full, read_only=read_only, by_safety=by_safety)
+
+
+# One door/window reading: open, closed, or neither (unknown).
+OPEN_READ = "open"
+CLOSED_READ = "closed"
+
+
+def opening_reading(state: str | None) -> str | None:
+    """An opening entity's state as a reading: on is open, off is closed.
+
+    Anything else (unavailable, unknown, a missing entity, any other text) is
+    no reading at all, and no reading never starts a pause.
+    """
+    if state == STATE_ON:
+        return OPEN_READ
+    if state == STATE_OFF:
+        return CLOSED_READ
+    return None
+
+
+def opening_state(
+    *,
+    raw: str | None,
+    since: float,
+    now: float,
+    open_delay: float,
+    close_delay: float,
+    prior: str,
+    override: bool,
+) -> str:
+    """A room's door/window state now. Pure; the whole pause decision lives here.
+
+    ``raw`` is the reading (:func:`opening_reading`), held since ``since``
+    (seconds, the same clock as ``now``). ``prior`` is the state the last
+    evaluation found. ``override`` is a person running the room anyway: a
+    manual change on its head during a pause, or its Window Override switch.
+
+    * Open for the open delay pauses (PAUSED); open for less is OPENING, and
+      a close then is CLOSED again with no pause.
+    * A paused room that reads closed is CLOSING until it has read closed for
+      the close delay, then CLOSED (resume). Opening again while CLOSING is
+      PAUSED, and the close delay starts over at the next closed reading.
+    * No reading (unavailable, unknown, missing) never starts a pause: an
+      unpaused room is CLOSED. A paused room stays PAUSED: no reading is not
+      proof that the opening closed.
+    * An override is OVERRIDDEN while the opening is not closed: the room is
+      never paused then. A closed reading ends it at once (CLOSED), so the
+      next opening pauses again. An override with no pause to override (the
+      room was CLOSED or OPENING, and there is no reading) leaves the room
+      CLOSED.
+    """
+    paused = prior in OPENING_PAUSED_STATES
+    if raw == CLOSED_READ:
+        if paused and not override:
+            return OPENING_CLOSED if now - since >= close_delay else OPENING_CLOSING
+        return OPENING_CLOSED
+    if override:
+        if raw == OPEN_READ or paused or prior == OPENING_OVERRIDDEN:
+            return OPENING_OVERRIDDEN
+        return OPENING_CLOSED
+    if raw == OPEN_READ:
+        if paused:
+            return OPENING_PAUSED
+        return OPENING_PAUSED if now - since >= open_delay else OPENING_OPENING
+    return OPENING_PAUSED if paused else OPENING_CLOSED
+
+
+def opening_due(
+    *, state: str, since: float, open_delay: float, close_delay: float
+) -> float | None:
+    """When ``state`` next changes by time alone, or None when it can't.
+
+    The end of the open delay while OPENING, the end of the close delay while
+    CLOSING (the room's resume time); nothing else changes without a reading.
+    """
+    if state == OPENING_OPENING:
+        return since + open_delay
+    if state == OPENING_CLOSING:
+        return since + close_delay
+    return None
 
 
 class HeadSight:

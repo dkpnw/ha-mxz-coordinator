@@ -42,10 +42,17 @@ CONFIGS = {
     "finding-resting": None,
     "finding-reload-vote": None,
     "finding-crash": None,
+    # The door/window pause (WithOpenings): a paused room never votes, a
+    # pause never moves the hold, an override is never paused.
+    "ci-openings": None,
+    "ci-openings-restarts": None,
 }
 PROPS = "tests/test_modehold_properties.py"
 FINDINGS = "tests/test_modehold_findings.py"
 PROMISES = "tests/test_hold_promises.py"
+# The door/window pause on the real logic and the real integration.
+OPENINGS_LOGIC = "tests/test_door_window_logic.py"
+OPENINGS = "tests/test_door_window.py"
 # The replays of fixed findings: the finding case and its control must pass.
 REPLAYS = {
     f"{FINDINGS}::test_f1_resting_mode_takes_the_mode_from_a_room_still_running": "F1",
@@ -143,6 +150,37 @@ MUTANTS = [
      "            or True\n",
      ("pytest", (f"{PROMISES}::test_a_start_takes_the_newer_of_the_record_and_the_restore_data"
                  "[restore_data_newer]"))),
+    ("C18", "a paused room still votes (coordinator._compute)", COORD,
+     "            if paused:\n                demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED\n",
+     "            if False:\n                demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED\n",
+     ("pytest", f"{OPENINGS}::test_a_paused_room_never_votes")),
+    ("C19", "a pause restamps the hold (coordinator._opening_transition)", COORD,
+     '            record["paused_at"] = now\n',
+     '            record["paused_at"] = now\n            self._stamp_mode_change()\n',
+     ("pytest", f"{OPENINGS}::test_a_pause_and_a_resume_never_touch_the_hold")),
+    ("C20", "no reading starts a pause (logic.opening_state)", LOGIC,
+     "    return OPENING_PAUSED if paused else OPENING_CLOSED\n",
+     "    return OPENING_PAUSED\n",
+     ("pytest", f"{OPENINGS}::test_no_reading_never_starts_a_pause_and_never_ends_one[unavailable]")),
+    ("C21", "a person's change on a paused head is not a takeover (coordinator._on_head_change)",
+     COORD,
+     '                    self._openings[zone.slug]["override"] = "manual"\n',
+     "                    pass\n",
+     ("pytest", f"{OPENINGS}::test_a_manual_change_holds_until_the_window_closes")),
+    ("C22", "a pause turns the room Off (coordinator._opening_transition)", COORD,
+     '            record["paused_at"] = now\n',
+     '            record["paused_at"] = now\n            zone.enable = False\n',
+     ("pytest", f"{OPENINGS}::test_the_rooms_mode_is_never_rewritten_and_off_stays_off")),
+    ("C23", "a restart forgets the pause (coordinator.__init__)", COORD,
+     "            zone.slug: _restored_opening((openings or {}).get(zone.climate_id))\n",
+     "            zone.slug: _restored_opening(None)\n",
+     ("pytest", f"{OPENINGS}::test_a_pause_outlives_a_restart")),
+    ("C24", "the pause sends the coil-dry fan run first (coordinator._apply)", COORD,
+     "                task = self._queue_delivery(zone.climate_id, MODE_OFF, 0.0, 0.0)\n",
+     ("                task = self._queue_delivery(\n"
+      "                    zone.climate_id, self._idle_act_for(zone.climate_id), 0.0, 0.0\n"
+      "                )\n"),
+     ("pytest", f"{OPENINGS}::test_open_for_the_open_delay_pauses_straight_to_off")),
     ("M1", "model: the gate reads the wall clock", TLA,
      "Mono == real - boot", "Mono == real + skew",
      ("tlc", "ci-restarts", "HoldKept")),
@@ -182,6 +220,22 @@ MUTANTS = [
      "LET fromRec == storedMode \\in Modes",
      "LET fromRec == FALSE /\\ storedMode \\in Modes",
      ("tlc", "finding-crash", "HoldKept")),
+    ("M11", "model: a paused room still votes", TLA,
+     "        dem      == [i \\in RoomIds |-> IF paused[i] THEN None ELSE Demand(pos[i])]",
+     "        dem      == [i \\in RoomIds |-> Demand(pos[i])]",
+     ("tlc", "ci-openings", "PausedNeverVotes")),
+    ("M12", "model: a pause restamps the hold", TLA,
+     "    /\\ stamp' = stamp        \\* a pause is not a mode change",
+     "    /\\ stamp' = Mono",
+     ("tlc", "ci-openings", "PauseKeepsHold")),
+    ("M13", "model: an overridden room pauses again before a close", TLA,
+     "    /\\ ~paused[i] /\\ ~overridden[i]",
+     "    /\\ ~paused[i]",
+     ("tlc", "ci-openings", "OverrideNeverPaused")),
+    ("M14", "model: a pause turns the room Off", TLA,
+     "    /\\ enabled' = enabled    \\* nor does it touch the room's own mode",
+     "    /\\ enabled' = [enabled EXCEPT ![i] = FALSE]",
+     ("tlc", "ci-openings-restarts", "PauseKeepsMode")),
 ]
 
 
@@ -271,6 +325,10 @@ def check(out: Path) -> int:
         ok &= code == 0
         tail = log.strip().splitlines()[-1]
         print(f"{'ok ' if code == 0 else 'BAD'} promises {name:6} {tail}")
+        code = pytest(ROOT, [OPENINGS_LOGIC, OPENINGS], out / f"openings-{name}.log", fakeboot=clock)
+        tail = (out / f"openings-{name}.log").read_text().strip().splitlines()[-1]
+        ok &= code == 0
+        print(f"{'ok ' if code == 0 else 'BAD'} openings {name:6} {tail}")
     print(f"evidence {out}")
     print("VERIFY_OK" if ok else "VERIFY_FAILED")
     return 0 if ok else 1

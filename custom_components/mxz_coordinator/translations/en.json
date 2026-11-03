@@ -343,7 +343,11 @@
       "cloud_unsupported_options": "A cloud head (beta) takes no vanes, airflow sensor, dual setpoint or vote by action. Clear those, or choose Local.",
       "generic_esphome_head": "This head is on ESPHome, which MXZ drives as a local (CN105) head. Choose Local.",
       "generic_unsupported_options": "A generic head (beta) takes no vanes, airflow sensor, dual setpoint or vote by action. Clear those, or choose Local.",
-      "single_head_needs_generic": "This entry has one head, which MXZ allows only for a generic head (beta). Keep Generic, or use Reconfigure to add heads first."
+      "single_head_needs_generic": "This entry has one head, which MXZ allows only for a generic head (beta). Keep Generic, or use Reconfigure to add heads first.",
+      "opening_entity_invalid": "Pick an existing binary sensor (or a group of them) for the door/window. Nothing was saved.",
+      "opening_entity_required": "Pick a door/window sensor to pause this room. Nothing was saved.",
+      "opening_delay_invalid": "Enter each delay in seconds, inside the range shown. Nothing was saved.",
+      "opening_notify_service_invalid": "Enter a notify service Home Assistant has, such as notify.mobile_app_phone, or leave it empty. Nothing was saved."
     },
     "abort": {
       "empty_options": "Nothing changed."
@@ -592,6 +596,26 @@
               "write_interval": "At most one write to this head per this many seconds; a newer change waits and replaces the older one. 30-300 s, default 60 (30 for a generic head).",
               "confirm_wait": "After a write, how long MXZ waits for the head to report it before sending again. A report of an older state in this time is read as late, not as someone's change. 30-600 s, default 90 (30 for a generic head)."
             }
+          },
+          "opening": {
+            "name": "Door/window pause",
+            "description": "Optional, off by default. Name one door or window sensor for this room (a binary sensor, or a group of them; on means open) and turn the pause on. When it has read open for the open delay, MXZ turns this room's head off at once (no fan-only drying run) and the room stops counting toward heat or cool for the shared outdoor unit. When it has read closed for the close delay, the room carries on: its head goes back to what MXZ would run now, with its fan and vanes as they were. The room's own mode (Heat/Cool or Off) is never changed. A sensor that is unavailable or unknown never starts a pause. To run the room anyway while it is open, turn on its window override switch, or change its head yourself. Idea from @mikepell007's MXZ blueprint.",
+            "data": {
+              "opening_entity": "Door/window sensor",
+              "opening_pause_enable": "Pause this room while it is open",
+              "opening_open_delay": "Open delay",
+              "opening_close_delay": "Close delay",
+              "opening_notify": "Notify on pause and resume",
+              "opening_notify_service": "Notify service for this room"
+            },
+            "data_description": {
+              "opening_entity": "One binary sensor, or one group of them. Clear it to remove the feature from this room.",
+              "opening_pause_enable": "Off (the default): the sensor is kept and nothing pauses. On: the room pauses as above, and gets a window override switch and a paused open indicator.",
+              "opening_open_delay": "How long it must read open before the room pauses. 0-1800 s, default 60.",
+              "opening_close_delay": "How long it must read closed before the room resumes. 0-3600 s, default 120.",
+              "opening_notify": "Off by default. Sends a notice when the room pauses and when it resumes, at most one pair every 10 minutes.",
+              "opening_notify_service": "Optional, such as notify.mobile_app_phone. Empty uses the integration's notify service."
+            }
           }
         }
       }
@@ -707,6 +731,9 @@
       },
       "zone_fan_auto": {
         "name": "{zone} fan auto"
+      },
+      "zone_window_override": {
+        "name": "{zone} window override"
       }
     },
     "select": {
@@ -722,6 +749,11 @@
     "climate": {
       "zone_thermostat": {
         "name": "{zone} thermostat"
+      }
+    },
+    "binary_sensor": {
+      "zone_paused_open": {
+        "name": "{zone} paused open"
       }
     }
   },

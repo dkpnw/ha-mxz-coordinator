@@ -136,6 +136,11 @@ async def async_setup_entry(
         MXZZoneFanAutoSwitch(coordinator, zone) for zone in coordinator.zones
     )
     entities.extend(MXZSwitch(coordinator, key) for key in _GLOBAL_ICONS)
+    entities.extend(
+        MXZWindowOverrideSwitch(coordinator, zone)
+        for zone in coordinator.zones
+        if zone.opening_active
+    )
     async_add_entities(entities)
 
 
@@ -433,4 +438,44 @@ class MXZZoneFanAutoSwitch(
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Latch the zone at the head's current fan speed (no-op if it's at auto)."""
         await self.coordinator.async_set_fan_auto(self._zone.climate_id, False)
+        self.async_write_ha_state()
+
+
+class MXZWindowOverrideSwitch(MXZEntity, CoordinatorEntity[MXZCoordinator], SwitchEntity):
+    """A room's Window Override: run the room although its door/window is open.
+
+    Only a room with a door/window pause has one. On: the open door/window is
+    ignored, so a paused room resumes at once. It turns itself off when the
+    door/window reads closed, so the next opening pauses as usual. It also
+    reads on while a person's own change on the paused head has taken the
+    room over (the same until-closed override); turning it off then pauses
+    the room again. Kept with the pause across a restart (the coordinator's
+    door/window record), so no restore of its own.
+    """
+
+    _attr_icon = "mdi:window-open-variant"
+
+    def __init__(self, coordinator: MXZCoordinator, zone: Zone) -> None:
+        MXZEntity.__init__(self, coordinator, f"{zone.slug}_window_override")
+        CoordinatorEntity.__init__(self, coordinator)
+        self._zone = zone
+        self._attr_translation_key = "zone_window_override"
+        self._attr_translation_placeholders = {"zone": zone.name}
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_delivery_listener(self.async_write_ha_state)
+        )
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.window_override(self._zone.slug)
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_window_override(self._zone, True)
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_window_override(self._zone, False)
         self.async_write_ha_state()

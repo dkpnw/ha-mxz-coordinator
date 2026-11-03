@@ -343,6 +343,17 @@ creates from 3.16.0 on) starts with a freeze floor and a sensor freshness limit:
   only when its reading changes can go stale in a room that holds steady: clear Maximum
   age, or use a sensor that reports periodically. Set it in Configure → Rooms → (room) →
   **Sensor freshness**. [Details](docs/CONFIGURATION.md#choose-a-sensor-freshness-contract)
+- **Door/window pause**, enabled separately for each room: name one door or window sensor
+  (or one group of them). Open for a minute, the room's head turns off and the room stops
+  counting toward heat or cool; closed for two minutes, it carries on with its fan and
+  vanes as they were. Its own mode (Heat/Cool) is never changed, and its thermostat says
+  `paused_reason: door/window open` and when it resumes. To run the room anyway, tap its
+  **window override** switch or change the head yourself; either lasts until the window
+  closes. Optional phone notices. Set it in Configure → Rooms → (room) →
+  **Door/window pause**. The idea is
+  [@mikepell007](https://github.com/mikepell007)'s, from their
+  [mxz_coordinator_blueprint](https://github.com/mikepell007/mxz_coordinator_blueprint).
+  [Details](docs/FEATURES.md#doorwindow-pause)
 
 What happens when a head drops off the network is in
 [When a head goes unavailable](docs/FEATURES.md#when-a-head-goes-unavailable).
@@ -480,7 +491,7 @@ pages, and each saves only what it shows:
 | **Seasons** | A weather source and the heat and cool lockout temperatures, with safety overrides. |
 | **Away and setpoint limits** | The away band, and the lowest and highest setpoint a head may get. |
 | **Standby hold** | An optional hold signal, its active state, and what heads do during a hold. |
-| **Rooms** | One page per room: **Head type** (local, cloud beta, or generic beta), **Airflow sensor**, **Vertical vane**, **Horizontal vane**, **Safety priority sensor**, **Comfort priority**, the hands-off switch **Let its own remote run it while disabled** and **While its own remote runs it, its vote counts**, and **Allow Dry mode**, then the sections **Uneven drift**, **Sensor freshness**, **Freeze floor and overheat ceiling**, **Dual setpoint**, and **Cloud or generic head (beta)**. |
+| **Rooms** | One page per room: **Head type** (local, cloud beta, or generic beta), **Airflow sensor**, **Vertical vane**, **Horizontal vane**, **Safety priority sensor**, **Comfort priority**, the hands-off switch **Let its own remote run it while disabled** and **While its own remote runs it, its vote counts**, and **Allow Dry mode**, then the sections **Uneven drift**, **Sensor freshness**, **Freeze floor and overheat ceiling**, **Dual setpoint**, **Cloud or generic head (beta)**, and **Door/window pause** (**Door/window sensor**, **Pause this room while it is open**, **Open delay**, **Close delay**, **Notify on pause and resume**, **Notify service for this room**). |
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-menu-dark.png">
@@ -547,7 +558,7 @@ MXZ Coordinator got this good because people ran it on their own systems, found 
 - [@helicopterrun](https://github.com/helicopterrun) validated it on 3-zone hardware and did relentless, root-caused QA through the v3 beta ([#4](https://github.com/dkpnw/ha-mxz-coordinator/issues/4), [#5](https://github.com/dkpnw/ha-mxz-coordinator/issues/5), [#6](https://github.com/dkpnw/ha-mxz-coordinator/issues/6), [#7](https://github.com/dkpnw/ha-mxz-coordinator/issues/7)). Those reports led to the removal docs, single-setpoint head support, and entry-scoped restore.
 - [@oliverbrandmueller](https://github.com/oliverbrandmueller) asked for metric units ([#2](https://github.com/dkpnw/ha-mxz-coordinator/issues/2)). Since 2.8.0 the coordinator runs in your Home Assistant temperature unit from end to end.
 - **mw1029** on the [Home Assistant forum](https://community.home-assistant.io/t/1018382) tried MXZ with the cloud-based `comfort_HA` integration and posted both entity dumps, which showed exactly where the two don't line up. Their report led to the separate mode call (3.13.2) and to cloud heads (beta, 3.14.0).
-- [@mikepell007](https://github.com/mikepell007) (Michael Pellegrino) wrote [mxz_coordinator_blueprint](https://github.com/mikepell007/mxz_coordinator_blueprint) (MIT), a blueprint that ports MXZ's core decisions to heads behind MELCloud and Kumo Cloud. Cloud heads (beta) are their idea, and so are the setpoint drive offset and its defaults (2 °F, and a 90-second wait after writing). MXZ reimplements them in Python; no blueprint code is used. Their tip on the [Home Assistant forum](https://community.home-assistant.io/t/1018382) led to Allow Dry mode and to the clearer **Dry the coil (fan only), then off** label (3.15.0).
+- [@mikepell007](https://github.com/mikepell007) (Michael Pellegrino) wrote [mxz_coordinator_blueprint](https://github.com/mikepell007/mxz_coordinator_blueprint) (MIT), a blueprint that ports MXZ's core decisions to heads behind MELCloud and Kumo Cloud. Cloud heads (beta) are their idea, and so are the setpoint drive offset and its defaults (2 °F, and a 90-second wait after writing). MXZ reimplements them in Python; no blueprint code is used. Their tip on the [Home Assistant forum](https://community.home-assistant.io/t/1018382) led to Allow Dry mode and to the clearer **Dry the coil (fan only), then off** label (3.15.0). The per-room door/window pause and its 60-second open and 120-second close delays are also from their blueprint; MXZ's pause is its own Python, again with no blueprint code.
 - [@csingley](https://github.com/csingley) (Chris Singley):
   - **Own-remote rooms (3.6.0).** He noticed that a room left to its own remote is invisible to the heat-versus-cool standoff, even while it is really heating or cooling on the shared outdoor unit, and sent a fix with a test ([#27](https://github.com/dkpnw/ha-mxz-coordinator/pull/27)). He followed it with [#28](https://github.com/dkpnw/ha-mxz-coordinator/pull/28), which lets a disabled room's head stay under its own remote. The per-room **Let its own remote run it while disabled** setting is built from both, with him as co-author, and he tested it on his own 4-zone MXZ-4C36NA2 before release.
   - **Safety priority (3.7.0).** He designed and wrote the safety-priority arbitration ([#31](https://github.com/dkpnw/ha-mxz-coordinator/pull/31)): every room's heat or cool want ranked in one priority order, with an optional per-room **Safety priority** sensor that lifts a room's own want above every other room's. It shipped not yet tested on hardware. The 3.7.0 freeze floor and overheat ceiling build on his safety tier: a tripped floor or ceiling is one more want in that same priority order, with the freeze floor ranked first and a ceiling settled against a safety room by room order.

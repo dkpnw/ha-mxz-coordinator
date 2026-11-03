@@ -14,6 +14,7 @@ named here live in Configure; see [Configuration](CONFIGURATION.md) for the menu
 - [Comfort priority](#comfort-priority)
 - [When a head goes unavailable](#when-a-head-goes-unavailable)
 - [Generic heads (beta)](#generic-heads-beta)
+- [Door/window pause](#doorwindow-pause)
 - [Freeze floor and overheat ceiling](#freeze-floor-and-overheat-ceiling)
 - [Who drives the fan](#who-drives-the-fan)
 - [How a satisfied head idles](#how-a-satisfied-head-idles)
@@ -839,6 +840,103 @@ no fan, step, current temperature or `hvac_action`) and a feature-rich one. No r
 non-Mitsubishi unit has been tried yet. A head put in `heat_cool`, `auto` or `dry`
 (without Allow Dry mode) is put back on MXZ's mode, unless its room is run from its own
 remote, as on every head.
+
+## Door/window pause
+
+Optional, off by default, set separately for each room. The idea, and the 60-second open
+and 120-second close delays, are [@mikepell007](https://github.com/mikepell007)'s, from
+their MIT [mxz_coordinator_blueprint](https://github.com/mikepell007/mxz_coordinator_blueprint);
+MXZ's pause is its own code.
+
+Set it in Configure → Rooms → (room) → **Door/window pause**:
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Door/window sensor | none | One `binary_sensor`, or one group of them (a binary sensor group helper). `on` means open. Clear it to remove the feature from the room. |
+| Pause this room while it is open | off | Off keeps the sensor configured and pauses nothing. |
+| Open delay | 60 seconds (0–1800) | How long the sensor must read open before the room pauses. |
+| Close delay | 120 seconds (0–3600) | How long it must read closed before the room resumes. |
+| Notify on pause and resume | off | Phone notices, at most one pause/resume pair per room every 10 minutes. |
+| Notify service for this room | blank | Blank uses the integration's notify service (the one set in setup). |
+
+### What it does
+
+- **Open for the open delay: the room pauses.** Its head goes straight to off. There is
+  no coil-drying fan run first, even with **Dry the coil (fan only), then off**; the head
+  handles its own shutdown after cooling. MXZ then sends that head nothing more while it
+  is off: no mode, setpoint, fan or vane write.
+- **A paused room has no vote.** It makes no demand and no run, so it can neither keep nor
+  turn the shared heat/cool mode, and it doesn't hold Resting mode off. A room that opens
+  briefly (shorter than the open delay) votes as usual the whole time. If every room is
+  paused, Resting mode decides, as when nothing calls.
+- **The mode-change wait is untouched.** A pause or a resume is not a mode change: it
+  never starts, restarts or shortens **Minimum time between mode switches**. A paused
+  room dropping out can let the shared mode change, and that change waits out the hold
+  like any other.
+- **Closed for the close delay: the room resumes.** It votes again from scratch. Its head
+  goes back to what MXZ would run now, in the shared mode as it is now (heat, if heat took
+  the mode while the room was paused), or to its idle setting if the room is satisfied.
+  If the resume would flip the shared mode inside the hold, the room waits as any room
+  does. Opening again while the close delay runs pauses it again, and the close delay
+  starts over.
+- **Fan and vanes are kept.** MXZ writes no fan while the room is paused, so a fan speed
+  you held stays held, and a speed you pick on the off head is held from then on. A vane
+  you pick on the room thermostat while paused is not sent (sending it would wake the head
+  with the window open); it goes out when the room resumes. A vane the head moved on its
+  own while paused is put back as it was. A head in Dry when the pause began (in a room
+  with [Allow Dry mode](#allow-dry-mode) on) is put back in Dry.
+- **The room's own mode never changes.** The room thermostat stays Heat/Cool (or Dry) and
+  its enable switch stays on; only `hvac_action` reads `off`. If you turn the room off
+  during a pause, it stays off after the window closes. Changing the room's mode is not
+  an override.
+
+### Running the room anyway
+
+- **Window override switch.** Each room with the pause on gets
+  `switch.*_<room>_window_override`. Turn it on while the window is open and the room
+  resumes at once, by the ordinary resume. It turns itself off when the window reads
+  closed, so the next opening pauses as usual. Turned on while the window already reads
+  closed, it turns straight back off: there is nothing to override. Turn it off while the
+  window is still open and the room pauses again.
+- **A change on the head.** Turning the paused head on, or changing its mode, with its
+  remote, its app or the head entity in Home Assistant, takes the room over the same way:
+  the room is coordinated normally (MXZ doesn't turn the head back off) until the window
+  closes, and the window override switch reads on meanwhile. A fan or vane change alone
+  is not a takeover.
+
+### What it shows
+
+The room thermostat, the room's row in `sensor.*_plan` and the per-room diagnostic
+`binary_sensor.*_<room>_paused_open` (on while paused) carry `opening_state` (`closed`,
+`opening`, `paused`, `closing` or `overridden`: the door/window's own state),
+`paused_reason` (`door/window open` while the pause holds the room, so not for a disabled
+room; `window open, manual override` while overridden), `window_override`,
+`paused_since`, and `resumes_at` (while the close delay runs; an open window has no resume
+time yet). The plan lists paused rooms in `paused_rooms`. A room without the pause shows
+none of these, and an entry with no room using it has no `paused_rooms`.
+
+### Restarts and sensors
+
+- The pause is stored at once on every change, so a reload or restart keeps a paused room
+  paused (its head is not sent off again if it is already off) and keeps an override.
+- A restart or reload only lengthens a delay, never shortens it: an open delay or a close
+  delay that was running starts again from the restart.
+- A sensor that is `unavailable`, `unknown` or missing never starts a pause. It doesn't end
+  one either: a paused room stays paused until the sensor reads closed. If a dead sensor
+  leaves a room paused, use the window override switch, or turn the pause off on the room
+  page.
+
+### What it does not do
+
+- It pauses only an enabled room. A disabled room's head is already off, and its
+  [freeze floor or overheat ceiling](#freeze-floor-and-overheat-ceiling) still acts with
+  the window open: that is a safety run, never paused.
+- The notice rate limit is kept in memory, so a restart starts it afresh.
+- Cloud and generic heads (beta) are sent the same off through their own write path, so
+  it can take a while to show; `command_status` says whether the head's integration
+  returned. The automated tests cover local heads only.
+- The fan is kept by not touching it. A head that resets its own fan when it powers back
+  on is not corrected; this has not been tested on hardware.
 
 ## Freeze floor and overheat ceiling
 
