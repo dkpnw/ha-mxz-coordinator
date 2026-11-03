@@ -104,7 +104,7 @@ Every core feature exists for a reason someone ran into:
 Mitsubishi manuals on stock AUTO.
 
 <!-- "whats-new" stays above the newest What's new section; the others are old links. -->
-<a id="whats-new"></a><a id="whats-new-in-3190"></a><a id="whats-new-in-3120"></a><a id="whats-new-in-3111"></a>
+<a id="whats-new"></a><a id="whats-new-in-3120"></a><a id="whats-new-in-3111"></a>
 
 ## What's new in 3.20.0
 
@@ -127,6 +127,20 @@ unless the wall clock was set back in between
 **Cloud heads (beta) and a load fix.** A fan boost step no longer stalls behind a new
 setpoint, and a Setpoint drive offset you set (cloud and generic heads) follows a °F/°C
 switch. A saved Allowed drift that isn't a number no longer stops MXZ from loading.
+
+## What's new in 3.19.0
+
+**A room thermostat shows a change at once.** A new mode (Dry included), target, or Heat
+to and Cool to shows on a dashboard card as soon as you set it, instead of up to 10
+seconds later, so a second tap no longer undoes the first. What MXZ sends the heads, and
+when, is unchanged. [Dashboard cards](#dashboard-cards) has a tested Mushroom setup.
+
+**Changing an MXZ entity's ID no longer acts like a restart.** A renamed room target
+number keeps its value instead of taking the head's setpoint (Home Assistant before
+2026.11), and a renamed enable switch keeps a run paused by a cool/heat conflict.
+
+Each release now has an attested `mxz_coordinator.zip`; see
+[Verifying a release download](docs/RELEASING.md#verifying-a-release-download).
 
 ## What's new in 3.18.0
 
