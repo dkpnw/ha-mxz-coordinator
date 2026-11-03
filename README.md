@@ -298,9 +298,11 @@ collapsible_controls: false
   show.
 - A new mode (Dry included), target or Heat to and Cool to shows on the card at once.
   MXZ acts on it at the heads when the plan that follows runs, as before.
-- The Mushroom climate card waits about 2 seconds after the last tap on its + or -
-  button before it sends the new setpoint, so a setpoint goes out about 2 seconds after
-  you stop tapping. That wait is the card's own, not MXZ's.
+- The Mushroom climate card waits 2 seconds by default after a tap on its + or - button
+  before it sends the new setpoint, and each tap starts the wait again, so a setpoint
+  goes out 2 seconds after you stop tapping. That wait is the card's own, not MXZ's; a
+  theme can change it with Mushroom's `mush-input-number-debounce` variable, in
+  milliseconds.
 
 <a id="uneven-drift"></a><a id="per-room-uneven-drift"></a><a id="give-a-room-separate-heat-and-cool-setpoints-dual-setpoint"></a><a id="run-one-room-from-its-own-remote"></a><a id="safety-priority"></a><a id="when-a-head-goes-unavailable"></a><a id="freeze-floor-and-overheat-ceiling"></a>
 
@@ -477,7 +479,7 @@ pages, and each saves only what it shows:
 | **Seasons** | A weather source and the heat and cool lockout temperatures, with safety overrides. |
 | **Away and setpoint limits** | The away band, and the lowest and highest setpoint a head may get. |
 | **Standby hold** | An optional hold signal, its active state, and what heads do during a hold. |
-| **Rooms** | One page per room: head type (local, cloud beta or generic beta), vanes, airflow sensor, safety priority, own-remote control, uneven drift, sensor freshness, freeze floor, dual setpoint, and a cloud head's settings. |
+| **Rooms** | One page per room: **Head type** (local, cloud beta, or generic beta), **Airflow sensor**, **Vertical vane**, **Horizontal vane**, **Safety priority sensor**, **Comfort priority**, the hands-off switch **Let its own remote run it while disabled** and **While its own remote runs it, its vote counts**, and **Allow Dry mode**, then the sections **Uneven drift**, **Sensor freshness**, **Freeze floor and overheat ceiling**, **Dual setpoint**, and **Cloud or generic head (beta)**. |
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-menu-dark.png">

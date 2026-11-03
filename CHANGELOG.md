@@ -15,6 +15,10 @@ on your equipment.
   cooler by or Let it get warmer by, global or for one room, that isn't a number already
   read as blank. All three are now named once in the log when MXZ loads, and the
   Configure menu still points to the page where you fix them. Defaults are unchanged.
+- **Docs.** The README's Configure table names every setting and section on a room's
+  page, including **Let its own remote run it while disabled** and **Freeze floor and
+  overheat ceiling**. The Mushroom card note now says its 2-second wait is a default a
+  theme can change. The 3.9.0 notes list its CONTRIBUTING.md change again.
 
 ## 3.19.0 (November 3, 2026)
 
@@ -552,6 +556,10 @@ A docs-only release: no code, settings, or behavior change.
   thermostat and in the plan sensor's `zones` list. See
   [Start points](docs/FEATURES.md#start-points) and
   [Start points (3.9.0)](docs/MIGRATION.md#start-points-390).
+- **One target per room, stated plainly.** [CONTRIBUTING.md](CONTRIBUTING.md) said MXZ
+  wouldn't add a dual setpoint or a heat/cool range, even as an option (3.10.0 replaced
+  that with a per-room opt-in, and one target stays the default). It also asked that a
+  new tuning option be blank by default and change nothing when left unset.
 - **Oxford commas** in the remaining docs and the setup and Configure screen text.
 
 ## 3.8.0
