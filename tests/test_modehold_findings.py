@@ -1,9 +1,13 @@
 """Each TLC counterexample from verification/modehold, replayed on the real integration.
 
-Every test asserts the documented promise, so it FAILS while its finding
-stands; ``verification/run`` reports that as "finding reproduces". A test here
-that passes means the code changed: re-check the finding and its model rule.
-The steps are the model's steps, one action each (the skill lists them).
+F1 to F3 were found by the model and fixed: Resting mode waits for a room
+still running in the shared mode (F1), the record keeps whether votes alone
+chose the mode across a reload or restart (F2), and it keeps the mode itself,
+written at the change, so a crash cannot restore an older one (F3). Every test
+asserts the documented promise; each ``finding`` case failed before its fix,
+and its control (the same steps without the trigger) passed before and after.
+``verification/run`` requires both to pass. The steps are the model's steps,
+one action each (.claude/skills/verify-mxz-formal/SKILL.md).
 
 Requires pytest-homeassistant-custom-component. All entities are invented.
 """

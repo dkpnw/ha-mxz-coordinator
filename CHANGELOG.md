@@ -10,6 +10,23 @@ on your equipment.
 
 ## Unreleased
 
+- **Resting mode no longer cuts a room's run short.** With Resting mode set to Cool or
+  Heat, a room still running to its target in the other mode kept that mode only until it
+  came back inside the Mode switch threshold; once the mode-change wait had passed,
+  Resting mode took it and parked the head short of its target. Resting mode now waits
+  until the room reaches its target. Another room's call for the other mode, or a pick on
+  the shared-mode select, still takes the mode as before.
+- **A mode a hands-off vote chose is remembered across a reload or restart.** When an
+  enabled room then runs in it, the mode-change wait starts, as it already did without a
+  reload or restart in between. Before, a reload or restart forgot that the vote chose
+  the mode, and the room's next call the other way reversed the outdoor unit at once.
+- **The shared mode is stored at once with the time of the last change.** The record that
+  keeps the mode-change wait across restarts (3.18.0) now also keeps the shared mode,
+  written at each change, and a start prefers it over Home Assistant's restore data
+  unless that is newer. Before, a crash or power cut soon after a change could restart MXZ
+  in the earlier mode, held there for the rest of the wait the change had started. A
+  record written by an earlier version has no mode in it and is read as before.
+
 - **A saved Allowed drift that isn't a number no longer stops MXZ from loading.** It now
   reads as the default Allowed drift (1 °F, 0.5 °C) until you fix it. A saved Let it get
   cooler by or Let it get warmer by, global or for one room, that isn't a number already

@@ -70,10 +70,15 @@ VARIABLES
     head,               \* what each room's head runs: "", "cool" or "heat"
     vote,               \* the hands-off head's mode: None, "cool" or "heat"
     mode,               \* coordinator.current_shared_mode
-    byVotes,            \* coordinator._mode_by_votes (memory only)
+    byVotes,            \* coordinator._mode_by_votes
     stamp,              \* coordinator._last_mode_change_ts (monotonic), or NoTime
     stored,             \* the Store record MODE_CHANGE_KEY (wall clock), or NoTime
+    storedMode,         \* the Store record MODE_KEY, or None
+    storedAt,           \* the Store record MODE_AT_KEY (wall clock)
+    storedByV,          \* the Store record MODE_BY_VOTES_KEY
+    modeAt,             \* the shared-mode select state's last_changed (wall clock)
     restoreMode,        \* the shared-mode select's restore record
+    restoreAt,          \* that record's last_changed
     \* Ghosts: what the world knows, not the code.
     applied,            \* the shared mode the heads were last given, or None
     lastChange,         \* true time the last real mode change began its hold
@@ -87,7 +92,8 @@ VARIABLES
     runBroken           \* a running room lost the mode with no call against it
 
 vars == <<real, boot, skew, pos, latch, head, vote, mode, byVotes, stamp,
-          stored, restoreMode, applied, lastChange, steppedSince,
+          stored, storedMode, storedAt, storedByV, modeAt, restoreMode,
+          restoreAt, applied, lastChange, steppedSince,
           restartedSince, voteOwned, picked, lastStamp, steppedSinceStamp,
           holdBroken, runBroken>>
 ghosts == <<applied, lastChange, steppedSince, restartedSince, voteOwned,
@@ -106,9 +112,10 @@ Engage(prior, p) ==
          IN IF raw = prior THEN prior ELSE ""
     ELSE IF p >= 2 THEN "cool" ELSE IF p <= -2 THEN "heat" ELSE ""
 
-\* logic.shared_mode over directions in rank order.
-SharedMode(ds, current, allowed) ==
-    LET rest == IF Resting \in Modes THEN Resting ELSE current
+\* logic.shared_mode over directions in rank order. `running` is
+\* logic.arbitrate's: a room is engaged in `current`, so Resting waits.
+SharedMode(ds, current, allowed, running) ==
+    LET rest == IF Resting \in Modes /\ ~running THEN Resting ELSE current
         anyCool == \E k \in 1..Len(ds) : ds[k] = "cool"
         anyHeat == \E k \in 1..Len(ds) : ds[k] = "heat"
         standoff == anyCool /\ anyHeat
@@ -132,6 +139,7 @@ TypeOK ==
     /\ head \in [RoomIds -> {""} \cup Modes]
     /\ vote \in {None} \cup Modes
     /\ mode \in Modes /\ restoreMode \in Modes
+    /\ storedMode \in {None} \cup Modes /\ storedByV \in BOOLEAN
     /\ byVotes \in BOOLEAN /\ voteOwned \in BOOLEAN
     /\ applied \in {None} \cup Modes /\ picked \in {None} \cup Modes
 
@@ -144,7 +152,9 @@ Init ==
     /\ mode = "cool"                      \* cold start (_arbitration_mode)
     /\ byVotes = FALSE
     /\ stamp = NoTime /\ stored = NoTime  \* a fresh install: no change on record
-    /\ restoreMode = "cool"
+    /\ storedMode = None /\ storedAt = 0 /\ storedByV = FALSE
+    /\ modeAt = 0                         \* the select shows cool from the start
+    /\ restoreMode = "cool" /\ restoreAt = 0
     /\ applied = None /\ lastChange = NoTime
     /\ steppedSince = FALSE /\ restartedSince = FALSE
     /\ voteOwned = FALSE /\ picked = None
@@ -157,10 +167,13 @@ Init ==
 (*   engaged     = any held engage is cool|heat                            *)
 (*   grant       = logic.arbitrate(...); by_votes = grant.read_only, then  *)
 (*                 the _mode_by_votes undo rule in _compute                *)
+(*   running     = some held engage is the current mode (Resting waits)    *)
 (*   _apply      : a head runs the mode when its engage is that mode       *)
 (*                 (logic.head_action), else parks; then the stamp rules   *)
-(*                 at the end of _apply; _stamp_mode_change writes the     *)
-(*                 Store record at once (async_delay_save(..., 0)).        *)
+(*                 at the end of _apply; a changed mode re-renders the     *)
+(*                 select, and every changed mode or stamp writes the      *)
+(*                 Store record at once (_record_mode,                     *)
+(*                 async_delay_save(..., 0)): time, mode, by-votes.        *)
 (***************************************************************************)
 Decide ==
     LET nl       == [i \in RoomIds |-> Engage(latch[i], pos[i])]
@@ -170,8 +183,9 @@ Decide ==
         cmd      == SelectSeq(dem, LAMBDA d : d # None)
         gateOpen == Len(cmd) = 0 /\ ~engaged
         votes    == IF WithVote /\ gateOpen /\ vote # None THEN <<vote>> ELSE <<>>
-        full     == SharedMode(cmd \o votes, mode, allowed)
-        plain    == SharedMode(cmd, mode, allowed)
+        running  == \E i \in RoomIds : nl[i] = mode
+        full     == SharedMode(cmd \o votes, mode, allowed, running)
+        plain    == SharedMode(cmd, mode, allowed, running)
         readOnly == Len(votes) > 0 /\ full # plain /\ gateOpen
         calls    == \E i \in RoomIds : dem[i] \in Modes \/ nl[i] \in Modes
         byV      == readOnly \/ (byVotes /\ full # mode /\ ~calls)
@@ -179,6 +193,9 @@ Decide ==
         runs     == \E i \in RoomIds : dem[i] = state \/ nl[i] = state
         restOk   == Resting \notin Modes \/ state # Resting
         doStamp  == IF state # mode THEN ~byV ELSE byVotes /\ runs
+        newByV   == IF state # mode THEN byV /\ restOk
+                    ELSE IF byVotes /\ runs THEN FALSE ELSE byVotes
+        write    == state # mode \/ doStamp
         \* ghost bookkeeping
         change   == applied \in Modes /\ state # applied
         exempt   == byV \/ picked = state
@@ -192,10 +209,13 @@ Decide ==
     /\ latch' = nl
     /\ head' = [i \in RoomIds |-> IF nl[i] = state THEN state ELSE ""]
     /\ mode' = state
-    /\ byVotes' = IF state # mode THEN byV /\ restOk
-                  ELSE IF byVotes /\ runs THEN FALSE ELSE byVotes
+    /\ byVotes' = newByV
     /\ stamp' = IF doStamp THEN Mono ELSE stamp
     /\ stored' = IF doStamp THEN Wall ELSE stored
+    /\ storedMode' = IF write THEN state ELSE storedMode
+    /\ storedAt' = IF write THEN Wall ELSE storedAt
+    /\ storedByV' = IF write THEN newByV ELSE storedByV
+    /\ modeAt' = IF state # mode THEN Wall ELSE modeAt
     /\ lastStamp' = IF doStamp THEN real ELSE lastStamp
     /\ steppedSinceStamp' = IF doStamp THEN FALSE ELSE steppedSinceStamp
     /\ applied' = state
@@ -208,76 +228,96 @@ Decide ==
     /\ voteOwned' = IF change THEN byV /\ restOk /\ picked # state
                     ELSE IF owns THEN FALSE ELSE voteOwned
     /\ picked' = IF picked = state THEN None ELSE picked
-    /\ UNCHANGED <<real, boot, skew, pos, vote, restoreMode>>
+    /\ UNCHANGED <<real, boot, skew, pos, vote, restoreMode, restoreAt>>
 
 \* The room's reading changes (any jump: a window opens, a sensor reports).
 Reading == \E i \in RoomIds, p \in Positions :
     /\ pos' = [pos EXCEPT ![i] = p]
     /\ UNCHANGED <<real, boot, skew, latch, head, vote, mode, byVotes, stamp,
-                   stored, restoreMode>> /\ UNCHANGED ghosts
+                   stored, storedMode, storedAt, storedByV, modeAt, restoreMode, restoreAt>> /\ UNCHANGED ghosts
 
 \* A person runs the hands-off head (its vote, coordinator._hands_off_vote).
 HandsOff == WithVote /\ \E v \in {None} \cup Modes :
     /\ v # vote /\ vote' = v
     /\ UNCHANGED <<real, boot, skew, pos, latch, head, mode, byVotes, stamp,
-                   stored, restoreMode>> /\ UNCHANGED ghosts
+                   stored, storedMode, storedAt, storedByV, modeAt, restoreMode, restoreAt>> /\ UNCHANGED ghosts
 
 Tick == real < MaxReal /\ real' = real + 1
     /\ UNCHANGED <<boot, skew, pos, latch, head, vote, mode, byVotes, stamp,
-                   stored, restoreMode>> /\ UNCHANGED ghosts
+                   stored, storedMode, storedAt, storedByV, modeAt, restoreMode, restoreAt>> /\ UNCHANGED ghosts
 
 \* NTP steps the wall clock, or a person sets it. Monotonic does not move.
 ClockStep == \E s \in Skews :
     /\ s # skew /\ skew' = s
     /\ steppedSince' = TRUE /\ steppedSinceStamp' = TRUE
     /\ UNCHANGED <<real, boot, pos, latch, head, vote, mode, byVotes, stamp,
-                   stored, restoreMode, applied, lastChange, restartedSince,
-                   voteOwned, picked, lastStamp, holdBroken, runBroken>>
+                   stored, storedMode, storedAt, storedByV, modeAt, restoreMode, restoreAt, applied, lastChange,
+                   restartedSince, voteOwned, picked, lastStamp, holdBroken,
+                   runBroken>>
 
-\* coordinator.async_select_shared_mode: a changed direction stamps the hold.
+\* select.async_select_option shows the pick, then
+\* coordinator.async_select_shared_mode: a changed direction stamps the hold
+\* and writes the record.
 Select == WithSelect /\ \E m \in Modes :
     /\ m # mode
-    /\ mode' = m /\ byVotes' = FALSE
+    /\ mode' = m /\ byVotes' = FALSE /\ modeAt' = Wall
     /\ stamp' = Mono /\ stored' = Wall
+    /\ storedMode' = m /\ storedAt' = Wall /\ storedByV' = FALSE
     /\ lastStamp' = real /\ steppedSinceStamp' = FALSE
     /\ picked' = m /\ lastChange' = real
     /\ steppedSince' = FALSE /\ restartedSince' = FALSE /\ voteOwned' = FALSE
     /\ UNCHANGED <<real, boot, skew, pos, latch, head, vote, restoreMode,
-                   applied, holdBroken, runBroken>>
+                   restoreAt, applied, holdBroken, runBroken>>
 
-\* A new coordinator: __init__ (stamp from the record, _mode_by_votes False,
-\* latch ""), then switch restore puts each room in _startup_resume and the
-\* first _compute seeds its latch from the head's mode.
-NewCoordinator(rec, newBoot, newMode, newRestore) ==
+\* A new coordinator: __init__ (stamp from the record's time; mode and
+\* _mode_by_votes from the record; latch ""), then the select's restore
+\* (coordinator.restore_shared_mode: the record wins unless the restored
+\* state disagrees and is newer, which then is written back to the record;
+\* the select's state is written anew, so its last_changed is now), then
+\* switch restore puts each room in _startup_resume and the first _compute
+\* seeds its latch from the head's mode.
+NewCoordinator(newBoot, selMode, selAt, newRestore, newRestoreAt) ==
+    LET fromRec == storedMode \in Modes
+                   /\ (selMode = storedMode \/ storedAt >= selAt)
+        newMode == IF fromRec THEN storedMode ELSE selMode
+        rewrite == storedMode \in Modes /\ ~fromRec
+    IN
     /\ boot' = newBoot
-    /\ stamp' = StartStamp(rec, Wall, real - newBoot)
-    /\ stored' = rec
-    /\ byVotes' = FALSE
+    /\ stamp' = StartStamp(stored, Wall, real - newBoot)
+    /\ byVotes' = IF fromRec THEN storedByV ELSE FALSE
     /\ latch' = head
     /\ mode' = newMode
-    /\ restoreMode' = newRestore
+    /\ modeAt' = Wall
+    /\ storedMode' = IF rewrite THEN newMode ELSE storedMode
+    /\ storedAt' = IF rewrite THEN Wall ELSE storedAt
+    /\ storedByV' = IF rewrite THEN FALSE ELSE storedByV
+    /\ restoreMode' = newRestore /\ restoreAt' = newRestoreAt
     /\ restartedSince' = TRUE
-    /\ UNCHANGED <<real, skew, pos, head, vote, applied, lastChange,
+    /\ UNCHANGED <<real, skew, pos, head, vote, stored, applied, lastChange,
                    steppedSince, voteOwned, picked, lastStamp,
                    steppedSinceStamp, holdBroken, runBroken>>
 
 \* __init__.async_reload: same process. The Store instance is shared
 \* (_mode_change_store), and the select restores the state it had.
-Reload == WithReload /\ NewCoordinator(stored, boot, mode, restoreMode)
+Reload == WithReload /\ NewCoordinator(boot, mode, modeAt, restoreMode, restoreAt)
 
-\* A stop writes restore data (the select's mode) and flushes the Store.
+\* A stop writes restore data (the select's state) and flushes the Store.
+\* (Restore data is tracked only where a crash can read it.)
 Restart == WithRestart
-    /\ NewCoordinator(stored, real, mode, IF WithCrash THEN mode ELSE restoreMode)
+    /\ NewCoordinator(real, mode, modeAt, IF WithCrash THEN mode ELSE restoreMode,
+                      IF WithCrash THEN modeAt ELSE restoreAt)
 
 \* Restore data reaches disk every 15 minutes and at stop; between those, a
-\* crash restores the select's mode from the last periodic write. The Store
-\* record was written at once (see the scope note in the skill).
-Crash == WithCrash /\ NewCoordinator(stored, real, restoreMode, restoreMode)
+\* crash restores the select's state from the last periodic write. The
+\* Store record was written at once (see the scope note in the skill).
+Crash == WithCrash
+    /\ NewCoordinator(real, restoreMode, restoreAt, restoreMode, restoreAt)
 
 \* HA's periodic restore-state write.
-RestoreDump == WithCrash /\ restoreMode # mode /\ restoreMode' = mode
+RestoreDump == WithCrash /\ <<restoreMode, restoreAt>> # <<mode, modeAt>>
+    /\ restoreMode' = mode /\ restoreAt' = modeAt
     /\ UNCHANGED <<real, boot, skew, pos, latch, head, vote, mode, byVotes,
-                   stamp, stored>> /\ UNCHANGED ghosts
+                   stamp, stored, storedMode, storedAt, storedByV, modeAt>> /\ UNCHANGED ghosts
 
 Next == Decide \/ Reading \/ HandsOff \/ Tick \/ ClockStep \/ Select
         \/ Reload \/ Restart \/ Crash \/ RestoreDump

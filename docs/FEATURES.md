@@ -63,7 +63,11 @@ rooms drift further one way than the other, see [Uneven drift](#uneven-drift).
 
 **Resting mode** (Configure → Comfort) picks the shared mode when no room is calling:
 Last used (the default), Cool, or Heat. It only sets the neutral resting mode; a real
-call for the other mode still flips it, subject to the same dwell.
+call for the other mode still flips it, subject to the same dwell. A room still running
+to its target in the shared mode is not left short: Resting mode waits until that room
+reaches its target, even though it stopped calling once it came back inside the Mode
+switch threshold. Another room's call for the other mode, or your pick on the
+shared-mode select, still takes the mode from it.
 
 **Mode-change wait.** After the shared mode changes between cool and heat, the next
 change waits **Minimum time between mode switches** (default 600 seconds). The wait
@@ -71,6 +75,14 @@ counts from the last real change and continues through a reload or a Home Assist
 restart: MXZ stores that change's time (wall-clock UTC) when it happens and, on start,
 waits only for what is left. A change made 7 minutes before a restart leaves 3 minutes
 of a 10-minute wait; one made an hour before leaves none.
+
+The same record keeps the shared mode itself, written at each change, and whether only a
+[hands-off vote](#run-one-room-from-its-own-remote) chose it. So a start resumes in the
+mode MXZ last chose, even after a crash or power cut soon after a change, when Home
+Assistant's own restore data (written every 15 minutes and at a stop) still has the mode
+before it. If that restore data is newer than the record, it wins. One case is left: if
+the wall clock was set back after one change, a crash soon after the next can still resume
+in the earlier mode, because its older restore data then looks newer.
 
 - A fresh install has no change on record, so its first change doesn't wait. The first
   start after upgrading to this version is the same: earlier versions didn't store it.
@@ -374,7 +386,7 @@ With it on, when you disable that room (its switch, or its tile set to `off`):
   or still running to its target, and a direction change it causes alone does not start
   the mode-change wait, so an enabled room that then calls the other way is not held back
   by it. Once an enabled room runs in the direction it chose, the wait starts, just as if
-  that room had chosen it.
+  that room had chosen it, also after a reload or a restart in between.
 - `sensor.*_plan` shows the head's vote in that room's `hands_off_vote` (its `hands_off`
   reads `parking` or `released`), and `standoff` is true when it and another room want
   opposite modes. The plan's top-level `mode_by_hands_off` is true when the vote, not an

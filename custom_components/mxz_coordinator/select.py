@@ -70,18 +70,28 @@ class MXZSharedModeSelect(MXZEntity, SelectEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Restore last mode (resting mode) and seed the coordinator.
 
-        A rename's re-add leaves the coordinator's mode alone (see ``_readded``).
+        The coordinator weighs the restored option against its own record,
+        which is newer after a crash (``restore_shared_mode``); the select
+        shows what it chose. A rename's re-add leaves the coordinator's mode
+        alone (see ``_readded``).
         """
         await super().async_added_to_hass()
         if not self._readded:
+            restored: str | None = None
+            restored_at: float | None = None
             last = await self.async_get_last_state()
             if last is not None and not self._restored_state_is_stale(last):
                 if last.state in _OPTIONS:
-                    self._attr_current_option = last.state
+                    restored = last.state
                 elif last.state in _LEGACY_OPTIONS:
-                    self._attr_current_option = _LEGACY_OPTIONS[last.state]
-                    self._explain_dropped_option(last.state)
-            self.coordinator.current_shared_mode = self._attr_current_option
+                    restored = _LEGACY_OPTIONS[last.state]
+                if restored is not None:
+                    restored_at = last.last_changed.timestamp()
+            self._attr_current_option = self.coordinator.restore_shared_mode(
+                restored, restored_at
+            )
+            if last is not None and restored is not None and last.state in _LEGACY_OPTIONS:
+                self._explain_dropped_option(last.state)
         self.async_on_remove(self.coordinator.async_add_listener(self._sync))
 
     def _explain_dropped_option(self, stored: str) -> None:
