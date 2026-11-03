@@ -3522,7 +3522,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Nothing while the head is out of control or not reporting a mode,
         nothing in the confirm wait a new coordinator opens, and nothing while
         its last batch carried this same mode and setpoint and its confirm
-        wait is still running. Otherwise the batch holds only
+        wait is still running, except a fan when that batch was heat or cool
+        and sent no fan. Otherwise the batch holds only
         what the head doesn't already show: the mode on its own call first
         (comfort_HA drops one inside set_temperature), then one setpoint,
         then the fan (before the mode when handing the fan back to auto on
@@ -3545,23 +3546,31 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.cloud_setpoint(climate_id, act, low, high)
             if act in (MODE_COOL, MODE_HEAT) else None
         )
-        if cloud.pending(clock) and (
+        waiting = cloud.pending(clock) and (
             cloud.startup
             or cloud.intent is not None and cloud.intent[:2] == (act, setpoint)
+        )
+        if waiting and (
+            cloud.startup or cloud.intent[2] is not None
+            or act not in (MODE_COOL, MODE_HEAT)
         ):
             # Sent, and waiting for the head to report it; or just started,
             # when MXZ can't know what it sent before (a batch a moment
             # before a reload is still pending at the head).
             self._floor_accepted(climate_id, active)
             return
+        # Waiting on a heat or cool batch that sent no fan: the mode and
+        # setpoint aren't sent again, but the fan is still decided, so a
+        # speed someone picks is read and a boost step that comes due goes
+        # out (both limits still apply).
         fan = None
         if engage is not None and not self.inhibited:
             fan = self._cloud_fan(climate_id, cloud, state, act, delta, engage, clock)
         cur_mode = state.state
         calls: list[tuple[str, dict[str, Any]]] = []
-        if cur_mode != act:
+        if not waiting and cur_mode != act:
             calls.append(("set_hvac_mode", {"hvac_mode": act}))
-        if setpoint is not None and (
+        if not waiting and setpoint is not None and (
             cur_mode != act or not self._head_already_at(
                 climate_id, _as_float(state.attributes.get("temperature")), setpoint
             )

@@ -95,7 +95,11 @@ class CloudHead:
         shown_mode: str | None,
         shown_fan: str | None,
     ) -> None:
-        """Record one batch: a new window, and the states it supersedes."""
+        """Record one batch: a new window, and the states it supersedes.
+
+        A batch with no fan supersedes no fan: the fan the head shows then
+        is the one it should keep showing, so a report of it is current.
+        """
         if self.intent is not None and not self.confirmed:
             self.older_modes.add(self.intent[0])
             if self.intent[2] is not None:
@@ -105,7 +109,7 @@ class CloudHead:
             self.older_fans.clear()
         if shown_mode is not None:
             self.older_modes.add(shown_mode)
-        if shown_fan is not None:
+        if shown_fan is not None and intent[2] is not None:
             self.older_fans.add(shown_fan)
         self.older_modes.discard(intent[0])
         if intent[2] is not None:

@@ -446,20 +446,13 @@ async def test_a_fan_step_held_by_the_write_interval_does_not_climb_on(
     assert fans() == ["low", "medium", "high"]
 
 
-async def test_a_fan_step_due_inside_a_setpoint_only_wait_waits_it_out(
-    hass: HomeAssistant,
-) -> None:
-    """After a batch with no fan, no fan decision runs for its confirm wait:
-    while the plan's mode and setpoint are what that batch sent, MXZ waits
-    for the head to show it, and the fan the head showed (MXZ's own last
-    step) is recorded as an older state. A boost step that comes due inside
-    the wait goes out when the wait ends. This pins today's conservative
-    behaviour (cloud review NIT 3); a person's pick inside the wait is read
-    once the wait is over too
-    (test_a_new_fan_inside_the_wait_is_a_manual_pick_once_read)."""
+async def _setpoint_only_wait(hass: HomeAssistant):
+    """A comfort head 10 °F off (boost climbs), its first step (low) landed
+    and confirmed, then a new target sends a batch with no fan: 74.0 alone,
+    50 s before the next step is due. That batch's 90 s wait is running."""
     a, _b, entry = await _comfort_pair(hass)
     await past_startup(hass, entry)
-    await _driven(hass, entry, SENSORS[0], 60)  # 10 °F off: boost climbs
+    await _driven(hass, entry, SENSORS[0], 60)
     calls = record(hass)
 
     def sent() -> list[tuple[str, Any]]:
@@ -470,7 +463,6 @@ async def test_a_fan_step_due_inside_a_setpoint_only_wait_waits_it_out(
     assert sent() == [("set_fan_mode", "low")]
     past_window(entry, a.entity_id, 250)  # 50 s before the next step
     await recompute(hass, entry)
-    cloud = entry.runtime_data._cloud[a.entity_id]
     assert row(hass, entry, 0)["cloud_status"] == "confirmed"  # the low landed
     await hass.services.async_call(
         "number", "set_value",
@@ -479,15 +471,125 @@ async def test_a_fan_step_due_inside_a_setpoint_only_wait_waits_it_out(
     await hass.async_block_till_done()
     await recompute(hass, entry)
     assert sent() == [("set_fan_mode", "low"), ("set_temperature", 74.0)]  # no fan
-    assert cloud.older_fans == {"low"}  # the fan the head showed
-    past_window(entry, a.entity_id, 60)  # the step is due, the wait has 30 s left
+    assert row(hass, entry, 0)["cloud_status"] == "pending"
+    return a, entry, sent
+
+
+async def test_a_fan_step_due_inside_a_setpoint_only_wait_goes_out_then(
+    hass: HomeAssistant,
+) -> None:
+    """Cloud review NIT 3. A batch with no fan doesn't stop fan decisions for
+    its confirm wait: the fan the head shows isn't an older state (that batch
+    didn't change it), and a boost step that comes due inside the wait goes
+    out then, on its own, as soon as the write interval allows. Before, it
+    waited for the wait to end. The setpoint is not sent again with it, and
+    both limits still hold: no step before five minutes since the last, and
+    no write inside the write interval."""
+    a, entry, sent = await _setpoint_only_wait(hass)
+    cloud = entry.runtime_data._cloud[a.entity_id]
+    assert cloud.older_fans == set()
+    past_window(entry, a.entity_id, 30)  # 20 s before the step: not yet
     await recompute(hass, entry)
     assert sent()[2:] == []
-    assert a.device["fan"] == "low"
-    past_window(entry, a.entity_id, 30)  # the wait is over
+    past_window(entry, a.entity_id, 20)  # the step is due; the interval has 10 s left
     await recompute(hass, entry)
-    assert sent()[2:] == [("set_fan_mode", "medium")]
-    assert a.device["fan"] == "medium"
+    assert sent()[2:] == []
+    assert cloud.release_at is not None  # the plan wakes when the slot opens
+    assert a.device["fan"] == "low"
+    past_window(entry, a.entity_id, 10)  # the interval is over; the wait has 30 s left
+    await recompute(hass, entry)
+    assert sent()[2:] == [("set_fan_mode", "medium")]  # the fan alone
+    assert a.device == {"mode": "heat", "temperature": 74.0, "fan": "medium"}
+    # That write opens its own wait, in which the fan it replaced is older.
+    assert cloud.intent == ("heat", 74.0, "medium")
+    assert cloud.older_fans == {"low"}
+    assert row(hass, entry, 0)["cloud_status"] == "pending"
+    past_window(entry, a.entity_id)
+    await recompute(hass, entry)
+    assert sent()[3:] == []
+    assert row(hass, entry, 0)["cloud_status"] == "confirmed"
+
+
+async def test_a_fan_pick_inside_a_setpoint_only_wait_is_read_then(
+    hass: HomeAssistant,
+) -> None:
+    """Cloud review NIT 3: a speed someone picks on the head inside a
+    setpoint-only batch's wait is held from the next plan, not from the
+    wait's end, and MXZ writes no fan over it, then or after."""
+    a, entry, sent = await _setpoint_only_wait(hass)
+    coordinator = entry.runtime_data
+    assert coordinator.fan_auto_is_on(a.entity_id)
+    a.device["fan"] = "high"
+    a.poll()
+    await hass.async_block_till_done()
+    await recompute(hass, entry)
+    assert row(hass, entry, 0)["cloud_status"] == "pending"  # still inside the wait
+    assert not coordinator.fan_auto_is_on(a.entity_id)
+    assert row(hass, entry, 0)["fan_hold"] is True
+    past_window(entry, a.entity_id, 300)  # past the wait and a boost step
+    await recompute(hass, entry)
+    assert [w for w in sent()[2:] if w[0] == "set_fan_mode"] == []
+    assert a.device["fan"] == "high"
+
+
+async def test_an_off_batch_with_no_fan_sends_no_fan_after_the_off(
+    hass: HomeAssistant,
+) -> None:
+    """Negative for NIT 3: only a heat or cool wait decides the fan. An off
+    sent with no fan (fan boost was off, so the boost speed wasn't handed
+    back to auto first) waits out its wait: turning boost back on inside it
+    sends no auto after the off, and once the head shows off there is
+    nothing to hand back."""
+    a, _b, entry = await _comfort_pair(hass, options={CONF_IDLE_ACTION: IDLE_ACTION_OFF})
+    await past_startup(hass, entry)
+    await _driven(hass, entry, SENSORS[0], 60)
+    past_window(entry, a.entity_id, 300)  # the first fan step
+    await recompute(hass, entry)
+    assert a.device == {"mode": "heat", "temperature": 72.0, "fan": "low"}
+    past_window(entry, a.entity_id)
+    await recompute(hass, entry)
+    coordinator = entry.runtime_data
+    coordinator.fan_boost_enable = False
+    a.delayed = True  # the off is reported only when polled
+    calls = record(hass)
+    await _driven(hass, entry, SENSORS[0], 70)  # at target: the head goes off
+    assert writes(calls, a.entity_id) == [("set_hvac_mode", {"hvac_mode": "off"})]
+    assert hass.states.get(a.entity_id).state == "heat"  # not reported yet
+    coordinator.fan_boost_enable = True
+    past_window(entry, a.entity_id, 60)  # past the write interval, inside the wait
+    await recompute(hass, entry)
+    assert row(hass, entry, 0)["cloud_status"] == "pending"
+    assert writes(calls, a.entity_id) == [("set_hvac_mode", {"hvac_mode": "off"})]
+    a.poll()
+    await hass.async_block_till_done()
+    past_window(entry, a.entity_id)
+    await recompute(hass, entry)
+    assert writes(calls, a.entity_id) == [("set_hvac_mode", {"hvac_mode": "off"})]
+    assert a.device == {"mode": "off", "temperature": 72.0, "fan": "low"}
+
+
+async def test_a_fan_batch_still_waits_out_its_own_wait(hass: HomeAssistant) -> None:
+    """Negative for NIT 3: after a batch that sent a fan, nothing is decided
+    for its wait, the fan included: a speed reported then is read when the
+    wait ends, not before (the fan MXZ sent may still be on its way)."""
+    a, _b, entry = await _comfort_pair(hass)
+    await past_startup(hass, entry)
+    await _driven(hass, entry, SENSORS[0], 60)
+    past_window(entry, a.entity_id, 300)  # the first fan step
+    calls = record(hass)
+    await recompute(hass, entry)
+    assert writes(calls, a.entity_id) == [("set_fan_mode", {"fan_mode": "low"})]
+    coordinator = entry.runtime_data
+    a.device["fan"] = "high"
+    a.poll()
+    await hass.async_block_till_done()
+    await recompute(hass, entry)
+    assert row(hass, entry, 0)["cloud_status"] == "pending"
+    assert coordinator.fan_auto_is_on(a.entity_id)  # not read inside the wait
+    past_window(entry, a.entity_id)
+    await recompute(hass, entry)
+    assert not coordinator.fan_auto_is_on(a.entity_id)  # read once it ends
+    assert writes(calls, a.entity_id) == [("set_fan_mode", {"fan_mode": "low"})]
 
 
 async def test_a_held_back_step_wakes_the_plan_by_itself(
@@ -548,7 +650,13 @@ async def test_a_stale_fan_report_inside_the_wait_is_not_a_manual_pick(
 async def test_a_new_fan_inside_the_wait_is_a_manual_pick_once_read(
     hass: HomeAssistant,
 ) -> None:
-    """A value the head never had is a real change, window or not."""
+    """A value the head never had is a real change, window or not.
+
+    The wake batch sent a mode and a setpoint but no fan, so the mode the
+    head showed before it is an older state inside the wait, and the auto it
+    showed is not (that batch didn't change the fan; cloud review NIT 3).
+    The pick is held from the next plan inside the wait and stays held.
+    """
     a, _b, entry = await _comfort_pair(hass)
     await past_startup(hass, entry)
     await _driven(hass, entry, SENSORS[0], 65)
@@ -557,9 +665,13 @@ async def test_a_new_fan_inside_the_wait_is_a_manual_pick_once_read(
     a.poll()
     await hass.async_block_till_done()
     assert coordinator._cloud_stale_report(a.entity_id, fan="powerful") is False
-    assert coordinator._cloud_stale_report(a.entity_id, fan="auto") is True
-    past_window(entry, a.entity_id)
+    assert coordinator._cloud_stale_report(a.entity_id, mode="fan_only") is True
+    assert coordinator._cloud_stale_report(a.entity_id, fan="auto") is False
     calls = record(hass)
+    await recompute(hass, entry)
+    assert row(hass, entry, 0)["cloud_status"] == "pending"
+    assert not coordinator.fan_auto_is_on(a.entity_id)
+    past_window(entry, a.entity_id)
     await recompute(hass, entry)
     assert not coordinator.fan_auto_is_on(a.entity_id)
     assert [w for w in writes(calls, a.entity_id) if w[0] == "set_fan_mode"] == []

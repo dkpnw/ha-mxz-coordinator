@@ -113,8 +113,18 @@ def test_a_confirmed_intent_clears_the_older_states() -> None:
     head.confirmed = True
     head.sent(2200.0, ("cool", 68.0, None), "heat", "low")
     assert head.older_modes == {"heat"}
-    assert head.older_fans == {"low"}
+    # A batch with no fan supersedes no fan: the "low" the head shows is
+    # what it should keep showing (cloud review NIT 3).
+    assert head.older_fans == set()
+    assert not head.stale(2210.0, fan="low")
+    assert head.stale(2210.0, mode="heat")
     assert not head.confirmed
+    # A batch with a fan does supersede the one the head showed.
+    head.confirmed = True
+    head.sent(2250.0, ("cool", 68.0, "medium"), "cool", "low")
+    assert head.older_fans == {"low"}
+    assert head.stale(2260.0, fan="low")
+    assert not head.stale(2260.0, fan="medium")
     # A batch's own values are never older states.
     head.sent(2300.0, ("heat", 72.0, None), "heat", None)
     assert "heat" not in head.older_modes
