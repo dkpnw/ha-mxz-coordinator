@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and discussion
+    url: https://community.home-assistant.io/t/one-temperature-per-room-on-a-mitsubishi-mxz-multi-split-mxz-coordinator-hacs/1018382
+    about: Ask questions and share setups in the Home Assistant community forum thread.
+  - name: Report a security vulnerability
+    url: https://github.com/dkpnw/ha-mxz-coordinator/security/advisories/new
+    about: Report security problems privately, not as a public issue.
