@@ -8,10 +8,42 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
-## Unreleased
+## 3.19.0 (November 3, 2026)
+
+A room thermostat shows a change at once, and changing an MXZ entity's ID no longer acts
+like a restart. Settings, defaults, and what MXZ sends the heads are unchanged, and no
+migration is needed.
+
+- **Release downloads you can check.** Each published release gets
+  `mxz_coordinator.zip`, the `custom_components/mxz_coordinator` folder at that tag, with
+  a GitHub build-provenance attestation. Check a download with
+  `gh attestation verify mxz_coordinator.zip -R dkpnw/ha-mxz-coordinator`; see
+  [Verifying a release download](docs/RELEASING.md#verifying-a-release-download). HACS
+  still installs from the repository as before.
+- **CI:** every action is pinned to a commit SHA, and the CI contract tests check those
+  pins. Dependabot proposes weekly updates for the actions and the pip test
+  requirements. The per-lane Home Assistant locks under `requirements/` are left out:
+  they are only changed on purpose.
+- **Repository:** a security policy ([SECURITY.md](SECURITY.md): report a vulnerability
+  privately from the Security tab), CODEOWNERS, a pull request template, and a bug
+  report template.
+- **Tests:** entity ID renames. New tests rename every MXZ entity, both the way Home
+  Assistant does today (remove and add again) and the way 2027.11 will (in place,
+  without running MXZ's add and remove steps). They check that every control still
+  acts on its own room under the new ID, and that a rename changes nothing else: every
+  value, everything MXZ remembers, and a paused run. Both ways pass (see Fixed).
 
 ### Fixed
 
+- **Changing an MXZ entity's ID no longer acts like a restart.** Home Assistant renames
+  MXZ's entities by removing them and adding them again, and MXZ treated that as a
+  fresh start. On Home Assistant before 2026.11, renaming a room's target number could
+  change the target to the head's current setpoint. On every version, renaming the
+  switches could make MXZ forget a run paused by a mode conflict, and on 2026.11 and
+  later, renaming a Fan auto switch made MXZ check a held fan speed again as it does
+  after a restart. Before 2026.11, changing an ID back to an earlier one could also
+  bring back the values from before the first change. Now a rename only changes the
+  ID. A restart or a reload still restores everything as before.
 - **A room thermostat shows a change at once.** A dashboard card (Mushroom, tile) used
   to show a room's old mode or setpoint until the plan that follows a change finished,
   up to 10 seconds later on a test install, so a second tap could undo the first. Now
@@ -63,11 +95,6 @@ exactly as before. See [docs/MIGRATION.md](docs/MIGRATION.md).
 - **CI:** the normal test-suite step may run for 600 seconds instead of 300, as the
   fakeboot step already does. A test job that runs both may take 35 minutes instead of
   25.
-- **Tests:** entity ID renames. New tests rename every MXZ entity, both the way Home
-  Assistant does today (remove and add again) and the way 2027.11 will (in place,
-  without running MXZ's add and remove steps). They check that every control still
-  acts on its own room under the new ID, and that a rename changes nothing else: every
-  value, everything MXZ remembers, and a paused run. Both ways pass (see Fixed).
 
 ### Added
 
@@ -90,18 +117,6 @@ exactly as before. See [docs/MIGRATION.md](docs/MIGRATION.md).
   [ha-climate-zone-sequencer](https://github.com/csingley/ha-climate-zone-sequencer)
   (commit f911e4a); no code was copied. Not tested on hardware yet. See
   [Comfort priority](docs/FEATURES.md#comfort-priority).
-
-### Fixed
-
-- **Changing an MXZ entity's ID no longer acts like a restart.** Home Assistant renames
-  MXZ's entities by removing them and adding them again, and MXZ treated that as a
-  fresh start. On Home Assistant before 2026.11, renaming a room's target number could
-  change the target to the head's current setpoint. On every version, renaming the
-  switches could make MXZ forget a run paused by a mode conflict, and on 2026.11 and
-  later, renaming a Fan auto switch made MXZ check a held fan speed again as it does
-  after a restart. Before 2026.11, changing an ID back to an earlier one could also
-  bring back the values from before the first change. Now a rename only changes the
-  ID. A restart or a reload still restores everything as before.
 
 ## 3.17.0 (November 2, 2026)
 
