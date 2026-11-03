@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# verify-mxz: drive the MXZ Coordinator integration through Home Assistant's
+# test harness and keep the evidence.
+#
+#   MXZ_PYTHON=<venv>/bin/python scripts/verify doctor
+#   MXZ_PYTHON=<venv>/bin/python scripts/verify run [feature ...]
+#   scripts/verify clean
+#
+# Features: mixed-mode-rooms unavailable-stale-heads restart-continuity
+#           manual-fan-preserved dry-refused-by-head   (default: all)
+# Evidence: $MXZ_VERIFY_OUT (default ~/verify-mxz-evidence/<UTC stamp>-<pid>)
+set -euo pipefail
+
+skill=$(cd "$(dirname "$0")/.." && pwd)
+repo=$(git -C "$skill" rev-parse --show-toplevel)
+journeys="$skill/journeys"
+export PYTHONDONTWRITEBYTECODE=1
+
+need_python() {
+  if [ -z "${MXZ_PYTHON:-}" ]; then
+    echo "verify-mxz: set MXZ_PYTHON to a venv python with the test requirements" >&2
+    echo "  (one per lane, built per docs/DEVELOPMENT.md)" >&2
+    exit 2
+  fi
+}
+
+file_for() {
+  case $1 in
+    mixed-mode-rooms) echo test_mixed_mode.py ;;
+    unavailable-stale-heads) echo test_unavailable_stale.py ;;
+    restart-continuity) echo test_restart_continuity.py ;;
+    manual-fan-preserved) echo test_manual_fan.py ;;
+    dry-refused-by-head) echo test_dry_refused.py ;;
+    *) echo "verify-mxz: unknown feature '$1'" >&2; exit 2 ;;
+  esac
+}
+
+revision() {
+  local rev
+  rev=$(git -C "$repo" rev-parse HEAD)
+  if [ -n "$(git -C "$repo" status --porcelain)" ]; then rev="$rev-dirty"; fi
+  echo "$rev"
+}
+
+doctor() {
+  need_python
+  cd "$repo"
+  "$MXZ_PYTHON" -I - "$MXZ_PYTHON" <<'PY'
+import importlib.metadata as md
+import json
+import re
+import sys
+from pathlib import Path
+
+import homeassistant.const as ha
+
+def dist(*names):
+    for name in names:
+        try:
+            return f"{name} {md.version(name)}"
+        except md.PackageNotFoundError:
+            pass
+    return "MISSING"
+
+plugin = dist("pytest-homeassistant-custom-component", "pytest-home-assistant")
+manifest = json.loads(Path("custom_components/mxz_coordinator/manifest.json").read_text())
+print(f"python        {sys.version.split()[0]}  ({sys.argv[1]})")
+print(f"homeassistant {ha.__version__}")
+print(f"plugin        {plugin}")
+print(f"pytest        {dist('pytest')}")
+print(f"integration   {manifest['domain']} {manifest['version']} (manifest)")
+problems = []
+if plugin == "MISSING":
+    problems.append("pytest-homeassistant-custom-component is not installed")
+lane = re.search(r"/py(\d)(\d+)-ha([0-9.]+?)(dev)?/bin/", sys.argv[1])
+if lane:
+    want_py = f"{lane[1]}.{lane[2]}"
+    want_ha = lane[3]
+    if not sys.version.startswith(want_py + "."):
+        problems.append(f"lane name says Python {want_py}")
+    if not ha.__version__.startswith(want_ha):
+        problems.append(f"lane name says Home Assistant {want_ha}")
+for problem in problems:
+    print(f"DOCTOR_PROBLEM {problem}")
+sys.exit(1 if problems else 0)
+PY
+  echo "revision      $(revision)"
+  "$MXZ_PYTHON" -m pytest -p no:cacheprovider -q -s "$journeys/test_doctor.py" \
+    | grep -E "DOCTOR_|passed|failed|error" || { echo "DOCTOR_FAILED" >&2; exit 1; }
+  echo "DOCTOR_OK"
+}
+
+run() {
+  need_python
+  cd "$repo"
+  local files=() feature
+  if [ $# -eq 0 ]; then
+    set -- mixed-mode-rooms unavailable-stale-heads restart-continuity \
+      manual-fan-preserved dry-refused-by-head
+  fi
+  for feature in "$@"; do files+=("$journeys/$(file_for "$feature")"); done
+  export MXZ_VERIFY_OUT=${MXZ_VERIFY_OUT:-$HOME/verify-mxz-evidence/$(date -u +%Y%m%dT%H%M%SZ)-$$}
+  export MXZ_VERIFY_REV
+  MXZ_VERIFY_REV=$(revision)
+  mkdir -p "$MXZ_VERIFY_OUT/host" "$MXZ_VERIFY_OUT/fakeboot"
+  local status=0
+  "$MXZ_PYTHON" -m pytest -p no:cacheprovider -q -rA "${files[@]}" \
+    > "$MXZ_VERIFY_OUT/host/pytest.log" 2>&1 || status=1
+  tail -n 1 "$MXZ_VERIFY_OUT/host/pytest.log" | sed 's/^/host:     /'
+  FAKE_UPTIME=120 "$MXZ_PYTHON" -m pytest -p tools.fakeboot -p no:cacheprovider -q -rA \
+    "${files[@]}" > "$MXZ_VERIFY_OUT/fakeboot/pytest.log" 2>&1 || status=1
+  tail -n 1 "$MXZ_VERIFY_OUT/fakeboot/pytest.log" | sed 's/^/fakeboot: /'
+  printf '{"revision": "%s", "python": "%s", "features": "%s", "status": %d}\n' \
+    "$MXZ_VERIFY_REV" "$MXZ_PYTHON" "$*" "$status" > "$MXZ_VERIFY_OUT/run.json"
+  echo "evidence: $MXZ_VERIFY_OUT"
+  return $status
+}
+
+clean() {
+  # Only the scratch a run without PYTHONDONTWRITEBYTECODE could leave in the
+  # skill. Evidence lives outside the checkout and is never touched here.
+  rm -rf "$journeys/__pycache__"
+  echo "clean: removed $journeys/__pycache__ (if any); evidence untouched"
+}
+
+case ${1:-} in
+  doctor) doctor ;;
+  run) shift; run "$@" ;;
+  clean) clean ;;
+  *) sed -n '2,12p' "$0"; exit 2 ;;
+esac
