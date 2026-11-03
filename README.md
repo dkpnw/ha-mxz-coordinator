@@ -263,7 +263,7 @@ including [who drives the fan](docs/FEATURES.md#who-drives-the-fan) and
 
 Each room's thermostat works with the
 [Mushroom climate card](https://github.com/piitaya/lovelace-mushroom). This one was
-tested:
+tested with Mushroom v5.2.3:
 
 ```yaml
 type: custom:mushroom-climate-card
@@ -275,12 +275,15 @@ collapsible_controls: false
 
 - A room with a dual setpoint shows two controls, Heat to (low) and Cool to (high), in
   place of the single target.
-- The thermostat offers Dry only while its room offers it (Allow Dry mode).
+- The thermostat offers Dry only while its room offers it (Allow Dry mode). The card
+  shows only the listed modes the thermostat offers, so a room without Allow Dry shows
+  Off and Heat/Cool and no Dry button.
 - The built-in tile card works with the `climate-hvac-modes` and `target-temperature`
   features.
 - The thermostat has no preset modes, so a presets feature or control has nothing to
   show.
-- A change shows on the card at once; the plan follows.
+- A new mode (Dry included), target or Heat to and Cool to shows on the card at once.
+  MXZ acts on it at the heads when the plan that follows runs, as before.
 
 <a id="uneven-drift"></a><a id="per-room-uneven-drift"></a><a id="give-a-room-separate-heat-and-cool-setpoints-dual-setpoint"></a><a id="run-one-room-from-its-own-remote"></a><a id="safety-priority"></a><a id="when-a-head-goes-unavailable"></a><a id="freeze-floor-and-overheat-ceiling"></a>
 

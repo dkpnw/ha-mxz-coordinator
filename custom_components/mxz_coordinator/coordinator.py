@@ -1456,7 +1456,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._engage_latch[zone.slug] = (
                     engage if engage in (MODE_COOL, MODE_HEAT) else ""
                 )
-            dry = self._in_dry(zone)
+            dry = self.in_dry(zone)
             if dry:
                 # Allow Dry mode: a person runs this head in dry, so the
                 # room's temperature goal pauses (no call, no run). Its vote
@@ -5019,8 +5019,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for zone in self.zones
         )
 
-    def _in_dry(self, zone: Zone) -> bool:
+    def in_dry(self, zone: Zone) -> bool:
         """Whether a person has this room's head in dry, and MXZ honors it now.
+
+        The plan's dry input for this room, and what its thermostat shows as
+        Dry: read live, so a pick, Heat/Cool or Off shows at once, before the
+        plan that follows settles the room held or parked.
 
         Only while the room offers Dry and is enabled, no standby hold is on
         (a hold parks every head, a dry one too), and no person took it out
@@ -5088,7 +5092,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def release_dry(self, zone: Zone) -> None:
         """Heat/Cool or Off picked on the thermostat: out of dry, the plan's again."""
-        if zone.slug in self._dry_picks or self._in_dry(zone):
+        if zone.slug in self._dry_picks or self.in_dry(zone):
             self._cancel_dry_pick(zone.slug)
             self._dry_released.add(zone.slug)
 

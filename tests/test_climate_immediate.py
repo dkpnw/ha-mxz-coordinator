@@ -1,4 +1,4 @@
-"""A room thermostat shows its room's new enable, target or range at once.
+"""A room thermostat shows its room's new enable, target, range or Dry at once.
 
 Dashboard cards (Mushroom, tile) render the thermostat's own state. It used
 to re-render only when the plan that follows a change finished, 0.2 s to 10 s
@@ -7,12 +7,17 @@ invited a second tap that undid the first.
 
 Each test records the thermostat's state at the moment the change asks for
 its recompute, before any plan has run (``coord._refresh_generation`` is
-unchanged then), and lets the real recompute run after. The heads are
-recorded too: only the plan writes them, so they have not moved yet.
+unchanged then), and then passes the request on unchanged. Here the first
+request runs its plan at once; a later one inside the request cooldown waits,
+and the test may end before it runs. The at-once checks read only the record,
+so they don't depend on it; a check of what the plan does after calls the
+recompute itself. The heads are recorded too: only the plan writes them, so
+they have not moved yet.
 
-The enable and single-target checks failed before the fix. A range write
-(on the tile, or on the Heat to, Cool to or target number of a range room)
-already redrew at once, through ``set_zone_range``; those checks guard it.
+The enable, single-target and Dry checks failed before the fix. A range
+write (on the tile, or on the Heat to, Cool to or target number of a range
+room) already redrew at once, through ``set_zone_range``; those checks guard
+it.
 """
 
 from __future__ import annotations
@@ -27,6 +32,13 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 from homeassistant.core import HomeAssistant, State
 from homeassistant.exceptions import ServiceValidationError
 
+from custom_components.mxz_coordinator.const import (
+    CONF_INHIBIT_ACTION,
+    CONF_INHIBIT_ENTITY,
+    INHIBIT_ACTION_OFF,
+)
+from tests.test_dry_mode import INHIBIT
+from tests.test_dry_mode import _setup as _dry_setup
 from tests.test_dual_setpoint import (
     _call,
     _eid,
@@ -213,3 +225,133 @@ async def test_a_refused_range_shows_nothing_and_asks_for_no_plan(
     after = hass.states.get(dual)
     assert after.state == "heat_cool"
     assert _attrs(after) == before
+
+
+# ---------------------------------------------------------------------------
+# Dry (Allow Dry mode): the Bedroom offers it, the Rec room beside it does not
+# ---------------------------------------------------------------------------
+BEDROOM = "_secondary_thermostat"
+
+
+async def _mode(hass: HomeAssistant, tile: str, mode: str) -> None:
+    await _call(hass, "climate", "set_hvac_mode", {"entity_id": tile, "hvac_mode": mode})
+
+
+@pytest.mark.parametrize("start", ["off", "heat_cool"])
+async def test_a_dry_pick_shows_before_the_plan(
+    hass: HomeAssistant, monkeypatch, start: str
+) -> None:
+    """(5) Dry picked on the tile is its state at once, from Off or Heat/Cool.
+
+    The plan has not run, so it has settled nothing and the head has been
+    sent nothing yet; the plan that follows holds the head in dry.
+    """
+    rig = await _dry_setup(hass, enabled=(True, start == "heat_cool"))
+    await rig.recompute()
+    tile = rig.eid(BEDROOM)
+    assert hass.states.get(tile).state == start
+    seen = _at_refresh(hass, rig.entry, monkeypatch, tile, rig.heads[1])
+    gen = rig.coord._refresh_generation
+    rig.forget()
+
+    await _mode(hass, tile, "dry")
+    states = _first(rig.entry, seen, gen)
+    assert states[tile].state == "dry"
+    assert states[rig.heads[1]].state != "dry"  # the pick's one write comes after
+    await rig.recompute()
+    assert rig.modes_sent(1) == ["dry"] and rig.state(1) == "dry"
+    assert rig.row(1)["dry"] == "held"
+    assert hass.states.get(tile).state == "dry"
+
+
+@pytest.mark.parametrize(
+    ("leave", "shown", "head_after"),
+    [
+        (("set_hvac_mode", "heat_cool"), "heat_cool", "fan_only"),
+        (("set_hvac_mode", "off"), "off", "off"),
+        (("turn_off", None), "off", "off"),
+    ],
+)
+async def test_leaving_dry_shows_before_the_plan(
+    hass: HomeAssistant, monkeypatch, leave: tuple[str, str | None], shown: str, head_after: str
+) -> None:
+    """(6) Heat/Cool or Off from a held Dry leaves dry on the tile at once.
+
+    The head is still in dry then: only the plan that follows takes it out
+    (Heat/Cool to the coil-dry idle, Off to off), as before.
+    """
+    rig = await _dry_setup(hass)
+    tile = rig.eid(BEDROOM)
+    await _mode(hass, tile, "dry")
+    await rig.recompute()
+    assert (rig.row(1)["dry"], rig.state(1), hass.states.get(tile).state) == (
+        "held", "dry", "dry",
+    )
+    seen = _at_refresh(hass, rig.entry, monkeypatch, tile, rig.heads[1])
+    gen = rig.coord._refresh_generation
+    rig.forget()
+
+    service, mode = leave
+    data = {"entity_id": tile} if mode is None else {"entity_id": tile, "hvac_mode": mode}
+    await _call(hass, "climate", service, data)
+    states = _first(rig.entry, seen, gen)
+    assert states[tile].state == shown
+    assert states[rig.heads[1]].state == "dry"  # untouched until the plan runs
+    await rig.recompute()
+    assert rig.modes_sent(1) == [head_after] and rig.state(1) == head_after
+    assert rig.row(1)["dry"] is None
+    assert hass.states.get(tile).state == shown
+
+
+async def test_a_refused_dry_pick_shows_nothing_and_asks_for_no_plan(
+    hass: HomeAssistant, monkeypatch
+) -> None:
+    """Negative: Dry refused under a standby hold changes nothing, so the tile
+    keeps Heat/Cool and no plan is asked for."""
+    hass.states.async_set(INHIBIT, "off")
+    rig = await _dry_setup(
+        hass, **{CONF_INHIBIT_ENTITY: INHIBIT, CONF_INHIBIT_ACTION: INHIBIT_ACTION_OFF}
+    )
+    hass.states.async_set(INHIBIT, "on")
+    await hass.async_block_till_done()
+    await rig.recompute()
+    tile = rig.eid(BEDROOM)
+    before = hass.states.get(tile)
+    assert before.state == "heat_cool"
+    seen = _at_refresh(hass, rig.entry, monkeypatch, tile)
+    rig.forget()
+
+    with pytest.raises(ServiceValidationError):
+        await _mode(hass, tile, "dry")
+    assert seen == []
+    assert rig.sent(1) == []
+    after = hass.states.get(tile)
+    assert (after.state, dict(after.attributes)) == (before.state, dict(before.attributes))
+
+
+async def test_heat_cool_after_the_head_left_dry_shows_before_the_plan(
+    hass: HomeAssistant, monkeypatch
+) -> None:
+    """(7) The head left dry on its own remote and the plan for that is still
+    waiting out the request cooldown: Heat/Cool picked then shows at once too,
+    though there is no Dry left to release."""
+    rig = await _dry_setup(hass)
+    tile = rig.eid(BEDROOM)
+    await _mode(hass, tile, "dry")
+    await rig.recompute()
+    assert (rig.row(1)["dry"], hass.states.get(tile).state) == ("held", "dry")
+    # Another room's write runs a plan now and starts the request cooldown.
+    await _call(
+        hass, "number", "set_value", {"entity_id": rig.eid("_primary_target"), "value": 71}
+    )
+    gen = rig.coord._refresh_generation
+    await rig.person(1, "fan_only")  # out of dry on the remote: its plan waits
+    assert rig.coord._refresh_generation == gen
+    assert rig.row(1)["dry"] == "held"  # the last plan's, not yet settled again
+    seen = _at_refresh(hass, rig.entry, monkeypatch, tile)
+
+    await _mode(hass, tile, "heat_cool")
+    assert _first(rig.entry, seen, gen)[tile].state == "heat_cool"
+    assert rig.coord._dry_released == set()  # nothing to release: the plan is unchanged
+    await rig.recompute()
+    assert (rig.row(1)["dry"], hass.states.get(tile).state) == (None, "heat_cool")

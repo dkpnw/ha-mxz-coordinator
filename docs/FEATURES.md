@@ -547,7 +547,8 @@ for the request.
 - **The thermostat shows Dry** whenever MXZ keeps the head in Dry, also a Dry someone set
   on the head's own remote: `hvac_action` is the head's own (`drying`) while held, and
   `idle` while it is being parked for heat. Once a parked head has left Dry the
-  thermostat shows Heat/Cool.
+  thermostat shows Heat/Cool. A mode you pick on the thermostat (Dry, Heat/Cool or Off)
+  shows at once, before the head reports it.
 - **Heat/Cool** takes the head out of Dry and back to the room's plan; **Off** turns the
   room off, and its head off, as for any room turned off. Leaving Dry starts the coil-dry
   run as above; a room turned off holds its head off, so that run happens only if the

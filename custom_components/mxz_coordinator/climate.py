@@ -268,11 +268,11 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         on/off writes, and HEAT_COOL is its other mode. What a person is
         running on the head shows in ``hvac_action`` instead. The one
         exception is a room that offers Dry: while MXZ keeps its head in dry
-        (held, or parked for heat), however it got there, the mode is DRY.
+        (held, or parked for heat while the park is on its way), however it
+        got there, the mode is DRY, from the moment Dry is picked to the
+        moment Heat/Cool or Off is.
         """
-        if self.coordinator.dry_offered(self._zone) and self.coordinator.dry_state(
-            self._zone.slug
-        ) is not None:
+        if self.coordinator.in_dry(self._zone):
             return HVACMode.DRY
         return HVACMode.HEAT_COOL if self._enabled else HVACMode.OFF
 
