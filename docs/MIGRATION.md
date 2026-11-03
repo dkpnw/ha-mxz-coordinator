@@ -1,5 +1,38 @@
 # Upgrading and migrating MXZ Coordinator
 
+## Door/window pause and mode-hold fixes (3.20.0)
+
+**Nothing to do.** No config-entry version change (it stays 2.2) and no migration. No
+existing setting's default or range changed. A room without the door/window pause gets no
+new entities. These cases behave differently:
+
+- **Door/window pause (off by default).** It stores `opening_*` keys in the room's record
+  only when you set them. A room with the pause on gets
+  `switch.*_<room>_window_override` and `binary_sensor.*_<room>_paused_open`. The pause is
+  kept in `.storage/mxz_coordinator.<entry id>.openings`, which is deleted with the entry.
+  See [Door/window pause](FEATURES.md#doorwindow-pause).
+- **Resting mode.** With it set to Cool or Heat, a room still running to its target in the
+  other mode now keeps the shared mode until it gets there.
+- **After a reload or restart.** When an enabled room runs in a mode a hands-off vote
+  chose, the mode-change wait now starts, as it already did without a reload in between.
+- **The mode-change record** (`.storage/mxz_coordinator.<entry id>.mode_change`) now also
+  keeps `mode`, `mode_at` and `mode_by_votes`, and a start prefers them over Home
+  Assistant's restore data unless that is newer. A record from an earlier version has none
+  of these and reads as before.
+- **A saved Allowed drift that isn't a finite number** reads as the default instead of
+  stopping MXZ from loading. A stored `inf`, which the Comfort page never accepted, used
+  to read as the maximum.
+- **Cloud heads (beta).** A fan step that comes due inside the confirm wait of a heat or
+  cool write that sent no fan now goes out once the write interval allows.
+- **Cloud and generic heads (beta).** A set Setpoint drive offset now stores
+  `drive_offset_unit` beside it and is converted on a °F/°C switch. An offset saved before
+  this has no unit and reads as before until its room page is saved again.
+
+On a rollback, 3.19.0 doesn't read the `opening_*` keys, the `.openings` file, or the new
+keys in the mode-change record (checked by reading the 3.19.0 code, not run). It has no
+pause, so a paused room is coordinated as usual, and the window override switch and paused
+indicator are no longer provided.
+
 ## Mode-change wait kept across reloads and restarts (3.18.0)
 
 Until now the wait between two cool/heat changes started over on every reload and

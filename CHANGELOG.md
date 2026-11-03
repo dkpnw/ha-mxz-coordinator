@@ -8,7 +8,12 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
-## Unreleased
+## 3.20.0 (November 3, 2026)
+
+A room can pause while its door or window is open (optional, off by default). Resting
+mode no longer cuts a room's run short, and the shared mode and its wait are kept better
+across reloads, restarts and crashes. Existing settings and defaults are unchanged, and
+no migration is needed; [MIGRATION.md](docs/MIGRATION.md) lists what behaves differently.
 
 - **Door/window pause, per room (opt-in, off by default).** Name one door or window
   sensor for a room (a binary sensor, or one group of them) and turn on **Pause this room
@@ -26,6 +31,16 @@ on your equipment.
   without it. The idea and its delays are from
   [@mikepell007](https://github.com/mikepell007)'s MIT
   [mxz_coordinator_blueprint](https://github.com/mikepell007/mxz_coordinator_blueprint).
+- **Formal checks of the mode-change wait.** This is developer tooling, so nothing MXZ
+  does changes. `verification/modehold` is a TLA+ model of the wait and the cool/heat
+  arbitration across reloads, restarts, crashes and wall-clock steps, checked with TLC.
+  `verification/run` runs it in one command (it needs Java, and it isn't in CI), and
+  `verification/run mutants` breaks a copy of the code or the model and requires each
+  check to catch it. `tests/test_modehold_properties.py` checks the arbitration rules on
+  the real `logic.arbitrate` over every case in two tables. The `verify-mxz` skill drives
+  the real integration with invented heads and keeps a JSON transcript of each step. The
+  model found the three mode-hold problems fixed below, and their replays now run in
+  `tests/test_modehold_findings.py`.
 - **Verification.** The mode-hold model (`verification/modehold`) now has the door/window
   pause, with two new configs (`ci-openings`, `ci-openings-restarts`) and four rules: a
   paused room never votes, a pause never moves the hold, an overridden room is never
@@ -63,16 +78,22 @@ on your equipment.
   to the new unit's range. An offset left at its default still stores nothing and
   follows the unit. An offset saved before this has no unit stored and reads as before
   until its room page is saved again. On a rollback the unit key is ignored.
-
 - **A saved Allowed drift that isn't a number no longer stops MXZ from loading.** It now
   reads as the default Allowed drift (1 °F, 0.5 °C) until you fix it. A saved Let it get
   cooler by or Let it get warmer by, global or for one room, that isn't a number already
   read as blank. All three are now named once in the log when MXZ loads, and the
   Configure menu still points to the page where you fix them. Defaults are unchanged.
+- **`room_call` answers a held cool call over overlapping edges.** With a cool lockout on
+  and the cool comfort edge below the heat comfort edge (negative bands, or a Heat to
+  above Cool to), `logic.room_call` raised `ValueError`. Now cool stays held and heat
+  starts only at or below the cool comfort edge. MXZ itself never passes those values, so
+  nothing changes on a running system.
 - **Docs.** The README's Configure table names every setting and section on a room's
   page, including **Let its own remote run it while disabled** and **Freeze floor and
   overheat ceiling**. The Mushroom card note now says its 2-second wait is a default a
   theme can change. The 3.9.0 notes list its CONTRIBUTING.md change again.
+- **CI:** `actions/checkout` moved to v7.0.1 and `actions/setup-python` to v7.1.0, both
+  still pinned to commit SHAs.
 
 ## 3.19.0 (November 3, 2026)
 
