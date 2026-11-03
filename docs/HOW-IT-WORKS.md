@@ -76,12 +76,16 @@ MXZ works out one plan for the outdoor unit:
    counts only when no enabled room is calling or still running to its target, unless its
    Safety priority sensor is `on`. A reversal
    waits out **Minimum time between mode switches** (default 600 seconds). With no room
-   calling, **Resting mode** picks the mode.
+   calling and none still running to its target in the shared mode, **Resting mode** picks
+   the mode.
 4. **Rooms in that mode run; the rest step aside.** A room runs once it drifts past its
    band (**Allowed drift**, default 1 °F / 0.5 °C, or its own
    [drift](FEATURES.md#drift-when-a-room-starts-a-run)) and keeps running until it reaches
-   its target. A satisfied room, and a room waiting for the other mode, parks by
-   [the idle action](FEATURES.md#how-a-satisfied-head-idles).
+   its target, even once it is back inside the Mode switch threshold: Resting mode waits
+   for it. Only a want ranked in step 3 (another room's call for the other mode, a Safety
+   priority room's or a tripped floor's), or your pick on the shared-mode select, takes the
+   mode from a running room. A satisfied room, and a room waiting for the other mode, parks
+   by [the idle action](FEATURES.md#how-a-satisfied-head-idles).
 5. **Your gates bound all of it.** Coordinator enable, room enables, seasonal lockouts,
    eco/away limits, and a standby hold limit what is commanded.
 6. **Commands go out.** Mode, a bounded setpoint, and, under fan boost, a fan speed for

@@ -26,19 +26,27 @@ MODEL = "verification/modehold"
 SPEC = "MXZModeHold.tla"
 TLA2TOOLS_SHA256 = "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
 
-# Every config must pass (None) or break exactly one named rule (a finding).
+# Every config must pass (None) or break exactly one named rule (an open
+# finding). F1 to F3 are fixed: their finding-* configs, the shortest path to
+# each, now must pass, and their rules are in the ci-* configs.
 CONFIGS = {
     "ci-restarts": None,
     "ci-restarts-rest-cool": None,
     "ci-restarts-rest-heat": None,
     "ci-votes": None,
     "ci-votes-rest-heat": None,
-    "finding-resting": "PausedRunKept",
-    "finding-reload-vote": "HoldKept",
-    "finding-crash": "HoldKept",
+    "ci-votes-restarts": None,
+    "ci-votes-restarts-rest-heat": None,
+    "ci-crash": None,
+    "ci-crash-rest-heat": None,
+    "finding-resting": None,
+    "finding-reload-vote": None,
+    "finding-crash": None,
 }
 PROPS = "tests/test_modehold_properties.py"
-FINDINGS = "verification/findings/test_findings.py"
+FINDINGS = "tests/test_modehold_findings.py"
+PROMISES = "tests/test_hold_promises.py"
+# The replays of fixed findings: the finding case and its control must pass.
 REPLAYS = {
     f"{FINDINGS}::test_f1_resting_mode_takes_the_mode_from_a_room_still_running": "F1",
     f"{FINDINGS}::test_f2_a_reload_forgets_that_a_room_now_runs_in_the_voted_mode": "F2",
@@ -87,14 +95,14 @@ MUTANTS = [
      "ago = max(0.0, dt_util.utcnow().timestamp() - stored)",
      "ago = dt_util.utcnow().timestamp() - stored",
      ("pytest", f"{PROPS}::test_a_start_keeps_what_is_left_of_the_hold_and_never_more")),
-    ("C8", "an unreadable record holds nothing (coordinator.async_load_last_mode_change)", COORD,
-     "    return dt_util.utcnow().timestamp()\n\n\nasync def async_remove_last_mode_change",
-     "    return None\n\n\nasync def async_remove_last_mode_change",
+    ("C8", "an unreadable record holds nothing (coordinator.async_load_mode_record)", COORD,
+     "    return ModeRecord(changed_at=dt_util.utcnow().timestamp(), **shared)",
+     "    return ModeRecord(changed_at=None, **shared)",
      ("pytest", f"{PROPS}::test_a_start_reads_the_record_or_holds_the_full_window")),
     ("C9", "a room's run in the voted mode is not stamped (coordinator._apply)", COORD,
-     ("            self._mode_by_votes = False\n            self._stamp_mode_change()\n\n"
-      "    def _queue_delivery"),
-     "            self._mode_by_votes = False\n\n    def _queue_delivery",
+     ("            self._mode_by_votes = False\n            self._stamp_mode_change()\n"
+      "            self._record_mode()\n\n    def _queue_delivery"),
+     "            self._mode_by_votes = False\n            self._record_mode()\n\n    def _queue_delivery",
      ("pytest", (f"{FINDINGS}::test_f2_a_reload_forgets_that_a_room_now_runs_in_the_voted_mode"
                  "[control_no_reload]"))),
     ("C10", "Resting mode always heat (logic.shared_mode)", LOGIC,
@@ -104,10 +112,37 @@ MUTANTS = [
                  "[control_last_used]"))),
     ("C11", "the select does not restore the mode (select.async_added_to_hass)", SELECT,
      ("                if last.state in _OPTIONS:\n"
-      "                    self._attr_current_option = last.state"),
+      "                    restored = last.state"),
      "                if last.state in _OPTIONS:\n                    pass",
+     ("pytest", (f"{PROMISES}::test_a_start_takes_the_newer_of_the_record_and_the_restore_data"
+                 "[record_without_a_mode]"))),
+    ("C12", "Resting mode takes the mode from a run (logic.arbitrate)", LOGIC,
+     "    if running:\n        resting = None",
+     "    if False:\n        resting = None",
+     ("pytest", f"{FINDINGS}::test_f1_resting_mode_takes_the_mode_from_a_room_still_running[finding]")),
+    ("C13", "the plan never says a room runs in the shared mode (coordinator._compute)", COORD,
+     "        running = current in held_engages\n",
+     "        running = False\n",
+     ("pytest", f"{PROMISES}::test_resting_mode_waits_for_the_run_then_rests")),
+    ("C14", "a start forgets that votes chose the mode (coordinator.restore_shared_mode)", COORD,
+     "            mode, by_votes = record.mode, record.by_votes\n",
+     "            mode, by_votes = record.mode, False\n",
+     ("pytest", f"{PROMISES}::test_a_restart_keeps_that_votes_chose_the_mode[2]")),
+    ("C15", "a change votes made is not written to the record (coordinator._apply)", COORD,
+     ("            self.async_update_listeners()  # let the shared-mode select re-render\n"
+      "            self._record_mode()\n"),
+     "            self.async_update_listeners()  # let the shared-mode select re-render\n",
+     ("pytest", f"{FINDINGS}::test_f2_a_reload_forgets_that_a_room_now_runs_in_the_voted_mode[finding]")),
+    ("C16", "the select's restore data always beats the record (coordinator.restore_shared_mode)", COORD,
+     "            or record.mode_at >= restored_at\n",
+     "            or False\n",
      ("pytest", (f"{FINDINGS}::test_f3_a_crash_soon_after_a_change_restores_the_old_mode_inside_the_hold"
-                 "[control_clean_stop]"))),
+                 "[finding]"))),
+    ("C17", "the record always beats newer restore data (coordinator.restore_shared_mode)", COORD,
+     "            or record.mode_at >= restored_at\n",
+     "            or True\n",
+     ("pytest", (f"{PROMISES}::test_a_start_takes_the_newer_of_the_record_and_the_restore_data"
+                 "[restore_data_newer]"))),
     ("M1", "model: the gate reads the wall clock", TLA,
      "Mono == real - boot", "Mono == real + skew",
      ("tlc", "ci-restarts", "HoldKept")),
@@ -135,6 +170,18 @@ MUTANTS = [
      "IF proposed # current /\\ allowed /\\ (standoff \\/ ~still)",
      "IF proposed # current /\\ (standoff \\/ ~still)",
      ("tlc", "ci-restarts", "HoldKept")),
+    ("M8", "model: Resting mode takes the mode from a run (F1)", TLA,
+     "rest == IF Resting \\in Modes /\\ ~running THEN Resting ELSE current",
+     "rest == IF Resting \\in Modes THEN Resting ELSE current",
+     ("tlc", "finding-resting", "PausedRunKept")),
+    ("M9", "model: a start forgets that votes chose the mode (F2)", TLA,
+     "/\\ byVotes' = IF fromRec THEN storedByV ELSE FALSE",
+     "/\\ byVotes' = FALSE",
+     ("tlc", "finding-reload-vote", "HoldKept")),
+    ("M10", "model: a start takes the select's restore data over the record (F3)", TLA,
+     "LET fromRec == storedMode \\in Modes",
+     "LET fromRec == FALSE /\\ storedMode \\in Modes",
+     ("tlc", "finding-crash", "HoldKept")),
 ]
 
 
@@ -204,22 +251,26 @@ def check(out: Path) -> int:
         ok &= good
         shown = f"{verdict} {detail}".strip()
         label = f"finding, must break {want}" if want else "must pass"
-        print(f"{'ok ' if good else 'BAD'} tlc {config:24} {shown:30} ({label}, {took:.0f}s)")
+        print(f"{'ok ' if good else 'BAD'} tlc {config:28} {shown:30} ({label}, {took:.0f}s)")
     for clock in (False, True):
         name = "fakeboot" if clock else "host"
         code = pytest(ROOT, [PROPS], out / f"props-{name}.log", fakeboot=clock)
         tail = (out / f"props-{name}.log").read_text().strip().splitlines()[-1]
         ok &= code == 0
         print(f"{'ok ' if code == 0 else 'BAD'} props {name:9} {tail}")
-        code = pytest(ROOT, [FINDINGS], out / f"findings-{name}.log", fakeboot=clock)
-        seen = _outcomes((out / f"findings-{name}.log").read_text())
+        code = pytest(ROOT, [FINDINGS, PROMISES], out / f"findings-{name}.log", fakeboot=clock)
+        log = (out / f"findings-{name}.log").read_text()
+        seen = _outcomes(log)
         for node, tag in REPLAYS.items():
             finding, control = seen.get(f"{node}[finding]"), seen.get(
                 next((k for k in seen if k.startswith(f"{node}[control")), ""))
-            good = finding == "FAILED" and control == "PASSED"
+            good = finding == "PASSED" and control == "PASSED"
             ok &= good
             print(f"{'ok ' if good else 'BAD'} replay {name:8} {tag}: finding {finding}, control {control}"
-                  f"{'' if good else '  (a finding that passes: the code changed, re-check it)'}")
+                  f"{'' if good else '  (a fixed finding is back, or the replay broke)'}")
+        ok &= code == 0
+        tail = log.strip().splitlines()[-1]
+        print(f"{'ok ' if code == 0 else 'BAD'} promises {name:6} {tail}")
     print(f"evidence {out}")
     print("VERIFY_OK" if ok else "VERIFY_FAILED")
     return 0 if ok else 1

@@ -48,7 +48,7 @@ from .const import (
 )
 from .coordinator import (
     MXZCoordinator,
-    async_load_last_mode_change,
+    async_load_mode_record,
     async_remove_last_mode_change,
 )
 
@@ -128,9 +128,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
         )
 
     # The last real cool/heat change, so a reload or restart continues its hold
-    # instead of starting a new one (read before the first plan is computed).
+    # instead of starting a new one, and the shared mode as last written (read
+    # before the first plan is computed).
     coordinator = MXZCoordinator(
-        hass, entry, await async_load_last_mode_change(hass, entry.entry_id)
+        hass, entry, await async_load_mode_record(hass, entry.entry_id)
     )
     entry.runtime_data = coordinator
 

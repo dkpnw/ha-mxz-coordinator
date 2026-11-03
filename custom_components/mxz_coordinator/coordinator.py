@@ -554,15 +554,43 @@ COAST_FOLLOWUP_DELAY = REQUEST_REFRESH_DEFAULT_COOLDOWN + 1  # s
 # ---------------------------------------------------------------------------
 # The last real mode change, kept across reloads and restarts
 # ---------------------------------------------------------------------------
-# One small storage file per config entry, written when the mode changes (at
-# most once per hold window) and read once per setup. A Store, not the shared
-# mode select's restore data: restore data reaches disk only at shutdown and
-# every 15 minutes, so a crash soon after a change would forget it; a disabled
-# select restores nothing at all; and it restores only after the first plan has
-# been computed. The time is wall-clock UTC epoch seconds, the only clock that
-# means anything to the next process.
+# One small storage file per config entry, written whenever the shared mode
+# changes (and when a room's run takes over a mode votes chose) and read once
+# per setup. A Store, not the shared mode select's restore data: restore data
+# reaches disk only at shutdown and every 15 minutes, so a crash soon after a
+# change would forget it; a disabled select restores nothing at all; and it
+# restores only after the first plan has been computed. Times are wall-clock
+# UTC epoch seconds, the only clock that means anything to the next process.
+#
+# The record holds the time of the last real change (MODE_CHANGE_KEY, absent
+# while none was ever made) and the shared mode as of MODE_AT_KEY, with whether
+# hands-off votes alone set it (MODE_BY_VOTES_KEY). Earlier versions wrote the
+# time only; their records read as before, with no mode on record.
 MODE_CHANGE_STORE_VERSION = 1
 MODE_CHANGE_KEY = "last_mode_change"
+MODE_KEY = "mode"
+MODE_AT_KEY = "mode_at"
+MODE_BY_VOTES_KEY = "mode_by_votes"
+
+
+@dataclass(frozen=True)
+class ModeRecord:
+    """The entry's mode-change record, as a start reads it.
+
+    ``changed_at`` is the last real cool/heat change (None: none on record).
+    ``mode`` is the shared mode when the record was written at ``mode_at``,
+    and ``by_votes`` whether hands-off votes alone had set it; ``mode`` is
+    None when the record has no readable mode (an earlier version wrote it).
+    """
+
+    changed_at: float | None = None
+    mode: str | None = None
+    mode_at: float = 0.0
+    by_votes: bool = False
+
+
+def _finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def _mode_change_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
@@ -581,26 +609,46 @@ def _mode_change_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, An
     return stores[entry_id]
 
 
-async def async_load_last_mode_change(hass: HomeAssistant, entry_id: str) -> float | None:
-    """The stored time of the last real mode change, or None if there is none.
+async def async_load_mode_record(hass: HomeAssistant, entry_id: str) -> ModeRecord:
+    """The entry's record of the shared mode and its last real change.
 
-    None means no change was ever recorded (a fresh install, or the first start
-    on a version that did not keep it): there is nothing to wait out. A record
-    that is there but unreadable is not a fresh install; it counts as a change
-    made now, so the hold is the full window, as it was before this was kept.
+    No change time means no change was ever recorded (a fresh install, the
+    first start on a version that did not keep it, or a record that so far
+    holds only a mode votes chose): there is nothing to wait out. A record
+    that is there but whose time is unreadable is not a fresh install; it
+    counts as a change made now, so the hold is the full window, as it was
+    before this was kept. A mode that is not readable is no mode on record.
     """
     stored = await _mode_change_store(hass, entry_id).async_load()
     if stored is None:
-        return None
-    value = stored.get(MODE_CHANGE_KEY) if isinstance(stored, dict) else None
-    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
-        return float(value)
+        return ModeRecord()
+    data = stored if isinstance(stored, dict) else {}
+    mode, mode_at, by_votes = (
+        data.get(MODE_KEY), data.get(MODE_AT_KEY), data.get(MODE_BY_VOTES_KEY)
+    )
+    has_mode = (
+        mode in (MODE_COOL, MODE_HEAT) and _finite_number(mode_at)
+        and isinstance(by_votes, bool)
+    )
+    shared = (
+        {"mode": mode, "mode_at": float(mode_at), "by_votes": by_votes} if has_mode else {}
+    )
+    value = data.get(MODE_CHANGE_KEY)
+    if _finite_number(value):
+        return ModeRecord(changed_at=float(value), **shared)
+    if has_mode and MODE_CHANGE_KEY not in data:
+        return ModeRecord(changed_at=None, **shared)
     _LOGGER.warning(
         "MXZ: the stored time of the last mode change is unreadable (%r); "
         "holding the next cool/heat change for the full window",
         stored,
     )
-    return dt_util.utcnow().timestamp()
+    return ModeRecord(changed_at=dt_util.utcnow().timestamp(), **shared)
+
+
+async def async_load_last_mode_change(hass: HomeAssistant, entry_id: str) -> float | None:
+    """The stored time of the last real mode change, or None if there is none."""
+    return (await async_load_mode_record(hass, entry_id)).changed_at
 
 
 async def async_remove_last_mode_change(hass: HomeAssistant, entry_id: str) -> None:
@@ -634,12 +682,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self,
         hass: HomeAssistant,
         entry: ConfigEntry,
-        last_mode_change: float | None = None,
+        record: ModeRecord | None = None,
     ) -> None:
         """Initialise from the config entry (data) and options (tunables).
 
-        ``last_mode_change`` is the stored wall-clock time of the last real
-        mode change (``async_load_last_mode_change``); None when none is known.
+        ``record`` is the entry's stored mode record (``async_load_mode_record``):
+        the wall-clock time of the last real mode change, and the shared mode
+        as last written. None is no record.
         """
         super().__init__(
             hass,
@@ -976,8 +1025,19 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # so the first decision has nothing to wait out and the plan reports
         # no time since a change (never an invented one; #6 was a ~56,000-year
         # dwell read off a 0.0 stand-in).
-        self._last_mode_change_ts: float | None = mode_change_stamp(last_mode_change)
+        record = record or ModeRecord()
+        self._last_mode_change_ts: float | None = mode_change_stamp(record.changed_at)
+        # The same change on the wall clock, written back with every record.
+        self._last_mode_change_at: float | None = record.changed_at
         self._mode_change_store = _mode_change_store(hass, entry.entry_id)
+        # The shared mode resumes from the record (written at each change),
+        # unless the select's restore data is newer (restore_shared_mode). So
+        # does whether votes alone set it: a room's run in that mode then
+        # starts the hold, as it would have without the reload or restart.
+        self._mode_record = record
+        if record.mode is not None:
+            self.current_shared_mode = record.mode
+            self._mode_by_votes = record.by_votes
         # One-shot re-render when the hold ends, so the thermostats' hold
         # attributes reach 0 then even if nothing else refreshes them.
         self._hold_end_timer: Any | None = None
@@ -1530,12 +1590,16 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elapsed = self._mode_change_elapsed()
         allowed = elapsed is None or elapsed >= self.hysteresis
         engaged = any(e in (MODE_COOL, MODE_HEAT) for e in held_engages)
+        # A room still running to its target in the shared mode keeps it from
+        # Resting mode until it gets there (logic.arbitrate).
+        running = current in held_engages
         grant = arbitrate(
             arb_demands,
             engaged=engaged,
             current=current,
             allowed=allowed,
             resting=self._resting_bias(),
+            running=running,
         )
         # Comfort priority earned the answer only if the same compute with
         # every boost at 0 answers differently. Run only when one counts.
@@ -1545,6 +1609,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             current=current,
             allowed=allowed,
             resting=self._resting_bias(),
+            running=running,
         ).direction != grant.direction
         state, by_votes = grant.direction, grant.read_only
         if (
@@ -2176,7 +2241,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
             )
         would_flip_to = arbitrate(
-            arb_demands, engaged=engaged, current=current, allowed=True, resting=self._resting_bias(),
+            arb_demands, engaged=engaged, current=current, allowed=True,
+            resting=self._resting_bias(), running=current in held_engages,
         ).direction
         if would_flip_to == current:
             self._cancel_dwell_timer()  # nothing is waiting on this dwell
@@ -2238,20 +2304,67 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
     def _stamp_mode_change(self) -> None:
-        """A real mode change happened now: start the hold and record it.
+        """A real mode change happened now: start the hold.
 
-        The record is the wall-clock time, written at once (the write itself
-        is scheduled; a reload in between reads it from the shared store, and
-        Home Assistant flushes it on shutdown).
+        The caller writes the record (``_record_mode``) once the shared mode
+        and the select show the change.
         """
         self._last_mode_change_ts = time.monotonic()
+        self._last_mode_change_at = dt_util.utcnow().timestamp()
         if self._retired:
             return
-        changed_at = dt_util.utcnow().timestamp()
-        self._mode_change_store.async_delay_save(
-            lambda: {MODE_CHANGE_KEY: changed_at}, 0
-        )
         self._arm_hold_end_timer()
+
+    def _record_mode(self) -> None:
+        """Write the shared mode, whether votes alone set it, and the last
+        real change's time to the record, at once.
+
+        The write itself is scheduled; a reload in between reads it from the
+        shared store, and Home Assistant flushes it on shutdown. Called after
+        the shared-mode select has shown the change, so for any change made
+        here the record is never older than the select's restore data
+        (restore_shared_mode compares the two).
+        """
+        if self._retired:
+            return
+        data: dict[str, Any] = {
+            MODE_KEY: self.current_shared_mode,
+            MODE_AT_KEY: dt_util.utcnow().timestamp(),
+            MODE_BY_VOTES_KEY: self._mode_by_votes,
+        }
+        if self._last_mode_change_at is not None:
+            data[MODE_CHANGE_KEY] = self._last_mode_change_at
+        self._mode_change_store.async_delay_save(lambda: data, 0)
+
+    def restore_shared_mode(self, restored: str | None, restored_at: float | None) -> str:
+        """The shared mode a start resumes in; the select calls this once.
+
+        ``restored`` is the select's restored option (None: no restore data)
+        and ``restored_at`` when that state last changed (wall clock). The
+        record is written at every change, at once, and restore data only
+        every 15 minutes and at a stop, so where the two disagree the record
+        wins unless the restore data is newer: then the mode changed while a
+        version that did not keep it in the record ran, it is not known
+        whether votes set it, and the record is brought up to date. Where they
+        agree the record also says whether votes set the mode (the select's
+        state is written anew at every start, so its time says nothing then).
+        """
+        record = self._mode_record
+        if record.mode is None:
+            mode, by_votes = restored or MODE_COOL, False
+        elif (
+            restored in (None, record.mode)
+            or restored_at is None
+            or record.mode_at >= restored_at
+        ):
+            mode, by_votes = record.mode, record.by_votes
+        else:
+            mode, by_votes = restored, False
+        self.current_shared_mode = mode
+        self._mode_by_votes = by_votes
+        if record.mode not in (None, mode):
+            self._record_mode()
+        return mode
 
     def _arm_hold_end_timer(self) -> None:
         """Re-render the entities when the hold ends, and do nothing else.
@@ -2516,11 +2629,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not plan.get("mode_by_hands_off"):
                 self._stamp_mode_change()
             self.async_update_listeners()  # let the shared-mode select re-render
+            self._record_mode()
         elif self._mode_by_votes and state in (
             *engages, *(plan[f"{zone.slug}_demand"] for zone in self.zones)
         ):
             self._mode_by_votes = False
             self._stamp_mode_change()
+            self._record_mode()
 
     def _queue_delivery(
         self, climate_id: str, act: str, low: float, high: float,
@@ -6103,6 +6218,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.current_shared_mode = mode
             self._mode_by_votes = False
             self._stamp_mode_change()
+            self._record_mode()
         await self.async_request_refresh()
 
     # -- seasonal changeover (optional, from local weather) -----------------

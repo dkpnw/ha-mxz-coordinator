@@ -611,6 +611,7 @@ def arbitrate(
     current: str,
     allowed: bool,
     resting: str | None = None,
+    running: bool = False,
 ) -> Grant:
     """:func:`shared_mode`, generalized over a priority-ordered Demand list.
 
@@ -632,6 +633,15 @@ def arbitrate(
     though its demand itself has gone quiet. It only ever suppresses an
     ORDINARY vote (PRIORITY_VOTE, read_only) -- never a safety one.
 
+    ``running`` is narrower: a room is engaged in ``current`` itself, so its
+    head is running toward its target in the shared mode. Resting mode then
+    waits: with nothing calling, the mode stays ``current`` until that run
+    ends, and only then rests. It changes nothing else: a real call for the
+    other mode or a safety want still decides as before (an ordinary vote is
+    already shut out, since a running room is engaged), and a person's pick
+    never comes through here. A room engaged in the other mode is not
+    running (its head is parked) and does not keep the mode.
+
     A tripped floor is one more commanding Demand: a freeze floor at
     PRIORITY_FLOOR_HEAT (ahead of every safety want), an overheat ceiling at
     PRIORITY_SAFETY. A standoff goes to the first ranked direction, so heat
@@ -646,6 +656,8 @@ def arbitrate(
     (:func:`comfort_boost`). It changes only which direction is proposed;
     ``allowed`` still holds every flip. All boosts 0 is exactly the old order.
     """
+    if running:
+        resting = None  # rest where the run is until it ends
     ranked = sorted(demands, key=_rank)
     commanding = [d for d in ranked if not d.read_only]
     safety_votes = [
