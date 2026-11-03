@@ -3,8 +3,8 @@
 ``call_edges`` returns the two edges ``room_call`` compares a reading to, so
 the start points the plan shows are the ones the decision uses. These pin
 that the edges reproduce the 3.8.0 rule exactly, boundary values included,
-for eco and both lockouts, and that the one combination edges can't express
-is refused rather than answered differently.
+for eco and both lockouts, and that a held-off cool call over overlapping
+regions (once refused) answers as 3.8.0 did.
 """
 
 from __future__ import annotations
@@ -194,10 +194,11 @@ def test_negative_bands_without_a_cool_lockout_still_answer_as_380() -> None:
         ) == _rule_380(**kwargs), kwargs
 
 
-def test_a_held_cool_call_over_overlapping_regions_is_refused() -> None:
+def test_a_held_cool_call_over_overlapping_regions_answers_as_380() -> None:
     """3.8.0 answered "hold" at 70.5 here (cool first, held by the lockout),
-    but 70.5 is also past the heat edge 72: no pair of strict edges says
-    both. That case is refused, never answered as heat."""
+    though 70.5 is also past the heat edge 72. It is answered exactly as
+    3.8.0 did, never as heat: heat starts at or below the cool edge, the
+    double after it as a strict edge. (This case once raised ValueError.)"""
     rule = {
         "heat_band": -2.0, "cool_band": 0.0, "eco": False,
         "heat_lockout": False, "heat_lockout_floor": 58.0,
@@ -205,11 +206,18 @@ def test_a_held_cool_call_over_overlapping_regions_is_refused() -> None:
     }
     kwargs = {"target": _TARGET, **rule, **_ECO}
     assert _rule_380(temp=70.5, **rule) == NEUTRAL
-    with pytest.raises(ValueError, match="cool lockout"):
-        logic.call_edges(**kwargs)
-    with pytest.raises(ValueError, match="cool lockout"):
-        logic.room_call(temp=70.5, enabled=True, sensor_ok=True, neutral=NEUTRAL, **kwargs)
-    # The edge of the refusal: a zero sum is accepted.
+    edges = logic.call_edges(**kwargs)
+    assert edges == (math.nextafter(70.0, math.inf), 74.0)
+    for temp in _temps(70.0, 72.0, 74.0):
+        expected = _rule_380(temp=temp, **rule)
+        assert _from_edges(temp, edges) == expected, temp
+        assert logic.room_call(
+            temp=temp, enabled=True, sensor_ok=True, neutral=NEUTRAL, **kwargs
+        ) == expected, temp
+    assert logic.room_call(
+        temp=70.5, enabled=True, sensor_ok=True, neutral=NEUTRAL, **kwargs
+    ) == NEUTRAL
+    # A zero sum (no overlap) keeps the plain edges.
     assert logic.call_edges(**{**kwargs, "cool_band": 2.0}) == (72.0, 74.0)
 
 
