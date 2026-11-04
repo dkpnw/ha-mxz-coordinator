@@ -22,7 +22,6 @@ from typing import Any, ClassVar
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import restore_state
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from hypothesis import HealthCheck, settings
@@ -49,6 +48,7 @@ from custom_components.mxz_coordinator.const import (
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
 from tests.cloud_heads import register
 from tests.head_entity import HeadEntity
+from tests.restore_store import set_stored_states
 from tests.test_drive import _eid, _set_target, _set_temp
 
 # Seeded from each test's name, so a CI run can't fail on a draw an earlier run
@@ -286,7 +286,7 @@ async def open_rig(
     # A restored state counts only if newer than the entry (#7): this example's
     # entities must not inherit the last example's states under the same ids.
     freezer.tick(timedelta(seconds=1))
-    restore_state.async_get(hass).last_states.clear()
+    set_stored_states(hass, {})
     hass.config.units = US_CUSTOMARY_SYSTEM
     heads: list[RigHead] | None = hass.data.get(_HEADS)
     if heads is None:
