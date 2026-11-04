@@ -43,8 +43,8 @@ workflow_blob=$(git rev-parse HEAD:.github/workflows/ci.yml)
 job="$RUNNER_TEMP/issue25-$stage-$GITHUB_RUN_ID-a1"
 mkdir "$job" || refuse preexisting-job
 : > "$job/supervisor.jsonl"
-"$RUNNER_TEMP/mxz-venv/bin/python" tools/check_lock.py requirements/constraints-py312-ha2024.12.0.txt \
-  0d0031ddca8bb870560ca4d4bcafd34233e23e9dd6f0470dc31f7bd888eb7403 3.12.14 \
+"$RUNNER_TEMP/mxz-venv/bin/python" tools/check_lock.py requirements/constraints-py312-ha2024.12.5.txt \
+  9151214dd98269ab636b9b290b764ad2ad9a214a7972485a308d1a6c59fc88f3 3.12.14 \
   > "$job/inventory.before.txt"
 cat "$job/inventory.before.txt"
 package_snapshot() {
@@ -144,7 +144,7 @@ selected = {'homeassistant': ['homeassistant/helpers/restore_state.py', 'homeass
             'pytest-homeassistant-custom-component': ['pytest_homeassistant_custom_component/common.py'],
             'pytest': ['_pytest/config/__init__.py', '_pytest/main.py', '_pytest/runner.py', '_pytest/python.py', '_pytest/fixtures.py'],
             'pytest-asyncio': []}
-versions = {'homeassistant': '2024.12.0', 'pytest-homeassistant-custom-component': '0.13.190',
+versions = {'homeassistant': '2024.12.5', 'pytest-homeassistant-custom-component': '0.13.195',
             'pytest': '8.3.3', 'pytest-asyncio': '0.24.0'}
 files, entrypoints, plugin_files = [], [], []
 seen = set()
