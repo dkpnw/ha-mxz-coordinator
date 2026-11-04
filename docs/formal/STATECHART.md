@@ -1,0 +1,150 @@
+# Statechart of the coordinator
+
+This is the machine [`tla/MXZCoordinator.tla`](tla/MXZCoordinator.tla) checks, as a chart. It
+was read from `custom_components/mxz_coordinator/`. It runs as five parallel regions: the
+shared mode, each room's run, a room's door/window, a head's fan, and the coordinator's
+lifecycle. [README.md](README.md) says what is and isn't modeled, and which rules are
+checked on it.
+
+Everything in the key is a `file` and a `function` under `custom_components/mxz_coordinator/`.
+`tests/test_formal_contract.py` fails if a name here stops existing.
+
+One compute and apply is one step of the machine. `MXZCoordinator._compute` decides and
+commands nothing. `MXZCoordinator._apply` sends the heads their commands and then writes
+the mode change. Every region below advances inside that step, except where the key
+says a report or a gesture moves it at once.
+
+## Shared mode and the hold
+
+One outdoor unit runs one direction. A hold follows every real change of it.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> CoolOpen : fresh install (no record)
+    CoolOpen --> HeatHeld : M1 the arbiter answers heat
+    HeatOpen --> CoolHeld : M1 the arbiter answers cool
+    CoolHeld --> CoolOpen : M2 the hold passes
+    HeatHeld --> HeatOpen : M2 the hold passes
+    CoolOpen --> HeatHeld : M3 a person picks heat
+    CoolHeld --> HeatHeld : M3 a person picks heat
+    HeatOpen --> CoolHeld : M3 a person picks cool
+    HeatHeld --> CoolHeld : M3 a person picks cool
+    CoolHeld --> CoolHeld : M4 a call for heat waits
+    HeatHeld --> HeatHeld : M4 a call for cool waits
+    CoolOpen --> HeatOpen : M5 only votes moved it
+    HeatOpen --> CoolOpen : M5 only votes moved it
+    CoolOpen --> CoolHeld : M6 a room runs in a mode votes chose
+    HeatOpen --> HeatHeld : M6 a room runs in a mode votes chose
+```
+
+| Id | What happens | Code |
+| --- | --- | --- |
+| M1 | With the gate open, the first calling room in rank order decides. With nothing calling, Resting mode decides, once no room still runs in the shared mode. The new mode is stamped and stored. | `coordinator.py` `_compute`, `logic.py` `arbitrate`, `logic.py` `shared_mode`, `coordinator.py` `_apply`, `coordinator.py` `_stamp_mode_change`, `coordinator.py` `_record_mode` |
+| M2 | The gate reads `elapsed >= hysteresis` on the monotonic clock. A timer re-renders the entities at the hold's end and decides nothing; another wakes the plan for a flip the hold deferred. | `coordinator.py` `_mode_change_elapsed`, `coordinator.py` `_arm_hold_end_timer`, `coordinator.py` `_sync_dwell_timer` |
+| M3 | A person's pick is never gated. A changed direction stamps the hold at once, and an apply already running can't write its older direction back. | `select.py` `async_select_option`, `coordinator.py` `async_select_shared_mode` |
+| M4 | With the gate shut, the mode stays, whatever is asked, at any rank. A head wanting the other mode parks at its idle action. | `logic.py` `shared_mode`, `logic.py` `head_action` |
+| M5 | A change only hands-off votes made starts no hold. Not in this spec: `verification/modehold/MXZModeHold.tla` covers it. | `logic.py` `arbitrate`, `coordinator.py` `_apply` |
+| M6 | Once a coordinated room runs in a mode votes chose, the mode is MXZ's and the hold starts. Also in `MXZModeHold.tla`. | `coordinator.py` `_apply` |
+
+## A room's run
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Satisfied
+    Satisfied --> Engaged : R1 past Allowed drift
+    Engaged --> Satisfied : R2 reaches its target
+    Engaged --> Satisfied : R3 paused, or in Dry
+    Satisfied --> Engaged : R4 a start finds the head running
+```
+
+| Id | What happens | Code |
+| --- | --- | --- |
+| R1 | A room starts a run past its drift. Its call for the shared mode comes only past the larger Mode switch threshold. | `logic.py` `engage_with_latch`, `logic.py` `room_call` |
+| R2 | The run lasts to the target, not to the drift. While engaged in the shared mode it keeps Resting mode waiting (`running`). | `logic.py` `engage_with_latch`, `logic.py` `arbitrate` |
+| R3 | A paused room has no call, no run and an empty latch. Its run starts afresh on resume. | `coordinator.py` `_compute` |
+| R4 | A restart seeds the latch from the head's mode at the first compute. | `coordinator.py` `_compute` |
+
+## A door or window (a room with the pause on)
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> closed
+    closed --> opening : W1 reads open
+    opening --> closed : W2 reads closed, or no reading
+    opening --> paused : W3 open for the open delay
+    closed --> paused : W3 open for the open delay
+    paused --> closing : W4 reads closed
+    closing --> paused : W5 reads open, or no reading
+    closing --> closed : W6 closed for the close delay
+    paused --> overridden : W7 a change on the head, or the switch
+    closing --> closing : W8 a change on the head ends at the next compute
+    opening --> overridden : W9 the switch, with the window open
+    closed --> overridden : W9 the switch, with the window open
+    overridden --> closed : W10 reads closed
+    overridden --> paused : W11 the switch off, with the window open
+```
+
+| Id | What happens | Code |
+| --- | --- | --- |
+| W1, W2, W3 | The delay counts from the reading, or from this coordinator's start if that is later. A start can lengthen a delay, never shorten it. No reading never starts a pause. | `coordinator.py` `_opening_step`, `logic.py` `opening_state`, `logic.py` `opening_reading` |
+| W3 | Entering the pause: the head goes straight to off, with no coil-dry run and no fan, setpoint or vane write. A speed picked on the off head is read and held. The state is stored at once. | `coordinator.py` `_opening_transition`, `coordinator.py` `_apply`, `coordinator.py` `_observe_paused_fan`, `coordinator.py` `_save_openings` |
+| W4, W5, W6 | A closed reading counts down the close delay. Opening again starts it over. No reading doesn't end a pause. | `logic.py` `opening_state`, `logic.py` `opening_due` |
+| W7 | A real mode change on a paused head, to anything but off, not MXZ's own, takes the room over at once. So does the Window Override switch. The room is coordinated normally: MXZ doesn't turn the head back off. | `coordinator.py` `_on_head_change`, `coordinator.py` `async_set_window_override` |
+| W8 | With the window already closed and the close delay running, a change on the head is recorded, and the closed reading ends it at the next compute: the room goes on closing and the head is sent off again. This is the documented "until the window closes", at its edge. | `coordinator.py` `_on_head_change`, `coordinator.py` `_opening_step` |
+| W9 | The switch with the window open is an override with no pause to end. With no reading, it leaves the room closed and waits: the next open reading is overridden. | `coordinator.py` `async_set_window_override`, `logic.py` `opening_state` |
+| W10 | A closed reading ends an override at once, so the next opening pauses again. | `coordinator.py` `_opening_step` |
+| W11 | Turning the switch off with the window open counts the window again: paused once it has been open for the open delay, opening until then. | `coordinator.py` `async_set_window_override` |
+
+## A head's fan
+
+A hold ends only on a gesture: the Fan auto switch, or an observed `auto`.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Unseeded : no command memory
+    Unseeded --> Driving : F1 reads auto, or its own speed
+    Unseeded --> Held : F2 reads any other speed
+    Driving --> Driving : F3 a write, or its echo
+    Driving --> Held : F4 reads a speed outside the last two
+    Driving --> Driving : F5 known exception, a pick of one of the last two
+    Held --> Held : F6 moved to another speed
+    Held --> Driving : F7 reads auto, or Fan auto on
+    Driving --> Held : F8 Fan auto off
+    Driving --> Pending : F9 a start, not held
+    Held --> Pending : F9 a start, held
+    Pending --> Held : F10 held, or a speed that can't be ours
+    Pending --> Driving : F11 auto, or a speed read as ours
+```
+
+| Id | What happens | Code |
+| --- | --- | --- |
+| F1, F2 | With no memory, `auto` sets the baseline. A speed the ladder would stay on is adopted (a hold placed there is lost: documented), a fan_only idle on an established entry reads as ours (#25), and anything else seeds a hold. | `coordinator.py` `_observe_fan_latch`, `coordinator.py` `_seed_matches_boost`, `coordinator.py` `_seed_is_own_idle` |
+| F3 | Boost picks a rung and writes it once. A rewrite of the commanded token doesn't roll the memory (#14). | `coordinator.py` `_apply_fan`, `logic.py` `fan_for_delta`, `coordinator.py` `_write_fan` |
+| F4 | A speed in neither `_fan_cmd` nor `_fan_prev` is a person's. MXZ makes no fan write while held. | `coordinator.py` `_observe_fan_latch`, `coordinator.py` `_hold_at` |
+| F5 | One of the two remembered speeds reads as MXZ's echo: not held, and boost writes over it. A pick of the speed showing can't be read at all. | `coordinator.py` `_observe_fan_latch` |
+| F6 | A hold's memory is the held speed, so any other speed moves it. | `coordinator.py` `_hold_at` |
+| F7, F8 | Fan auto on adopts the showing speed and hands it back. Fan auto off holds it. At `auto`, off does nothing. | `coordinator.py` `async_set_fan_auto`, `coordinator.py` `_adopt_fan_speed` |
+| F9 | The switch restores the held or not-held truth and, if not held, the two remembered speeds, limited to what boost could write. | `switch.py` `async_added_to_hass`, `coordinator.py` `restore_fan_hold` |
+| F10, F11 | The first speed read settles it. Held stays held at that speed. Not held: a speed boost could never write holds; one in memory, or any in-ceiling rung with no memory or in a fan_only idle, is ours; otherwise it conservatively holds. | `coordinator.py` `_reconcile_restored_hold` |
+
+## Lifecycle
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Running : first setup
+    Running --> Running : L1 reload
+    Running --> Down : L2 stop, restore data written
+    Running --> Down : L3 crash, restore data as last dumped
+    Down --> Running : L4 start
+```
+
+| Id | What happens | Code |
+| --- | --- | --- |
+| L1, L2 | The Fan auto switch's state goes to restore data at a reload or a stop, and every 15 minutes by Home Assistant. | `switch.py` `extra_restore_state_data`, `coordinator.py` `fan_command_memory` |
+| L3 | The mode record and the door/window store were written at every change, so they survive. The Fan auto truth is as last dumped. | `coordinator.py` `_record_mode`, `coordinator.py` `_save_openings` |
+| L4 | The record gives the mode, whether votes set it, and what is left of the hold; the store gives each room's door/window state and override; each room resumes from its head. | `coordinator.py` `async_load_mode_record`, `coordinator.py` `mode_change_stamp`, `coordinator.py` `restore_shared_mode`, `coordinator.py` `async_load_openings`, `coordinator.py` `_restored_opening` |

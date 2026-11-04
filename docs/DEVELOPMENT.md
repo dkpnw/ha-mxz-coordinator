@@ -35,6 +35,10 @@ on equipment.
 - This source does not implement the separate HA 2026.11 restore changes, and no .11
   support claim follows from .10 results.
 
+The property tests (`tests/test_properties_*.py`) need Hypothesis, which each lock pins. A
+lane without it fails at collection. [docs/formal](formal/README.md) explains them and the
+TLA+ model.
+
 ## Run the floor lane (HA 2024.12.5) locally
 
 For a small local floor environment, use a new work directory outside the checkout
@@ -55,7 +59,7 @@ python3.12 -m venv "$work/venv"
 "$work/venv/bin/python" -m pip check
 "$work/venv/bin/python" tools/check_lock.py \
   requirements/constraints-py312-ha2024.12.5.txt \
-  9151214dd98269ab636b9b290b764ad2ad9a214a7972485a308d1a6c59fc88f3 3.12.14
+  0c2ad5a8f350dce79ac5466f0e1f8d1c568962517f01fe139a688dca5b7b82de 3.12.14
 "$work/venv/bin/python" -m pytest -p tools.pytest_phases tests/ -q -s -p no:cacheprovider
 FAKE_UPTIME=120 "$work/venv/bin/python" -m pytest -p tools.fakeboot -p tools.pytest_phases \
   tests/ -q -s -p no:cacheprovider
