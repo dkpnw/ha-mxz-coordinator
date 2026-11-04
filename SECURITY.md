@@ -8,7 +8,7 @@ Only the latest release of MXZ Coordinator gets security fixes. Please update th
 
 Please report it privately. Don't open a public issue.
 
-1. Go to the repository's **Security** tab.
+1. Go to the repository's [Security tab](https://github.com/dkpnw/ha-mxz-coordinator/security).
 2. Choose **Report a vulnerability**.
 3. Describe the problem, how to reproduce it, and the MXZ and Home Assistant versions.
 
