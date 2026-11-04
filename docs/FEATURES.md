@@ -841,6 +841,16 @@ non-Mitsubishi unit has been tried yet. A head put in `heat_cool`, `auto` or `dr
 (without Allow Dry mode) is put back on MXZ's mode, unless its room is run from its own
 remote, as on every head.
 
+### Tested by users
+
+Generic heads stay in beta. This list holds only reports anyone can read in a public
+GitHub issue or discussion, each with a link.
+
+None verified yet.
+
+Tried one, good or bad? Please
+[send a generic head report](https://github.com/dkpnw/ha-mxz-coordinator/issues/new?template=generic-head-report.yml).
+
 ## Door/window pause
 
 Optional, off by default, set separately for each room. The idea, and the 60-second open

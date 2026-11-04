@@ -497,7 +497,10 @@ fields. A repair issue says when a generic head has been unavailable for 15 minu
 **Beta caveats.** Tested only on invented heads, not yet on any real non-Mitsubishi unit.
 MXZ's mode rule still applies: a head put in `heat_cool`, `auto` or `dry` (without
 Allow Dry mode) is put back on MXZ's mode, unless its room is run from its own remote. More in
-[Generic heads (beta)](docs/FEATURES.md#generic-heads-beta).
+[Generic heads (beta)](docs/FEATURES.md#generic-heads-beta). No user reports yet
+([tested by users](docs/FEATURES.md#tested-by-users)); if you try one,
+[send a generic head report](https://github.com/dkpnw/ha-mxz-coordinator/issues/new?template=generic-head-report.yml),
+good or bad.
 
 <a id="configure-comfort-and-sensor-settings"></a><a id="saving-rules-warnings-and-clearing-fields"></a><a id="choose-a-sensor-freshness-contract"></a>
 

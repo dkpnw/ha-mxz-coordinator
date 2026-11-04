@@ -1,5 +1,17 @@
 # Releasing
 
+## Release cadence
+
+- **Batch releases.** Merging to `main` doesn't mean releasing. Let finished changes
+  gather under "Unreleased" in the [CHANGELOG](../CHANGELOG.md) and release them together,
+  not one release per merge.
+- **Betas are GitHub pre-releases.** A beta build is published with `--prerelease` (step 8),
+  so it isn't marked as the latest release.
+- **Every release has two gates, beta or not:** a house hardware check on the Mitsubishi
+  heads, then the owner's one-tap OK (step 6). Passing CI replaces neither.
+
+## Cutting a release
+
 A release is cut by hand, in this order. Don't tag until every step above the tag is done.
 
 1. **Version bump.** Set `"version"` in
@@ -50,18 +62,24 @@ A release is cut by hand, in this order. Don't tag until every step above the ta
 5. **Release notes.** Write them for users: what changed, what it means for their heads,
    how it was tested, anything still pending, and upgrade notes with links into
    MIGRATION.md.
-6. **Tag.** Create an annotated tag on the green commit and push it:
+6. **House hardware check and owner's OK.** Run the commit on the house's Mitsubishi heads
+   and check them. Then get the owner's one-tap OK for this release. An earlier OK or a
+   check on a different commit doesn't count, unless the owner waives the check for this
+   release.
+7. **Tag.** Create an annotated tag on the green commit and push it:
 
    ```bash
    git tag -a vX.Y.Z -m vX.Y.Z
    git push origin vX.Y.Z
    ```
 
-7. **Publish.** Create the GitHub release from that tag with the notes:
+8. **Publish.** Create the GitHub release from that tag with the notes:
 
    ```bash
    gh release create vX.Y.Z --title vX.Y.Z --notes-file notes.md
    ```
+
+   For a beta, add `--prerelease`.
 
 ## Verifying a release download
 

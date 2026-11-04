@@ -1,0 +1,67 @@
+name: Generic head beta report
+description: How MXZ's generic heads (beta) worked with your non-Mitsubishi unit, good or bad.
+title: "[generic beta] "
+labels: [generic-beta]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying generic heads (beta). No real non-Mitsubishi unit has been verified yet, so a report that it just works is as useful as a problem.
+        Reports here can be listed under [Tested by users](https://github.com/dkpnw/ha-mxz-coordinator/blob/main/docs/FEATURES.md#tested-by-users).
+        Before you paste anything, remove names, addresses, account e-mails, tokens and passwords.
+  - type: input
+    id: brand
+    attributes:
+      label: Brand
+      description: The brand of the heat pump or mini-split.
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: Indoor unit model number, and the outdoor unit if you know it.
+    validations:
+      required: true
+  - type: input
+    id: integration
+    attributes:
+      label: Integration or cloud used
+      description: The Home Assistant integration that provides the climate entity, with its version, and the vendor cloud if it uses one.
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      description: Settings → About.
+    validations:
+      required: true
+  - type: input
+    id: mxz_version
+    attributes:
+      label: MXZ Coordinator version
+    validations:
+      required: true
+  - type: textarea
+    id: worked
+    attributes:
+      label: What worked
+      description: For example heat, cool, idle, the setpoint it was sent, fan boost, and how long it took to report back.
+    validations:
+      required: true
+  - type: textarea
+    id: did_not_work
+    attributes:
+      label: What didn't work
+      description: What the head did and showed, with times. "Nothing went wrong" is a good answer too.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics_file
+    attributes:
+      label: Diagnostics file
+      description: |
+        Attach the file here: Settings → Devices & services → MXZ Coordinator → ⋮ → Download diagnostics. Review it before you post it. Secrets are removed for you, but room names and entity IDs stay ([what is removed](https://github.com/dkpnw/ha-mxz-coordinator#download-diagnostics-for-a-bug-report)). On 3.20.0 or older there is no download yet: say so.
+    validations:
+      required: false

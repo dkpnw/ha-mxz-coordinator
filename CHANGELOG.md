@@ -17,6 +17,11 @@ on your equipment.
   setpoint's wait ended. Now the last fan sent stays current until a later write sends
   another. A late report of the fan it replaced is still ignored inside the wait, and a
   speed someone picks is still held and not written over.
+- **Docs.** Generic heads have a [tested by users](docs/FEATURES.md#tested-by-users) list
+  (none verified yet), and there is a new generic head report form. CONFIGURATION now says a
+  °F/°C switch takes effect when MXZ next loads and that room targets aren't converted.
+  [RELEASING](docs/RELEASING.md) has a release cadence section: batched releases, betas as
+  GitHub pre-releases, and a house hardware check plus the owner's OK for every release.
 - **Diagnostics and repair issues (visibility only; control and defaults are unchanged).**
   MXZ now offers **Download diagnostics** for bug reports, with secrets removed
   ([what's in it](README.md#download-diagnostics-for-a-bug-report)). It also raises a repair
