@@ -53,6 +53,9 @@ class CloudHead:
     # is stale.
     older_modes: set[str] = field(default_factory=set)
     older_fans: set[str] = field(default_factory=set)
+    # The last fan sent since the last confirmation. Not an older state until
+    # a later batch sends another: a batch with no fan leaves it current.
+    last_fan: str | None = None
     last_batch: float | None = None
     # The last fan boost step written, for the one-rung-per-step limit.
     fan_at: float | None = None
@@ -97,23 +100,23 @@ class CloudHead:
     ) -> None:
         """Record one batch: a new window, and the states it supersedes.
 
-        A batch with no fan supersedes no fan: the fan the head shows then
-        is the one it should keep showing, so a report of it is current.
+        A batch with no fan supersedes no fan: the fan the head shows then,
+        and the last fan MXZ sent even if unconfirmed, is the one it should
+        keep showing, so a report of it is current.
         """
-        if self.intent is not None and not self.confirmed:
-            self.older_modes.add(self.intent[0])
-            if self.intent[2] is not None:
-                self.older_fans.add(self.intent[2])
-        elif self.confirmed:
+        if self.confirmed:
             self.older_modes.clear()
             self.older_fans.clear()
+            self.last_fan = None
+        elif self.intent is not None:
+            self.older_modes.add(self.intent[0])
         if shown_mode is not None:
             self.older_modes.add(shown_mode)
-        if shown_fan is not None and intent[2] is not None:
-            self.older_fans.add(shown_fan)
         self.older_modes.discard(intent[0])
         if intent[2] is not None:
+            self.older_fans.update(f for f in (self.last_fan, shown_fan) if f is not None)
             self.older_fans.discard(intent[2])
+            self.last_fan = intent[2]
         self.intent = intent
         self.last_batch = clock
         self.window_until = clock + self.confirm_wait

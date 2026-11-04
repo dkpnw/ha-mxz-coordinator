@@ -10,6 +10,13 @@ on your equipment.
 
 ## Unreleased
 
+- **Cloud and generic heads (beta): a fan step no longer stalls behind a new setpoint when
+  the last fan write wasn't confirmed yet.** The 3.20.0 fix covered a fan write already
+  confirmed. If the new setpoint went out inside that fan write's own confirm wait, the
+  speed the head was showing still read as an older state, so no fan decision ran until the
+  setpoint's wait ended. Now the last fan sent stays current until a later write sends
+  another. A late report of the fan it replaced is still ignored inside the wait, and a
+  speed someone picks is still held and not written over.
 - **Diagnostics and repair issues (visibility only; control and defaults are unchanged).**
   MXZ now offers **Download diagnostics** for bug reports, with secrets removed
   ([what's in it](README.md#download-diagnostics-for-a-bug-report)). It also raises a repair
