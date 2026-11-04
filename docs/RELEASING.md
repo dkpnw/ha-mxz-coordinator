@@ -62,10 +62,8 @@ A release is cut by hand, in this order. Don't tag until every step above the ta
 5. **Release notes.** Write them for users: what changed, what it means for their heads,
    how it was tested, anything still pending, and upgrade notes with links into
    MIGRATION.md.
-6. **House hardware check and owner's OK.** Run the commit on the house's Mitsubishi heads
-   and check them. Then get the owner's one-tap OK for this release. An earlier OK or a
-   check on a different commit doesn't count, unless the owner waives the check for this
-   release.
+6. **House hardware check and owner's OK.** Run the release commit on the house's Mitsubishi
+   heads and check them. Then get the owner's one-tap OK for this release.
 7. **Tag.** Create an annotated tag on the green commit and push it:
 
    ```bash
