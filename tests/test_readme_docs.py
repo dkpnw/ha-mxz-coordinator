@@ -149,3 +149,46 @@ def test_previous_section_check_reports_a_dropped_section(
     changelog = "## 2.1.0 (x)\n\n## 2.0.1 (x)\n\n## 2.0.0 (x)\n\n## 1.9.0 (x)\n"
     readme = "\n".join(f"## What's new in {section}\n" for section in sections)
     assert _dropped_previous_section(readme, changelog) == dropped
+
+
+def _diagnostics_section(readme: str) -> str:
+    section = readme.split("### Download diagnostics for a bug report", 1)[1]
+    return " ".join(re.split(r"^##+ ", section, maxsplit=1, flags=re.MULTILINE)[0].split())
+
+
+def test_readme_says_how_to_download_diagnostics_and_what_is_removed() -> None:
+    section = _diagnostics_section(Path("README.md").read_text())
+    assert "Settings → Devices & services → MXZ Coordinator" in section
+    assert "**Download diagnostics**" in section
+    removed, kept = section.split("**Kept:**")
+    for name in (
+        "tokens", "passwords", "user names", "e-mail addresses", "MAC addresses",
+        "serial numbers", "IP addresses", "latitude and longitude",
+        "cloud account identifiers",
+    ):
+        assert name in removed, name
+    # It must not promise more than the redaction does.
+    assert "room names" in kept
+    assert "entity IDs" in kept
+
+
+def test_diagnostics_section_finder_stops_at_the_next_heading() -> None:
+    """Negative: another section's words don't count as this section's."""
+    readme = "### Download diagnostics for a bug report\n\nmine\n\n## Next\n\ntheirs\n"
+    assert _diagnostics_section(readme) == "mine"
+
+
+def test_bug_report_asks_for_the_diagnostics_file() -> None:
+    template = Path(".github/ISSUE_TEMPLATE/bug_report.yml").read_text()
+    field = template.split("id: diagnostics_file", 1)[1].split("- type:", 1)[0]
+    assert "label: Diagnostics file" in field
+    assert "Download diagnostics" in field
+    assert "Settings → Devices & services → MXZ Coordinator" in field
+    assert "#download-diagnostics-for-a-bug-report" in field
+
+
+def test_changelog_notes_this_under_unreleased_with_no_version_of_its_own() -> None:
+    changelog = Path("CHANGELOG.md").read_text()
+    unreleased = changelog.split("## Unreleased", 1)[1].split("\n## ", 1)[0]
+    assert "Download diagnostics" in unreleased
+    assert "repair" in unreleased
