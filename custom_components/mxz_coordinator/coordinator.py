@@ -23,7 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.components.climate import (
     ATTR_HVAC_ACTION,
@@ -266,6 +266,7 @@ from .logic import (
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import EventStateChangedData, EventStateReportedData, State
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -681,7 +682,7 @@ async def async_load_mode_record(hass: HomeAssistant, entry_id: str) -> ModeReco
     stored = await _mode_change_store(hass, entry_id).async_load()
     if stored is None:
         return ModeRecord()
-    data = stored if isinstance(stored, dict) else {}
+    data: Any = stored if isinstance(stored, dict) else {}
     mode, mode_at, by_votes = (
         data.get(MODE_KEY), data.get(MODE_AT_KEY), data.get(MODE_BY_VOTES_KEY)
     )
@@ -689,7 +690,7 @@ async def async_load_mode_record(hass: HomeAssistant, entry_id: str) -> ModeReco
         mode in (MODE_COOL, MODE_HEAT) and _finite_number(mode_at)
         and isinstance(by_votes, bool)
     )
-    shared = (
+    shared: dict[str, Any] = (
         {"mode": mode, "mode_at": float(mode_at), "by_votes": by_votes} if has_mode else {}
     )
     value = data.get(MODE_CHANGE_KEY)
@@ -778,7 +779,7 @@ async def async_remove_openings(hass: HomeAssistant, entry_id: str) -> None:
 
 def _restored_opening(stored: Any) -> dict[str, Any]:
     """A room's door/window record as a start reads it; anything unreadable is closed."""
-    data = stored if isinstance(stored, dict) else {}
+    data: Any = stored if isinstance(stored, dict) else {}
     state = data.get("state")
     override = data.get("override")
     paused_at = data.get("paused_at")
@@ -799,6 +800,8 @@ def _restored_opening(stored: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Owns the decision state, drives the heads, and self-heals drift."""
+
+    config_entry: ConfigEntry
 
     def __init__(
         self,
@@ -1061,12 +1064,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # over a person's own run: the setpoints it last queued for it, as the
         # head should show them, and what the head showed then (P15).
         self._floor_prior: dict[str, tuple[str, float, float]] = {}
-        self._floor_expect: dict[str, tuple[tuple[float, float], tuple | None]] = {}
-        self._floor_handback: dict[str, tuple[tuple[str, float, float], int, tuple | None]] = {}
+        self._floor_expect: dict[str, tuple[tuple[float, float], tuple[Any, ...] | None]] = {}
+        self._floor_handback: dict[str, tuple[tuple[str, float, float], int, tuple[Any, ...] | None]] = {}
         self._floor_handing_back: dict[
-            str, tuple[tuple[str, float, float], int, tuple, dict[str, Any]]
+            str, tuple[tuple[str, float, float], int, tuple[Any, ...], dict[str, Any]]
         ] = {}
-        self._floor_handback_note: dict[str, tuple[str, tuple]] = {}
+        self._floor_handback_note: dict[str, tuple[str, tuple[Any, ...]]] = {}
         # One notice per episode: a blind room, a rejected floor command.
         self._floor_blind_noticed: set[str] = set()
         self._floor_reject_noticed: set[str] = set()
@@ -1468,7 +1471,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         # A door/window reading pauses or resumes its room: react at once,
         # then the delay wakeups (_sync_opening_timers) take it from there.
-        openings = [zone.opening_entity for zone in self.zones if zone.opening_active]
+        openings: list[Any] = [zone.opening_entity for zone in self.zones if zone.opening_active]
         if openings:
             self._unsubs.append(
                 async_track_state_change_event(
@@ -1562,7 +1565,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         legacy plan attributes are preserved verbatim — plus a compact ``zones``
         list for display.
         """
-        common = {
+        common: dict[str, Any] = {
             "eco": self._eco_active(),
             "eco_cool_max": self.eco_cool_max,
             "eco_heat_min": self.eco_heat_min,
@@ -1599,7 +1602,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             status = sight.status(clock, self.lost_vote_ttl)
             # A cloud head out of MXZ's control (never a local one).
             cloud_out = self._cloud_watch(zone, now)
-            state = self.hass.states.get(zone.sensor_id)
+            state: Any = self.hass.states.get(zone.sensor_id)
             valid, temp = _read_temp(state, self.target_default, self.temp_unit)
             health, age = self._sensor_health(zone, state, valid, now)
             # A stale room votes exactly like a room with no reading at all:
@@ -1815,7 +1818,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         **starts[i],
                         "fan_hold": not self.fan_auto_is_on(zone.climate_id),
                         "sensor_health": healths[i],
-                        "sensor_age": None if ages[i] is None else int(ages[i]),
+                        "sensor_age": None if ages[i] is None else int(cast("float", ages[i])),
                         "control_reasons": self._control_reasons(zone),
                         "hands_off": self._hands_off_phase(zone),
                         "hands_off_vote": votes[i],
@@ -2010,11 +2013,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._log_health(zone, health, write_age, evidence_age)
         self._health[zone.slug] = health
         if health == HEALTH_STALE:
-            self._stale_window[zone.slug] = window[0 if evidence_age is not None else 1]
+            self._stale_window[zone.slug] = cast("tuple[float, float]", window)[0 if evidence_age is not None else 1]
         if health == HEALTH_HEALTHY:
-            self._fresh_deadline[zone.slug] = now - evidence_age + max_age
+            self._fresh_deadline[zone.slug] = now - cast("float", evidence_age) + cast("float", max_age)
         elif health == HEALTH_AWAITING:
-            self._fresh_deadline[zone.slug] = grace_until
+            self._fresh_deadline[zone.slug] = cast("float", grace_until)
         else:
             self._fresh_deadline.pop(zone.slug, None)
         if health in HEALTH_UNHEALTHY:
@@ -2831,7 +2834,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _queue_delivery(
         self, climate_id: str, act: str, low: float, high: float,
         delta: float = 0.0, engage: str | None = None,
-    ) -> asyncio.Task | None:
+    ) -> asyncio.Task[Any] | None:
         """One real operation per head, with at most one current-input follow-up.
 
         The registry lives with HA, so reload cannot forget an older handler.
@@ -2861,7 +2864,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         task.add_done_callback(partial(self._finish_delivery, climate_id, active))
         return task
 
-    async def _wait_deliveries(self, tasks: list[asyncio.Task]) -> None:
+    async def _wait_deliveries(self, tasks: list[asyncio.Task[Any]]) -> None:
         """Wait for issued work; deferred work or new inputs release the plan."""
         if not tasks:
             return
@@ -2922,7 +2925,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @callback
     def _finish_delivery(
-        self, climate_id: str, active: dict[str, Any], _task: asyncio.Task,
+        self, climate_id: str, active: dict[str, Any], _task: asyncio.Task[Any],
     ) -> None:
         """Release ownership after the call's queued state callbacks run."""
         if self._deliveries.get(climate_id) is active:
@@ -3099,7 +3102,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         key reads None until a plan exists.
         """
         views = (self.data or {}).get("zones", ())
-        view = next(
+        view: dict[str, Any] = next(
             (views[i] for i, known in enumerate(self.zones)
              if known is zone and i < len(views)),
             {},
@@ -3234,7 +3237,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         former must not be "healed" back awake.
         """
         if active := self._deliveries.get(entity_id):
-            return active["act"]
+            return cast("str | None", active["act"])
         if any(
             zone.climate_id == entity_id and self._opening_paused(zone) for zone in self.zones
         ):
@@ -3321,6 +3324,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         isn't reachable (keeps the common same-unit case correct).
         """
         native = self._head_native_limits(climate_id)
+        lo: float | None
+        hi: float | None
         if native is not None:
             nmin, nmax, nunit = native
             lo = TemperatureConverter.convert(nmin, nunit, self.temp_unit)
@@ -3750,7 +3755,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             or cloud.intent is not None and cloud.intent[:2] == (act, setpoint)
         )
         if waiting and (
-            cloud.startup or cloud.intent[2] is not None
+            cloud.startup or cast("tuple[Any, ...]", cloud.intent)[2] is not None
             or act not in (MODE_COOL, MODE_HEAT)
         ):
             # Sent, and waiting for the head to report it; or just started,
@@ -3928,7 +3933,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._cloud_timer = None
 
     @callback
-    def _on_cloud_report(self, event: Event) -> None:
+    def _on_cloud_report(self, event: Event[EventStateReportedData]) -> None:
         """A cloud head reported, changed or not: one out of control is back."""
         cloud = self._cloud.get(event.data["entity_id"])
         if cloud is not None and cloud.unresponsive:
@@ -4462,7 +4467,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # window open). The pick is kept for the resume, which sends it.
             record = self._openings[zone.slug]
             snapshot = record["snapshot"] if isinstance(record["snapshot"], dict) else {}
-            vanes = snapshot.get("vanes") if isinstance(snapshot.get("vanes"), dict) else {}
+            vanes: Any = snapshot.get("vanes") if isinstance(snapshot.get("vanes"), dict) else {}
             record["snapshot"] = {**snapshot, "vanes": {**vanes, vane_id: option}}
             self._save_openings()
             self._redraw_rooms()
@@ -4623,7 +4628,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- triggers -----------------------------------------------------------
     @callback
-    def _on_input_change(self, event: Event) -> None:
+    def _on_input_change(self, event: Event[EventStateChangedData]) -> None:
         """A temp sensor changed -> observe the write, then recompute.
 
         Every write that can carry a new sample marker lands here: a marker
@@ -4641,7 +4646,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.async_create_task(_request_current_input(), eager_start=False)
 
     @callback
-    def _on_input_report(self, event: Event) -> None:
+    def _on_input_report(self, event: Event[EventStateReportedData]) -> None:
         """A temp sensor re-reported the SAME value.
 
         It is observed first, exactly as a changed write is, at its own
@@ -4670,7 +4675,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.hass.async_create_task(self.async_request_refresh())
 
     @callback
-    def _observe_input(self, event: Event) -> None:
+    def _observe_input(
+        self, event: Event[EventStateChangedData] | Event[EventStateReportedData]
+    ) -> None:
         """Record one sensor write as the observation it is (:meth:`_observe_report`).
 
         The event's ``time_fired`` is the instant HA stamped into this write's
@@ -4707,7 +4714,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- self-heal A (band drift) -------------------------------------------
     @callback
-    def _on_head_change(self, event: Event) -> None:
+    def _on_head_change(self, event: Event[EventStateChangedData]) -> None:
         """Track head inputs and detect banned-mode/off-while-enabled drift."""
         entity_id: str = event.data["entity_id"]
         new_state = event.data.get("new_state")
@@ -4790,7 +4797,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             # compute: a person's heat before that one is
                             # not that run stopping, so it starts no hold.
                             sight.observe(
-                                mode, new_state.attributes.get(ATTR_HVAC_ACTION),
+                                mode, cast("State", new_state).attributes.get(ATTR_HVAC_ACTION),
                                 time.monotonic(),
                             )
         # A person changing a hands-off head during a floor run takes it back
@@ -5262,7 +5269,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         priority sensor.
         """
         tier = PRIORITY_SAFETY if safety else None
-        pair = (
+        pair: tuple[Demand, ...] = (
             Demand(
                 direction=demand if demand in (MODE_COOL, MODE_HEAT) else None,
                 priority=(tier if tier is not None else PRIORITY_DEMAND, index),
@@ -5402,7 +5409,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if record is None:
             return False
         if self._openings_live and not self._retired:
-            sensor = self.hass.states.get(zone.opening_entity)
+            sensor = self.hass.states.get(cast("str", zone.opening_entity))
             raw = opening_reading(sensor.state if sensor is not None else None)
             since = max(
                 sensor.last_changed.timestamp() if sensor is not None else now,
@@ -5443,7 +5450,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if is_paused and not was_paused:
             record["paused_at"] = now
             record["snapshot"] = self._opening_snapshot(zone)
-            sensor = self.hass.states.get(zone.opening_entity)
+            sensor = self.hass.states.get(cast("str", zone.opening_entity))
             what = sensor.name if sensor is not None else zone.opening_entity
             self._opening_notice(
                 zone, record, "pause",
@@ -5617,7 +5624,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._openings_store.async_delay_save(lambda: data, 0)
 
     @callback
-    def _on_opening_change(self, event: Event) -> None:
+    def _on_opening_change(self, event: Event[EventStateChangedData]) -> None:
         """A door/window entity changed -> recompute, and wake at its delay's end.
 
         The recompute is the ordinary request, which can wait out the request
@@ -5718,7 +5725,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         record = self._openings.get(zone.slug)
         if record is None:
             return
-        sensor = self.hass.states.get(zone.opening_entity)
+        sensor = self.hass.states.get(cast("str", zone.opening_entity))
         closed = opening_reading(sensor.state if sensor is not None else None) == CLOSED_READ
         override = "switch" if on and not closed else None
         if override == record["override"] or (on and record["override"] is not None):
@@ -5966,8 +5973,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _floor_clear(self, zone: Zone, direction: str) -> float:
         """The clear line of a run: the room is fine again from here."""
         if direction == MODE_HEAT:
-            return float(zone.floor_low) + self._floor_margin
-        return float(zone.floor_high) - self._floor_margin
+            return float(cast("float", zone.floor_low)) + self._floor_margin
+        return float(cast("float", zone.floor_high)) - self._floor_margin
 
     def _floor_want(self, zone: Zone, temp: float, ok: bool, now: float) -> str | None:
         """Advance this room's floor by one compute; return its want, if any.
@@ -6200,7 +6207,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._floor_expect[zone.slug] = ((low, high), setting)
 
     def _floor_shows(
-        self, climate_id: str, setting: tuple | None, want: tuple[float, float]
+        self, climate_id: str, setting: tuple[Any, ...] | None, want: tuple[float, float]
     ) -> bool:
         """Whether a head showing ``setting`` already holds ``want``, read on
         its own grid as the idempotent check reads it."""
@@ -6351,7 +6358,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     del self._floor_handing_back[zone.slug]
 
     def _floor_handback_refused(
-        self, zone: Zone, sending: tuple, err: Exception
+        self, zone: Zone, sending: tuple[Any, ...], err: Exception
     ) -> None:
         """The head refused the command handing it back to its person (P3).
         It is tried once more at the next apply, if the room is still theirs
@@ -6508,7 +6515,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         run = data.get("floor_run")
         if isinstance(run, dict) and configured(run.get("direction")):
-            numbers = [_finite(run.get(key)) for key in ("mark", "worst", "driven")]
+            numbers: list[Any] = [_finite(run.get(key)) for key in ("mark", "worst", "driven")]
             if None not in numbers and isinstance(run.get("stalled"), bool):
                 mark, worst, driven = numbers
                 self._floor_runs[slug] = FloorRun(
@@ -6541,7 +6548,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if zone.drift is None:
             return self.engage_deadband
         lo, hi = self._profile["engage_bounds"]
-        return min(max(float(zone.drift), lo), hi)
+        return cast("float", min(max(float(zone.drift), lo), hi))
 
     def zone_drift_sides(self, zone: Zone) -> tuple[float, float]:
         """The drift in use per side: (below target before heat, above before cool).
@@ -6709,7 +6716,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _settle_range(self, zone: Zone) -> None:
         """Decide a dual room's pair from the edges offered so far (see above)."""
-        offers = self._range_offers.pop(zone.slug, {})
+        offers: dict[bool, Any] = self._range_offers.pop(zone.slug, {})
         fresh = zone.handoff is not None and zone.handoff.get("seed_range") is True
         if not fresh and offers.get(True) is not None and offers.get(False) is not None:
             low, high = offers[True], offers[False]
@@ -6822,7 +6829,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- seasonal changeover (optional, from local weather) -----------------
     @callback
-    def _on_changeover_change(self, _event: Event) -> None:
+    def _on_changeover_change(self, _event: Event[Any]) -> None:
         """The changeover weather entity updated -> re-evaluate the season."""
         self.hass.async_create_task(self._evaluate_changeover())
 
@@ -6850,9 +6857,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         state = self.hass.states.get(entity_id) if entity_id else None
         if state is None or state.state in UNAVAILABLE_STATES:
             return None
-        if entity_id.startswith("weather."):
+        if cast("str", entity_id).startswith("weather."):
             try:
-                resp = await self.hass.services.async_call(
+                resp: Any = await self.hass.services.async_call(
                     "weather",
                     "get_forecasts",
                     {"entity_id": entity_id, "type": "daily"},
@@ -6907,17 +6914,17 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return st.state == self.inhibit_active_state
 
     @callback
-    def _on_inhibit_change(self, _event: Event) -> None:
+    def _on_inhibit_change(self, _event: Event[Any]) -> None:
         """The watched inhibit entity changed -> re-evaluate the hold."""
         self.hass.async_create_task(self._evaluate_inhibit())
 
     @callback
-    def _on_safety_change(self, _event: Event) -> None:
+    def _on_safety_change(self, _event: Event[Any]) -> None:
         """A zone's safety-priority sensor changed -> recompute now."""
         self.hass.async_create_task(self.async_request_refresh())
 
     @callback
-    def _on_comfort_change(self, _event: Event) -> None:
+    def _on_comfort_change(self, _event: Event[Any]) -> None:
         """A zone's Comfort priority entity changed -> recompute now."""
         self.hass.async_create_task(self.async_request_refresh())
 
@@ -7006,7 +7013,7 @@ def _as_float(value: Any) -> float | None:
         return None
 
 
-def _head_setting(head: Any) -> tuple:
+def _head_setting(head: Any) -> tuple[Any, ...]:
     """What a head shows a person: its mode and setpoints."""
     return (head.state, *(
         head.attributes.get(key)
@@ -7029,7 +7036,7 @@ def _floor_window(value: Any) -> tuple[tuple[float, float], ...]:
     """A stored re-arm window: [[driven, reading], ...], else empty."""
     if not isinstance(value, list):
         return ()
-    pairs = [
+    pairs: list[Any] = [
         (_finite(item[0]), _finite(item[1]))
         for item in value if isinstance(item, list) and len(item) == 2
     ]

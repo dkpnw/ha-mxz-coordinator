@@ -66,7 +66,7 @@ from .logic import RangeError, resolve_range
 from .number import range_error
 
 # What a head is doing, from its mode, when it reports no hvac_action itself.
-_ACTION_FOR_MODE = {
+_ACTION_FOR_MODE: dict[str, HVACAction] = {
     HVACMode.OFF: HVACAction.OFF,
     HVACMode.HEAT: HVACAction.HEATING,
     HVACMode.COOL: HVACAction.COOLING,
@@ -99,7 +99,8 @@ async def async_setup_entry(
 class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity):
     """A single-target thermostat facade over one zone's helper entities."""
 
-    _attr_hvac_modes: ClassVar[list[HVACMode]] = [HVACMode.OFF, HVACMode.HEAT_COOL]
+    # ClassVar for ruff's RUF012; Home Assistant declares this as an instance attribute.
+    _attr_hvac_modes: ClassVar[list[HVACMode]] = [HVACMode.OFF, HVACMode.HEAT_COOL]  # type: ignore[misc]
     _attr_icon = "mdi:home-thermometer"
     _enable_turn_on_off_backwards_compatibility = False
     # A countdown changes on every write while it runs; the recorder keeps
@@ -196,7 +197,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         )
 
     @callback
-    def _handle_head_change(self, _event: Event) -> None:
+    def _handle_head_change(self, _event: Event[Any]) -> None:
         self.async_write_ha_state()
 
     def _sibling_eid(self, platform: str, key: str) -> str | None:
@@ -329,7 +330,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         head = self.hass.states.get(self._head_id)
         if head is None or head.state in UNAVAILABLE_STATES:
             return HVACAction.OFF
-        reported = head.attributes.get("hvac_action")
+        reported: Any = head.attributes.get("hvac_action")
         if reported in HVACAction.__members__.values():
             return HVACAction(reported)
         return _ACTION_FOR_MODE.get(head.state, HVACAction.IDLE)
@@ -400,7 +401,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         coordinator always reads the HEAD's fan_mode, never this mapped value.
         """
         state = self.hass.states.get(self._head_id)
-        commanded = state.attributes.get("fan_mode") if state else None
+        commanded: str | None = state.attributes.get("fan_mode") if state else None
         if commanded != FAN_AUTO or not self._stage_sensor_id:
             return commanded
         stage_state = self.hass.states.get(self._stage_sensor_id)

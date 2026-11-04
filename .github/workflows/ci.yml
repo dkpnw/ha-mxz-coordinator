@@ -119,7 +119,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12.14"
-      - run: pip install ruff==0.16.0
+      - run: pip install --require-hashes -r requirements_ci.txt
       - run: ruff check custom_components/ tests/ tools/
 
   pytest:
@@ -387,7 +387,7 @@ jobs:
           persist-credentials: false
       - name: Checkout source binding
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - run: pip install yamllint==1.38.0
+      - run: pip install --require-hashes -r requirements_ci.txt
       - run: yamllint -c .yamllint packages/ examples/
 
   issue25:

@@ -26,6 +26,10 @@ on your equipment.
   Home Assistant's own pytest plugin under its new name, `pytest-homeassistant` (2026.11.0b4
   and later), as well as its older name and `pytest-homeassistant-custom-component`. With
   none of them installed it still fails. The integration itself is unchanged.
+- **CI only:** a shared ruff configuration in `pyproject.toml` keeps today's rules, and CI
+  now installs its lint tools from a hash-locked file, measures test coverage against a
+  floor, and runs strict type checks. The integration's code gained only type annotations,
+  so it behaves the same.
 
 ## 3.20.0 (November 3, 2026)
 
