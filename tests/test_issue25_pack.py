@@ -447,8 +447,8 @@ esac
     site = tmp_path / 'mxz-venv/lib/python3.12/site-packages'
     site.mkdir(parents=True)
     specs = {
-        'homeassistant': ('2024.12.0', ['homeassistant/helpers/restore_state.py', 'homeassistant/helpers/storage.py', 'homeassistant/helpers/entity_platform.py'], None),
-        'pytest-homeassistant-custom-component': ('0.13.190', ['pytest_homeassistant_custom_component/common.py', 'pytest_homeassistant_custom_component/plugins.py'], 'pytest_homeassistant_custom_component.plugins'),
+        'homeassistant': ('2024.12.5', ['homeassistant/helpers/restore_state.py', 'homeassistant/helpers/storage.py', 'homeassistant/helpers/entity_platform.py'], None),
+        'pytest-homeassistant-custom-component': ('0.13.195', ['pytest_homeassistant_custom_component/common.py', 'pytest_homeassistant_custom_component/plugins.py'], 'pytest_homeassistant_custom_component.plugins'),
         'pytest': ('8.3.3', ['_pytest/config/__init__.py', '_pytest/main.py', '_pytest/runner.py', '_pytest/python.py', '_pytest/fixtures.py'], None),
         'pytest-asyncio': ('0.24.0', ['pytest_asyncio/plugin.py'], 'pytest_asyncio.plugin'),
     }

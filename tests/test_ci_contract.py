@@ -5,6 +5,7 @@ import logging
 import re
 import subprocess
 from copy import deepcopy
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -75,12 +76,12 @@ OWNED_RUNS = {"suite fakeboot": ("suite", "fakeboot"), "suite": ("suite",), "fak
 MATRIX_KEYS = {"lane", "runs", "python-version", "constraints", "sha256"}
 # py3.12 and py3.14 are each split into two jobs; py3.13 keeps both runs in one job.
 LANE_RUNS = [
-    ("py3.12-ha2024.12.0", "suite"), ("py3.12-ha2024.12.0-fakeboot", "fakeboot"),
+    ("py3.12-ha2024.12.5", "suite"), ("py3.12-ha2024.12.5-fakeboot", "fakeboot"),
     ("py3.13-ha2026.2.3", "suite fakeboot"),
-    ("py3.14-ha2026.9.0", "suite"), ("py3.14-ha2026.9.0-fakeboot", "fakeboot"),
+    ("py3.14-ha2026.9.4", "suite"), ("py3.14-ha2026.9.4-fakeboot", "fakeboot"),
 ]
 # Each lane and the number of jobs its two runs are spread across.
-LANE_JOBS = {"py3.12-ha2024.12.0": 2, "py3.13-ha2026.2.3": 1, "py3.14-ha2026.9.0": 2}
+LANE_JOBS = {"py3.12-ha2024.12.5": 2, "py3.13-ha2026.2.3": 1, "py3.14-ha2026.9.4": 2}
 EXPORT_OWNERSHIP = '''case "${OWNED_RUNS:-}" in
   'suite fakeboot') runs=(suite fakeboot) ;;
   suite) runs=(suite) ;;
@@ -161,6 +162,63 @@ def test_declared_ci_boundary(workflow):
     assert violations(workflow) == []
 
 
+def lane_lock_errors(entry, raw):
+    """A lane's name, lock path, recorded digest and locked HA must all agree."""
+    python, ha = re.fullmatch(r"py3\.(\d+)-ha(.+)", entry["lane"].removesuffix("-fakeboot")).groups()
+    errors = []
+    if entry["constraints"] != f"requirements/constraints-py3{python}-ha{ha}.txt":
+        errors.append("lock path")
+    if entry["sha256"] != sha256(raw).hexdigest():
+        errors.append("lock digest")
+    if f"homeassistant=={ha}" not in raw.decode().splitlines():
+        errors.append("locked HA")
+    return errors
+
+
+def lane_entries(workflow):
+    return workflow["jobs"]["pytest"]["strategy"]["matrix"]["include"]
+
+
+def test_each_lane_names_the_ha_its_lock_pins(workflow):
+    root = Path(__file__).parents[1]
+    for entry in lane_entries(workflow):
+        assert lane_lock_errors(entry, (root / entry["constraints"]).read_bytes()) == []
+
+
+@pytest.mark.parametrize(("change", "expected"), [
+    ("lane", ["lock path", "locked HA"]), ("path", ["lock path"]),
+    ("digest", ["lock digest"]), ("bytes", ["lock digest", "locked HA"]),
+])
+def test_a_lane_that_misnames_its_lock_is_refused(workflow, change, expected):
+    entry = lane_entries(workflow)[0]
+    raw = (Path(__file__).parents[1] / entry["constraints"]).read_bytes()
+    if change == "lane":
+        entry["lane"] = "py3.12-ha2024.12.0"
+    elif change == "path":
+        entry["constraints"] = "requirements/constraints-py312-ha2024.12.0.txt"
+    elif change == "digest":
+        entry["sha256"] = "0" * 64
+    else:
+        raw = raw.replace(b"homeassistant==", b"homeassistant-other==")
+    assert lane_lock_errors(entry, raw) == expected
+
+
+def floor_digest_gaps(digest):
+    """The floor lock's digest is also hard-coded outside the lane matrix."""
+    root = Path(__file__).parents[1]
+    return [name for name in ("tools/issue25/run.sh", "tools/issue25/pack.sh", "tools/issue25/README.md",
+                              "docs/DEVELOPMENT.md")
+            if digest not in (root / name).read_text()]
+
+
+def test_floor_lock_digest_is_current_everywhere(workflow):
+    entry = lane_entries(workflow)[0]
+    assert floor_digest_gaps(entry["sha256"]) == []
+    assert floor_digest_gaps("0" * 64) != []
+    install = next(s["run"] for s in workflow["jobs"]["issue25"]["steps"] if s.get("name") == "Exact locked installation")
+    assert f"tools/ci-install.sh {entry['constraints']} {entry['sha256']} 3.12.14" in install
+
+
 @pytest.mark.parametrize("change", [
     "token", "runner", "environment", "checkout", "cache", "upload", "secret", "missing",
     "fakeboot-missing", "fakeboot-one-lane", "fakeboot-skipped-after-failure", "fakeboot-uptime",
@@ -226,7 +284,7 @@ def test_weakened_ci_boundary_rejects(workflow, change):
         elif change == "lane-lock-changed":
             fresh["sha256"] = py313["sha256"]
         elif change == "lane-renamed":
-            py314["lane"] = "py3.14-ha2026.9.0-suite"
+            py314["lane"] = "py3.14-ha2026.9.4-suite"
         elif change == "lane-py312-merged":
             py312["runs"] = "suite fakeboot"
             include.remove(py312_fresh)
@@ -235,7 +293,7 @@ def test_weakened_ci_boundary_rejects(workflow, change):
         elif change == "lane-py312-suite-only":
             py312_fresh["runs"] = "suite"
         elif change == "lane-py312-renamed":
-            py312_fresh["lane"] = "py3.12-ha2024.12.0-fresh"
+            py312_fresh["lane"] = "py3.12-ha2024.12.5-fresh"
         elif change == "lane-py312-lock-changed":
             py312_fresh["sha256"] = py313["sha256"]
         elif change == "lane-py312-both-own-all":
@@ -257,7 +315,7 @@ def test_weakened_ci_boundary_rejects(workflow, change):
         if change == "fakeboot-missing":
             steps.remove(fresh)
         elif change == "fakeboot-one-lane":
-            fresh["if"] = "${{ !cancelled() && matrix.lane == 'py3.14-ha2026.9.0' }}"
+            fresh["if"] = "${{ !cancelled() && matrix.lane == 'py3.14-ha2026.9.4' }}"
         elif change == "fakeboot-skipped-after-failure":
             del fresh["if"]
         elif change == "fakeboot-uptime":
@@ -1045,10 +1103,10 @@ def test_recovery_route_actual_guards(workflow, case, event, ref, head, base, at
         if step.get('name') in admission:
             for lane in lanes:
                 expression = step['if'].replace('matrix.lane', repr(lane))
-                assert admitted(expression, context) is (case == 'A3-push' and lane == 'py3.12-ha2024.12.0')
+                assert admitted(expression, context) is (case == 'A3-push' and lane == 'py3.12-ha2024.12.5')
             selected_lanes = [lane for lane in lanes
                               if admitted(step['if'].replace('matrix.lane', repr(lane)), context)]
-            assert selected_lanes == (['py3.12-ha2024.12.0'] if case == 'A3-push' else [])
+            assert selected_lanes == (['py3.12-ha2024.12.5'] if case == 'A3-push' else [])
             assert all(runs[lane] == 'suite' for lane in selected_lanes)
     guard = jobs['pytest' if ordinary else 'issue25']['steps'][0]['run']
     env = {'GITHUB_EVENT_NAME': event, 'GITHUB_REF': ref, 'GITHUB_HEAD_REF': head, 'GITHUB_BASE_REF': base,

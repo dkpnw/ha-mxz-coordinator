@@ -8,6 +8,12 @@ Hardware tests below were run on two-head and four-zone MXZ systems. Automated t
 invented heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
+## Unreleased
+
+- **Tests only:** the Home Assistant test lanes now run the newest patch of each line
+  (2024.12.5, 2026.2.3, and 2026.9.4), with their locks regenerated. The minimum is still
+  Home Assistant 2024.12.0; the integration itself is unchanged.
+
 ## 3.20.0 (November 3, 2026)
 
 A room can pause while its door or window is open (optional, off by default). Resting

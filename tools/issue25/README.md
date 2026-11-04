@@ -11,8 +11,8 @@ The slot named `main` exports this exact candidate until it is merged into publi
 main. The workflow/harness source commit is recorded separately from the exported
 product commit and tree. Historical old-main comparisons do not validate this candidate.
 
-Both use Python 3.12.14 and the floor HA 2024.12.0 constraints, SHA-256
-`0d0031ddca8bb870560ca4d4bcafd34233e23e9dd6f0470dc31f7bd888eb7403`.
+Both use Python 3.12.14 and the floor lane's HA 2024.12.5 constraints, SHA-256
+`9151214dd98269ab636b9b290b764ad2ad9a214a7972485a308d1a6c59fc88f3`.
 No product implementation or per-base test helper is overlaid. The harness owns
 its entry data, sensors, head implementations, schedules, and expected outcomes.
 
