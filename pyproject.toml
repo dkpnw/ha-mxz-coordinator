@@ -1,0 +1,83 @@
+# Tool configuration only: this repository is not an installable Python package.
+
+[tool.ruff]
+# target-version stays unset on purpose. Setting it to the real minimum (py312) would turn
+# on version-gated pyupgrade findings that CI has never enforced.
+
+[tool.ruff.lint]
+# Exactly the rules ruff 0.16.0 enables with no configuration (`ruff check --isolated
+# --show-settings`), written out so that editors and hooks on another ruff version enforce
+# the same set. To change it, add or remove codes here on purpose.
+select = [
+    "ASYNC100", "ASYNC105", "ASYNC115", "ASYNC116", "ASYNC210", "ASYNC22", "ASYNC23",
+    "ASYNC251",
+    "B002", "B003", "B004", "B005", "B006", "B008", "B009", "B010", "B012", "B013", "B014",
+    "B015", "B016", "B017", "B018", "B019", "B020", "B021", "B022", "B023", "B025", "B026",
+    "B029", "B030", "B031", "B032", "B033", "B035", "B039",
+    "BLE",
+    "C40", "C410", "C411", "C413", "C414", "C415", "C417", "C418", "C419",
+    "D419",
+    "DTZ",
+    "E722", "E9",
+    "EXE001", "EXE002", "EXE004", "EXE005",
+    "F401", "F402", "F404", "F407", "F5", "F6", "F70", "F8", "F9",
+    "FA",
+    "FLY",
+    "FURB10", "FURB12", "FURB13", "FURB15", "FURB161", "FURB162", "FURB163", "FURB166",
+    "FURB167", "FURB168", "FURB169", "FURB177", "FURB181", "FURB188", "FURB19",
+    "G01", "G1", "G2",
+    "I001",
+    "INT",
+    "ISC004",
+    "LOG001", "LOG002", "LOG009", "LOG01",
+    "N9",
+    "PERF1", "PERF402",
+    "PGH005",
+    "PIE",
+    "PLC01", "PLC0205", "PLC0206", "PLC0208", "PLC0414", "PLC3",
+    "PLE01", "PLE0303", "PLE0304", "PLE0305", "PLE0307", "PLE0308", "PLE0309", "PLE06", "PLE07",
+    "PLE1", "PLE2",
+    "PLR01", "PLR02", "PLR04", "PLR170", "PLR1711", "PLR1716", "PLR172", "PLR173", "PLR204",
+    "PLW012", "PLW013", "PLW017", "PLW02", "PLW04", "PLW0602", "PLW0604", "PLW064", "PLW07",
+    "PLW15", "PLW21",
+    "PT010", "PT014", "PT020", "PT025", "PT026", "PT031",
+    "PTH124", "PTH210",
+    "PYI00", "PYI010", "PYI012", "PYI013", "PYI015", "PYI016", "PYI017", "PYI018", "PYI019",
+    "PYI020", "PYI025", "PYI026", "PYI029", "PYI03", "PYI04", "PYI050", "PYI052", "PYI055",
+    "PYI057", "PYI058", "PYI059", "PYI06",
+    "RET501",
+    "RUF007", "RUF008", "RUF009", "RUF01", "RUF020", "RUF022", "RUF023", "RUF024", "RUF026",
+    "RUF028", "RUF030", "RUF032", "RUF033", "RUF034", "RUF040", "RUF041", "RUF046", "RUF048",
+    "RUF049", "RUF05", "RUF063", "RUF068", "RUF100", "RUF101", "RUF2",
+    "S102", "S110", "S112",
+    "SIM101", "SIM102", "SIM103", "SIM107", "SIM113", "SIM114", "SIM115", "SIM117", "SIM118",
+    "SIM20", "SIM210", "SIM211", "SIM22", "SIM4", "SIM90", "SIM911",
+    "T1",
+    "TC004", "TC005", "TC007", "TC01",
+    "TRY002", "TRY004", "TRY2", "TRY401",
+    "UP00", "UP010", "UP011", "UP012", "UP014", "UP017", "UP018", "UP019", "UP02", "UP03",
+    "UP040", "UP041", "UP043", "UP044", "UP045", "UP046", "UP047", "UP049", "UP05",
+    "W6",
+    "YTT",
+]
+
+[tool.mypy]
+strict = true
+files = ["custom_components/mxz_coordinator"]
+# custom_components/ has no __init__.py: name modules from the repository root.
+explicit_package_bases = true
+
+# Home Assistant imports these names into its public modules without listing them as
+# exports, and the integration uses them from there. This covers HA only: the strict
+# export rule still applies to custom_components.
+[[tool.mypy.overrides]]
+module = "homeassistant.*"
+implicit_reexport = true
+
+[tool.coverage.run]
+source = ["custom_components/mxz_coordinator"]
+branch = true
+
+[tool.coverage.report]
+# Just under the measured total (96.48% on py3.14-ha2026.9.4). Raise it as coverage grows.
+fail_under = 96

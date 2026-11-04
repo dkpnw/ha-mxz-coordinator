@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, cast
 
 import voluptuous as vol
 from homeassistant.config_entries import (
@@ -563,7 +563,7 @@ def _head_conflicts(
     for progress in hass.config_entries.flow.async_progress_by_handler(DOMAIN):
         if progress["flow_id"] == exclude_flow_id:
             continue
-        context = progress["context"]
+        context: Any = progress["context"]
         if (
             exclude_entry_id is not None
             and context.get(_CONTEXT_ENTRY_ID) == exclude_entry_id
@@ -603,7 +603,7 @@ def _user_schema(
 ) -> vol.Schema:
     """The head picker. ``default_generic`` None leaves out the generic
     (beta) opt-in (Reconfigure keeps each room's stored head type)."""
-    notify_selector: selector.Selector = (
+    notify_selector: selector.Selector[Any] = (
         selector.SelectSelector(
             selector.SelectSelectorConfig(
                 options=notify_options,
@@ -615,7 +615,7 @@ def _user_schema(
         else selector.TextSelector()
     )
     return vol.Schema(
-        {
+        {  # type: ignore[misc]  # mixed vol.Required/vol.Optional keys
             vol.Required(_CONF_HEADS, default=default_heads or []): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="climate", multiple=True)
             ),
@@ -1206,7 +1206,7 @@ def _room_schema(
                 vol.Optional(key, description={"suggested_value": view.get(key)})
             ] = _num("min")
     return vol.Schema(
-        {
+        {  # type: ignore[misc]  # mixed vol.Required/vol.Optional keys
             vol.Optional(_HEAD_TYPE_FIELD, default=head_type): _head_type_selector(),
             vol.Optional(
                 "stage", description={"suggested_value": view.get("stage")}
@@ -1619,7 +1619,7 @@ def _tunables_schema(
             )
         )
     return vol.Schema(
-        {
+        {  # type: ignore[misc]  # mixed vol.Required/vol.Optional keys
             vol.Optional(
                 CONF_DEMAND_THRESHOLD,
                 default=eff.get(CONF_DEMAND_THRESHOLD, DEFAULT_DEMAND_THRESHOLD),
@@ -1949,7 +1949,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors[_CONF_HEADS] = "generic_esphome_head"
                 placeholders = {"esphome_heads": ", ".join(esphome)}
             else:
-                self.context[_CONTEXT_HEADS] = tuple(heads)
+                cast("dict[str, Any]", self.context)[_CONTEXT_HEADS] = tuple(heads)
                 await self.async_set_unique_id("|".join(heads))
                 self._abort_if_unique_id_configured()
                 if heads != self._heads:
@@ -2217,9 +2217,9 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         if idle_options is None:
             idle_options = supported_idle_actions(self.hass, self._heads)
         try:
-            return _tunables_schema(
+            return cast("dict[str, Any] | None", _tunables_schema(
                 profile["defaults"], engage_min, engage_max, idle_options
-            )({})
+            )({}))
         except vol.Invalid:
             return None
 
@@ -2298,7 +2298,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         A flow parked on an error is not entitled to keep other flows out of
         heads it has just been told it cannot have.
         """
-        self.context.pop(_CONTEXT_HEADS, None)
+        cast("dict[str, Any]", self.context).pop(_CONTEXT_HEADS, None)
         return self.async_show_form(
             step_id="user",
             data_schema=_user_schema(
@@ -2507,8 +2507,8 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 error, placeholders = problem
                 errors[_CONF_HEADS] = error
             else:
-                self.context[_CONTEXT_HEADS] = tuple(heads)
-                self.context[_CONTEXT_ENTRY_ID] = entry.entry_id
+                cast("dict[str, Any]", self.context)[_CONTEXT_HEADS] = tuple(heads)
+                cast("dict[str, Any]", self.context)[_CONTEXT_ENTRY_ID] = entry.entry_id
                 uid = "|".join(heads)
                 if any(
                     e.unique_id == uid and e.entry_id != entry.entry_id
@@ -2621,7 +2621,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         entry = self._get_reconfigure_entry()
         errors: dict[str, str] = {}
         placeholders: dict[str, str] = {}
-        suggestions = list(self._sensors) or [
+        suggestions: list[Any] = list(self._sensors) or [
             zone.get(ZONE_SENSOR)
             for head in self._heads
             for zone in [self._stored_zone(entry, head)]
@@ -2809,7 +2809,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         self, error: str, placeholders: dict[str, str] | None
     ) -> ConfigFlowResult:
         """Return to the reconfigure head picker, releasing the reservation."""
-        self.context.pop(_CONTEXT_HEADS, None)
+        cast("dict[str, Any]", self.context).pop(_CONTEXT_HEADS, None)
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=_user_schema(
@@ -2904,6 +2904,7 @@ class MXZOptionsFlow(OptionsFlow):
         self, page: str, user_input: dict[str, Any] | None
     ) -> ConfigFlowResult:
         zones, heads = self._zones_and_heads()
+        placeholders: dict[str, str] | None
         if problem := head_mode_problem(self.hass, heads):
             error, placeholders = problem
             return self._blocked(error, placeholders)
@@ -2911,7 +2912,7 @@ class MXZOptionsFlow(OptionsFlow):
         conf = {**self.config_entry.data, **self.config_entry.options}
         values = _flatten(user_input or {})
         errors: dict[str, str] = {}
-        placeholders: dict[str, str] | None = None
+        placeholders = None
         if user_input is not None:
             # The idle field is only on Fan and idle, and is always submitted
             # there; a page that doesn't show it doesn't check it (the menu's
@@ -3027,6 +3028,8 @@ class MXZOptionsFlow(OptionsFlow):
         other room's record is touched.
         """
         zones, heads = self._zones_and_heads()
+        problem: tuple[str, Any] | None
+        error: str | None
         if problem := head_mode_problem(self.hass, heads):
             error, placeholders = problem
             return self._blocked(error, placeholders)
@@ -3228,7 +3231,7 @@ class MXZOptionsFlow(OptionsFlow):
         if now_dual:
             handoffs[key] = {"seed_range": True}
             return
-        coordinator = getattr(self.config_entry, "runtime_data", None)
+        coordinator: Any = getattr(self.config_entry, "runtime_data", None)
         running = next(
             (z for z in getattr(coordinator, "zones", ()) if z.climate_id == key[1]),
             None,

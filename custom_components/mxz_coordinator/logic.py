@@ -188,7 +188,7 @@ def engage_with_latch(
     neutral: str,
     heat_band: float | None = None,
     cool_band: float | None = None,
-    **call_kwargs,
+    **call_kwargs: Any,
 ) -> str:
     """Per-room engage with run-to-target hysteresis.
 

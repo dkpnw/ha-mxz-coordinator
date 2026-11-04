@@ -9,8 +9,9 @@ the seed tells boost residue from a deliberate hold after a restart.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
@@ -198,7 +199,7 @@ class MXZSwitch(MXZBaseSwitch):
         setattr(self.coordinator, self._key, self._attr_is_on)
         if self._key == KEY_COORDINATOR_ENABLE:
             if restored:
-                self.coordinator._restored_coordinator_on = self._attr_is_on
+                self.coordinator._restored_coordinator_on = cast("bool", self._attr_is_on)
             elif not was_enabled or not self._attr_is_on:
                 self.coordinator._restored_coordinator_on = False
                 self.coordinator._startup_resume.clear()
@@ -273,7 +274,7 @@ class MXZZoneEnableSwitch(MXZBaseSwitch):
 
     def _seed(self, *, restored: bool = False) -> None:
         was_enabled = self._zone.enable
-        self._zone.enable = self._attr_is_on
+        self._zone.enable = cast("bool", self._attr_is_on)
         if self._attr_is_on:
             # Enabled: the plan drives the head again, and the next
             # disablement parks afresh.
@@ -371,7 +372,9 @@ class MXZZoneFanAutoSwitch(
             else:
                 self.coordinator._fan_restore_problem[cid] = "Previous fan hold is missing or malformed."
         self.coordinator._fan_state_writers[cid] = self.async_write_ha_state
-        self.async_on_remove(lambda: self.coordinator._fan_state_writers.pop(cid, None))
+        self.async_on_remove(
+            cast("Callable[[], None]", lambda: self.coordinator._fan_state_writers.pop(cid, None))
+        )
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self._zone.climate_id], self._handle_head_change
@@ -379,7 +382,7 @@ class MXZZoneFanAutoSwitch(
         )
 
     @callback
-    def _handle_head_change(self, _event: Event) -> None:
+    def _handle_head_change(self, _event: Event[Any]) -> None:
         """Refresh availability when the head publishes new capabilities."""
         self.async_write_ha_state()
 
@@ -400,7 +403,7 @@ class MXZZoneFanAutoSwitch(
                 "Current fan speed unavailable; waiting for a head report. "
                 "Fan auto intent is retained; no fan command is sent until speed returns."
             )
-        attributes = {
+        attributes: dict[str, Any] = {
             ATTR_LAST_FAN_COMMAND: last, ATTR_PRIOR_FAN_COMMAND: prior,
             "fan_control_reason": reason,
         }

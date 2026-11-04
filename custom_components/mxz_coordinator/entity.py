@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 
 from .const import DOMAIN
 from .coordinator import MXZCoordinator
+
+if TYPE_CHECKING:
+    from homeassistant.core import State
 
 
 class MXZEntity(Entity):
@@ -38,7 +43,7 @@ class MXZEntity(Entity):
         """
         return self._adds > 1
 
-    def _restored_state_is_stale(self, last_state) -> bool:
+    def _restored_state_is_stale(self, last_state: State | None) -> bool:
         """True if a restored state predates this config entry.
 
         HA keeps restore data for removed entities ~7 days. When an entry is

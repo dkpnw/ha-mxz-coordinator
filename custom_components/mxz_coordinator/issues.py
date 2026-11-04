@@ -174,7 +174,7 @@ class RepairMonitor:
         return event_data["entity_id"] in self._references
 
     @callback
-    def _on_change(self, event: Event) -> None:
+    def _on_change(self, event: Event[Any]) -> None:
         # A rename's registry event names the new ID, and the watched one as old.
         self._evaluate(event.data.get("old_entity_id", event.data["entity_id"]))
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_STATE_CHANGED, STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -14,6 +16,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN
 from .coordinator import MXZCoordinator, Zone
 from .entity import MXZEntity
+
+if TYPE_CHECKING:
+    from homeassistant.core import EventStateChangedData
 
 
 async def async_setup_entry(
@@ -76,7 +81,7 @@ class MXZDriftFollowGlobalButton(MXZEntity, ButtonEntity):
         )
 
     @callback
-    def _is_owner_state(self, data: dict) -> bool:
+    def _is_owner_state(self, data: EventStateChangedData) -> bool:
         """Track the current owner ID, including registry renames."""
         return data["entity_id"] == er.async_get(self.hass).async_get_entity_id(
             "number", DOMAIN, self._drift_unique_id
@@ -107,7 +112,7 @@ class MXZDriftFollowGlobalButton(MXZEntity, ButtonEntity):
         )
 
     @callback
-    def _handle_owner_update(self, _event: Event) -> None:
+    def _handle_owner_update(self, _event: Event[Any]) -> None:
         """Redraw only when the drift number's availability changed."""
         available = self._drift_available()
         if available == self._last_drift_available:

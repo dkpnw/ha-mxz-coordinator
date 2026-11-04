@@ -9,6 +9,7 @@ when it flips the mode, and the user can override it here.
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
@@ -114,7 +115,7 @@ class MXZSharedModeSelect(MXZEntity, SelectEntity, RestoreEntity):
             translation_key=ISSUE_LEGACY_OPTION,
             translation_placeholders={
                 "stored": stored,
-                "current": self._attr_current_option,
+                "current": cast("str", self._attr_current_option),
             },
         )
 

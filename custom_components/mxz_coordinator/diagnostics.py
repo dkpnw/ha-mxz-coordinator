@@ -24,7 +24,7 @@ from dataclasses import fields, is_dataclass
 from datetime import date, datetime, timedelta
 from datetime import time as dt_time
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.components.climate.const import ATTR_HVAC_ACTION
 from homeassistant.components.diagnostics import async_redact_data
@@ -208,7 +208,7 @@ def _finished(document: Any) -> dict[str, Any]:
     keys, found = _find_sensitive(data)
     redacted = async_redact_data(data, TO_REDACT | keys)
     secrets = sorted((s for s in found if len(s) >= _MIN_SWEPT), key=len, reverse=True)
-    return _scrub(redacted, secrets)
+    return cast("dict[str, Any]", _scrub(redacted, secrets))
 
 
 # -- sections ----------------------------------------------------------------

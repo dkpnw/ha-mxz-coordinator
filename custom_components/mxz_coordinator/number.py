@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from homeassistant.components.number import NumberMode, RestoreNumber
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -137,7 +139,7 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
             )
         elif (seed := self._head_setpoint()) is not None:
             self._attr_native_value = seed
-        self._zone.target = self._attr_native_value
+        self._zone.target = cast("float", self._attr_native_value)
 
     def _head_setpoint(self) -> float | None:
         """The head's current setpoint, clamped and snapped to our resolution."""

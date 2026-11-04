@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 DOMAIN = "mxz_coordinator"
 
 # climate is last of the platforms it drives, so the number/switch siblings are
@@ -606,7 +608,7 @@ _UNIT_PROFILE_CELSIUS = {
 }
 
 
-def unit_profile(celsius: bool) -> dict:
+def unit_profile(celsius: bool) -> dict[str, Any]:
     """Return the tunable/resolution profile for the HA system temperature unit."""
     return _UNIT_PROFILE_CELSIUS if celsius else _UNIT_PROFILE_FAHRENHEIT
 
