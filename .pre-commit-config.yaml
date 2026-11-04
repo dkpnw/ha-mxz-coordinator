@@ -1,0 +1,30 @@
+# `pre-commit install` once, then these run on every commit.
+#
+# ruff-format is left out: it would rewrite 123 of the 134 Python files.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: cb8c523fd4835aba42af70f4cad5568db4df0b6c  # frozen: v0.16.0
+    hooks:
+      - id: ruff-check
+        # The same paths CI checks.
+        files: ^(custom_components|tests|tools)/
+  - repo: https://github.com/adrienverge/yamllint
+    rev: cba56bcde1fdd01c1deb3f945e69764c291a6530  # frozen: v1.38.0
+    hooks:
+      - id: yamllint
+        args: [-c, .yamllint]
+  # actionlint-py installs the upstream binary without needing Go on the machine.
+  - repo: https://github.com/Mateusz-Grzelinski/actionlint-py
+    rev: 805f85e558841bf4d852335e036b33d2b26be1cc  # frozen: v1.7.12.25
+    hooks:
+      - id: actionlint
+        args: [-shellcheck=, -ignore, 'label "ubuntu-26.04" is unknown']
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
+    hooks:
+      - id: check-json
+      - id: check-yaml
+      - id: end-of-file-fixer
+        # Two test files end in a blank line; rewriting them is not worth the churn.
+        exclude: ^tests/test_(dry_entity|startup_sensor_warning)\.py$
+      - id: trailing-whitespace

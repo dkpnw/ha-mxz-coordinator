@@ -24,6 +24,7 @@ Out of the box, setting a temperature is all anyone has to do: the defaults shou
 - **Anything that changes how people control MXZ** (the thermostat tile, setpoints, modes, or new controls): please open an issue first so we can talk it through. A PR that changes the controls without an agreed issue will probably be closed.
 - **New tuning options:** welcome. Open an issue first, keep the option off or blank by default, and show that leaving it unset changes nothing.
 - **Tests:** keep the full test suite passing, and add tests for new behavior. Please don't weaken an existing test. [Developer setup](docs/DEVELOPMENT.md) has the tested Home Assistant versions and how to run the suite locally.
+- **Checks:** run `pre-commit install` once, and ruff, yamllint, actionlint, and the basic file checks run on each commit. `pre-commit run --all-files` runs them across the repository.
 - **Hardware:** say in the PR whether you tested on real hardware.
 - **Writing:** MXZ docs, strings, and PR text use plain English and the Oxford comma.
 
