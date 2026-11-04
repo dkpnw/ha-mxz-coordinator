@@ -100,9 +100,9 @@ Chosen because the question is mostly about the order of events (a change, a
 reload, a crash, a clock step, a vote), which suits a model checker, and TLA+
 is the default for that; and because the arbitration is a pure Python
 function with a small finite input space, which suits exhaustive tests on the
-real function. No Python verifier is in the hash-pinned lane locks, so the
-code-level checks are stdlib `itertools` and seeded `random` (no hypothesis;
-do not add requirements).
+real function. Hypothesis is a pinned test dependency (requirements_test.txt and every
+lane lock), so code-level checks use Hypothesis property tests
+(tests/test_properties_*.py) alongside stdlib `itertools` and seeded `random`.
 
 | Tool | Version | sha256 | On this host |
 | --- | --- | --- | --- |
