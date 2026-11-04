@@ -29,7 +29,7 @@ def test_public_bundle_and_exact_three_abi_constraints():
     assert constrained == {"bluetooth-data-tools", "fnv-hash-fast", "ulid-transform"}
     assert len(bundle["core"]["inputs"]) == 24
     assert len(bundle["plugin"]["outputs"]) == 27
-    assert len(bundle["artifacts"]) == 157
+    assert len(bundle["artifacts"]) == 159
     assert len(bundle["build_names"]) == 7
 
 

@@ -26,7 +26,7 @@ jobs:
           python-version: "3.14"
       - name: Exact locked installation
         run: |
-          tools/ci-install.sh requirements/constraints-py314-ha2026.9.4.txt 2a67f9e88088dc84123235134bca6325f7c900a3072fcce835b13cb61cb3a0e6 3.14 > "$RUNNER_TEMP/install.log" 2>&1 || { tail -n 200 "$RUNNER_TEMP/install.log"; exit 1; }
+          tools/ci-install.sh requirements/constraints-py314-ha2026.9.4.txt cf85bc927e5bb618e56290212c27ed49bf0b4b89b523adbe23430cd309e484f3 3.14 > "$RUNNER_TEMP/install.log" 2>&1 || { tail -n 200 "$RUNNER_TEMP/install.log"; exit 1; }
       # pyproject.toml holds what is measured and the floor; below it, pytest exits non-zero.
       - name: Full suite with the coverage floor
         run: |
@@ -46,7 +46,7 @@ jobs:
           python-version: "3.14"
       - name: Exact locked installation
         run: |
-          tools/ci-install.sh requirements/constraints-py314-ha2026.9.4.txt 2a67f9e88088dc84123235134bca6325f7c900a3072fcce835b13cb61cb3a0e6 3.14 > "$RUNNER_TEMP/install.log" 2>&1 || { tail -n 200 "$RUNNER_TEMP/install.log"; exit 1; }
+          tools/ci-install.sh requirements/constraints-py314-ha2026.9.4.txt cf85bc927e5bb618e56290212c27ed49bf0b4b89b523adbe23430cd309e484f3 3.14 > "$RUNNER_TEMP/install.log" 2>&1 || { tail -n 200 "$RUNNER_TEMP/install.log"; exit 1; }
       # Its own environment: tools/check_lock.py holds the lane to exactly its lock.
       - name: Pinned mypy
         run: |

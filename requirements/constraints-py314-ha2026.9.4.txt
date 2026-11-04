@@ -53,6 +53,7 @@ home-assistant-bluetooth==2.0.0
 homeassistant==2026.9.4
 httpcore==1.0.9
 httpx==0.28.1
+hypothesis==6.170.14
 icmplib==3.0.4
 idna==3.20
 ifaddr==0.2.0
@@ -115,6 +116,7 @@ securetar==2026.4.1
 sentence_stream==1.4.0
 six==1.17.0
 snitun==0.47.0
+sortedcontainers==2.4.0
 SQLAlchemy==2.0.52
 standard-aifc==3.13.0
 standard-chunk==3.13.0

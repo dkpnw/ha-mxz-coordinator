@@ -12,7 +12,7 @@ main. The workflow/harness source commit is recorded separately from the exporte
 product commit and tree. Historical old-main comparisons do not validate this candidate.
 
 Both use Python 3.12.14 and the floor lane's HA 2024.12.5 constraints, SHA-256
-`9151214dd98269ab636b9b290b764ad2ad9a214a7972485a308d1a6c59fc88f3`.
+`0c2ad5a8f350dce79ac5466f0e1f8d1c568962517f01fe139a688dca5b7b82de`.
 No product implementation or per-base test helper is overlaid. The harness owns
 its entry data, sensors, head implementations, schedules, and expected outcomes.
 

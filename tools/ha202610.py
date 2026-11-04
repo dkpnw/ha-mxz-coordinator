@@ -77,7 +77,7 @@ def validate_bundle(data):
             "https://github.com/MatthewFlamm/pytest-homeassistant-custom-component.git",
             "wrong source origin")
     rows = data["artifacts"]
-    require(len(rows) == 157 and len({r["name"] for r in rows}) == 157, "incomplete artifact freeze")
+    require(len(rows) == 159 and len({r["name"] for r in rows}) == 159, "incomplete artifact freeze")
     require(PLUGIN not in {r["name"] for r in rows}, "public beta plugin is forbidden")
     for row in rows:
         require(re.fullmatch(r"https://files\.pythonhosted\.org/packages/[A-Za-z0-9/_.+-]+",
@@ -405,7 +405,7 @@ def validate_actual_artifacts(root, data, actual):
     expected = {r["name"]: r for r in data["artifacts"]}
     expected[PLUGIN] = {"version": data["plugin"]["version"], "kind": "generated",
                         "metadata_sha256": data["plugin"]["metadata_sha256"]}
-    require(len(actual) == 158 and {r["name"] for r in actual} == set(expected), "wrong actual artifact set")
+    require(len(actual) == 160 and {r["name"] for r in actual} == set(expected), "wrong actual artifact set")
     for row in actual:
         spec = expected[row["name"]]
         path = Path(row["path"]).resolve()
