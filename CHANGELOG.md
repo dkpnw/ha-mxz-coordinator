@@ -13,6 +13,9 @@ on your equipment.
 - **Tests only:** the Home Assistant test lanes now run the newest patch of each line
   (2024.12.5, 2026.2.3, and 2026.9.4), with their locks regenerated. The minimum is still
   Home Assistant 2024.12.0; the integration itself is unchanged.
+- **Tests only:** Dependabot is now set to ignore every dependency in the test-lane locks
+  in `requirements/`, which GitHub documents as also covering security updates. Other
+  dependencies keep their updates.
 
 ## 3.20.0 (November 3, 2026)
 

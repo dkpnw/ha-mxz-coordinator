@@ -70,8 +70,8 @@ without the central domain and ships its own string; the real 2026.10 frontend r
 it as "Reconfiguration was successful." (README screenshot). The retained floor has
 local `already_configured` fallback text; floor rendering was not captured. Normal RestoreEntity and Voluptuous are exercised;
 HA 2026.11 restore changes are outside this target. If your platform cannot run these
-exact artifacts, use the README's locked local floor recipe and label the result
-2024.12.0. A floor run does not qualify .10.
+exact artifacts, use the locked local floor recipe in `docs/DEVELOPMENT.md` and label the
+result 2024.12.5, the floor lane's version. A floor run does not qualify .10.
 
 `build` and `install` are explicit continuation commands for an already prepared
 owned directory: `build` requires the prepared Python/venv and no plugin clone;

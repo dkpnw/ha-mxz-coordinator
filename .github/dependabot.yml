@@ -22,3 +22,15 @@ updates:
       pip:
         patterns:
           - "*"
+  - package-ecosystem: pip
+    directory: /requirements
+    # Security updates reach these locks too (PR #90, pillow 13). The "/" entry's
+    # exclude-paths does not stop them: GitHub documents it and
+    # open-pull-requests-limit as version-updates only, and ignore as also applying
+    # to security updates for this ecosystem and directory.
+    # requirements/ha2026.10 holds no pip manifest, so it has no entry;
+    # tests/test_dependabot_contract.py fails if a .txt lands in a subdirectory.
+    ignore:
+      - dependency-name: "*"
+    schedule:
+      interval: weekly
