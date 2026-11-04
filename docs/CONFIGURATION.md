@@ -50,7 +50,7 @@ nothing and leave today's behavior unchanged.
 | | *Sensor freshness:* Report interval, Maximum age, Startup grace, Freshness evidence, Sample time attribute, Sample counter attribute | new room: Maximum age 360 min and Every update is a new reading, the rest empty; room from before 3.16.0: empty | See [Choose a sensor freshness contract](#choose-a-sensor-freshness-contract). |
 | | *Freeze floor and overheat ceiling:* Freeze floor / Overheat ceiling | new room: floor 45 °F / 7 °C, ceiling empty; room from before 3.16.0: empty (range 35–65 / 2–18 and 75–100 / 24–38) | See [Freeze floor and overheat ceiling](FEATURES.md#freeze-floor-and-overheat-ceiling). |
 | | *Dual setpoint:* Use separate heat and cool setpoints | off | See [Dual setpoint](FEATURES.md#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint). |
-| | *Cloud or generic head (beta):* Setpoint drive offset | 2 / 1 (range 0–6 / 0–3) | While the room runs, its cloud head gets the target plus this in heat, minus it in cool. 0 sends the bare target. Left at the default, it follows your unit. A value you set is stored with the unit it was set in (`drive_offset_unit`), and after switching Home Assistant between °F and °C it is converted: 4 °F drives by 2.22 °C, and switching back gives 4 °F again. A converted value is held to the new unit's range (6 °F becomes 3 °C). A value saved before this was stored has no unit, so it is read as a number in the unit in use, as before; save the room's page once to record its unit. |
+| | *Cloud or generic head (beta):* Setpoint drive offset | 2 / 1 (range 0–6 / 0–3) | While the room runs, its cloud head gets the target plus this in heat, minus it in cool. 0 sends the bare target. Left at the default, it follows your unit. A value you set is stored with the unit it was set in (`drive_offset_unit`), and after switching Home Assistant between °F and °C it is converted: 4 °F drives by 2.22 °C, and switching back gives 4 °F again. A converted value is held to the new unit's range (6 °F becomes 3 °C). The conversion applies when MXZ next loads, so reload it or restart Home Assistant after a switch. A value saved before this was stored has no unit, so it is read as a number in the unit in use, as before; save the room's page once to record its unit. |
 | | *Cloud or generic head (beta):* Write interval | 60 seconds, 30 for a generic head (range 30–300) | At most one write to the cloud or generic head per this long; a newer change replaces the waiting one. |
 | | *Cloud or generic head (beta):* Confirm wait | 90 seconds, 30 for a generic head (range 30–600) | After a write, how long MXZ waits for the head to report it before sending again. |
 | | *Door/window pause:* Door/window sensor | none | One `binary_sensor` or one group of them; `on` is open. Stored as `opening_entity` only when set. See [Door/window pause](FEATURES.md#doorwindow-pause). |
@@ -72,6 +72,10 @@ The outdoor-unit name and **Notify on drift** service are set in setup and Recon
   [Dual setpoint](FEATURES.md#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint).
 - Units are shown in each number box: temperatures use your HA unit, the mode switch time
   is in seconds, and coil drying and freshness durations are in minutes.
+- After switching Home Assistant between °F and °C, reload MXZ or restart Home Assistant:
+  until then MXZ keeps working in the unit it loaded with. Only a set Setpoint drive offset
+  is converted for you. Check each room's target and re-enter it in the new unit, since it
+  keeps its number and is only held to the new unit's range.
 
 <table>
 <tr>

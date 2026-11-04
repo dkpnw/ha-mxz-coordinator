@@ -25,6 +25,7 @@ from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 from custom_components.mxz_coordinator.const import (
     CONF_IDLE_ACTION,
     HEAD_TYPE_CLOUD,
+    HEAD_TYPE_GENERIC,
     IDLE_ACTION_OFF,
     ZONE_CONFIRM_WAIT,
     ZONE_DRIVE_OFFSET,
@@ -138,6 +139,77 @@ async def test_a_set_offset_drives_in_the_unit_in_use(
     await _driven(hass, entry, SENSORS[0], room)
     assert ("set_temperature", {"temperature": sent}) in writes(calls, heads[0].entity_id)
     assert heads[0].device["temperature"] == sent
+
+
+# What each step below needs in its unit: the room's sensor and its target.
+_ROOM_AND_TARGET = {"°C": (18, 21), "°F": (60, 70)}
+
+
+@pytest.mark.parametrize(
+    ("head_type", "set_in", "offset", "steps"),
+    [
+        # 4 °F: 2.22 °C past 21 °C is 23 on the head's 0.5 °C grid. 4 °F past
+        # 70 °F is 23.33 °C, 23.5 on that grid, 74.3 °F. Twice in °C: each load
+        # converts what is stored, never its last result (1.23 °C would send 22).
+        (HEAD_TYPE_CLOUD, "°F", 4.0, (
+            (METRIC_SYSTEM, 2.22, 23.0, 23.0),
+            (METRIC_SYSTEM, 2.22, 23.0, 23.0),
+            (US_CUSTOMARY_SYSTEM, 4.0, 74.3, 23.5),
+            (METRIC_SYSTEM, 2.22, 23.0, 23.0),
+        )),
+        # 2.5 °C is 4.5 °F: 74.5 °F is 23.61 °C, 23.5 on the grid, 74.3 °F.
+        # Back in °C, the number it was set as.
+        (HEAD_TYPE_CLOUD, "°C", 2.5, (
+            (US_CUSTOMARY_SYSTEM, 4.5, 74.3, 23.5),
+            (US_CUSTOMARY_SYSTEM, 4.5, 74.3, 23.5),
+            (METRIC_SYSTEM, 2.5, 23.5, 23.5),
+            (US_CUSTOMARY_SYSTEM, 4.5, 74.3, 23.5),
+        )),
+        (HEAD_TYPE_GENERIC, "°F", 4.0, (
+            (METRIC_SYSTEM, 2.22, 23.0, 23.0),
+            (US_CUSTOMARY_SYSTEM, 4.0, 74.3, 23.5),
+        )),
+    ],
+)
+async def test_a_set_offset_stays_right_over_repeated_switches(
+    hass: HomeAssistant, head_type: str, set_in: str, offset: float, steps: tuple,
+) -> None:
+    """Cloud review NIT 4: each load drives the head by the offset converted
+    from what was stored, in either direction, however many loads and
+    switches come between, and the stored offset and its unit never change.
+
+    The target is set again at each step because a switch doesn't convert it;
+    this test is only about the offset."""
+    hass.config.units = steps[0][0]
+    heads = [MelcloudHead("a", mode="fan_only"), MelcloudHead("b", mode="fan_only")]
+    head = heads[0]
+    await register(hass, {MELCLOUD: heads})
+    stored = {ZONE_DRIVE_OFFSET: offset, ZONE_DRIVE_OFFSET_UNIT: set_in}
+    entry = await setup_rooms(hass, [
+        (head, {ZONE_HEAD_TYPE: head_type, **stored}),
+        (heads[1], {ZONE_HEAD_TYPE: head_type}),
+    ])
+    for units, shown, sent, landed in steps:
+        room, target = _ROOM_AND_TARGET[units.temperature_unit]
+        hass.config.units = units
+        await set_room(hass, SENSORS[0], room)
+        await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+        # Inside the new coordinator's startup wait, which holds every write.
+        head.device.update(mode="fan_only", temperature=15.0)  # so each step writes
+        head.poll()
+        await hass.services.async_call(
+            "number", "set_value",
+            {"entity_id": _eid(hass, entry, "_primary_target"), "value": target}, blocking=True,
+        )
+        await hass.async_block_till_done()
+        calls = record(hass)
+        await past_startup(hass, entry)
+        assert row(hass, entry, 0)["drive_offset"] == shown
+        assert ("set_temperature", {"temperature": sent}) in writes(calls, head.entity_id)
+        assert head.device["temperature"] == pytest.approx(landed)
+        zone = entry.data["zones"][0]
+        assert {key: zone[key] for key in stored} == stored
 
 
 @pytest.mark.parametrize(
@@ -565,6 +637,129 @@ async def test_a_fan_pick_inside_a_setpoint_only_wait_is_read_then(
     await recompute(hass, entry)
     assert [w for w in sent()[2:] if w[0] == "set_fan_mode"] == []
     assert a.device["fan"] == "high"
+
+
+async def _setpoint_only_wait_on_an_unconfirmed_fan(hass: HomeAssistant):
+    """A long confirm wait: the wake batch sends mode, setpoint, and low (the
+    startup wait aged the step limit past due). 100 s in, inside that wait, a
+    new target sends 74.0 alone, so the low was never confirmed. The next step
+    is due 200 s later, with 500 s of the setpoint batch's wait still to run."""
+    a, _b, entry = await _comfort_pair(hass, extra={ZONE_CONFIRM_WAIT: 600})
+    await past_startup(hass, entry)
+    calls = record(hass)
+
+    def sent() -> list[tuple[str, Any]]:
+        return [(w[0], next(iter(w[1].values()))) for w in writes(calls, a.entity_id)]
+
+    await _driven(hass, entry, SENSORS[0], 60)
+    assert sent() == [
+        ("set_hvac_mode", "heat"), ("set_temperature", 72.0), ("set_fan_mode", "low"),
+    ]
+    past_window(entry, a.entity_id, 100)
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": _eid(hass, entry, "_primary_target"), "value": 72}, blocking=True,
+    )
+    await hass.async_block_till_done()
+    await recompute(hass, entry)
+    assert sent()[3:] == [("set_temperature", 74.0)]  # no fan
+    assert row(hass, entry, 0)["cloud_status"] == "pending"
+    return a, entry, sent
+
+
+async def test_a_fan_step_after_an_unconfirmed_fan_goes_out_inside_the_wait(
+    hass: HomeAssistant,
+) -> None:
+    """Cloud review NIT 3, when the last fan batch was never confirmed: the
+    speed that batch sent is the head's current one, not an older state, so
+    the fan is still decided. The step limit still holds."""
+    a, entry, sent = await _setpoint_only_wait_on_an_unconfirmed_fan(hass)
+    past_window(entry, a.entity_id, 190)  # 10 s before the step: not yet
+    await recompute(hass, entry)
+    assert sent()[4:] == []
+    past_window(entry, a.entity_id, 10)  # the step is due
+    await recompute(hass, entry)
+    assert sent()[4:] == [("set_fan_mode", "medium")]  # the fan alone
+    assert a.device == {"mode": "heat", "temperature": 74.0, "fan": "medium"}
+    assert row(hass, entry, 0)["fan_hold"] is False
+
+
+async def test_a_fan_pick_after_an_unconfirmed_fan_survives_the_wait(
+    hass: HomeAssistant,
+) -> None:
+    """A speed someone picks in that same wait is held at once, and MXZ never
+    writes over it, though the step that went out in the test above comes due."""
+    a, entry, sent = await _setpoint_only_wait_on_an_unconfirmed_fan(hass)
+    a.device["fan"] = "high"
+    a.poll()
+    await hass.async_block_till_done()
+    await recompute(hass, entry)
+    assert row(hass, entry, 0)["cloud_status"] == "pending"
+    assert row(hass, entry, 0)["fan_hold"] is True
+    past_window(entry, a.entity_id, 200)  # the step would be due
+    await recompute(hass, entry)
+    past_window(entry, a.entity_id, 600)  # past the wait and more steps
+    await recompute(hass, entry)
+    assert sent()[4:] == []
+    assert a.device == {"mode": "heat", "temperature": 74.0, "fan": "high"}
+    assert row(hass, entry, 0)["fan_hold"] is True
+
+
+async def test_a_late_report_of_the_replaced_fan_is_still_stale_in_the_wait(
+    hass: HomeAssistant,
+) -> None:
+    """Negative for the two tests above: only the last fan sent is spared. A
+    late poll of the fan it replaced, inside the wait, is no pick and decides
+    nothing, even with a step due."""
+    a, entry, sent = await _setpoint_only_wait_on_an_unconfirmed_fan(hass)
+    a.report(fan="auto")
+    await hass.async_block_till_done()
+    past_window(entry, a.entity_id, 200)  # the step would be due
+    await recompute(hass, entry)
+    assert row(hass, entry, 0)["cloud_status"] == "pending"
+    assert row(hass, entry, 0)["fan_hold"] is False
+    assert sent()[4:] == []
+    assert a.device["fan"] == "low"
+
+
+@pytest.mark.parametrize(
+    ("room", "first", "target", "second"),
+    [
+        (60, 72.0, 72, 74.0),  # heat: target + 2
+        (80, 68.0, 68, 66.0),  # cool: target - 2
+    ],
+)
+async def test_a_held_fan_survives_a_new_setpoint(
+    hass: HomeAssistant, room: float, first: float, target: float, second: float,
+) -> None:
+    """A speed held before a setpoint-only batch stays held through its wait
+    and after it: the setpoint goes out, no fan does."""
+    a, _b, entry = await _comfort_pair(hass)
+    await past_startup(hass, entry)
+    await _driven(hass, entry, SENSORS[0], room)
+    a.device["fan"] = "high"
+    a.poll()
+    await hass.async_block_till_done()
+    past_window(entry, a.entity_id)
+    await recompute(hass, entry)
+    assert row(hass, entry, 0)["fan_hold"] is True
+    assert a.device["temperature"] == first
+    calls = record(hass)
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": _eid(hass, entry, "_primary_target"), "value": target}, blocking=True,
+    )
+    await hass.async_block_till_done()
+    await recompute(hass, entry)
+    assert writes(calls, a.entity_id) == [("set_temperature", {"temperature": second})]
+    assert row(hass, entry, 0)["cloud_status"] == "pending"
+    past_window(entry, a.entity_id, 60)  # the write interval is over, the wait isn't
+    await recompute(hass, entry)
+    past_window(entry, a.entity_id, 600)  # well past the wait and several steps
+    await recompute(hass, entry)
+    assert writes(calls, a.entity_id) == [("set_temperature", {"temperature": second})]
+    assert a.device["fan"] == "high"
+    assert row(hass, entry, 0)["fan_hold"] is True
 
 
 async def test_an_off_batch_with_no_fan_sends_no_fan_after_the_off(

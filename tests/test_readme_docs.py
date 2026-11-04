@@ -9,6 +9,9 @@
   here with its source.
 - CHANGELOG 3.10.0 says CONTRIBUTING.md replaced "3.9.0's stance"; the 3.9.0 notes
   must state that stance.
+- Every issue form has what GitHub requires, and the generic head report asks for what
+  a report needs. Tested by users lists only reports with a public GitHub link.
+- RELEASING.md states the release cadence, and its step references point at the right steps.
 """
 
 import json
@@ -16,6 +19,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOM_STEP = json.loads(
     Path("custom_components/mxz_coordinator/strings.json").read_text()
@@ -192,3 +196,150 @@ def test_changelog_notes_this_under_unreleased_with_no_version_of_its_own() -> N
     unreleased = changelog.split("## Unreleased", 1)[1].split("\n## ", 1)[0]
     assert "Download diagnostics" in unreleased
     assert "repair" in unreleased
+
+
+ISSUE_FORMS = sorted(
+    path for path in Path(".github/ISSUE_TEMPLATE").glob("*.yml") if path.name != "config.yml"
+)
+GENERIC_REPORT = Path(".github/ISSUE_TEMPLATE/generic-head-report.yml")
+GENERIC_REPORT_REQUIRED = {
+    "brand", "model", "integration", "ha_version", "mxz_version", "worked", "did_not_work",
+}
+
+
+def _form_problems(form: dict) -> list[str]:
+    """What GitHub's issue form schema would refuse in one form."""
+    problems = [key for key in ("name", "description", "body") if not form.get(key)]
+    fields = [item for item in form.get("body") or [] if item.get("type") != "markdown"]
+    ids = [item.get("id") for item in fields]
+    if not fields:
+        problems.append("no input field")
+    if len(ids) != len(set(ids)):
+        problems.append("duplicate id")
+    problems += [
+        f"no label: {item.get('id')}" for item in fields
+        if not item.get("attributes", {}).get("label")
+    ]
+    return problems
+
+
+def _generic_report_gaps(form: dict) -> list[str]:
+    """The fields a generic head report must require and doesn't."""
+    required = {
+        item.get("id") for item in form["body"]
+        if item.get("validations", {}).get("required") is True
+    }
+    return sorted(GENERIC_REPORT_REQUIRED - required)
+
+
+def test_there_are_issue_forms_to_check() -> None:
+    assert {path.name for path in ISSUE_FORMS} >= {
+        "bug_report.yml", "cloud_beta_report.yml", GENERIC_REPORT.name,
+    }
+
+
+@pytest.mark.parametrize("path", ISSUE_FORMS, ids=lambda path: path.name)
+def test_issue_form_has_what_github_requires(path: Path) -> None:
+    assert _form_problems(yaml.safe_load(path.read_text())) == []
+
+
+def test_form_check_reports_a_broken_form() -> None:
+    """Negative: the check above can fail."""
+    field = {"type": "input", "id": "a", "attributes": {"label": "A"}}
+    good = {"name": "n", "description": "d", "body": [field]}
+    assert _form_problems(good) == []
+    assert _form_problems({**good, "description": ""}) == ["description"]
+    assert _form_problems({**good, "body": [field, field]}) == ["duplicate id"]
+    assert _form_problems({**good, "body": [{"type": "input", "id": "a"}]}) == ["no label: a"]
+    assert "no input field" in _form_problems({**good, "body": [{"type": "markdown"}]})
+
+
+def test_generic_head_report_asks_for_what_a_report_needs() -> None:
+    form = yaml.safe_load(GENERIC_REPORT.read_text())
+    assert _generic_report_gaps(form) == []
+    field = next(item for item in form["body"] if item.get("id") == "diagnostics_file")
+    description = field["attributes"]["description"]
+    assert "Download diagnostics" in description
+    assert "Review it before you post it" in description
+    assert "#download-diagnostics-for-a-bug-report" in description
+
+
+def test_generic_report_check_reports_a_dropped_field() -> None:
+    """Negative: a field gone, or no longer required, is reported."""
+    form = yaml.safe_load(GENERIC_REPORT.read_text())
+    dropped = {"body": [item for item in form["body"] if item.get("id") != "brand"]}
+    assert _generic_report_gaps(dropped) == ["brand"]
+    optional = yaml.safe_load(GENERIC_REPORT.read_text())
+    for item in optional["body"]:
+        if item.get("id") == "model":
+            item["validations"]["required"] = False
+    assert _generic_report_gaps(optional) == ["model"]
+
+
+def _tested_by_users(features: str) -> str:
+    return features.split("### Tested by users", 1)[1].split("\n## ", 1)[0]
+
+
+def _reports_without_a_public_link(section: str) -> list[str]:
+    """List rows that don't link to a public issue or discussion of this repository."""
+    public = r"https://github\.com/dkpnw/ha-mxz-coordinator/(issues|discussions)/\d+"
+    return [
+        line for line in section.splitlines()
+        if line.startswith(("- ", "* ", "| ")) and not re.search(public, line)
+    ]
+
+
+def test_tested_by_users_is_honest_and_generic_heads_stay_beta() -> None:
+    features = Path("docs/FEATURES.md").read_text()
+    section = _tested_by_users(features)
+    listed = [line for line in section.splitlines() if line.startswith(("- ", "* ", "| "))]
+    # Empty says so; one verified report would replace the line.
+    assert ("None verified yet." in section) == (not listed)
+    assert _reports_without_a_public_link(section) == []
+    assert f"template={GENERIC_REPORT.name}" in section
+    assert "## Generic heads (beta)" in features
+    readme = Path("README.md").read_text()
+    assert "## Generic heads (beta)" in readme
+    assert f"template={GENERIC_REPORT.name}" in readme
+    assert "docs/FEATURES.md#tested-by-users" in readme
+
+
+def test_tested_by_users_check_reports_an_unverifiable_row() -> None:
+    """Negative: a row with no public link, or a link elsewhere, is reported."""
+    good = "- Acme X1 ([#7](https://github.com/dkpnw/ha-mxz-coordinator/issues/7))"
+    assert _reports_without_a_public_link(f"Intro.\n\n{good}\n") == []
+    for row in ("- Acme X1, works great", "- Acme X1 ([post](https://example.com/issues/7))"):
+        assert _reports_without_a_public_link(f"{good}\n{row}\n") == [row]
+
+
+def _release_step(releasing: str, number: int) -> str:
+    """The text of one numbered step in RELEASING.md's release order."""
+    match = re.search(
+        rf"^{number}\. (.*?)(?=^\d+\. |^## )", releasing, flags=re.MULTILINE | re.DOTALL
+    )
+    assert match, f"no step {number}"
+    return match.group(1)
+
+
+def test_release_cadence_policy_is_stated_and_its_steps_line_up() -> None:
+    releasing = Path("docs/RELEASING.md").read_text()
+    cadence = releasing.split("## Release cadence", 1)[1].split("\n## ", 1)[0]
+    assert "Batch releases" in cadence
+    assert "not one release per merge" in cadence
+    assert "GitHub pre-releases" in cadence
+    assert "house hardware check on the Mitsubishi" in " ".join(cadence.split())
+    assert "one-tap OK" in cadence
+    assert "--prerelease` (step 8)" in cadence
+    assert "(step 6)" in cadence
+    assert "House hardware check and owner's OK" in _release_step(releasing, 6)
+    assert "**Tag.**" in _release_step(releasing, 7)
+    publish = _release_step(releasing, 8)
+    assert "**Publish.**" in publish
+    assert "--prerelease" in publish
+
+
+def test_release_step_finder_rejects_a_missing_step() -> None:
+    """Negative: a step that isn't there fails, and steps don't run together."""
+    with pytest.raises(AssertionError):
+        _release_step("1. One\n", 2)
+    assert _release_step("1. One\n2. Two\n\n## Next\n", 1) == "One\n"

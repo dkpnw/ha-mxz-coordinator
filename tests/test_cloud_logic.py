@@ -131,6 +131,33 @@ def test_a_confirmed_intent_clears_the_older_states() -> None:
     assert "heat" not in head.older_modes
 
 
+def test_a_batch_with_no_fan_keeps_an_unconfirmed_fan_current() -> None:
+    """Cloud review NIT 3: the last fan sent stays what the head should show
+    until a batch sends another, confirmed or not."""
+    head = _head()
+    head.sent(2000.0, ("heat", 72.0, "low"), "fan_only", "auto")
+    head.sent(2070.0, ("heat", 74.0, None), "heat", "low")
+    assert not head.stale(2080.0, fan="low")
+    # The fan that batch replaced is still older: only the current one is spared.
+    assert head.stale(2080.0, fan="auto")
+    assert head.older_fans == {"auto"}
+    # Negative: a later fan makes it older, though the head never showed it.
+    head.sent(2150.0, ("heat", 74.0, "medium"), "heat", "auto")
+    assert head.stale(2160.0, fan="low")
+    assert not head.stale(2160.0, fan="medium")
+    assert head.older_fans == {"auto", "low"}
+
+
+def test_a_confirmation_forgets_the_last_fan() -> None:
+    head = _head()
+    head.sent(2000.0, ("heat", 72.0, "low"), "fan_only", "auto")
+    head.confirmed = True
+    head.sent(2200.0, ("heat", 74.0, None), "heat", "low")
+    head.sent(2300.0, ("heat", 74.0, "medium"), "heat", None)
+    # "low" was seen and confirmed, so no later batch can make it a late report.
+    assert head.older_fans == set()
+
+
 def test_write_interval_slot() -> None:
     head = _head()
     assert head.wait_for_slot(1000.0) == 0.0  # nothing sent yet
