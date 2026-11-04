@@ -25,9 +25,9 @@ fixture. Launching means choosing a Python environment that has the test
 requirements:
 
 - On this host, the five lanes are ready-made:
-  `/root/mxz-work/lanes/{py312-ha2024.12.0,py313-ha2026.2.3,py314-ha2026.9.0,py314-ha2026.10.4,py314-ha2026.11dev}/bin/python`.
+  `/root/mxz-work/lanes/{py312-ha2024.12.5,py313-ha2026.2.3-r1103,py314-ha2026.9.4,py314-ha2026.10.4,py314-ha2026.11dev}/bin/python`.
   `py314-ha2026.10.4` is the default to use.
-- Anywhere else, build a venv per `docs/DEVELOPMENT.md` (the 2024.12.0 floor
+- Anywhere else, build a venv per `docs/DEVELOPMENT.md` (the 2024.12.5 floor
   recipe there, or the lock for your lane) and use its `bin/python`.
 
 Then, from anywhere:
