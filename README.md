@@ -543,6 +543,9 @@ to [choose a sensor freshness contract](docs/CONFIGURATION.md#choose-a-sensor-fr
 [diagnosing a waiting room](docs/TROUBLESHOOTING.md#diagnose-a-room-that-is-waiting),
 with what every plan attribute means, and the [FAQ](docs/TROUBLESHOOTING.md#faq).
 
+Questions, ideas or a setup to show off? Use [GitHub Discussions](https://github.com/dkpnw/ha-mxz-coordinator/discussions).
+Bugs go in [issues](https://github.com/dkpnw/ha-mxz-coordinator/issues). Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ### Repair issues
 
 MXZ raises a repair issue in **Settings → System → Repairs** when something it was set up
