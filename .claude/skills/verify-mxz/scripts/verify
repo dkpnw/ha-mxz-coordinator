@@ -62,7 +62,7 @@ def dist(*names):
             pass
     return "MISSING"
 
-plugin = dist("pytest-homeassistant-custom-component", "pytest-home-assistant")
+plugin = dist("pytest-homeassistant-custom-component", "pytest-homeassistant", "pytest-home-assistant")
 manifest = json.loads(Path("custom_components/mxz_coordinator/manifest.json").read_text())
 print(f"python        {sys.version.split()[0]}  ({sys.argv[1]})")
 print(f"homeassistant {ha.__version__}")
@@ -71,7 +71,7 @@ print(f"pytest        {dist('pytest')}")
 print(f"integration   {manifest['domain']} {manifest['version']} (manifest)")
 problems = []
 if plugin == "MISSING":
-    problems.append("pytest-homeassistant-custom-component is not installed")
+    problems.append("no known Home Assistant pytest plugin is installed")
 lane = re.search(r"/py(\d)(\d+)-ha([0-9.]+?)(dev)?/bin/", sys.argv[1])
 if lane:
     want_py = f"{lane[1]}.{lane[2]}"

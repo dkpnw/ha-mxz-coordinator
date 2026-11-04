@@ -63,18 +63,26 @@ def trace(event, **values):
     print("ISSUE25 " + json.dumps({"event": event, **values}, default=str, sort_keys=True))
 
 
-def _test_plugin():
-    """The installed Home Assistant pytest plugin and its helper module.
+# The tests import through pytest_homeassistant_custom_component, so that plugin
+# comes first where it is installed. Home Assistant ships its own plugin for cores
+# the custom-component one no longer follows: pytest-homeassistant, named
+# pytest-home-assistant before 2026.11.0b4, both with the same module.
+_TEST_PLUGINS = (
+    ("pytest-homeassistant-custom-component", "pytest_homeassistant_custom_component/common.py"),
+    ("pytest-homeassistant", "pytest_homeassistant/common.py"),
+    ("pytest-home-assistant", "pytest_homeassistant/common.py"),
+)
 
-    Home Assistant 2026.11 ships its own plugin, pytest-home-assistant, for cores
-    that pytest-homeassistant-custom-component no longer follows. With neither
-    installed, dependency_provenance's distribution() call raises, as before.
-    """
-    try:
-        distribution("pytest-homeassistant-custom-component")
-    except PackageNotFoundError:
-        return "pytest-home-assistant", "pytest_homeassistant/common.py"
-    return "pytest-homeassistant-custom-component", "pytest_homeassistant_custom_component/common.py"
+
+def _test_plugin():
+    """The installed Home Assistant pytest plugin and its helper module."""
+    for plugin, helpers in _TEST_PLUGINS:
+        try:
+            distribution(plugin)
+        except PackageNotFoundError:
+            continue
+        return plugin, helpers
+    raise PackageNotFoundError(" or ".join(plugin for plugin, _ in _TEST_PLUGINS))
 
 
 def dependency_provenance():

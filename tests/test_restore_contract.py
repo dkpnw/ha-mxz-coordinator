@@ -1,15 +1,19 @@
 """Actual pinned restore/platform contracts, inside the ordinary locked suites."""
 
 import asyncio
+import hashlib
 import json
 from contextlib import ExitStack
 from copy import deepcopy
 from datetime import datetime, timezone
+from importlib.metadata import Distribution, PackageNotFoundError, distribution
+from pathlib import Path
 
 import pytest
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers import restore_state as rs
 from homeassistant.setup import async_setup_component
+from pytest_homeassistant_custom_component import common as plugin_common
 from pytest_homeassistant_custom_component.common import (
     MockModule,
     MockPlatform,
@@ -18,6 +22,7 @@ from pytest_homeassistant_custom_component.common import (
     mock_platform,
 )
 
+from tools.issue25 import test_restore as harness
 from tools.issue25.test_restore import (
     LifecycleReads,
     dependency_provenance,
@@ -165,3 +170,101 @@ async def test_platform_add_failure_is_unknown_after_real_getter(hass, hass_stor
               companion_complete=good.finished, rejected="UNKNOWN")
     finally:
         await remove_owned(hass, [good, bad])
+
+
+# Provenance over invented installs: real dist-info directories on disk, found by
+# importlib.metadata's own discovery, so name matching is the library's and not ours.
+# The names and paths are written out here on purpose, from what these lanes hold:
+# the tuple in the harness must not be its own oracle.
+HA_FILES = ("homeassistant/helpers/restore_state.py",
+            "homeassistant/helpers/storage.py",
+            "homeassistant/helpers/entity_platform.py")
+CUSTOM = "pytest-homeassistant-custom-component"
+CUSTOM_HELPER = "pytest_homeassistant_custom_component/common.py"
+OFFICIAL_HELPER = "pytest_homeassistant/common.py"
+KNOWN_PLUGINS = [(CUSTOM, CUSTOM_HELPER),
+                 ("pytest-homeassistant", OFFICIAL_HELPER),
+                 ("pytest-home-assistant", OFFICIAL_HELPER)]
+
+
+def invented_body(package, path):
+    return f"invented {package} {path}\n".encode()
+
+
+def install(root, package, paths=()):
+    info = root / f"{package.replace('-', '_')}-1.2.3.dist-info"
+    info.mkdir()
+    (info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {package}\nVersion: 1.2.3\n")
+    for path in paths:
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(invented_body(package, path))
+
+
+@pytest.fixture
+def site(tmp_path, monkeypatch):
+    """An empty site-packages holding only an invented Home Assistant."""
+    def lookup(name):
+        found = next(iter(Distribution.discover(name=name, path=[str(tmp_path)])), None)
+        if found is None:
+            raise PackageNotFoundError(name)
+        return found
+
+    install(tmp_path, "homeassistant", HA_FILES)
+    monkeypatch.setattr(harness, "distribution", lookup)
+    return tmp_path
+
+
+def provenance_traces(capsys):
+    lines = capsys.readouterr().out.splitlines()
+    events = [json.loads(line.partition("ISSUE25 ")[2]) for line in lines if line.startswith("ISSUE25 ")]
+    return [e for e in events if e["event"] == "dependency-file"]
+
+
+def expected_trace(package, path):
+    return {"event": "dependency-file", "package": package, "version": "1.2.3", "path": path,
+            "sha256": hashlib.sha256(invented_body(package, path)).hexdigest()}
+
+
+@pytest.mark.parametrize(("plugin", "helper"), KNOWN_PLUGINS)
+def test_provenance_hashes_each_known_plugin_installed_alone(site, capsys, plugin, helper):
+    install(site, plugin, [helper])
+    dependency_provenance()
+    assert provenance_traces(capsys) == [
+        *(expected_trace("homeassistant", path) for path in HA_FILES),
+        expected_trace(plugin, helper),
+    ]
+
+
+@pytest.mark.parametrize(("official", "helper"), KNOWN_PLUGINS[1:])
+def test_provenance_prefers_the_plugin_the_tests_import(site, capsys, official, helper):
+    install(site, official, [helper])
+    install(site, CUSTOM, [CUSTOM_HELPER])
+    dependency_provenance()
+    assert provenance_traces(capsys)[-1] == expected_trace(CUSTOM, CUSTOM_HELPER)
+
+
+def test_provenance_fails_loudly_with_no_known_plugin(site, capsys):
+    install(site, "pytest-homeassistant-lookalike", [OFFICIAL_HELPER])
+    with pytest.raises(PackageNotFoundError) as caught:
+        dependency_provenance()
+    for plugin, _ in KNOWN_PLUGINS:
+        assert plugin in str(caught.value)
+    assert provenance_traces(capsys) == []
+
+
+@pytest.mark.parametrize(("plugin", "helper"), KNOWN_PLUGINS)
+def test_provenance_fails_loudly_when_metadata_has_no_helper_file(site, capsys, plugin, helper):
+    install(site, plugin)
+    with pytest.raises(FileNotFoundError) as caught:
+        dependency_provenance()
+    assert Path(caught.value.filename) == site / helper
+    assert [t["package"] for t in provenance_traces(capsys)] == ["homeassistant"] * len(HA_FILES)
+
+
+def test_provenance_binds_to_the_helpers_this_lane_runs(capsys):
+    dependency_provenance()
+    plugin = provenance_traces(capsys)[-1]
+    bound = Path(distribution(plugin["package"]).locate_file(plugin["path"])).resolve()
+    assert bound == Path(plugin_common.__file__).resolve()
+    assert plugin["sha256"] == hashlib.sha256(bound.read_bytes()).hexdigest()

@@ -22,6 +22,10 @@ on your equipment.
 - **Tests only:** Dependabot is now set to ignore every dependency in the test-lane locks
   in `requirements/`, which GitHub documents as also covering security updates. Other
   dependencies keep their updates.
+- **Tests only:** the restore-contract check of which test files are installed now finds
+  Home Assistant's own pytest plugin under its new name, `pytest-homeassistant` (2026.11.0b4
+  and later), as well as its older name and `pytest-homeassistant-custom-component`. With
+  none of them installed it still fails. The integration itself is unchanged.
 
 ## 3.20.0 (November 3, 2026)
 
