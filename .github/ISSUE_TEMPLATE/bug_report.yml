@@ -42,9 +42,17 @@ body:
     validations:
       required: true
   - type: textarea
+    id: diagnostics_file
+    attributes:
+      label: Diagnostics file
+      description: |
+        Attach the file here, downloaded at or near the time it happened: Settings → Devices & services → MXZ Coordinator → ⋮ → Download diagnostics. Secrets are removed for you, but room names and entity IDs stay, so look it over first ([what is removed](https://github.com/dkpnw/ha-mxz-coordinator#download-diagnostics-for-a-bug-report)). On 3.20.0 or older there is no download yet: say so, and fill in the plan sensor attributes below.
+    validations:
+      required: false
+  - type: textarea
     id: diagnostics
     attributes:
-      label: Diagnostics (plan sensor attributes)
+      label: Plan sensor attributes
       description: Developer tools → States → sensor.*_plan → attributes, copied at or near the time it happened.
       render: yaml
     validations:

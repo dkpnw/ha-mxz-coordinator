@@ -691,6 +691,18 @@
     "generic_head_unresponsive": {
       "title": "Generic head {head} is not responding (beta)",
       "description": "MXZ's generic head {head} ({room}) has been unavailable for {minutes} minutes. MXZ sends it nothing, and {room}'s call for heat or cool no longer counts toward the shared mode, unless its Safety priority sensor is on. Check the head's integration and its connection. This clears by itself once the head is available again."
+    },
+    "head_unavailable": {
+      "title": "Head {entity} is missing or unavailable",
+      "description": "{entity} has been missing or unavailable for at least {minutes} minutes. MXZ uses it for: {uses}. Check the head's integration and its connection. If you renamed, disabled, or replaced the entity, use Reconfigure on MXZ Coordinator to pick the one it should use now. This notice changes nothing about how MXZ runs, and it clears by itself once the head is available again."
+    },
+    "sensor_missing": {
+      "title": "Room sensor {entity} is missing",
+      "description": "{entity} has been missing from Home Assistant for at least {minutes} minutes. MXZ uses it for: {uses}. Check that its integration is loaded and that the entity is enabled. If you renamed or replaced it, pick the current one: a temperature sensor in Reconfigure on MXZ Coordinator, or a door or window sensor in Configure → Rooms → the room → Door/window pause. This notice changes nothing about how MXZ runs, and it clears by itself once the sensor is back."
+    },
+    "entity_deleted": {
+      "title": "{entity} no longer exists",
+      "description": "MXZ Coordinator is set up to use {entity}, but that entity was deleted or renamed and has been gone for at least {minutes} minutes. MXZ uses it for: {uses}. Pick the current entity, or clear the setting: heads and temperature sensors are in Reconfigure on MXZ Coordinator, and everything else is in Configure. This notice changes nothing about how MXZ runs, and it clears by itself once the entity is back."
     }
   },
   "entity": {

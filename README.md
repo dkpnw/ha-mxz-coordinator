@@ -543,6 +543,44 @@ to [choose a sensor freshness contract](docs/CONFIGURATION.md#choose-a-sensor-fr
 [diagnosing a waiting room](docs/TROUBLESHOOTING.md#diagnose-a-room-that-is-waiting),
 with what every plan attribute means, and the [FAQ](docs/TROUBLESHOOTING.md#faq).
 
+### Repair issues
+
+MXZ raises a repair issue in **Settings → System → Repairs** when something it was set up
+with has gone and stayed gone. Each one must last 15 minutes without a break, so a blip or
+a head that keeps dropping out and coming back raises nothing, and each clears by itself
+when the fault does. Issues only inform you: they change nothing about how MXZ runs.
+
+| Issue | What it means | What to do |
+| --- | --- | --- |
+| **Head is missing or unavailable** | The head has no state, or reads unavailable. | Check the head's integration and connection. If you renamed, disabled, or replaced it, pick the current one in Reconfigure. |
+| **Room sensor is missing** | A room's temperature sensor, or the door or window sensor of a room with the pause on, has no state. A sensor that is only unavailable or unknown is not missing: see the room's `sensor_health`. | Check that its integration is loaded and the entity is enabled. If you renamed or replaced it, pick the current one (temperature sensor: Reconfigure; door or window sensor: Configure → Rooms → the room → **Door/window pause**). |
+| **Entity no longer exists** | Any entity MXZ is set up to use, such as a vane or a Safety priority sensor, was deleted or renamed. | Pick the current entity or clear the setting (heads and temperature sensors: Reconfigure; everything else: Configure). |
+
+Cloud and generic heads keep their own "not responding" issue instead of the first row.
+Restarting Home Assistant or reloading MXZ clears these issues and starts the 15 minutes
+again, so one that still applies comes back after that wait.
+
+### Download diagnostics for a bug report
+
+Attach a diagnostics file to a [bug report](https://github.com/dkpnw/ha-mxz-coordinator/issues/new?template=bug_report.yml).
+Download it while the problem is happening, or as soon after as you can, because most of
+what it holds is MXZ's state at that moment.
+
+Go to **Settings → Devices & services → MXZ Coordinator**, open the ⋮ menu on the entry,
+and choose **Download diagnostics**. The device page's ⋮ menu has the same download. This
+needs a version newer than 3.20.0.
+
+The file has your MXZ settings and, for each room, the head's mode and capabilities, votes,
+holds, manual fan picks, door or window pause, mode-change wait, sensor health, and the last
+decision with its reasons and times. If one part can't be read, it says why and the rest
+still downloads.
+
+- **Removed:** tokens, passwords, API keys, user names, e-mail addresses, MAC addresses,
+  serial numbers, IP addresses, host names and URLs, latitude and longitude, cloud account
+  identifiers, and notify service names (these are often named after a person's phone).
+- **Kept:** room names, the outdoor unit's name, and entity IDs, because a report is hard to
+  read without them. Open the file and replace any you'd rather not share. It's plain JSON.
+
 <a id="best-practice-give-the-firmware-your-room-sensor-too"></a><a id="developer-setup-and-tested-support"></a>
 
 ## Documentation

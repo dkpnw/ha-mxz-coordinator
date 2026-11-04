@@ -10,6 +10,12 @@ on your equipment.
 
 ## Unreleased
 
+- **Diagnostics and repair issues (visibility only; control and defaults are unchanged).**
+  MXZ now offers **Download diagnostics** for bug reports, with secrets removed
+  ([what's in it](README.md#download-diagnostics-for-a-bug-report)). It also raises a repair
+  issue when a head is missing or unavailable, a room sensor is missing, or a configured
+  entity was deleted, once that has lasted 15 minutes without a break, and clears it when
+  the fault clears ([what each means](README.md#repair-issues)).
 - **Tests only:** the Home Assistant test lanes now run the newest patch of each line
   (2024.12.5, 2026.2.3, and 2026.9.4), with their locks regenerated. The minimum is still
   Home Assistant 2024.12.0; the integration itself is unchanged.

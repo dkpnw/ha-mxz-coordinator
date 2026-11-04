@@ -54,6 +54,7 @@ from .coordinator import (
     async_remove_last_mode_change,
     async_remove_openings,
 )
+from .issues import async_clear_entry_issues, async_start_repair_monitor
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -153,6 +154,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
 
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     _async_register_recompute_service(hass)
+    async_start_repair_monitor(hass, entry, coordinator)
     return True
 
 
@@ -169,9 +171,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> None:
-    """Delete what the entry kept on disk: its mode-change and door/window records."""
+    """Delete what the entry kept: its mode-change and door/window records, and its issues."""
     await async_remove_last_mode_change(hass, entry.entry_id)
     await async_remove_openings(hass, entry.entry_id)
+    async_clear_entry_issues(hass, entry.entry_id)
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: MXZConfigEntry) -> None:
