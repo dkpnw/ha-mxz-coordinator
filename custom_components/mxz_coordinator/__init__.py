@@ -49,6 +49,7 @@ from .const import (
 )
 from .coordinator import (
     MXZCoordinator,
+    async_keep_saved_temps_in_unit,
     async_load_mode_record,
     async_load_openings,
     async_remove_last_mode_change,
@@ -130,6 +131,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
             "MXZ Coordinator options are empty but the data mirror has the config; "
             "using the mirror. Review and save Configure to repopulate options."
         )
+
+    async_keep_saved_temps_in_unit(hass, entry)
 
     # The last real cool/heat change, so a reload or restart continues its hold
     # instead of starting a new one, and the shared mode as last written (read

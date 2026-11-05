@@ -47,6 +47,7 @@ def _pending_restore(held: bool) -> tuple[MXZCoordinator, MXZZoneFanAutoSwitch]:
     coordinator._fan_latched = {}
     coordinator._fan_cmd = {}
     coordinator._fan_prev = {}
+    coordinator._fan_older = {}
     coordinator._fan_idx = {}
     coordinator.async_request_refresh = AsyncMock()
     coordinator.restore_fan_hold(HEAD, held)

@@ -14,6 +14,8 @@ fails them, and they then change with it.
 
 from __future__ import annotations
 
+from fractions import Fraction
+from math import floor
 from typing import Any
 
 import pytest
@@ -124,46 +126,92 @@ async def test_a_start_changes_nothing_anyone_can_see(
         await rig.close()
 
 
+def _converted(value: float, celsius: bool) -> float:
+    """The formula, in exact arithmetic, on the new unit's target step, half up."""
+    exact = (Fraction(value) - 32) * 5 / 9 if celsius else Fraction(value) * 9 / 5 + 32
+    step = Fraction(1, 2) if celsius else Fraction(1)
+    return float(floor(exact / step + Fraction(1, 2)) * step)
+
+
+async def _start(rig: Rig, kind: str) -> None:
+    await (rig.reload() if kind == "reload" else rig.restart())
+
+
 @SEQUENCES
-@given(to_fahrenheit=st.booleans(), data=st.data())
-async def test_known_exception_a_target_is_not_converted_on_a_unit_switch(
-    hass: HomeAssistant, freezer: Any, to_fahrenheit: bool, data: Any
+@given(
+    to_fahrenheit=st.booleans(),
+    start=st.sampled_from(("reload", "restart")),
+    data=st.data(),
+)
+async def test_a_target_is_converted_on_a_unit_switch(
+    hass: HomeAssistant, freezer: Any, to_fahrenheit: bool, start: str, data: Any
 ) -> None:
-    """Known exception, cloud1104 PARKED item 1, and docs/CONFIGURATION.md's documented
-    step: after a unit switch and a reload, a stored target is the same number read in
-    the new unit, held to that unit's range. Not converted, in either direction."""
+    """After a unit switch and a start, a stored target is the same temperature on the new
+    unit's step and shows in that unit. More starts change nothing, and switching back
+    lands within a step of where it began, and stays there however often it's repeated."""
     before, after = (METRIC_SYSTEM, US_CUSTOMARY_SYSTEM) if to_fahrenheit else (US_CUSTOMARY_SYSTEM, METRIC_SYSTEM)
-    start = unit_profile(to_fahrenheit)["defaults"]  # to °F: it starts in °C
-    target = data.draw(st.integers(start[CONF_CLAMP_MIN], start[CONF_CLAMP_MAX]))
+    begin = unit_profile(to_fahrenheit)
+    low, high = begin["defaults"][CONF_CLAMP_MIN], begin["defaults"][CONF_CLAMP_MAX]
+    step = begin["target_step"]
+    target = low + step * data.draw(st.integers(0, int((high - low) / step)))
     rig = await open_rig(hass, freezer)
+    eid = rig.eid("_primary_target")
     try:
         hass.config.units = before
         await rig.reload()
-        await _set_target(hass, rig.eid("_primary_target"), target)
-        assert rig.coord.zones[0].target == target
+        await _set_target(hass, eid, target)
         hass.config.units = after
+        await _start(rig, start)
+        once = _converted(target, celsius=not to_fahrenheit)
+        assert rig.coord.zones[0].target == once
+        assert float(hass.states.get(eid).state) == once
+        assert hass.states.get(eid).attributes["unit_of_measurement"] == after.temperature_unit
         await rig.reload()
-        end = unit_profile(not to_fahrenheit)["defaults"]
-        assert rig.coord.zones[0].target == min(max(target, end[CONF_CLAMP_MIN]), end[CONF_CLAMP_MAX])
+        await rig.restart()
+        assert rig.coord.zones[0].target == once
+
+        hass.config.units = before
+        await _start(rig, start)
+        back = rig.coord.zones[0].target
+        assert back == _converted(once, celsius=to_fahrenheit)
+        assert abs(back - target) <= step
+        if not to_fahrenheit:
+            assert back == target  # every whole °F has a place on the °C step and back
+        for _ in range(2):
+            hass.config.units = after
+            await _start(rig, start)
+            assert rig.coord.zones[0].target == _converted(back, celsius=not to_fahrenheit)
+            hass.config.units = before
+            await _start(rig, start)
+            assert rig.coord.zones[0].target == back
     finally:
         await rig.close()
 
 
 @pytest.mark.parametrize(("start", "switched"), [(US_CUSTOMARY_SYSTEM, METRIC_SYSTEM), (METRIC_SYSTEM, US_CUSTOMARY_SYSTEM)])
-async def test_known_exception_a_live_unit_switch_takes_effect_at_the_next_load(
+async def test_a_live_unit_switch_reloads_with_a_held_fan_and_the_hold_kept(
     hass: HomeAssistant, freezer: Any, start: Any, switched: Any
 ) -> None:
-    """Known exception, cloud1104 PARKED item 2, and docs/CONFIGURATION.md's documented
-    step: a running coordinator keeps the unit it loaded with until the next reload."""
+    """A live switch reloads the entry by itself, so the running coordinator is in the new
+    unit straight away, with the manual fan and the mode-change hold as they were."""
     rig = await open_rig(hass, freezer)
     hass.config.units = start
     await rig.reload()
     assert rig.coord.temp_unit == start.temperature_unit
+    await rig.person_fan("high")
+    assert rig.fan_held() is True
+    await rig.select_mode(MODE_HEAT)
+    before = _visible(rig)
+    assert before["hold_left"] > 0
+    old = rig.coord
+    writes = len(rig.heads[0].fan_writes)
     await hass.config.async_update(unit_system="metric" if switched is METRIC_SYSTEM else "us_customary")
     await hass.async_block_till_done()
     await rig.settle()
     assert hass.config.units.temperature_unit == switched.temperature_unit
-    assert rig.coord.temp_unit == start.temperature_unit  # the old unit, still
-    await rig.reload()
+    assert rig.coord is not old
     assert rig.coord.temp_unit == switched.temperature_unit
+    assert hass.states.get(rig.eid("_primary_target")).attributes["unit_of_measurement"] == switched.temperature_unit
+    assert _visible(rig) == before
+    assert rig.heads[0].fan_writes[writes:] == []
     await rig.close()

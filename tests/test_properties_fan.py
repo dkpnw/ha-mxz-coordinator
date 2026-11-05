@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from hypothesis import given
+from hypothesis import assume, example, given
 from hypothesis import strategies as st
 
 from custom_components.mxz_coordinator.const import (
@@ -240,6 +240,58 @@ async def test_a_slow_heads_own_echo_is_not_a_hold_one_write_behind(
             assert rig.fan_held() is False
             await rig.report_fan()
             assert rig.fan_held() is False
+    finally:
+        await rig.close()
+
+
+@SEQUENCES
+@given(temps=st.lists(st.sampled_from(COOLING), min_size=1, max_size=6))
+@example(temps=[TARGET + 2.2, TARGET + 0.7])
+async def test_no_person_no_hold_however_far_a_head_lags(
+    hass: HomeAssistant, freezer: Any, temps: list[float]
+) -> None:
+    """F1, in docs/formal/PARKED-FINDINGS.md. Nobody touches the fan and the head reports
+    only at the start, then only at the end: no hold, ever, and boost keeps the fan."""
+    rig = await open_rig(hass, freezer, temps=(TARGET + 6, TARGET), lags=True)
+    try:
+        await rig.report_fan()
+        for temp in temps:
+            await rig.temp(0, temp)
+            assert rig.fan_held() is False
+            assert rig.fan_auto_switch() == "on"
+        await rig.report_fan()
+        assert rig.fan_held() is False
+    finally:
+        await rig.close()
+
+
+@SEQUENCES
+@given(
+    temps=st.lists(st.sampled_from(COOLING), min_size=1, max_size=6),
+    pick=st.sampled_from(FAN_LADDER),
+    start=st.sampled_from(("reload", "restart")),
+)
+async def test_a_lagging_heads_pick_of_a_speed_mxz_never_wrote_is_held(
+    hass: HomeAssistant, freezer: Any, temps: list[float], pick: str, start: str
+) -> None:
+    """However far the head lags, a speed that isn't MXZ's write is a person's: held at
+    once, never written over, and still held after a start."""
+    rig = await open_rig(hass, freezer, temps=(TARGET + 6, TARGET), lags=True)
+    try:
+        await rig.report_fan()
+        for temp in temps:
+            await rig.temp(0, temp)
+        head = rig.heads[0]
+        assume(pick != head.fan and pick not in head.fan_writes)
+        await rig.person_fan(pick)
+        assert rig.fan_held() is True
+        writes = len(head.fan_writes)
+        await (rig.reload() if start == "reload" else rig.restart())
+        await rig.temp(0, TARGET + 6)
+        assert rig.fan_held() is True
+        assert rig.fan_auto_switch() == "off"
+        assert head.fan == pick
+        assert head.fan_writes[writes:] == []
     finally:
         await rig.close()
 

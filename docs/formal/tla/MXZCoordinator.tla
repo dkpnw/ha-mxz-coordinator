@@ -15,7 +15,8 @@
 (* Time is whole ticks on one clock. Rooms are in priority order, enabled, *)
 (* with Allowed drift 1 and Mode switch threshold 3 as multiples of one    *)
 (* reading position (see Demand and Engage). Room 1 is the room with the   *)
-(* door/window and the fan under study: _fan_cmd, _fan_prev, _fan_idx,     *)
+(* door/window and the fan under study: _fan_cmd, _fan_prev, _fan_older,   *)
+(* _fan_idx,                                                               *)
 (* _fan_latched and _openings are per head and never read another head's.  *)
 (***************************************************************************)
 EXTENDS Integers, Sequences
@@ -63,7 +64,8 @@ PausedStates == {Paused, Closing}   \* const.OPENING_PAUSED_STATES
 
 \* A person's standing fan pick, by how the code can read it.
 \*   strict    the rule binds with no exception
-\*   echo      one of the last two speeds commanded (the known exception)
+\*   echo      one of the last two speeds commanded, or an older write while the head
+\*             hasn't reported the last one (the known exception)
 \*   outage    made before MXZ read it, across a stop or before the first read
 \*   crash     a crash lost the hold's restore data
 \*   seed      made with no command memory (the seed's documented adoption)
@@ -84,6 +86,7 @@ VARIABLES
     fanShown,           \* the fan_mode its head reports
     fanSent,            \* a write the head hasn't reported yet, or None (WithLag)
     fanCmd, fanPrev,    \* coordinator._fan_cmd, _fan_prev, or None
+    fanOlder,           \* coordinator._fan_older, as a set: it never repeats a speed
     fanIdx,             \* coordinator._fan_idx, or NoIdx
     fanLatched,         \* coordinator._fan_latched
     fanRestore,         \* coordinator._fan_restore: None, "held" or "free"
@@ -107,12 +110,12 @@ VARIABLES
     exceptionLost,      \* MXZ wrote over a pick the exceptions cover
     falseHold,          \* a live read latched with no gesture, the head at most one write behind
     twoBehind,          \* MXZ sent a second, different fan before the head reported the first
-    falseHoldTwoBehind, \* the same latch with the head two writes behind (open finding F1)
+    falseHoldTwoBehind, \* the same latch with the head two or more writes behind (F1, fixed)
     restoreBroken,      \* a start brought back something other than what was running
     pauseBroken,        \* a paused room's head got a fan write, or its call counted
     overrideBroken      \* a live override was parked or dropped with the window not closed
 
-fanVars == <<fanShown, fanSent, fanCmd, fanPrev, fanIdx, fanLatched, fanRestore, saved>>
+fanVars == <<fanShown, fanSent, fanCmd, fanPrev, fanOlder, fanIdx, fanLatched, fanRestore, saved>>
 winVars == <<winRead, winChanged, winState, winOverride, storedWin, storedOverride>>
 ghosts == <<lastChange, decided, pick, pickKind, pickSeen, gesture, flipInDwell, flipLate,
             fanOverwritten, exceptionLost, falseHold, twoBehind, falseHoldTwoBehind, twoBehind, falseHoldTwoBehind, restoreBroken,
@@ -174,13 +177,13 @@ StepDown(delta, i) ==
     IF i > 0 /\ delta < DownAt(i - 1) THEN StepDown(delta, i - 1) ELSE i
 FanFor(delta, i) == Min(StepDown(delta, StepUp(delta, i)), FanMaxIdx)
 
-Memory == [cmd |-> fanCmd, prev |-> fanPrev, idx |-> fanIdx, latched |-> fanLatched]
+Memory == [cmd |-> fanCmd, prev |-> fanPrev, older |-> fanOlder, idx |-> fanIdx, latched |-> fanLatched]
 
 \* coordinator._hold_at
-HoldAt(f, o) == [f EXCEPT !.latched = TRUE, !.prev = o, !.cmd = o]
+HoldAt(f, o) == [f EXCEPT !.latched = TRUE, !.prev = o, !.cmd = o, !.older = {}]
 \* coordinator._adopt_fan_speed; `i` NoIdx resumes from the ceiling, as the switch does.
 Adopt(f, o, i) ==
-    [f EXCEPT !.latched = FALSE, !.prev = IF f.cmd = None THEN o ELSE f.cmd, !.cmd = o,
+    [f EXCEPT !.latched = FALSE, !.prev = IF f.cmd = None THEN o ELSE f.cmd, !.cmd = o, !.older = {},
               !.idx = IF i = NoIdx THEN FanMaxIdx ELSE i]
 \* The first branch of _observe_fan_latch and of _reconcile_restored_hold.
 AtAuto(f) ==
@@ -193,12 +196,13 @@ InCeiling(t) == t \in RungSet /\ RungIdx(t) <= FanMaxIdx
 Reconcile(f, o, restoredHeld, act) ==
     IF o = "auto" THEN [f |-> AtAuto(f), held |-> FALSE]
     ELSE IF restoredHeld THEN [f |-> HoldAt(f, o), held |-> TRUE]
-    ELSE LET remembered == o \in {f.cmd, f.prev}
+    ELSE LET remembered == o \in {f.cmd, f.prev} \cup f.older
              ours == InCeiling(o) /\ (f.cmd = None \/ remembered \/ act = "fan_only")
          IN IF ~ours THEN [f |-> HoldAt(f, o), held |-> TRUE]
             ELSE LET g == [f EXCEPT !.latched = FALSE,
                                     !.prev = IF remembered THEN f.prev ELSE o,
-                                    !.cmd = IF remembered THEN f.cmd ELSE o]
+                                    !.cmd = IF remembered THEN f.cmd ELSE o,
+                                    !.older = IF remembered THEN f.older ELSE {}]
                      h == IF act \in Modes /\ o \in RungSet
                           THEN [g EXCEPT !.idx = Min(RungIdx(o), FanMaxIdx)] ELSE g
                  IN [f |-> h, held |-> FALSE]
@@ -211,7 +215,9 @@ SeedMatchesBoost(o, act, delta) ==
 
 \* coordinator._observe_fan_latch (fan_on_pending is not modeled: the head always
 \* reports a speed here).
-Observe(f, o, act, delta) ==
+Observe(f0, o, act, delta) ==
+    \* coordinator._fan_caught_up: a report of the last command ends the lag.
+    LET f == IF o = f0.cmd THEN [f0 EXCEPT !.older = {}] ELSE f0 IN
     IF fanRestore # None THEN Reconcile(f, o, fanRestore = "held", act)
     ELSE IF o = "auto" THEN [f |-> AtAuto(f), held |-> FALSE]
     ELSE IF f.cmd = None
@@ -220,7 +226,7 @@ Observe(f, o, act, delta) ==
          ELSE IF SeedMatchesBoost(o, act, delta)
          THEN [f |-> Adopt(f, o, RungIdx(o)), held |-> FALSE]
          ELSE [f |-> HoldAt(f, o), held |-> TRUE]
-    ELSE IF o \notin {f.cmd, f.prev}
+    ELSE IF o \notin {f.cmd, f.prev} \cup f.older
     THEN [f |-> HoldAt(f, o), held |-> TRUE]
     ELSE [f |-> f, held |-> f.latched]
 
@@ -237,17 +243,18 @@ ApplyFan(act, delta) ==
         THEN [f |-> [g EXCEPT !.idx = NoIdx], token |-> IF fanShown = "auto" THEN None ELSE "auto"]
         ELSE [f |-> [g EXCEPT !.idx = NoIdx], token |-> None]
 
-\* coordinator._write_fan: a rewrite of the token already commanded rolls nothing.
+\* coordinator._remember_fan_write: a rewrite of the token already commanded rolls nothing.
 Rolled(f, t) ==
     IF t = None \/ t = f.cmd THEN f
-    ELSE [f EXCEPT !.prev = IF f.cmd = None THEN t ELSE f.cmd, !.cmd = t]
+    ELSE [f EXCEPT !.prev = IF f.cmd = None THEN t ELSE f.cmd, !.cmd = t,
+                   !.older = (f.older \cup ({f.prev} \cap RungSet)) \ {t, f.cmd}]
 
 \* coordinator.fan_auto_is_on
 FanAutoOn == IF fanRestore # None THEN fanRestore = "free" ELSE ~fanLatched
 
 \* What the Fan auto switch writes as restore data (switch.extra_state_attributes).
-Dumped == [has |-> TRUE, held |-> ~FanAutoOn, last |-> fanCmd, prior |-> fanPrev]
-NoDump == [has |-> FALSE, held |-> FALSE, last |-> None, prior |-> None]
+Dumped == [has |-> TRUE, held |-> ~FanAutoOn, last |-> fanCmd, prior |-> fanPrev, older |-> fanOlder]
+NoDump == [has |-> FALSE, held |-> FALSE, last |-> None, prior |-> None, older |-> {}]
 
 \* switch.py's restore eligibility in restore_fan_hold.
 Eligible(t) == IF InCeiling(t) THEN t ELSE "auto"
@@ -260,6 +267,7 @@ TypeOK ==
     /\ mode \in Modes /\ storedMode \in {None} \cup Modes
     /\ fanShown \in Tokens /\ fanSent \in {None} \cup Tokens
     /\ fanCmd \in {None} \cup Tokens /\ fanPrev \in {None} \cup Tokens
+    /\ fanOlder \subseteq RungSet
     /\ fanIdx \in {NoIdx} \cup 0..2 /\ fanLatched \in BOOLEAN
     /\ fanRestore \in {None, "held", "free"}
     /\ winRead \in {"open", "closed", None}
@@ -276,7 +284,7 @@ Init ==
     /\ mode = "cool"                      \* a fresh install, _arbitration_mode
     /\ stamp = NoTime /\ storedStamp = NoTime /\ storedMode = None
     /\ restoredOn = FALSE
-    /\ fanShown = "auto" /\ fanSent = None /\ fanCmd = None /\ fanPrev = None
+    /\ fanShown = "auto" /\ fanSent = None /\ fanCmd = None /\ fanPrev = None /\ fanOlder = {}
     /\ fanIdx = NoIdx /\ fanLatched = FALSE /\ fanRestore = None /\ saved = NoDump
     /\ winRead = "closed" /\ winChanged = 0 /\ winState = Closed /\ winOverride = None
     /\ storedWin = Closed /\ storedOverride = None
@@ -333,6 +341,10 @@ Decide ==
         first == IF hasCalled THEN cmd[1] ELSE None
         otherCalls == hasCalled /\ first # mode
         newHold == rolled.latched /\ ~fanLatched /\ ~gesture /\ fanRestore = None /\ fanCmd # None
+        \* A start's first read of a head still behind. A speed boost could never write is the
+        \* README's conservative hold (S11b), so it isn't one of these.
+        startHoldBehind == rolled.latched /\ ~fanLatched /\ ~gesture /\ fanRestore = "free"
+                           /\ fanCmd # None /\ twoBehind /\ InCeiling(fanShown)
     IN
     /\ latch' = nl
     /\ head' = [r \in RoomIds |->
@@ -345,6 +357,7 @@ Decide ==
     /\ fanShown' = IF lands THEN fan.token ELSE fanShown
     /\ fanSent' = IF written /\ WithLag THEN fan.token ELSE fanSent
     /\ fanCmd' = rolled.cmd /\ fanPrev' = rolled.prev
+    /\ fanOlder' = IF lands THEN {} ELSE rolled.older
     /\ fanIdx' = rolled.idx /\ fanLatched' = rolled.latched
     /\ fanRestore' = IF WithFan THEN None ELSE fanRestore
     /\ winState' = newWin /\ winOverride' = override0
@@ -359,7 +372,7 @@ Decide ==
     /\ fanOverwritten' = (fanOverwritten \/ (overwritesPick /\ strict))
     /\ exceptionLost' = (exceptionLost \/ (overwritesPick /\ ~strict))
     /\ falseHold' = (falseHold \/ (newHold /\ ~twoBehind))
-    /\ falseHoldTwoBehind' = (falseHoldTwoBehind \/ (newHold /\ twoBehind))
+    /\ falseHoldTwoBehind' = (falseHoldTwoBehind \/ (newHold /\ twoBehind) \/ startHoldBehind)
     /\ twoBehind' = (fanSent' # None /\ (twoBehind \/ (written /\ fanSent # None /\ fan.token # fanSent)))
     /\ pauseBroken' = (pauseBroken \/ (isPaused /\ (written \/ head'[1] # "off"
                                        \/ (changed /\ Rooms = 1 /\ state # Resting))))
@@ -403,9 +416,11 @@ PersonFan == WithFan /\ \E t \in Tokens :
                    ELSE IF fanRestore # None THEN "outage"
                    ELSE IF fanCmd = None THEN "seed"
                    ELSE IF ~fanLatched /\ t \in {fanCmd, fanPrev} THEN "echo"
+                   ELSE IF ~fanLatched /\ fanShown # fanCmd /\ t \in fanOlder THEN "echo"
                    ELSE "strict"
     /\ pickSeen' = FALSE
     /\ gesture' = (t # "auto")
+    /\ fanOlder' = IF t = fanCmd THEN {} ELSE fanOlder
     /\ decided' = FALSE
     /\ UNCHANGED <<real, boot, pos, latch, head, mode, stamp, storedMode, storedStamp, restoredOn,
                    fanCmd, fanPrev, fanIdx, fanLatched, fanRestore, saved, winVars>>
@@ -420,6 +435,7 @@ HeadReports ==
     /\ fanShown' = fanSent /\ fanSent' = None
     /\ pick' = IF pick = fanSent THEN pick ELSE None
     /\ pickKind' = IF pick = fanSent THEN pickKind ELSE None
+    /\ fanOlder' = IF fanSent = fanCmd THEN {} ELSE fanOlder
     /\ twoBehind' = FALSE
     /\ decided' = FALSE
     /\ UNCHANGED <<real, boot, pos, latch, head, mode, stamp, storedMode, storedStamp, restoredOn,
@@ -432,7 +448,8 @@ FanAutoOnGesture ==
     /\ WithFan
     /\ fanRestore' = None
     /\ LET a == Adopt(Memory, fanShown, NoIdx)
-       IN fanCmd' = a.cmd /\ fanPrev' = a.prev /\ fanIdx' = a.idx /\ fanLatched' = a.latched
+       IN fanCmd' = a.cmd /\ fanPrev' = a.prev /\ fanOlder' = a.older
+          /\ fanIdx' = a.idx /\ fanLatched' = a.latched
     /\ pick' = None /\ pickKind' = None /\ pickSeen' = FALSE
     \* A write still unreported can land after this and read as a new speed.
     /\ gesture' = (fanSent # None)
@@ -449,7 +466,7 @@ FanAutoOffGesture ==
     /\ fanShown # "auto"
     /\ fanRestore' = None
     /\ fanPrev' = IF fanCmd = None THEN fanShown ELSE fanCmd
-    /\ fanCmd' = fanShown /\ fanLatched' = TRUE
+    /\ fanCmd' = fanShown /\ fanLatched' = TRUE /\ fanOlder' = {}
     /\ pick' = fanShown /\ pickSeen' = TRUE /\ gesture' = TRUE
     /\ pickKind' = IF fanSent # None THEN "inflight" ELSE "strict"
     /\ decided' = FALSE
@@ -465,7 +482,7 @@ Dump ==
     /\ saved # Dumped
     /\ decided' = FALSE
     /\ UNCHANGED <<real, boot, pos, latch, head, mode, stamp, storedMode, storedStamp, restoredOn,
-                   fanShown, fanSent, fanCmd, fanPrev, fanIdx, fanLatched, fanRestore, winVars>>
+                   fanShown, fanSent, fanCmd, fanPrev, fanOlder, fanIdx, fanLatched, fanRestore, winVars>>
     /\ UNCHANGED <<lastChange, pick, pickKind, pickSeen, gesture, flipInDwell, flipLate,
                    fanOverwritten, exceptionLost, falseHold, twoBehind, falseHoldTwoBehind, restoreBroken, pauseBroken, overrideBroken>>
 
@@ -535,6 +552,7 @@ Start(crash, outage) ==
     /\ fanCmd' = IF carries THEN Eligible(record.last) ELSE None
     /\ fanPrev' = IF carries THEN Eligible(IF record.prior = None THEN record.last ELSE record.prior)
                   ELSE None
+    /\ fanOlder' = IF carries THEN {t \in record.older : InCeiling(t)} \ {fanCmd', fanPrev'} ELSE {}
     /\ saved' = record
     /\ winState' = storedWin /\ winOverride' = storedOverride
     /\ decided' = FALSE
@@ -581,9 +599,8 @@ ManualFanShown == (pick # None /\ pickKind = "strict" /\ pickSeen) => ~FanAutoOn
 \* Read live, MXZ never holds a speed no person touched. (A start can: see the README's exceptions.)
 NoFalseHold == ~falseHold
 
-\* Open finding F1 (docs/formal/PARKED-FINDINGS.md): this one BREAKS. A head two different
-\* writes behind reads as a person's pick. tools/formal_tlc.py requires it to break,
-\* so that a fix has to move it into NoFalseHold.
+\* F1 (docs/formal/PARKED-FINDINGS.md): a head two or more different writes behind isn't a
+\* person's pick either. fanOlder keeps those writes until the head reports the last one.
 NoFalseHoldTwoBehind == ~falseHoldTwoBehind
 
 \* No mode flip inside the dwell window, from any path, across any start.
@@ -621,4 +638,5 @@ NeverPaused == ~(decided /\ winState = Paused)
 NeverOverrideRunning == ~(decided /\ winOverride = "manual" /\ winRead = "open" /\ head[1] \in Modes)
 NeverPauseRestored == ~(~decided /\ boot > 0 /\ winState = Paused)
 NeverLagEcho == ~(fanSent # None /\ fanCmd = fanSent /\ fanShown = fanPrev /\ fanShown # fanCmd)
+NeverTwoBehindEcho == ~(decided /\ twoBehind /\ fanShown \in fanOlder /\ ~fanLatched)
 =============================================================================

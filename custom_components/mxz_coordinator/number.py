@@ -11,6 +11,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .cloud import offset_in_unit, snap_to_step, target_in_unit
 from .const import DOMAIN
 from .coordinator import MXZCoordinator, Zone
 from .entity import MXZEntity
@@ -134,8 +135,15 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
             # slider. Best-effort — if the head's integration hasn't loaded
             # yet the bounds are still the wide clamp band, and the apply-time
             # head-band clamp in _apply_head backstops whatever gets through.
+            # A value saved in the other unit is converted first; the save holds
+            # the unit it was in, so this happens once per °F/°C switch.
+            self.coordinator.note_saved_unit(last.native_unit_of_measurement)
+            restored = target_in_unit(
+                last.native_value, last.native_unit_of_measurement,
+                self.coordinator.temp_unit, self.coordinator.target_step,
+            )
             self._attr_native_value = min(
-                max(last.native_value, self.native_min_value), self.native_max_value
+                max(restored, self.native_min_value), self.native_max_value
             )
         elif (seed := self._head_setpoint()) is not None:
             self._attr_native_value = seed
@@ -231,9 +239,11 @@ class MXZDriftNumber(MXZEntity, RestoreNumber):
         Only a state marked ``override`` restores: an untouched room's saved
         state is just yesterday's global, and writing it back would freeze the
         room on a copy. A restored value is clamped into the profile bounds
-        (hand-edited or pre-upgrade values bypass the UI). zone.drift stays
-        None otherwise, so the room follows the GLOBAL drift live. A rename's
-        re-add keeps the room's drift as it is (see ``_readded``).
+        (hand-edited or pre-upgrade values bypass the UI). A band saved in the
+        other unit is a difference, so it only scales (2 °F is 1.125 °C on this
+        number's step). zone.drift stays None otherwise, so the room follows the
+        GLOBAL drift live. A rename's re-add keeps the room's drift as it is (see
+        ``_readded``).
         """
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
@@ -245,8 +255,16 @@ class MXZDriftNumber(MXZEntity, RestoreNumber):
             and (last := await self.async_get_last_number_data())
             and last.native_value is not None
         ):
+            restored = last.native_value
+            if last.native_unit_of_measurement != self.coordinator.temp_unit:
+                restored = snap_to_step(
+                    offset_in_unit(
+                        restored, last.native_unit_of_measurement, self.coordinator.celsius
+                    ),
+                    self._attr_native_step,
+                )
             self._zone.drift = min(
-                max(last.native_value, self._attr_native_min_value),
+                max(restored, self._attr_native_min_value),
                 self._attr_native_max_value,
             )
         self._last_published_state = self._state_signature()
@@ -412,7 +430,11 @@ class MXZRangeNumber(MXZEntity, RestoreNumber):
                 and (last := await self.async_get_last_number_data())
                 and last.native_value is not None
             ):
-                restored = float(last.native_value)
+                self.coordinator.note_saved_unit(last.native_unit_of_measurement)
+                restored = target_in_unit(
+                    float(last.native_value), last.native_unit_of_measurement,
+                    self.coordinator.temp_unit, self.coordinator.target_step,
+                )
             self.coordinator.offer_range_restore(zone, self._low, restored)
         self.async_on_remove(self.coordinator.async_add_listener(self._sync))
 

@@ -45,11 +45,12 @@ COVERS = {
     "NeverOverrideRunning": "ci-window",
     "NeverPauseRestored": "ci-window",
     "NeverLagEcho": "ci-fan-lag",
+    "NeverTwoBehindEcho": "ci-fan-lag",
 }
 
 # An open finding's rule, which must keep breaking until the finding is fixed and the
-# rule folds into NoFalseHold (docs/formal/PARKED-FINDINGS.md).
-FINDINGS = {"NoFalseHoldTwoBehind": "ci-fan-lag"}
+# rule moves into its config's INVARIANTS (docs/formal/PARKED-FINDINGS.md). None is open.
+FINDINGS: dict[str, str] = {}
 
 # id: (what breaks, exact text once in the spec, its replacement, config, rule that must break).
 MUTANTS = {
@@ -68,16 +69,25 @@ MUTANTS = {
            "ELSE IF nl[r] \\in Modes THEN nl[r] ELSE \"fan_only\"]", "ci-arbitration", "HeadsFollowMode"),
     "F1": ("the hold doesn't stop the write", "IN  IF ob.held THEN [f |-> g, token |-> None]",
            "IN  IF FALSE THEN [f |-> g, token |-> None]", "ci-fan", "ManualFanKept"),
-    "F2": ("a departure isn't read", "ELSE IF o \\notin {f.cmd, f.prev}\n    THEN [f |-> HoldAt(f, o), held |-> TRUE]",
+    "F2": ("a departure isn't read", "ELSE IF o \\notin {f.cmd, f.prev} \\cup f.older\n    THEN [f |-> HoldAt(f, o), held |-> TRUE]",
            "ELSE IF FALSE\n    THEN [f |-> HoldAt(f, o), held |-> TRUE]", "ci-fan", "ManualFanKept"),
     "F3": ("a hold doesn't survive a start", "ELSE IF restoredHeld THEN [f |-> HoldAt(f, o), held |-> TRUE]",
            "ELSE IF FALSE THEN [f |-> HoldAt(f, o), held |-> TRUE]", "ci-fan", "ManualFanKept"),
     "F4": ("a stop writes no restore data", "LET record == IF crash THEN saved ELSE Dumped",
            "LET record == NoDump", "ci-fan", "ManualFanShown"),
-    "F5": ("only the last command is an echo", "ELSE IF o \\notin {f.cmd, f.prev}",
+    "F5": ("only the last command is an echo", "ELSE IF o \\notin {f.cmd, f.prev} \\cup f.older",
            "ELSE IF o # f.cmd", "ci-fan-lag", "NoFalseHold"),
-    "F6": ("a rewrite rolls the memory", "IF t = None \\/ t = f.cmd THEN f",
-           "IF t = None THEN f", "ci-fan-lag", "NoFalseHold"),
+    "F6": ("a rewrite rolls the memory, with no older writes to fall back on",
+           ("IF t = None \\/ t = f.cmd THEN f\n    ELSE [f EXCEPT !.prev = IF f.cmd = None THEN t ELSE f.cmd, !.cmd = t,\n"
+            "                   !.older = (f.older \\cup ({f.prev} \\cap RungSet)) \\ {t, f.cmd}]"),
+           "IF t = None THEN f\n    ELSE [f EXCEPT !.prev = IF f.cmd = None THEN t ELSE f.cmd, !.cmd = t, !.older = {}]",
+           "ci-fan-lag", "NoFalseHold"),
+    "F7": ("older writes aren't remembered", "ELSE IF o \\notin {f.cmd, f.prev} \\cup f.older",
+           "ELSE IF o \\notin {f.cmd, f.prev}", "ci-fan-lag", "NoFalseHoldTwoBehind"),
+    "F8": ("older writes still count once the head has caught up", "/\\ fanOlder' = IF lands THEN {} ELSE rolled.older",
+           "/\\ fanOlder' = rolled.older", "ci-fan", "ManualFanKept"),
+    "F9": ("a start forgets the older writes", "/\\ fanOlder' = IF carries THEN {t \\in record.older : InCeiling(t)} \\ {fanCmd', fanPrev'} ELSE {}",
+           "/\\ fanOlder' = {}", "ci-fan-lag", "NoFalseHoldTwoBehind"),
     "W1": ("a pause leaves the head running", "IF r = 1 /\\ isPaused THEN \"off\"\n                  ELSE IF nl[r]",
            "IF FALSE THEN \"off\"\n                  ELSE IF nl[r]", "ci-window", "PauseStopsHead"),
     "W2": ("a pause writes the fan", "IN [f |-> ob.f, token |-> None]",
@@ -148,9 +158,9 @@ CODE_MUTANTS = {
     "C19": ("opening_state pauses on no reading", "logic.py", "return OPENING_PAUSED if paused else OPENING_CLOSED",
             "return OPENING_PAUSED",
             "tests/test_properties_window.py::test_no_reading_never_starts_a_pause_and_never_ends_one"),
-    "C20": ("a target is converted on a unit switch", "number.py", "self._attr_native_value = min(\n                max(last.native_value, self.native_min_value), self.native_max_value\n            )\n        elif (seed",
-            "self._attr_native_value = last.native_value * 1.8 + 32\n        elif (seed",
-            "tests/test_properties_restart.py::test_known_exception_a_target_is_not_converted_on_a_unit_switch"),
+    "C20": ("a target isn't converted on a unit switch", "cloud.py", "if set_in == UNIT_F and unit == UNIT_C:\n        return snap_to_step((value - 32) * 5 / 9, step)",
+            "if False:\n        return snap_to_step((value - 32) * 5 / 9, step)",
+            "tests/test_properties_restart.py::test_a_target_is_converted_on_a_unit_switch"),
     "C22": ("only the last command is an echo", "coordinator.py", "departed = not seeding and observed not in (\n            self._fan_cmd.get(climate_id),\n            self._fan_prev.get(climate_id),\n        )",
             "departed = not seeding and observed != self._fan_cmd.get(climate_id)",
             "tests/test_properties_fan.py::test_a_slow_heads_own_echo_is_not_a_hold_one_write_behind"),
@@ -173,9 +183,14 @@ CODE_MUTANTS = {
             "tests/test_properties_window.py::test_only_a_running_delay_has_a_wakeup"),
     "C30": ("unavailable reads as closed", "logic.py", "if state == STATE_OFF:\n        return CLOSED_READ", "if state in (STATE_OFF, STATE_UNAVAILABLE):\n        return CLOSED_READ",
             "tests/test_properties_window.py::test_only_on_and_off_are_readings"),
-    "C21": ("a live unit switch takes effect at once", "coordinator.py", "self._profile: dict[str, Any] = unit_profile(self.celsius)",
-            "self._profile: dict[str, Any] = unit_profile(self.celsius)\n        hass.bus.async_listen(\"core_config_updated\", lambda _e: setattr(self, \"temp_unit\", hass.config.units.temperature_unit))",
-            "tests/test_properties_restart.py::test_known_exception_a_live_unit_switch_takes_effect_at_the_next_load"),
+    "C21": ("a live unit switch doesn't reload", "coordinator.py", "self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)", "pass",
+            "tests/test_properties_restart.py::test_a_live_unit_switch_reloads_with_a_held_fan_and_the_hold_kept"),
+    "C31": ("a slow head's older write reads as a pick", "coordinator.py", "if departed and observed in self._fan_older.get(climate_id, ()):", "if False:",
+            "tests/test_properties_fan.py::test_no_person_no_hold_however_far_a_head_lags"),
+    "C32": ("older writes still count once the head has caught up", "coordinator.py", "if observed == self._fan_cmd.get(climate_id) and self._fan_older.pop(climate_id, None):", "if False:",
+            "tests/test_properties_fan.py::test_the_exception_is_exactly_the_last_two"),
+    "C33": ("the whole ladder reads as an older write", "coordinator.py", "if departed and observed in self._fan_older.get(climate_id, ()):", "if departed and observed in FAN_LADDER:",
+            "tests/test_properties_fan.py::test_a_lagging_heads_pick_of_a_speed_mxz_never_wrote_is_held"),
 }
 
 

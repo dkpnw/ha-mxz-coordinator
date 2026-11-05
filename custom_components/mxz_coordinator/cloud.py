@@ -173,6 +173,19 @@ def offset_in_unit(value: float, set_in: object, celsius: bool) -> float:
     return value
 
 
+def target_in_unit(value: float, set_in: object, unit: str, step: float) -> float:
+    """An absolute temperature set in ``set_in`` (°C or °F), in ``unit``, on ``step``.
+
+    59 °F is 15 °C. Anything else ``set_in`` can be (the same unit, none stored)
+    leaves the value as it is, so a value converted once is never converted again.
+    """
+    if set_in == UNIT_F and unit == UNIT_C:
+        return snap_to_step((value - 32) * 5 / 9, step)
+    if set_in == UNIT_C and unit == UNIT_F:
+        return snap_to_step(value * 9 / 5 + 32, step)
+    return value
+
+
 def snap_to_step(value: float, step: float) -> float:
     """``value`` on the nearest multiple of ``step``, half up.
 
