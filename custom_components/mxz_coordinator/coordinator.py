@@ -1054,9 +1054,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fan_cmd: dict[str, str] = {}
         self._fan_prev: dict[str, str] = {}
         # A head can lag further than that (F1, docs/formal/PARKED-FINDINGS.md):
-        # the speeds that rolled off _fan_prev since this head last reported
-        # _fan_cmd, oldest first, a small ring per head. Only while the head is
-        # behind: its report of _fan_cmd empties it (see _fan_caught_up).
+        # the speeds MXZ wrote that this head may yet show, in the order written,
+        # a speed written twice appearing twice, per head. Only while the head is
+        # behind: its reports drop what came before them (see _fan_caught_up).
         self._fan_older: dict[str, deque[str]] = {}
         self._fan_latched: dict[str, bool] = {}
         # Pre-restart latch truth restored by the Fan-auto switch
@@ -4150,8 +4150,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         * observed token != BOTH the last- and prior-commanded token -> latched
           (a user departure; the double-token check absorbs the echo race where
           the head still reports the token we wrote one cycle ago), unless the
-          head hasn't reported the last command yet and the token is one of the
-          older writes it may still be showing (``_fan_older``)
+          token is one of the older writes the head's reports haven't passed
+          yet, which it may still show (``_fan_older``)
         * no _fan_cmd memory yet (first compute with nothing restored): a
           non-"auto" reading seeds LATCHED, mirroring the engage-latch's "resume
           from the head's own state" — a manual pick that predates the restart
@@ -4363,8 +4363,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         is carried for it (a hold released during the outage stays released,
         and a later non-auto report on it is a new hold either way).
 
-        ``older`` is the same for a head that was further behind at the stop.
-        Only speeds boost could write are taken back: anything else is no echo.
+        ``older`` is the same for a head that was further behind at the stop
+        (see ``fan_older_record``). Only speeds boost could write are taken back:
+        anything else is no echo.
         """
         self._fan_restore[climate_id] = held
         self._fan_restore_problem.pop(climate_id, None)
@@ -4385,13 +4386,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             self._fan_cmd[climate_id] = eligible(last)
             self._fan_prev[climate_id] = eligible(last if prior is None else prior)
-            kept = [
-                token for token in dict.fromkeys(older)
-                if eligible(token) == token
-                and token not in (self._fan_cmd[climate_id], self._fan_prev[climate_id])
-            ]
+            kept = [token for token in older if eligible(token) == token]
             if kept:
-                self._fan_older[climate_id] = deque(kept, maxlen=FAN_OLDER_WRITES)
+                last_two = dict.fromkeys((self._fan_prev[climate_id], self._fan_cmd[climate_id]))
+                self._fan_older[climate_id] = deque((*kept, *last_two), maxlen=FAN_OLDER_WRITES + 2)
             else:
                 self._fan_older.pop(climate_id, None)
 
@@ -4406,42 +4404,83 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return (self._fan_cmd.get(climate_id), self._fan_prev.get(climate_id))
 
     def fan_older_commands(self, climate_id: str) -> list[str]:
-        """Older echo baselines of a head still behind, oldest first (see ``_fan_older``)."""
-        return list(self._fan_older.get(climate_id, ()))
+        """Older echo baselines of a head still behind, oldest first (see ``_fan_older``).
+
+        The speeds this adds to the last two, each once: never those, and never
+        auto, whose report releases a hold whatever is remembered.
+        """
+        skip = (self._fan_cmd.get(climate_id), self._fan_prev.get(climate_id), FAN_AUTO)
+        return [token for token in dict.fromkeys(self._fan_older.get(climate_id, ())) if token not in skip]
+
+    def fan_older_record(self, climate_id: str) -> list[str]:
+        """What a start needs back of ``_fan_older``, oldest first. Empty once it's only the last two.
+
+        Unlike ``fan_older_commands`` it's the writes in order, so a last-two
+        speed written earlier too keeps that place, and a late report of it isn't
+        read as the last write. The trailing last two are left out: the restore
+        puts them back. Auto counts only when it's the last command: any other
+        report of it drops nothing a start would miss.
+        """
+        last = self._fan_cmd.get(climate_id)
+        record = list(self._fan_older.get(climate_id, ()))
+        for written in (last, self._fan_prev.get(climate_id)):
+            if record and record[-1] == written:
+                record.pop()
+        return record if last == FAN_AUTO else [token for token in record if token != FAN_AUTO]
 
     def _fan_caught_up(self, climate_id: str, observed: Any) -> None:
-        """A report of the last command: the head has caught up with MXZ's writes.
+        """A head's report: the writes before it are behind the head for good.
 
-        Older writes stop counting as echoes, so from here a pick of one is a
-        pick. It is checked on the head's own report, not only at the next
-        compute: a pick can arrive before that compute runs.
+        A head shows its writes in order, so it can't show those again, and a
+        pick of one from here is a pick. A speed written more than once counts as
+        its earliest write left: this report may be that one, with the rest of
+        the writes still coming. A report of ``_fan_prev`` drops nothing, which
+        is wider than it has to be and only for a head still one write behind.
+
+        A report of the last command with no other write left has caught up, and
+        nothing older counts any more. That can't tell a head that jumped
+        straight to the last of two writes of a speed, so the writes between
+        stay echoes until a report rules them out (F1's cost,
+        docs/formal/PARKED-FINDINGS.md).
+
+        It is checked on the head's own report, not only at the next compute: a
+        pick can arrive before that compute runs.
         """
-        if observed == self._fan_cmd.get(climate_id) and self._fan_older.pop(climate_id, None):
+        memory = self._fan_older.get(climate_id)
+        if not memory or observed not in memory:
+            return
+        last = self._fan_cmd.get(climate_id)
+        changed = False
+        if observed == last or observed != self._fan_prev.get(climate_id):
+            changed = memory[0] != observed
+            while memory[0] != observed:
+                memory.popleft()
+        if observed == last and len(memory) == 1:
+            del self._fan_older[climate_id]
+            changed = True
+        if changed:
             self._publish_fan_state(climate_id)
 
     def _remember_fan_write(self, climate_id: str, token: str) -> None:
         """Roll the echo memory for a fan speed MXZ is sending.
 
         A rewrite of the token already commanded rolls nothing (see
-        ``_write_fan``). ``auto`` is never kept in the ring: a report of it
-        releases a hold whatever is remembered.
+        ``_write_fan``). The memory starts from the two before this one, which
+        the head may still show, and ``auto`` counts like a speed in it: a later
+        report of ``auto`` may be that first one.
         """
         last = self._fan_cmd.get(climate_id)
         if token == last:
             return
-        rolled_off = self._fan_prev.get(climate_id)
+        prev = self._fan_prev.get(climate_id)
         self._fan_prev[climate_id] = token if last is None else last
         self._fan_cmd[climate_id] = token
-        ring = self._fan_older.setdefault(climate_id, deque(maxlen=FAN_OLDER_WRITES))
-        if rolled_off is not None and rolled_off != FAN_AUTO:
-            if rolled_off in ring:
-                ring.remove(rolled_off)
-            ring.append(rolled_off)
-        for current in (token, self._fan_prev[climate_id]):
-            if current in ring:
-                ring.remove(current)
-        if not ring:
-            del self._fan_older[climate_id]
+        if last is None:
+            return
+        memory = self._fan_older.setdefault(climate_id, deque(maxlen=FAN_OLDER_WRITES + 2))
+        if not memory:
+            memory.extend(dict.fromkeys(written for written in (prev, last) if written is not None))
+        memory.append(token)
 
     def _publish_fan_state(self, climate_id: str) -> None:
         """Keep the existing clean-state channel current before yielding."""
@@ -4617,7 +4656,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         prev therefore survives until the next DISTINCT command — the original
         design's invariant. The cost is unchanged from what the README already
         documents: a user re-pick of the token prev remembers is invisible.
-        Speeds older than prev stay echoes only until the head reports this
+        Speeds older than prev stay echoes only until the head reports a later
         write (``_fan_older``), so the same is true of those for that long.
         """
         self._remember_fan_write(climate_id, token)

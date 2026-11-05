@@ -12,10 +12,12 @@ on your equipment.
 
 - **A slow local head no longer reads as a manual fan pick
   ([F1](docs/formal/PARKED-FINDINGS.md)).** MXZ now remembers its older fan writes, per head,
-  until the head reports the last one, so a report two or more writes behind isn't a hold. A
-  speed MXZ didn't recently write is still held at once and across a restart. While a head is
-  behind, a pick of one of those older writes reads as MXZ's own, for as long as that lag
-  lasts. `NoFalseHoldTwoBehind` now holds in the TLA+ model.
+  until the head's reports pass them. A report two or more writes behind isn't a hold, from a
+  head that shows its writes in order or jumps to the latest. One that shows them out of order
+  can still read as a pick. A speed MXZ didn't recently write is still held at once and across
+  a restart. While a head is behind, a pick of one of those older writes reads as MXZ's own,
+  and in one case that can outlast the lag by one pick. `NoFalseHoldTwoBehind` now holds in the
+  TLA+ model, whose head only ever jumps to the latest; tests cover the in-order case.
 - **A °F/°C switch converts what's saved.** A room's target, Heat to and Cool to, Freeze floor
   and Overheat ceiling, and the Lowest and Highest setpoint keep their temperature: 59 °F is
   15 °C, not 31 °C. A room's own drift only scales. Each is converted once per switch, across

@@ -426,7 +426,7 @@ class MXZZoneFanAutoSwitch(
         }
         if self._zone.climate_id in self.coordinator._fan_on_pending:
             attributes[ATTR_FAN_ON_PENDING] = True
-        if older := self.coordinator.fan_older_commands(self._zone.climate_id):
+        if older := self.coordinator.fan_older_record(self._zone.climate_id):
             attributes[ATTR_OLDER_FAN_COMMANDS] = older
         return attributes
 
@@ -439,7 +439,7 @@ class MXZZoneFanAutoSwitch(
             last=last,
             prior=prior,
             on_pending=self._zone.climate_id in self.coordinator._fan_on_pending,
-            older=tuple(self.coordinator.fan_older_commands(self._zone.climate_id)),
+            older=tuple(self.coordinator.fan_older_record(self._zone.climate_id)),
         )
 
     @property

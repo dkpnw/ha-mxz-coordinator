@@ -1,13 +1,14 @@
 """F1: a slow local head's report of an older fan write of MXZ's isn't a person's pick.
 
-The coordinator keeps its older fan writes, per head, while the head hasn't reported
-the last one (``MXZCoordinator._fan_older``). A speed MXZ didn't recently write is
-still a person's pick, held at once and across a start. docs/formal/PARKED-FINDINGS.md
-has the finding and docs/formal/README.md the rule. All rooms and heads are invented.
+The coordinator keeps its older fan writes, per head, until the head's reports pass them
+(``MXZCoordinator._fan_older``). A speed MXZ didn't recently write is still a person's
+pick, held at once and across a start. docs/formal/PARKED-FINDINGS.md has the finding
+and docs/formal/README.md the rule. All rooms and heads are invented.
 """
 
 from __future__ import annotations
 
+from itertools import groupby
 from typing import Any
 
 import pytest
@@ -31,6 +32,41 @@ async def _lagging_walk(hass: HomeAssistant, freezer: Any, **kwargs: Any) -> Rig
     head = rig.heads[0]
     assert head.fan == "high"
     assert list(dict.fromkeys(head.fan_writes)) == ["high", "medium", "low"]  # rewrites aside
+    return rig
+
+
+async def _queued_walk(hass: HomeAssistant, freezer: Any, *temps: float) -> Rig:
+    """A head showing auto, with every write below still queued on it and nothing reported."""
+    rig = await open_rig(hass, freezer, temps=(TARGET, TARGET), lags=True)
+    for temp in temps:
+        await rig.temp(0, temp)
+    assert rig.heads[0].fan == "auto"
+    return rig
+
+
+async def _report_each_write_in_order(rig: Rig) -> list[str]:
+    """The head works through its queue, and no report of it may ever read as a pick.
+    Returns the speeds it showed, rewrites aside (boost rewrites a speed until it's reported)."""
+    shown = []
+    for _ in range(100):
+        if not await rig.report_next_fan():
+            return [token for token, _ in groupby(shown)]
+        shown.append(rig.heads[0].fan)
+        assert rig.fan_held() is False, shown
+        assert rig.fan_auto_switch() == "on", shown
+    raise AssertionError(f"the head never got through its queue: {shown}")
+
+
+async def _walk_back_to_auto(hass: HomeAssistant, freezer: Any) -> Rig:
+    """The head has reported high. Auto, medium, low and auto again are queued on it. MXZ only
+    writes auto to a head not showing it, so this is how auto comes to be written twice."""
+    rig = await _queued_walk(hass, freezer, HIGH_RUNG)
+    await _report_each_write_in_order(rig)
+    for temp in (TARGET, MEDIUM_RUNG, LOW_RUNG, TARGET):
+        await rig.temp(0, temp)
+    head = rig.heads[0]
+    assert head.fan == "high"
+    assert [token for token, _ in groupby(head.fan_writes)] == ["high", "auto", "medium", "low", "auto"]
     return rig
 
 
@@ -207,6 +243,140 @@ async def test_a_rewrite_and_a_repeat_keep_the_memory_exact(hass: HomeAssistant,
     assert coord.fan_command_memory(head) == ("low", "high")
     assert coord.fan_older_commands(head) == ["medium"]
     await rig.close()
+
+
+async def test_a_late_report_equal_to_the_last_write_keeps_the_writes_after_it(hass: HomeAssistant, freezer: Any) -> None:
+    """The review's stream. MXZ wrote high first and high last, so a report of high can be
+    either one. It is read as the first until the head has shown what came between."""
+    rig = await _queued_walk(hass, freezer, HIGH_RUNG, MEDIUM_RUNG, LOW_RUNG, HIGH_RUNG)
+    head = rig.heads[0]
+    assert list(dict.fromkeys(head.fan_writes)) == ["high", "medium", "low"]
+    assert rig.coord.fan_command_memory(head.entity_id) == ("high", "low")
+    assert rig.coord.fan_older_commands(head.entity_id) == ["medium"]
+
+    shown = await _report_each_write_in_order(rig)
+
+    assert shown == ["high", "medium", "low", "high"]
+    assert rig.coord.fan_older_commands(head.entity_id) == []
+    await rig.close()
+
+
+async def test_a_later_write_of_a_speed_outlives_a_report_past_its_first(hass: HomeAssistant, freezer: Any) -> None:
+    """The head has passed medium's first write and low, but medium's second is still queued,
+    and medium is neither of the last two by then."""
+    rig = await _queued_walk(hass, freezer, HIGH_RUNG, MEDIUM_RUNG, LOW_RUNG, MEDIUM_RUNG, LOW_RUNG + 0.5, HIGH_RUNG)
+    head = rig.heads[0]
+    assert [token for token, _ in groupby(head.fan_writes)] == ["high", "medium", "low", "medium", "low", "high"]
+    assert rig.coord.fan_command_memory(head.entity_id) == ("high", "low")
+    assert rig.coord.fan_older_commands(head.entity_id) == ["medium"]
+    assert await _report_each_write_in_order(rig) == ["high", "medium", "low", "medium", "low", "high"]
+    assert rig.coord.fan_older_commands(head.entity_id) == []
+    await rig.close()
+
+
+async def test_a_late_report_of_auto_doesnt_end_a_walk_back_to_auto(hass: HomeAssistant, freezer: Any) -> None:
+    """The same stream with auto as the repeat. Auto's report is the last write's, or the first's."""
+    rig = await _walk_back_to_auto(hass, freezer)
+    head = rig.heads[0]
+    assert rig.coord.fan_command_memory(head.entity_id) == ("auto", "low")
+    assert rig.coord.fan_older_commands(head.entity_id) == ["high", "medium"]
+
+    assert await _report_each_write_in_order(rig) == ["auto", "medium", "low", "auto"]
+    assert rig.coord.fan_older_commands(head.entity_id) == []
+    await rig.close()
+
+
+@pytest.mark.parametrize("start", ["reload", "restart"])
+async def test_a_start_keeps_where_a_repeated_write_came_first(hass: HomeAssistant, freezer: Any, start: str) -> None:
+    """Without the repeat's place in the record, the first late report after a start would
+    end the memory and the next would hold."""
+    rig = await _queued_walk(hass, freezer, HIGH_RUNG, MEDIUM_RUNG, LOW_RUNG, HIGH_RUNG)
+    assert _switch_attrs(rig)["older_fan_commands"] == ["high", "medium"]
+    switch = hass.data["entity_components"]["switch"].get_entity(rig.eid("_primary_fan_auto"))
+    assert switch.extra_restore_state_data.as_dict()["older_fan_commands"] == ["high", "medium"]
+    await (rig.reload() if start == "reload" else rig.restart())
+    assert rig.coord.fan_older_commands(rig.heads[0].entity_id) == ["medium"]
+    assert await _report_each_write_in_order(rig) == ["high", "medium", "low", "high"]
+    assert rig.coord.fan_older_commands(rig.heads[0].entity_id) == []
+    await rig.close()
+
+
+@pytest.mark.parametrize("start", ["reload", "restart"])
+async def test_a_start_keeps_where_a_repeat_of_auto_came_first(hass: HomeAssistant, freezer: Any, start: str) -> None:
+    rig = await _walk_back_to_auto(hass, freezer)
+    assert _switch_attrs(rig)["older_fan_commands"] == ["high", "auto", "medium"]
+    await (rig.reload() if start == "reload" else rig.restart())
+    await _report_each_write_in_order(rig)
+    assert rig.coord.fan_older_commands(rig.heads[0].entity_id) == []
+    await rig.close()
+
+
+async def test_a_report_drops_the_writes_before_it_and_no_others(hass: HomeAssistant, freezer: Any) -> None:
+    """The head has passed high, so high can't be a late report any more: a pick of it holds.
+    The tolerance ends write by write, not only at the last."""
+    rig = await _queued_walk(hass, freezer, HIGH_RUNG, TARGET + 3.2, MEDIUM_RUNG, LOW_RUNG)
+    head = rig.heads[0]
+    assert rig.coord.fan_command_memory(head.entity_id) == ("low", "medium")
+    assert rig.coord.fan_older_commands(head.entity_id) == ["high", "middle"]
+    while head.fan != "high":
+        assert await rig.report_next_fan()
+    assert rig.coord.fan_older_commands(head.entity_id) == ["high", "middle"]  # it is what's showing
+    while head.fan != "middle":
+        assert await rig.report_next_fan()
+    assert rig.coord.fan_older_commands(head.entity_id) == ["middle"]
+    writes = len(head.fan_writes)
+    await rig.person_fan("high")
+    assert rig.fan_held() is True
+    assert rig.fan_auto_switch() == "off"
+    await rig.temp(0, LOW_RUNG)
+    assert head.fan == "high"
+    assert head.fan_writes[writes:] == []
+    await rig.close()
+
+
+async def test_a_head_that_only_reports_the_repeat_costs_one_pick_at_most(hass: HomeAssistant, freezer: Any) -> None:
+    """F1's cost where it is widest. This head jumps straight to the last write, and MXZ can't
+    tell that from the first high of the stream above, so medium stays an echo with no lag
+    left. A pick of it is written over, the report of that ends the memory, and the next holds."""
+    rig = await _queued_walk(hass, freezer, HIGH_RUNG, MEDIUM_RUNG, LOW_RUNG, HIGH_RUNG)
+    head = rig.heads[0]
+    await rig.report_fan()
+    assert head.fan == "high"
+    assert rig.coord.fan_older_commands(head.entity_id) == ["medium"]
+
+    await rig.person_fan("medium")
+    assert rig.fan_held() is False
+    assert head.unreported_fan == "high"  # boost is writing over the pick
+    await rig.report_fan()
+    assert head.fan == "high"
+    assert rig.coord.fan_older_commands(head.entity_id) == []
+
+    writes = len(head.fan_writes)
+    await rig.person_fan("medium")
+    assert rig.fan_held() is True
+    await rig.temp(0, HIGH_RUNG)
+    assert head.fan == "medium"
+    assert head.fan_writes[writes:] == []
+    await rig.close()
+
+
+async def test_a_prompt_head_shows_no_older_writes_after_a_repeat(hass: HomeAssistant, freezer: Any) -> None:
+    """The repeat rule is only for a head behind: this one reported every write as it came."""
+    rig = await open_rig(hass, freezer, temps=(TARGET, TARGET))
+    head = rig.heads[0]
+    for temp in (HIGH_RUNG, MEDIUM_RUNG, LOW_RUNG, HIGH_RUNG, MEDIUM_RUNG, HIGH_RUNG):
+        await rig.temp(0, temp)
+        assert head.fan == head.fan_writes[-1]
+        assert rig.coord.fan_older_commands(head.entity_id) == []
+    assert "older_fan_commands" not in _switch_attrs(rig)
+    await rig.close()
+
+
+def test_a_restored_repeat_comes_back_in_its_place() -> None:
+    assert FanHoldRestoreData(False, "high", "low", older=("high", "medium")).as_dict()["older_fan_commands"] == ["high", "medium"]
+    record = FanHoldRestoreData.from_dict({"held": False, "last_fan_command": "high", "older_fan_commands": ["high", "medium"]})
+    assert record is not None
+    assert record.older == ("high", "medium")
 
 
 @pytest.mark.parametrize(

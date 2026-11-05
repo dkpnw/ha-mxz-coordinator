@@ -267,6 +267,58 @@ async def test_no_person_no_hold_however_far_a_head_lags(
 
 @SEQUENCES
 @given(
+    steps=st.lists(
+        st.one_of(
+            st.tuples(st.just("temp"), st.sampled_from((*COOLING, TARGET))),
+            st.sampled_from((("report",), ("reload",), ("restart",))),
+        ),
+        min_size=1,
+        max_size=10,
+    ),
+)
+@example(steps=[("temp", TARGET + 6), ("temp", TARGET + 2.2), ("temp", TARGET + 0.7), ("temp", TARGET + 6)])
+@example(steps=[("temp", TARGET + 1.2), ("temp", TARGET + 2.2), ("temp", TARGET + 0.7), ("reload",), ("temp", TARGET + 1.2)])
+@example(
+    steps=[
+        ("temp", TARGET + 6), ("report",), ("report",),
+        ("temp", TARGET), ("temp", TARGET + 2.2), ("temp", TARGET + 0.7), ("temp", TARGET),
+    ]
+)
+async def test_no_person_no_hold_when_a_head_reports_every_write_in_order(
+    hass: HomeAssistant, freezer: Any, steps: list[tuple[Any, ...]]
+) -> None:
+    """F1 again, with a head that applies its writes one at a time and shows each, late and in
+    order, starting from auto. A late report can equal the last write while others are still
+    coming. No hold, ever, and with the queue done no older write is left."""
+    rig = await open_rig(hass, freezer, temps=(TARGET, TARGET), lags=True)
+    try:
+        head = rig.heads[0]
+
+        async def nobody_touched_it() -> None:
+            assert rig.fan_held() is False
+            assert rig.fan_auto_switch() == "on"
+
+        for step in steps:
+            if step[0] == "temp":
+                await rig.temp(0, step[1])
+            elif step[0] == "report":
+                await rig.report_next_fan()
+            else:
+                await (rig.reload() if step[0] == "reload" else rig.restart())
+            await nobody_touched_it()
+        for _ in range(100):
+            if not await rig.report_next_fan():
+                break
+            await nobody_touched_it()
+        else:
+            raise AssertionError("the head never got through its queue")
+        assert rig.coord.fan_older_commands(head.entity_id) == []
+    finally:
+        await rig.close()
+
+
+@SEQUENCES
+@given(
     temps=st.lists(st.sampled_from(COOLING), min_size=1, max_size=6),
     pick=st.sampled_from(FAN_LADDER),
     start=st.sampled_from(("reload", "restart")),

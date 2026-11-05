@@ -187,10 +187,22 @@ CODE_MUTANTS = {
             "tests/test_properties_restart.py::test_a_live_unit_switch_reloads_with_a_held_fan_and_the_hold_kept"),
     "C31": ("a slow head's older write reads as a pick", "coordinator.py", "if departed and observed in self._fan_older.get(climate_id, ()):", "if False:",
             "tests/test_properties_fan.py::test_no_person_no_hold_however_far_a_head_lags"),
-    "C32": ("older writes still count once the head has caught up", "coordinator.py", "if observed == self._fan_cmd.get(climate_id) and self._fan_older.pop(climate_id, None):", "if False:",
+    "C32": ("older writes still count once the head has caught up", "coordinator.py", "memory = self._fan_older.get(climate_id)\n        if not memory or observed not in memory:", "memory = None\n        if not memory or observed not in memory:",
             "tests/test_properties_fan.py::test_the_exception_is_exactly_the_last_two"),
     "C33": ("the whole ladder reads as an older write", "coordinator.py", "if departed and observed in self._fan_older.get(climate_id, ()):", "if departed and observed in FAN_LADDER:",
             "tests/test_properties_fan.py::test_a_lagging_heads_pick_of_a_speed_mxz_never_wrote_is_held"),
+    "C34": ("any report of the last write reads as caught up, a late one too", "coordinator.py", "        if observed == last and len(memory) == 1:", "        if observed == last:",
+            "tests/test_properties_fan.py::test_no_person_no_hold_when_a_head_reports_every_write_in_order"),
+    "C35": ("a start forgets where a repeated write came first", "switch.py", "if older := self.coordinator.fan_older_record(self._zone.climate_id):", "if older := self.coordinator.fan_older_commands(self._zone.climate_id):",
+            "tests/test_fan_lag_memory.py::test_a_start_keeps_where_a_repeated_write_came_first"),
+    "C36": ("a report drops nothing before it", "coordinator.py", "            while memory[0] != observed:\n                memory.popleft()\n", "",
+            "tests/test_fan_lag_memory.py::test_a_report_drops_the_writes_before_it_and_no_others"),
+    "C37": ("a report of the last write doesn't start the memory afresh", "coordinator.py", "        if observed == last and len(memory) == 1:", "        if False:",
+            "tests/test_fan_lag_memory.py::test_the_findings_walk_holds_nothing_and_boost_keeps_driving"),
+    "C39": ("a start's record loses an earlier write of a last-two speed", "coordinator.py", "            if record and record[-1] == written:\n                record.pop()\n", "            while record and written in record:\n                record.remove(written)\n",
+            "tests/test_properties_fan.py::test_no_person_no_hold_when_a_head_reports_every_write_in_order"),
+    "C38": ("a speed written twice is kept only once", "coordinator.py", "        memory.append(token)\n", "        if token not in memory:\n            memory.append(token)\n",
+            "tests/test_fan_lag_memory.py::test_a_later_write_of_a_speed_outlives_a_report_past_its_first"),
 }
 
 

@@ -1,7 +1,8 @@
 # Findings from the formal checks
 
-No finding is open. This page keeps what F1 was and how it was fixed, and the one accepted
-exception on cloud heads.
+No finding is open for a head that shows MXZ's fan writes in the order it got them, or jumps
+to the latest. A head that does anything else isn't covered: see [F1's limits](#f1-limits).
+This page keeps what F1 was and how it was fixed, and the one accepted exception on cloud heads.
 
 ## Accepted: a re-pick of the same speed on a cloud head
 
@@ -32,22 +33,43 @@ departure.
 **How likely.** Not measured: nothing here ran on hardware. It took two different ladder
 rungs in two computes, inside one head's report lag.
 
-**The fix.** The coordinator keeps a small ring per head, `_fan_older`: the speeds that rolled
-off `_fan_prev`, one for each rung at most, in the order written. A report that matches one
-is MXZ's own older write, not a pick. The ring is only live while the head is behind: a
-report of the last command empties it (`_fan_caught_up`), and so does a hold or a hand-back.
-A head that reports promptly never reads more than the last two speeds as echoes, as before.
-The ring rides a reload or restart in the Fan auto switch's restore data, limited to speeds
-boost could write.
+A report two or more writes behind could also equal the last write. MXZ writes high, medium,
+low and high inside one lag, and a head applying them one at a time shows the first high while
+the rest are still coming. The first version of this fix read that as caught up, forgot
+medium, and held medium when it was reported. An independent review reproduced that.
+
+**The fix.** The coordinator keeps its writes per head, `_fan_older`, in the order written, a
+speed written twice appearing twice. A report that matches one is MXZ's own write, not a pick.
+A report drops the writes before it, since a head can't show those again, and a repeated speed
+counts as its earliest write left. Only when the last write is all that's left is the head caught
+up, and the memory is emptied (`_fan_caught_up`). A hold or a hand-back empties it too. A report
+of `_fan_prev` drops nothing, which is wider than it has to be, and lasts only while the head is
+one write behind. A head that reports promptly never reads more than the last two speeds as echoes,
+as before. The memory rides a reload or restart in the Fan auto switch's restore data, limited
+to speeds boost could write.
 
 **What it costs.** While a head is behind, a person's pick of one of those older writes reads
 as an echo, and boost writes over it. A pick of any other speed holds at once, including
 across a start. This widens the first row of the
-[exceptions table](README.md#documented-exceptions) for as long as the lag lasts, and no longer.
+[exceptions table](README.md#documented-exceptions).
+
+It can outlast the lag once. If a head jumps straight to the last write, and MXZ wrote that speed
+earlier in the same lag too, MXZ can't tell that from the head showing the earlier write. The
+speeds between stay echoes with nothing left to report. A pick of one is written over, and the
+head's report of that ends the memory, so the next pick holds. A write of a speed
+not in the memory ends it too, once reported.
+`test_a_head_that_only_reports_the_repeat_costs_one_pick_at_most` pins this.
+
+<a id="f1-limits"></a>**Its limits.** Each of these still reads as a pick and holds, with nobody
+touching the fan:
+
+- A head that shows a write after one that came later, once MXZ has dropped it. Nothing here
+  says whether a real head ever does this: nothing ran on hardware.
+- A lag of more than `FAN_OLDER_WRITES` writes, 20 today. The oldest goes first.
 
 **Evidence.**
 
-| Step | Head shows | MXZ wrote | `_fan_cmd`, `_fan_prev`, `_fan_older` | Held |
+| Step | Head shows | MXZ wrote | `_fan_cmd`, `_fan_prev`, older writes | Held |
 | --- | --- | --- | --- | --- |
 | Room at 76, the head reports | high | high | high, auto, none | no |
 | Room at 72.2 | high | medium | medium, high, none | no |
@@ -55,9 +77,24 @@ across a start. This widens the first row of the
 | The head reports | low | | low, medium, none | no |
 | Room back at 76 | low | high | high, low, medium | no |
 
-`test_no_person_no_hold_however_far_a_head_lags` and
+And with every write shown in order, from a head showing auto:
+
+| Step | Head shows | `_fan_cmd`, `_fan_prev`, older writes | Held |
+| --- | --- | --- | --- |
+| MXZ has written high, medium, low, high | auto | high, low, medium | no |
+| The head reports | high | high, low, medium | no (it forgot medium here) |
+| The head reports | medium | high, low, medium | no (it was yes) |
+| The head reports | low | high, low, medium | no |
+| The head reports | high | high, low, none | no |
+
+`test_no_person_no_hold_however_far_a_head_lags`,
+`test_no_person_no_hold_when_a_head_reports_every_write_in_order` and
 `tests/test_fan_lag_memory.py` hold it on the real code in the suite, on every lane.
 `verification/findings/test_f1_fan_two_writes_behind.py` is the original replay, with its
 strict xfail lifted. In the model, `NoFalseHoldTwoBehind` is now a rule of
 `docs/formal/tla/ci-fan-lag.cfg` that must pass. `tools/formal_tlc.py mutants F7 F8 F9` shows
-it and `ManualFanKept` break if the ring is dropped, if it outlives the lag, or if a start forgets it.
+it and `ManualFanKept` break if the memory is dropped, if it outlives the lag, or if a start forgets it.
+
+The model's head only ever reports the latest write, and its memory is a set emptied by that
+report. So the in-order stream and the repeat rule aren't in the model: only the tests above
+hold them, and `tools/formal_tlc.py code` shows those tests break without them (C34 to C38).

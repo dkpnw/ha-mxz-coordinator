@@ -454,8 +454,9 @@ FAN_HIGH = "high"
 # Ascending true airflow speed; idx 0..4.
 FAN_LADDER = (FAN_QUIET, FAN_LOW, FAN_MEDIUM, FAN_MIDDLE, FAN_HIGH)
 # Older fan writes a head still behind may yet show, kept per head beyond the
-# last two: one for each rung, so a slow head can lag across the whole ladder.
-FAN_OLDER_WRITES = len(FAN_LADDER)
+# last two: enough for a slow head to lag down the whole ladder and back, twice.
+# Past it the oldest goes, and a report of that one would read as a pick.
+FAN_OLDER_WRITES = 4 * len(FAN_LADDER)
 # delta (°F off-target) >= up_at[i] to step UP into rung i+1
 FAN_BOOST_UP_AT = (1.0, 2.0, 3.0, 4.0)
 # up_at - 0.5 hysteresis; leave rung i once delta < down_at[i-1]
