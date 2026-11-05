@@ -10,6 +10,30 @@ on your equipment.
 
 ## Unreleased
 
+- **A slow local head no longer reads as a manual fan pick
+  ([F1](docs/formal/PARKED-FINDINGS.md)).** MXZ now remembers its older fan writes, per head,
+  until the head reports the last one, so a report two or more writes behind isn't a hold. A
+  speed MXZ didn't recently write is still held at once and across a restart. While a head is
+  behind, a pick of one of those older writes reads as MXZ's own, for as long as that lag
+  lasts. `NoFalseHoldTwoBehind` now holds in the TLA+ model.
+- **A °F/°C switch converts what's saved.** A room's target, Heat to and Cool to, Freeze floor
+  and Overheat ceiling, and the Lowest and Highest setpoint keep their temperature: 59 °F is
+  15 °C, not 31 °C. A room's own drift only scales. Each is converted once per switch, across
+  repeats and restarts. From its first switch on, an entry stores a new `saved_temp_unit` key
+  beside the range and floors; an entry that never switches isn't written. Other Configure
+  values keep their numbers: see
+  [CONFIGURATION.md](docs/CONFIGURATION.md).
+- **A live °F/°C switch reloads MXZ by itself,** so its entities show the new unit at once. A
+  manual fan speed, the shared mode and the mode-change wait carry over. It no longer needs a
+  manual reload or restart.
+- **Docs.** On a cloud head, a manual re-pick of the same fan speed MXZ just wrote can't be told
+  from MXZ's own write and is overwritten: this is the accepted exception, now in the README
+  and [PARKED-FINDINGS.md](docs/formal/PARKED-FINDINGS.md).
+- **Beta releases (docs and tooling only).** [RELEASING.md](docs/RELEASING.md) now covers the
+  beta format (`3.21.0b1`, tag `v3.21.0b1`, a GitHub pre-release, the CHANGELOG staying under
+  Unreleased) and how testers opt in through HACS. The `release-provenance` workflow fails unless
+  the tag is `v` plus the manifest's version, and the release is a pre-release exactly when the
+  version has `bN`.
 - **Formal checks of the coordinator (tests and docs only, no behavior change).**
   [docs/formal](docs/formal/README.md) has a statechart and a TLA+ model of the mode
   arbitration, the mode-change hold, the door/window pause, the manual fan hold and restart

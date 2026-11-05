@@ -1,57 +1,59 @@
-# Open findings from the formal checks
+# Findings from the formal checks
 
-These are real, and not fixed here: this work changes no product code. Each one has a
-reproducer that fails on the code today, and a check that fails the day it's fixed.
+No finding is open. This page keeps what F1 was and how it was fixed, and the one accepted
+exception on cloud heads.
 
-## F1-fan-two-writes-behind: a slow head can read as a person's pick
+## Accepted: a re-pick of the same speed on a cloud head
 
-**What happens.** No person touches anything, yet a room's fan goes on hold. Boost stops
-driving it, and Fan auto reads off until someone hands it back. It stays that way whatever
-the room's temperature does, across restarts too, since a hold is restored as a hold.
+On a cloud head, if a person picks the same fan speed MXZ just wrote, MXZ can't tell. It
+reads the speed as its own write, doesn't hold it, and fan boost's next step writes over it.
 
-**When.** A local head reports its fan late, and MXZ sends it a second, different speed
-before it has reported the first. `_observe_fan_latch` allows for the two speeds in
-`_fan_cmd` and `_fan_prev`, so a report one write behind is read as an echo. A head still
-showing the speed before those two reads as a departure, and `_hold_at` latches at it. When
-the head then reports the speed it was really sent, that departs from the hold too, and the
-hold moves there.
+A cloud head's report only says which speed it has, not who set it, and here the speed is
+the one MXZ expects. No change of behavior could separate the two, so this is accepted and
+documented, not a bug. To keep that speed, turn the room's **Fan auto** off, which holds
+whatever is showing. `test_a_cloud_re_pick_of_the_speed_just_written_is_overwritten` in
+`tests/test_cloud_heads.py` pins it. The wider rule it belongs to is in the
+[exceptions table](README.md#documented-exceptions).
 
-The fan machinery's tests and docs cover a head one write behind, and restart's conservative
-false holds. This case isn't documented anywhere. Cloud heads don't hit it this way: their
-fan writes are at least five minutes apart, and a report of an older speed is set aside
-inside the confirm wait.
+## F1-fan-two-writes-behind: a slow head could read as a person's pick (fixed)
 
-**How likely.** Not measured: nothing here ran on hardware. It takes two different ladder
-rungs in two computes, inside one head's report lag. A head that reports at once can't hit
-it. One polled every 30 s or so could, if a target change or a sensor jump moves the ladder
-twice in that time.
+**What happened.** No person touched anything, yet a room's fan went on hold. Boost stopped
+driving it, and Fan auto read off until someone handed it back, across restarts too.
 
-**Reproducer on the real code.** `verification/findings/test_f1_fan_two_writes_behind.py`,
-a strict xfail:
+**When.** A local head reported its fan late, and MXZ sent it a second, different speed
+before it had reported the first. `_observe_fan_latch` allowed only for the two speeds in
+`_fan_cmd` and `_fan_prev`, so a head still showing the speed before those read as a
+departure.
 
-```sh
-python -m pytest verification/findings -q -p no:cacheprovider
-```
+**How likely.** Not measured: nothing here ran on hardware. It took two different ladder
+rungs in two computes, inside one head's report lag.
 
-Its example, with the target at 70 and the head reporting only where it says:
+**The fix.** The coordinator keeps a small ring per head, `_fan_older`: the speeds that rolled
+off `_fan_prev`, one for each rung at most, in the order written. A report that matches one
+is MXZ's own older write, not a pick. The ring is only live while the head is behind: a
+report of the last command empties it (`_fan_caught_up`), and so does a hold or a hand-back.
+A head that reports promptly never reads more than the last two speeds as echoes, as before.
+The ring rides a reload or restart in the Fan auto switch's restore data, limited to speeds
+boost could write.
 
-| Step | Head shows | MXZ wrote | `(_fan_cmd, _fan_prev)` | Held |
+**What it costs.** While a head is behind, a person's pick of one of those older writes reads
+as an echo, and boost writes over it. A pick of any other speed holds at once, including
+across a start. This widens the first row of the
+[exceptions table](README.md#documented-exceptions) for as long as the lag lasts, and no longer.
+
+**Evidence.**
+
+| Step | Head shows | MXZ wrote | `_fan_cmd`, `_fan_prev`, `_fan_older` | Held |
 | --- | --- | --- | --- | --- |
-| Room at 76, the head reports | high | high | high, auto | no |
-| Room at 72.2 | high | medium | medium, high | no |
-| Room at 70.7 | high | low | **high, high** | **yes** |
-| The head reports | low | | low, low | yes |
-| Room back at 76 | low | nothing | low, low | yes |
+| Room at 76, the head reports | high | high | high, auto, none | no |
+| Room at 72.2 | high | medium | medium, high, none | no |
+| Room at 70.7 | high | low | low, medium, high | no (it was yes) |
+| The head reports | low | | low, medium, none | no |
+| Room back at 76 | low | high | high, low, none | no |
 
-**TLC trace.** `NoFalseHoldTwoBehind` breaks in `docs/formal/tla/ci-fan-lag.cfg`, and
-`tools/formal_tlc.py cover` requires that it does. The rule next to it, `NoFalseHold`,
-passes: at most one write behind, MXZ never holds a speed nobody touched.
-
-**Why the xfail is not in `tests/`.** `tools/pytest_phases.py`, which every CI suite pass
-runs under, fails a run on any xfail, by design. A strict xfail in `tests/` would turn
-every lane red, so it sits in `verification/findings/`, where
-`.claude/skills/verify-mxz-formal/SKILL.md` already says an open finding's replay goes.
-
-**To decide.** Keep more than two speeds in the echo memory, or age them out with time,
-at the cost of reading a real pick of an older speed as an echo for that long; or accept it
-and document it.
+`test_no_person_no_hold_however_far_a_head_lags` and
+`tests/test_fan_lag_memory.py` hold it on the real code in the suite, on every lane.
+`verification/findings/test_f1_fan_two_writes_behind.py` is the original replay, with its
+strict xfail lifted. In the model, `NoFalseHoldTwoBehind` is now a rule of
+`docs/formal/tla/ci-fan-lag.cfg` that must pass. `tools/formal_tlc.py mutants F7 F8 F9` shows
+it and `ManualFanKept` break if the ring is dropped, if it outlives the lag, or if a start forgets it.
