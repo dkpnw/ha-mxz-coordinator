@@ -10,6 +10,14 @@ on your equipment.
 
 ## Unreleased
 
+- **Formal checks of the coordinator (tests and docs only, no behavior change).**
+  [docs/formal](docs/formal/README.md) has a statechart and a TLA+ model of the mode
+  arbitration, the mode-change hold, the door/window pause, the manual fan hold and restart
+  continuity, with a new TLC workflow that isn't a required check. New Hypothesis property
+  tests hold the same rules on the real integration on every lane, so the test locks now
+  pin `hypothesis` and `sortedcontainers`. One open finding is recorded, not fixed: a local
+  head that reports two different fan writes late can read as a manual hold
+  ([F1](docs/formal/PARKED-FINDINGS.md)).
 - **Tests.** The phase evidence test passes on pytest 9.2 (Home Assistant's dev test
   requirements), whose automatic ids drop long parameter values. It now sets its ids
   explicitly, so its collection line still outgrows the stdout buffer. No change to MXZ itself.

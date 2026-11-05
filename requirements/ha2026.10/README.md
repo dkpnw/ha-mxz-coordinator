@@ -82,14 +82,15 @@ refusal, so retain and identify any failed receipt before a deliberate continuat
 ## Public inputs and generated outputs
 
 `bundle.json` and the two matching locks identify actual artifacts, not broad
-version ranges or a private registry. There are **157 public input artifacts**:
-the stable core wheel, 150 other runtime dependencies, and six additional
-build/generation tools. Adding the generated plugin gives the same **158**
-distribution set used for this target's dependency setup. Of those, **152** belong
+version ranges or a private registry. There are **159 public input artifacts**:
+the stable core wheel, 152 other test-time dependencies (Hypothesis and
+sortedcontainers, for `tests/test_properties_*.py`, among them), and six additional
+build/generation tools. Adding the generated plugin gives the same **160**
+distribution set used for this target's dependency setup. Of those, **154** belong
 to the runtime/plugin closure. Seven tools are installed before generation;
 `packaging` is both a build tool and a runtime dependency. This recipe also
 installs **pip 26.2.1** from the exact Python archive's hashed ensurepip wheel,
-so its final checked inventory is **159** distributions. No unconstrained pip
+so its final checked inventory is **161** distributions. No unconstrained pip
 upgrade occurs.
 
 The stable core wheel has version `2026.10.0`, requires Python `>=3.14.2`, and

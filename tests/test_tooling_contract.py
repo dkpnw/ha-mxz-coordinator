@@ -168,7 +168,7 @@ WORKFLOW_FAULTS = {
     "unpinned action": lambda q: _job(q, "mypy")["steps"][0].update(uses="actions/checkout@v7"),
     "persistent checkout": lambda q: _job(q, "mypy")["steps"][0]["with"].update({"persist-credentials": "true"}),
     "python differs from the lane": lambda q: _job(q, "mypy")["steps"][1]["with"].update({"python-version": "3.13"}),
-    "lock differs from the lane": lambda q: _replace_run(q, "coverage", "Exact locked installation", "2a67f9e", "0a67f9e"),
+    "lock differs from the lane": lambda q: _replace_run(q, "coverage", "Exact locked installation", "cf85bc9", "0f85bc9"),
     "coverage run": lambda q: _replace_run(q, "coverage", COVERAGE_STEP, " tests/ ", " tests/test_climate.py "),
     "mypy run": lambda q: _replace_run(q, "mypy", MYPY_STEP, "--python-executable", "--ignore-errors --python-executable"),
 }

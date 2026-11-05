@@ -235,7 +235,7 @@ check_product() {
 check_inventory() {
   "$RUNNER_TEMP/mxz-venv/bin/python" "$root/tools/check_lock.py" \
     "$root/requirements/constraints-py312-ha2024.12.5.txt" \
-    9151214dd98269ab636b9b290b764ad2ad9a214a7972485a308d1a6c59fc88f3 3.12.14 \
+    0c2ad5a8f350dce79ac5466f0e1f8d1c568962517f01fe139a688dca5b7b82de 3.12.14 \
     > "$child/inventory.$1.txt" || return 1
   cat "$child/inventory.$1.txt" || return 1
   cmp "$inventory" "$child/inventory.$1.txt" || return 1
