@@ -4205,7 +4205,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._fan_cmd.get(climate_id),
             self._fan_prev.get(climate_id),
         )
-        if departed and observed in self._fan_older.get(climate_id, ()):
+        if departed and observed in self.fan_older_commands(climate_id):
             departed = False  # a head still behind: our own older write
         if not (seeding or departed):
             # A standing hold: no gesture this cycle, so nothing changes.
