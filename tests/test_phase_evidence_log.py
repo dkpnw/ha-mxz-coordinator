@@ -24,7 +24,7 @@ CHILD_TEST = '''import sys
 import pytest
 
 
-@pytest.mark.parametrize("case", [f"{n:05d}-" + "x" * 1000 for n in range(CASES)])
+@pytest.mark.parametrize("case", [f"{n:05d}-" + "x" * 1000 for n in range(CASES)], ids=str)
 def test_invented_case(case):
     if CONTROL and case.startswith("LAST-"):
         # Control, last so it cannot flush the collection line early: an ordinary
@@ -50,7 +50,9 @@ def test_stderr_never_splits_phase_evidence(tmp_path, conftest):
     control = conftest == "absent"
     with log.open("wb") as stream:
         # Python buffers a file's stdout by st_blksize (3.12, 3.13) or at least 128 KiB
-        # (3.14); the collection line must outgrow that buffer on every lane.
+        # (3.14); the collection line must outgrow that buffer on every lane. The child's
+        # ids=str puts each 1 KB value in its node id: pytest 9.2's automatic ids drop any
+        # string over 100 characters, which leaves the line far smaller than the buffer.
         buffer = max(io.DEFAULT_BUFFER_SIZE, os.fstat(stream.fileno()).st_blksize)
         cases = 2 * buffer // 1000 + 1
         (tmp_path / "test_invented_split.py").write_text(
