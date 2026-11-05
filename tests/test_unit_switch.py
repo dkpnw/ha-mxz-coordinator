@@ -11,6 +11,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from homeassistant.components.number import NumberExtraStoredData
 from homeassistant.core import HomeAssistant
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 from hypothesis import given
@@ -27,6 +28,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_FLOOR_LOW,
 )
 from tests.property_rig import PURE, TARGET, Rig, open_rig
+from tests.restore_store import replace_stored_state, stored_state
 from tests.test_drive import _set_target
 
 F, C = "°F", "°C"
@@ -187,6 +189,28 @@ async def test_a_rooms_drift_only_scales(hass: HomeAssistant, freezer: Any) -> N
     assert rig.coord.zones[0].drift == 1.125
     await _live(rig, F)
     assert rig.coord.zones[0].drift == 2
+    await rig.close()
+
+
+async def test_a_drift_saved_with_no_unit_or_the_same_one_is_left_as_it_was(hass: HomeAssistant, freezer: Any) -> None:
+    """Only a change of unit touches it: 1.3 isn't on the step, and isn't moved onto it."""
+    rig = await open_rig(hass, freezer)
+    eid = rig.eid("_primary_drift")
+    await hass.services.async_call("number", "set_value", {"entity_id": eid, "value": 1.3}, blocking=True)
+    await hass.async_block_till_done()
+    await rig.reload()
+    assert rig.coord.zones[0].drift == 1.3
+    assert await hass.config_entries.async_unload(rig.entry.entry_id)
+    await hass.async_block_till_done()
+    stored = stored_state(hass, eid)
+    extra = stored.extra_data.as_dict()
+    assert extra["native_unit_of_measurement"] == F
+    extra["native_unit_of_measurement"] = None
+    stored.extra_data = NumberExtraStoredData.from_dict(extra)
+    replace_stored_state(hass, eid, stored)
+    assert await hass.config_entries.async_setup(rig.entry.entry_id)
+    await hass.async_block_till_done()
+    assert rig.coord.zones[0].drift == 1.3
     await rig.close()
 
 

@@ -12,8 +12,12 @@ A cloud head's report only says which speed it has, not who set it, and here the
 the one MXZ expects. No change of behavior could separate the two, so this is accepted and
 documented, not a bug. To keep that speed, turn the room's **Fan auto** off, which holds
 whatever is showing. `test_a_cloud_re_pick_of_the_speed_just_written_is_overwritten` in
-`tests/test_cloud_heads.py` pins it. The wider rule it belongs to is in the
-[exceptions table](README.md#documented-exceptions).
+`tests/test_cloud_heads.py` pins it.
+
+The speed before the one MXZ just wrote goes the same way, for the same reason, since a head
+that dropped a write keeps showing it: `test_the_exception_on_a_cloud_head` pins that. Both are
+in the [exceptions table](README.md#documented-exceptions), with the other documented cases.
+A speed MXZ didn't just write is held.
 
 ## F1-fan-two-writes-behind: a slow head could read as a person's pick (fixed)
 
@@ -49,7 +53,7 @@ across a start. This widens the first row of the
 | Room at 72.2 | high | medium | medium, high, none | no |
 | Room at 70.7 | high | low | low, medium, high | no (it was yes) |
 | The head reports | low | | low, medium, none | no |
-| Room back at 76 | low | high | high, low, none | no |
+| Room back at 76 | low | high | high, low, medium | no |
 
 `test_no_person_no_hold_however_far_a_head_lags` and
 `tests/test_fan_lag_memory.py` hold it on the real code in the suite, on every lane.

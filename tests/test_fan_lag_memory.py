@@ -41,14 +41,22 @@ def _switch_attrs(rig: Rig) -> dict[str, Any]:
 async def test_the_findings_walk_holds_nothing_and_boost_keeps_driving(hass: HomeAssistant, freezer: Any) -> None:
     """Each step of PARKED-FINDINGS.md's table, with the hold it used to show gone."""
     rig = await _lagging_walk(hass, freezer)
+    head = rig.heads[0].entity_id
+
+    def memory() -> tuple[Any, ...]:
+        return (*rig.coord.fan_command_memory(head), rig.coord.fan_older_commands(head))
+
+    assert memory() == ("low", "medium", ["high"])
     assert rig.fan_held() is False
     assert rig.fan_auto_switch() == "on"
     await rig.report_fan()
     assert rig.heads[0].fan == "low"
+    assert memory() == ("low", "medium", [])
     assert rig.fan_held() is False
     writes = len(rig.heads[0].fan_writes)
     await rig.temp(0, HIGH_RUNG)
     assert set(rig.heads[0].fan_writes[writes:]) == {"high"}  # rewritten until it reports
+    assert memory() == ("high", "low", ["medium"])
     assert rig.fan_held() is False
     await rig.close()
 

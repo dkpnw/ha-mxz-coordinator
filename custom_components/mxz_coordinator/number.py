@@ -256,13 +256,12 @@ class MXZDriftNumber(MXZEntity, RestoreNumber):
             and last.native_value is not None
         ):
             restored = last.native_value
-            if last.native_unit_of_measurement != self.coordinator.temp_unit:
-                restored = snap_to_step(
-                    offset_in_unit(
-                        restored, last.native_unit_of_measurement, self.coordinator.celsius
-                    ),
-                    self._attr_native_step,
-                )
+            # Only a real change of unit: same unit or none stored is as it was.
+            scaled = offset_in_unit(
+                restored, last.native_unit_of_measurement, self.coordinator.celsius
+            )
+            if scaled != restored:
+                restored = snap_to_step(scaled, self._attr_native_step)
             self._zone.drift = min(
                 max(restored, self._attr_native_min_value),
                 self._attr_native_max_value,
