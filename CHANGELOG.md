@@ -10,6 +10,9 @@ on your equipment.
 
 ## Unreleased
 
+- **Tests.** The phase evidence test passes on pytest 9.2 (Home Assistant's dev test
+  requirements), whose automatic ids drop long parameter values. It now sets its ids
+  explicitly, so its collection line still outgrows the stdout buffer. No change to MXZ itself.
 - **Cloud and generic heads (beta): a fan step no longer stalls behind a new setpoint when
   the last fan write wasn't confirmed yet.** The 3.20.0 fix covered a fan write already
   confirmed. If the new setpoint went out inside that fan write's own confirm wait, the
