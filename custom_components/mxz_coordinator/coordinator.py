@@ -4413,20 +4413,32 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return [token for token in dict.fromkeys(self._fan_older.get(climate_id, ())) if token not in skip]
 
     def fan_older_record(self, climate_id: str) -> list[str]:
-        """What a start needs back of ``_fan_older``, oldest first. Empty once it's only the last two.
+        """What a start needs back of ``_fan_older``, oldest first.
 
         Unlike ``fan_older_commands`` it's the writes in order, so a last-two
         speed written earlier too keeps that place, and a late report of it isn't
         read as the last write. The trailing last two are left out: the restore
-        puts them back. Auto counts only when it's the last command: any other
-        report of it drops nothing a start would miss.
+        puts them back. So is a leading auto, which the head is showing or has
+        passed, and which MXZ won't write again while it's showing.
+
+        Empty for a head showing the last write with no older speed left to
+        read as an echo. That's what a prompt head looks like, and its record
+        keeps its old shape. A head in the same state that was really showing an
+        earlier write of that speed loses its place (F1's limits,
+        docs/formal/PARKED-FINDINGS.md).
         """
+        if not self.fan_older_commands(climate_id):
+            head = self.hass.states.get(climate_id)
+            if head is not None and head.attributes.get("fan_mode") == self._fan_cmd.get(climate_id):
+                return []
         last = self._fan_cmd.get(climate_id)
         record = list(self._fan_older.get(climate_id, ()))
         for written in (last, self._fan_prev.get(climate_id)):
             if record and record[-1] == written:
                 record.pop()
-        return record if last == FAN_AUTO else [token for token in record if token != FAN_AUTO]
+        while record and record[0] == FAN_AUTO:
+            del record[0]
+        return record
 
     def _fan_caught_up(self, climate_id: str, observed: Any) -> None:
         """A head's report: the writes before it are behind the head for good.

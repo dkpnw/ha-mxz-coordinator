@@ -74,6 +74,11 @@ def _switch_attrs(rig: Rig) -> dict[str, Any]:
     return rig.hass.states.get(rig.eid("_primary_fan_auto")).attributes
 
 
+def _restore_data(rig: Rig) -> dict[str, Any]:
+    switch = rig.hass.data["entity_components"]["switch"].get_entity(rig.eid("_primary_fan_auto"))
+    return switch.extra_restore_state_data.as_dict()
+
+
 async def test_the_findings_walk_holds_nothing_and_boost_keeps_driving(hass: HomeAssistant, freezer: Any) -> None:
     """Each step of PARKED-FINDINGS.md's table, with the hold it used to show gone."""
     rig = await _lagging_walk(hass, freezer)
@@ -292,8 +297,7 @@ async def test_a_start_keeps_where_a_repeated_write_came_first(hass: HomeAssista
     end the memory and the next would hold."""
     rig = await _queued_walk(hass, freezer, HIGH_RUNG, MEDIUM_RUNG, LOW_RUNG, HIGH_RUNG)
     assert _switch_attrs(rig)["older_fan_commands"] == ["high", "medium"]
-    switch = hass.data["entity_components"]["switch"].get_entity(rig.eid("_primary_fan_auto"))
-    assert switch.extra_restore_state_data.as_dict()["older_fan_commands"] == ["high", "medium"]
+    assert _restore_data(rig)["older_fan_commands"] == ["high", "medium"]
     await (rig.reload() if start == "reload" else rig.restart())
     assert rig.coord.fan_older_commands(rig.heads[0].entity_id) == ["medium"]
     assert await _report_each_write_in_order(rig) == ["high", "medium", "low", "high"]
@@ -304,10 +308,48 @@ async def test_a_start_keeps_where_a_repeated_write_came_first(hass: HomeAssista
 @pytest.mark.parametrize("start", ["reload", "restart"])
 async def test_a_start_keeps_where_a_repeat_of_auto_came_first(hass: HomeAssistant, freezer: Any, start: str) -> None:
     rig = await _walk_back_to_auto(hass, freezer)
-    assert _switch_attrs(rig)["older_fan_commands"] == ["high", "auto", "medium"]
+    assert _restore_data(rig)["older_fan_commands"] == ["high", "auto", "medium"]
     await (rig.reload() if start == "reload" else rig.restart())
     await _report_each_write_in_order(rig)
     assert rig.coord.fan_older_commands(rig.heads[0].entity_id) == []
+    await rig.close()
+
+
+@pytest.mark.parametrize("start", ["reload", "restart"])
+async def test_known_limit_a_start_on_the_first_of_two_writes_can_still_hold(
+    hass: HomeAssistant, freezer: Any, start: str
+) -> None:
+    """F1's limit, pinned so it fails the day this changes. The head shows the first low of low,
+    medium, low when MXZ starts again. It looks just like a prompt head that went back to low,
+    whose record is pinned to carry nothing, so the first low's place is lost. Two more writes
+    and the rest of the queue then read as a pick, with nobody touching the fan."""
+    rig = await _queued_walk(hass, freezer, TARGET + 1.2, MEDIUM_RUNG, LOW_RUNG)
+    head = rig.heads[0]
+    while head.fan != "low":
+        assert await rig.report_next_fan()
+    assert rig.coord.fan_command_memory(head.entity_id) == ("low", "medium")
+    assert "older_fan_commands" not in _switch_attrs(rig)
+    await (rig.reload() if start == "reload" else rig.restart())
+    await rig.temp(0, TARGET + 0.2)
+    await rig.temp(0, MEDIUM_RUNG)
+    assert [token for token, _ in groupby(head.fan_writes)] == ["low", "medium", "low", "quiet", "medium"]
+    assert rig.fan_held() is False
+    while not rig.fan_held():
+        assert await rig.report_next_fan()
+    assert head.fan == "low"
+    await rig.close()
+
+
+async def test_without_a_start_that_walk_holds_nothing(hass: HomeAssistant, freezer: Any) -> None:
+    """The limit above is the start's alone."""
+    rig = await _queued_walk(hass, freezer, TARGET + 1.2, MEDIUM_RUNG, LOW_RUNG)
+    head = rig.heads[0]
+    while head.fan != "low":
+        assert await rig.report_next_fan()
+    await rig.temp(0, TARGET + 0.2)
+    await rig.temp(0, MEDIUM_RUNG)
+    assert await _report_each_write_in_order(rig) == ["low", "medium", "low", "quiet", "medium"]
+    assert rig.coord.fan_older_commands(head.entity_id) == []
     await rig.close()
 
 
@@ -368,7 +410,7 @@ async def test_a_prompt_head_shows_no_older_writes_after_a_repeat(hass: HomeAssi
         await rig.temp(0, temp)
         assert head.fan == head.fan_writes[-1]
         assert rig.coord.fan_older_commands(head.entity_id) == []
-    assert "older_fan_commands" not in _switch_attrs(rig)
+        assert "older_fan_commands" not in _switch_attrs(rig)
     await rig.close()
 
 

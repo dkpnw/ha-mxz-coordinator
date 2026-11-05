@@ -199,7 +199,7 @@ CODE_MUTANTS = {
             "tests/test_fan_lag_memory.py::test_a_report_drops_the_writes_before_it_and_no_others"),
     "C37": ("a report of the last write doesn't start the memory afresh", "coordinator.py", "        if observed == last and len(memory) == 1:", "        if False:",
             "tests/test_fan_lag_memory.py::test_the_findings_walk_holds_nothing_and_boost_keeps_driving"),
-    "C39": ("a start's record loses an earlier write of a last-two speed", "coordinator.py", "            if record and record[-1] == written:\n                record.pop()\n", "            while record and written in record:\n                record.remove(written)\n",
+    "C39": ("a start's record loses a queued write of auto", "coordinator.py", "        while record and record[0] == FAN_AUTO:\n            del record[0]\n", "        record = [token for token in record if token != FAN_AUTO]\n",
             "tests/test_properties_fan.py::test_no_person_no_hold_when_a_head_reports_every_write_in_order"),
     "C38": ("a speed written twice is kept only once", "coordinator.py", "        memory.append(token)\n", "        if token not in memory:\n            memory.append(token)\n",
             "tests/test_fan_lag_memory.py::test_a_later_write_of_a_speed_outlives_a_report_past_its_first"),

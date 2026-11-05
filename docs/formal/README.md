@@ -25,7 +25,7 @@ stay as they are, and this model doesn't repeat them.
 | A manual fan choice is never written over, apart from the exceptions below. | `ManualFanKept` | `test_a_pick_is_never_written_over_until_it_is_handed_back`, `test_a_cloud_heads_pick_is_never_written_over`, `test_a_lagging_heads_pick_of_a_speed_mxz_never_wrote_is_held` |
 | A manual fan choice shows as a hold, across every start. | `ManualFanShown` | `test_a_pick_is_never_written_over_until_it_is_handed_back`, `test_a_start_changes_nothing_anyone_can_see` |
 | MXZ doesn't hold a speed nobody touched, with a head up to one write behind. | `NoFalseHold` | `test_a_slow_heads_own_echo_is_not_a_hold_one_write_behind` |
-| Nor with a head further behind, including at a start's first read, whether it jumps to the latest write or shows each in order (F1). [The limits](PARKED-FINDINGS.md#f1-limits) are out of order and past the memory's bound. | `NoFalseHoldTwoBehind`, in `ci-fan-lag`, for a head that jumps only | `test_no_person_no_hold_however_far_a_head_lags`, `test_no_person_no_hold_when_a_head_reports_every_write_in_order` |
+| Nor with a head further behind, including at a start's first read, whether it jumps to the latest write or shows each in order (F1). [The limits](PARKED-FINDINGS.md#f1-limits) are out of order, past the memory's bound, and one moment for a start. | `NoFalseHoldTwoBehind`, in `ci-fan-lag`, for a head that jumps only | `test_no_person_no_hold_however_far_a_head_lags`, `test_no_person_no_hold_when_a_head_reports_every_write_in_order` |
 | No mode flip inside the hold, across any start. | `NoFlipInDwell` | `test_no_flip_inside_the_hold_and_no_wait_after_it`, `test_arbitrate_never_changes_the_mode_while_the_hold_holds` |
 | With the hold over and only the other mode calling, the mode changes. | `NoExtraWait` | `test_no_flip_inside_the_hold_and_no_wait_after_it` |
 | A start neither restarts the hold nor forgets it. | `HoldClockKept` | `test_no_flip_inside_the_hold_and_no_wait_after_it`, `test_a_start_keeps_what_is_left_of_the_hold_and_never_more`, `test_no_stored_change_holds_nothing` |
@@ -62,8 +62,8 @@ across a unit switch, and a live unit switch. `test_a_target_is_converted_on_a_u
 and `test_a_live_unit_switch_reloads_with_a_held_fan_and_the_hold_kept` hold those now.
 
 F1, a slow head read as a person's pick, is fixed for a head that shows its writes in order or
-jumps to the latest, and is described in [PARKED-FINDINGS.md](PARKED-FINDINGS.md), with its
-limits. No finding is open.
+jumps to the latest, and is described in [PARKED-FINDINGS.md](PARKED-FINDINGS.md). No finding is
+open beyond the limits listed there.
 
 ## What is modeled, and what isn't
 

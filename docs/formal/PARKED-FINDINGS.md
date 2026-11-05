@@ -1,7 +1,8 @@
 # Findings from the formal checks
 
 No finding is open for a head that shows MXZ's fan writes in the order it got them, or jumps
-to the latest. A head that does anything else isn't covered: see [F1's limits](#f1-limits).
+to the latest, apart from one narrow case at a start. A head that does anything else isn't
+covered. [F1's limits](#f1-limits) has both.
 This page keeps what F1 was and how it was fixed, and the one accepted exception on cloud heads.
 
 ## Accepted: a re-pick of the same speed on a cloud head
@@ -66,6 +67,12 @@ touching the fan:
 - A head that shows a write after one that came later, once MXZ has dropped it. Nothing here
   says whether a real head ever does this: nothing ran on hardware.
 - A lag of more than `FAN_OLDER_WRITES` writes, 20 today. The oldest goes first.
+- A reload or restart at one moment in a queue. The head shows the first of two writes of a
+  speed, say the first low of low, medium, low. That looks just like a prompt head that went
+  back to low, whose stored record can't change, so the first low's place is lost. If two more
+  writes follow before the queue is done, a later report holds. To release it, turn the room's
+  **Fan auto** back on. `test_known_limit_a_start_on_the_first_of_two_writes_can_still_hold`
+  pins this, and the in-order property leaves this one start out.
 
 **Evidence.**
 
@@ -97,4 +104,4 @@ it and `ManualFanKept` break if the memory is dropped, if it outlives the lag, o
 
 The model's head only ever reports the latest write, and its memory is a set emptied by that
 report. So the in-order stream and the repeat rule aren't in the model: only the tests above
-hold them, and `tools/formal_tlc.py code` shows those tests break without them (C34 to C38).
+hold them, and `tools/formal_tlc.py code` shows those tests break without them (C34 to C39).

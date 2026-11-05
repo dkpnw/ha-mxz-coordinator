@@ -14,8 +14,9 @@ on your equipment.
   ([F1](docs/formal/PARKED-FINDINGS.md)).** MXZ now remembers its older fan writes, per head,
   until the head's reports pass them. A report two or more writes behind isn't a hold, from a
   head that shows its writes in order or jumps to the latest. One that shows them out of order
-  can still read as a pick. A speed MXZ didn't recently write is still held at once and across
-  a restart. While a head is behind, a pick of one of those older writes reads as MXZ's own,
+  can still read as a pick, and so can an in-order head at one moment of a restart, both
+  [listed](docs/formal/PARKED-FINDINGS.md#f1-limits). A speed MXZ didn't recently write is
+  still held at once and across a restart. While a head is behind, a pick of one of those older writes reads as MXZ's own,
   and in one case that can outlast the lag by one pick. `NoFalseHoldTwoBehind` now holds in the
   TLA+ model, whose head only ever jumps to the latest; tests cover the in-order case.
 - **A °F/°C switch converts what's saved.** A room's target, Heat to and Cool to, Freeze floor

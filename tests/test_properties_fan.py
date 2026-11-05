@@ -280,6 +280,12 @@ async def test_no_person_no_hold_however_far_a_head_lags(
 @example(steps=[("temp", TARGET + 1.2), ("temp", TARGET + 2.2), ("temp", TARGET + 0.7), ("reload",), ("temp", TARGET + 1.2)])
 @example(
     steps=[
+        ("temp", TARGET + 3.2), ("temp", TARGET), ("report",), ("temp", TARGET + 2.2),
+        ("temp", TARGET + 0.7), ("reload",), ("temp", TARGET),
+    ]
+)
+@example(
+    steps=[
         ("temp", TARGET + 6), ("report",), ("report",),
         ("temp", TARGET), ("temp", TARGET + 2.2), ("temp", TARGET + 0.7), ("temp", TARGET),
     ]
@@ -289,7 +295,9 @@ async def test_no_person_no_hold_when_a_head_reports_every_write_in_order(
 ) -> None:
     """F1 again, with a head that applies its writes one at a time and shows each, late and in
     order, starting from auto. A late report can equal the last write while others are still
-    coming. No hold, ever, and with the queue done no older write is left."""
+    coming. No hold, ever, and with the queue done no older write is left. The one start this
+    leaves out is F1's known limit, which test_known_limit_a_start_on_the_first_of_two_writes_
+    can_still_hold in tests/test_fan_lag_memory.py pins."""
     rig = await open_rig(hass, freezer, temps=(TARGET, TARGET), lags=True)
     try:
         head = rig.heads[0]
@@ -304,6 +312,8 @@ async def test_no_person_no_hold_when_a_head_reports_every_write_in_order(
             elif step[0] == "report":
                 await rig.report_next_fan()
             else:
+                memory = rig.coord._fan_older.get(head.entity_id, ())
+                assume(not (len(memory) > 1 and head.fan == rig.coord.fan_command_memory(head.entity_id)[0]))
                 await (rig.reload() if step[0] == "reload" else rig.restart())
             await nobody_touched_it()
         for _ in range(100):
