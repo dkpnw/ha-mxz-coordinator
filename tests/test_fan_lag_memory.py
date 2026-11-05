@@ -97,7 +97,7 @@ async def test_the_findings_walk_holds_nothing_and_boost_keeps_driving(hass: Hom
     writes = len(rig.heads[0].fan_writes)
     await rig.temp(0, HIGH_RUNG)
     assert set(rig.heads[0].fan_writes[writes:]) == {"high"}  # rewritten until it reports
-    assert memory() == ("high", "low", ["medium"])
+    assert memory() == ("high", "low", [])
     assert rig.fan_held() is False
     await rig.close()
 
@@ -411,6 +411,91 @@ async def test_a_prompt_head_shows_no_older_writes_after_a_repeat(hass: HomeAssi
         assert head.fan == head.fan_writes[-1]
         assert rig.coord.fan_older_commands(head.entity_id) == []
         assert "older_fan_commands" not in _switch_attrs(rig)
+    await rig.close()
+
+
+async def _prompt_walk(hass: HomeAssistant, freezer: Any, *temps: float) -> Rig:
+    """A head that reports each write before the next, which is then left in flight."""
+    rig = await open_rig(hass, freezer, temps=(TARGET, TARGET), lags=True)
+    for temp in temps[:-1]:
+        await rig.temp(0, temp)
+        await rig.report_fan()
+    await rig.temp(0, temps[-1])
+    return rig
+
+
+@pytest.mark.parametrize(
+    ("temps", "pick", "written"),
+    [
+        ((HIGH_RUNG, MEDIUM_RUNG, HIGH_RUNG, LOW_RUNG), "medium", ["high", "medium", "high", "low"]),
+        ((HIGH_RUNG, MEDIUM_RUNG, LOW_RUNG), "high", ["high", "medium", "low"]),
+    ],
+    ids=["the-review-bounce", "no-bounce"],
+)
+async def test_a_prompt_heads_passed_speed_holds_during_the_next_writes_window(
+    hass: HomeAssistant, freezer: Any, temps: tuple[float, ...], pick: str, written: list[str]
+) -> None:
+    """The head reported every write, so it can't show this speed again. One write is in flight,
+    which is no lag at all: a pick of the speed before the last two is a person's, as on base."""
+    rig = await _prompt_walk(hass, freezer, *temps)
+    head = rig.heads[0]
+    assert [token for token, _ in groupby(head.fan_writes)] == written
+    assert head.unreported_fan == written[-1]
+    assert rig.coord.fan_older_commands(head.entity_id) == []
+    assert "older_fan_commands" not in _switch_attrs(rig)
+    writes = len(head.fan_writes)
+    await rig.person_fan(pick)
+    assert rig.fan_held() is True
+    assert rig.fan_auto_switch() == "off"
+    await rig.temp(0, temps[-1])
+    assert head.fan == pick
+    assert head.fan_writes[writes:] == []
+    await rig.close()
+
+
+async def test_a_jumping_heads_passed_speed_holds_during_the_next_writes_window(hass: HomeAssistant, freezer: Any) -> None:
+    """The findings walk's last row. The head jumped past medium to low, so medium can't come back."""
+    rig = await _lagging_walk(hass, freezer)
+    head = rig.heads[0]
+    await rig.report_fan()
+    await rig.temp(0, HIGH_RUNG)
+    assert head.unreported_fan == "high"
+    writes = len(head.fan_writes)
+    await rig.person_fan("medium")
+    assert rig.fan_held() is True
+    assert head.fan == "medium"
+    assert head.fan_writes[writes:] == []
+    await rig.close()
+
+
+@pytest.mark.parametrize("start", ["reload", "restart"])
+async def test_known_cost_the_first_write_after_a_start_can_read_one_speed_more(
+    hass: HomeAssistant, freezer: Any, start: str
+) -> None:
+    """F1's cost, pinned so it fails the day this changes. A start can't tell a head that has passed
+    the speed before the last write from one still showing it, and the record of a prompt head
+    carries nothing. So the first write after a start reads that speed as an echo, and a pick of
+    it is written over. The report of that write ends this, and the next pick holds."""
+    rig = await _prompt_walk(hass, freezer, HIGH_RUNG, MEDIUM_RUNG)
+    head = rig.heads[0]
+    await rig.report_fan()
+    assert head.fan == "medium"
+    assert rig.coord.fan_command_memory(head.entity_id) == ("medium", "high")
+    await (rig.reload() if start == "reload" else rig.restart())
+    await rig.temp(0, LOW_RUNG)
+    assert head.unreported_fan == "low"
+    assert rig.coord.fan_command_memory(head.entity_id) == ("low", "medium")
+    assert rig.coord.fan_older_commands(head.entity_id) == ["high"]
+    await rig.person_fan("high")
+    assert rig.fan_held() is False
+    assert head.unreported_fan == "low"  # boost is writing over the pick
+    await rig.report_fan()
+    assert head.fan == "low"
+    assert rig.coord.fan_older_commands(head.entity_id) == []
+    writes = len(head.fan_writes)
+    await rig.person_fan("high")
+    assert rig.fan_held() is True
+    assert head.fan_writes[writes:] == []
     await rig.close()
 
 

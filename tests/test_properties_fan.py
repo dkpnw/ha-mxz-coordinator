@@ -194,6 +194,35 @@ async def test_the_exception_is_exactly_the_last_two(
 
 
 @SEQUENCES
+@given(ladder=st.lists(st.sampled_from(COOLING), min_size=1, max_size=6))
+@example(ladder=[TARGET + 6, TARGET + 2.2, TARGET + 6, TARGET + 0.7])
+@example(ladder=[TARGET + 6, TARGET + 2.2, TARGET + 0.7])
+async def test_the_exception_is_still_the_last_two_with_a_write_in_flight(
+    hass: HomeAssistant, freezer: Any, ladder: list[float]
+) -> None:
+    """The same, for a head that reports each write before the next and has the last in flight.
+    One write in flight is no lag: the speed before the last two is a person's, as on base."""
+    for token in FAN_LADDER:
+        rig = await open_rig(hass, freezer, temps=(TARGET, TARGET), lags=True)
+        try:
+            head = rig.heads[0]
+            for temp in ladder[:-1]:
+                await rig.temp(0, temp)
+                await rig.report_fan()
+            await rig.temp(0, ladder[-1])
+            distinct = [FAN_AUTO]
+            for sent in head.fan_writes:
+                if sent != distinct[-1]:
+                    distinct.append(sent)
+            if token == head.fan:
+                continue  # picking what it shows changes nothing to read
+            await rig.person_fan(token)
+            assert rig.fan_held() is (token not in distinct[-2:])
+        finally:
+            await rig.close()
+
+
+@SEQUENCES
 @given(walk=st.lists(st.sampled_from(COOLING), max_size=4))
 async def test_the_exception_can_lose_the_pick(
     hass: HomeAssistant, freezer: Any, walk: list[float]
@@ -323,6 +352,38 @@ async def test_no_person_no_hold_when_a_head_reports_every_write_in_order(
         else:
             raise AssertionError("the head never got through its queue")
         assert rig.coord.fan_older_commands(head.entity_id) == []
+    finally:
+        await rig.close()
+
+
+@SEQUENCES
+@given(
+    steps=st.lists(
+        st.one_of(
+            st.tuples(st.just("temp"), st.sampled_from(COOLING)),
+            st.tuples(st.sampled_from(("report", "reload", "restart"))),
+        ),
+        min_size=1,
+        max_size=10,
+    )
+)
+@example(steps=[("temp", TARGET + 6), ("report",), ("temp", TARGET + 2.2), ("temp", TARGET + 0.7), ("report",), ("temp", TARGET + 6), ("temp", TARGET + 2.2)])
+async def test_no_person_no_hold_when_a_head_jumps_to_its_latest_write(
+    hass: HomeAssistant, freezer: Any, steps: list[tuple[Any, ...]]
+) -> None:
+    """F1 for the head the TLA+ model has, which shows only MXZ's latest write, whenever it reports.
+    The speed it shows stays remembered, though the speeds it jumped past don't."""
+    rig = await open_rig(hass, freezer, temps=(TARGET, TARGET), lags=True)
+    try:
+        for step in steps:
+            if step[0] == "temp":
+                await rig.temp(0, step[1])
+            elif step[0] == "report":
+                await rig.report_fan()
+            else:
+                await (rig.reload() if step[0] == "reload" else rig.restart())
+            assert rig.fan_held() is False
+            assert rig.fan_auto_switch() == "on"
     finally:
         await rig.close()
 

@@ -25,7 +25,7 @@ stay as they are, and this model doesn't repeat them.
 | A manual fan choice is never written over, apart from the exceptions below. | `ManualFanKept` | `test_a_pick_is_never_written_over_until_it_is_handed_back`, `test_a_cloud_heads_pick_is_never_written_over`, `test_a_lagging_heads_pick_of_a_speed_mxz_never_wrote_is_held` |
 | A manual fan choice shows as a hold, across every start. | `ManualFanShown` | `test_a_pick_is_never_written_over_until_it_is_handed_back`, `test_a_start_changes_nothing_anyone_can_see` |
 | MXZ doesn't hold a speed nobody touched, with a head up to one write behind. | `NoFalseHold` | `test_a_slow_heads_own_echo_is_not_a_hold_one_write_behind` |
-| Nor with a head further behind, including at a start's first read, whether it jumps to the latest write or shows each in order (F1). [The limits](PARKED-FINDINGS.md#f1-limits) are out of order, past the memory's bound, and one moment for a start. | `NoFalseHoldTwoBehind`, in `ci-fan-lag`, for a head that jumps only | `test_no_person_no_hold_however_far_a_head_lags`, `test_no_person_no_hold_when_a_head_reports_every_write_in_order` |
+| Nor with a head further behind, including at a start's first read, whether it jumps to the latest write or shows each in order (F1). [The limits](PARKED-FINDINGS.md#f1-limits) are out of order, past the memory's bound, and one moment for a start. | `NoFalseHoldTwoBehind`, in `ci-fan-lag`, for a head that jumps only | `test_no_person_no_hold_however_far_a_head_lags`, `test_no_person_no_hold_when_a_head_jumps_to_its_latest_write`, `test_no_person_no_hold_when_a_head_reports_every_write_in_order` |
 | No mode flip inside the hold, across any start. | `NoFlipInDwell` | `test_no_flip_inside_the_hold_and_no_wait_after_it`, `test_arbitrate_never_changes_the_mode_while_the_hold_holds` |
 | With the hold over and only the other mode calling, the mode changes. | `NoExtraWait` | `test_no_flip_inside_the_hold_and_no_wait_after_it` |
 | A start neither restarts the hold nor forgets it. | `HoldClockKept` | `test_no_flip_inside_the_hold_and_no_wait_after_it`, `test_a_start_keeps_what_is_left_of_the_hold_and_never_more`, `test_no_stored_change_holds_nothing` |
@@ -44,7 +44,7 @@ pinned by a passing test that fails if the behavior changes. They aren't xfails 
 
 | Exception | Spec | Pinned by |
 | --- | --- | --- |
-| **A pick of a remembered speed reads as MXZ's echo**, and boost writes over it. It's found on cloud heads and shared with local ones. The memory is the last two distinct speeds in `_fan_cmd` and `_fan_prev`, which also takes in a speed that was held or handed back: hold low, hand it back from the remote, pick low again with nothing written between, and it isn't held. The same goes for the older writes in `_fan_older` that a head's reports haven't passed yet (F1's cost): a pick of one of those reads as an echo too. That can outlast the lag by one such pick, when a head jumps to the last of two writes of a speed. | `pickKind = "echo"`; reachable by `NeverKnownExceptionLosesAPick` | `test_the_exception_is_exactly_the_last_two`, `test_the_exception_can_lose_the_pick`, `test_the_exception_on_a_cloud_head`, `test_a_head_caught_up_reads_an_older_write_as_a_pick` and `test_a_head_that_only_reports_the_repeat_costs_one_pick_at_most` in `tests/test_fan_lag_memory.py` |
+| **A pick of a remembered speed reads as MXZ's echo**, and boost writes over it. It's found on cloud heads and shared with local ones. The memory is the last two distinct speeds in `_fan_cmd` and `_fan_prev`, which also takes in a speed that was held or handed back: hold low, hand it back from the remote, pick low again with nothing written between, and it isn't held. The same goes for the older writes in `_fan_older` that a head's reports haven't passed yet (F1's cost): a pick of one of those reads as an echo too. That can outlast the lag by one such pick, when a head jumps to the last of two writes of a speed. The first write after a start can also read the speed before the last write that way. | `pickKind = "echo"`; reachable by `NeverKnownExceptionLosesAPick` | `test_the_exception_is_exactly_the_last_two`, `test_the_exception_can_lose_the_pick`, `test_the_exception_on_a_cloud_head`, `test_a_head_caught_up_reads_an_older_write_as_a_pick`, `test_a_prompt_heads_passed_speed_holds_during_the_next_writes_window`, `test_a_head_that_only_reports_the_repeat_costs_one_pick_at_most` and `test_known_cost_the_first_write_after_a_start_can_read_one_speed_more` in `tests/test_fan_lag_memory.py` |
 | **On a cloud head, a re-pick of the speed MXZ just wrote can't be told from its own write**, and boost's next step writes over it. Accepted: see [PARKED-FINDINGS.md](PARKED-FINDINGS.md). | Not a step of the machine | `test_a_cloud_re_pick_of_the_speed_just_written_is_overwritten` in `tests/test_cloud_heads.py` |
 | **Picking the speed already showing can't be read.** Nothing changes for MXZ to see. | Not a step of the machine | `test_picking_the_speed_already_showing_is_invisible` in `tests/test_drive.py` |
 | **A pick MXZ hasn't read before a stop, or made while it is down**, can read as its own speed where the token could be ours. `_reconcile_restored_hold` documents it. | `pickKind = "outage"` | `test_s6_gesture_during_outage_not_held_before` in `tests/test_fan_hold_restore.py` |
@@ -87,8 +87,12 @@ the fan touched during the outage, and crash.
 - Idle actions other than fan_only, the coil-dry wait, vanes, setpoints, notices, `fan_on_pending`.
 - A head working through a queue of older fan writes. The model's head reports only the latest,
   and its older writes are a set, so where the code keeps them after a report of a speed written
-  twice, the model has forgotten them. `tests/test_fan_lag_memory.py` and
-  `test_no_person_no_hold_when_a_head_reports_every_write_in_order` cover this.
+  twice, the model has forgotten them. And where the code's memory stays as the last write once
+  a head has caught up, the model's next write puts back the speed before it, so the model's echo
+  is wider there. `tests/test_fan_lag_memory.py`,
+  `test_no_person_no_hold_when_a_head_reports_every_write_in_order`,
+  `test_no_person_no_hold_when_a_head_jumps_to_its_latest_write` and
+  `test_the_exception_is_still_the_last_two_with_a_write_in_flight` cover this.
 - Anything between `_compute` and the end of `_apply`: one Decide is one step, so a pick
   arriving while a delivery awaits isn't modeled.
 - The fan ladder is cut to three rungs with the ceiling at the second. Delays and the hold are whole ticks.

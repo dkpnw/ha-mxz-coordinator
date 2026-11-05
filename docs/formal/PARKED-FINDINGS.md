@@ -42,17 +42,30 @@ medium, and held medium when it was reported. An independent review reproduced t
 **The fix.** The coordinator keeps its writes per head, `_fan_older`, in the order written, a
 speed written twice appearing twice. A report that matches one is MXZ's own write, not a pick.
 A report drops the writes before it, since a head can't show those again, and a repeated speed
-counts as its earliest write left. Only when the last write is all that's left is the head caught
-up, and the memory is emptied (`_fan_caught_up`). A hold or a hand-back empties it too. A report
-of `_fan_prev` drops nothing, which is wider than it has to be, and lasts only while the head is
-one write behind. A head that reports promptly never reads more than the last two speeds as echoes,
-as before. The memory rides a reload or restart in the Fan auto switch's restore data, limited
-to speeds boost could write.
+counts as its earliest write left. When the last write is all that's left, the head has caught
+up, and that write stays as the memory (`_fan_caught_up`), so the next write can't bring back a
+speed the head has passed. A hold or a hand-back empties the memory. A report of `_fan_prev` drops
+nothing, which is wider than it has to be, and lasts only while the head is one write behind. The
+memory rides a reload or restart in the Fan auto switch's restore data, limited to speeds boost
+could write.
+
+An independent review found the first version of this rule emptied the memory on that report, and
+the next write put back the speed before the last. A head that reported every write then read that
+speed as an echo for as long as the next write was in flight. A pick of it was written over, where
+the code before F1 held it.
 
 **What it costs.** While a head is behind, a person's pick of one of those older writes reads
 as an echo, and boost writes over it. A pick of any other speed holds at once, including
 across a start. This widens the first row of the
-[exceptions table](README.md#documented-exceptions).
+[exceptions table](README.md#documented-exceptions). A head that has reported MXZ's last write
+reads only the last two speeds as echoes, with the next write in flight too, as it did before F1.
+`test_a_prompt_heads_passed_speed_holds_during_the_next_writes_window` and
+`test_the_exception_is_still_the_last_two_with_a_write_in_flight` hold that.
+
+The first write after a start is the exception. A start can't tell a head that has passed the speed
+before the last write from one still showing it, so that write reads the speed as an echo until the
+head reports it. A pick of the speed in that window is written over, and the next one holds.
+`test_known_cost_the_first_write_after_a_start_can_read_one_speed_more` pins this.
 
 It can outlast the lag once. If a head jumps straight to the last write, and MXZ wrote that speed
 earlier in the same lag too, MXZ can't tell that from the head showing the earlier write. The
@@ -82,7 +95,7 @@ touching the fan:
 | Room at 72.2 | high | medium | medium, high, none | no |
 | Room at 70.7 | high | low | low, medium, high | no (it was yes) |
 | The head reports | low | | low, medium, none | no |
-| Room back at 76 | low | high | high, low, medium | no |
+| Room back at 76 | low | high | high, low, none | no |
 
 And with every write shown in order, from a head showing auto:
 
@@ -95,6 +108,7 @@ And with every write shown in order, from a head showing auto:
 | The head reports | high | high, low, none | no |
 
 `test_no_person_no_hold_however_far_a_head_lags`,
+`test_no_person_no_hold_when_a_head_jumps_to_its_latest_write`,
 `test_no_person_no_hold_when_a_head_reports_every_write_in_order` and
 `tests/test_fan_lag_memory.py` hold it on the real code in the suite, on every lane.
 `verification/findings/test_f1_fan_two_writes_behind.py` is the original replay, with its
@@ -104,4 +118,7 @@ it and `ManualFanKept` break if the memory is dropped, if it outlives the lag, o
 
 The model's head only ever reports the latest write, and its memory is a set emptied by that
 report. So the in-order stream and the repeat rule aren't in the model: only the tests above
-hold them, and `tools/formal_tlc.py code` shows those tests break without them (C34 to C39).
+hold them, and `tools/formal_tlc.py code` shows those tests break without them (C34 to C41).
+The model's next write also puts back the speed before the last, so its echo is wider than the
+code's. That doesn't hide a false hold for its head: the code's memory keeps the speed that head
+shows, and `test_no_person_no_hold_when_a_head_jumps_to_its_latest_write` holds that on the real code.

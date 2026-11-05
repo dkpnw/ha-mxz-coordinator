@@ -17,7 +17,9 @@ on your equipment.
   can still read as a pick, and so can an in-order head at one moment of a restart, both
   [listed](docs/formal/PARKED-FINDINGS.md#f1-limits). A speed MXZ didn't recently write is
   still held at once and across a restart. While a head is behind, a pick of one of those older writes reads as MXZ's own,
-  and in one case that can outlast the lag by one pick. `NoFalseHoldTwoBehind` now holds in the
+  and in one case that can outlast the lag by one pick. A head that has reported MXZ's last write
+  still reads only the last two speeds as MXZ's own, with the next write in flight too, except for
+  the first write after a restart, which can read one speed more. `NoFalseHoldTwoBehind` now holds in the
   TLA+ model, whose head only ever jumps to the latest; tests cover the in-order case.
 - **A °F/°C switch converts what's saved.** A room's target, Heat to and Cool to, Freeze floor
   and Overheat ceiling, and the Lowest and Highest setpoint keep their temperature: 59 °F is

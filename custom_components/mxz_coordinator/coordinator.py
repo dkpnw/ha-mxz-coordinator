@@ -1055,8 +1055,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fan_prev: dict[str, str] = {}
         # A head can lag further than that (F1, docs/formal/PARKED-FINDINGS.md):
         # the speeds MXZ wrote that this head may yet show, in the order written,
-        # a speed written twice appearing twice, per head. Only while the head is
-        # behind: its reports drop what came before them (see _fan_caught_up).
+        # a speed written twice appearing twice, per head. Its reports drop what
+        # came before them, so a head caught up leaves the last write alone in it
+        # (see _fan_caught_up).
         self._fan_older: dict[str, deque[str]] = {}
         self._fan_latched: dict[str, bool] = {}
         # Pre-restart latch truth restored by the Fan-auto switch
@@ -4450,7 +4451,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         is wider than it has to be and only for a head still one write behind.
 
         A report of the last command with no other write left has caught up, and
-        nothing older counts any more. That can't tell a head that jumped
+        the memory stays as that one write. The next write adds to it, so a speed
+        the head has passed doesn't come back. That can't tell a head that jumped
         straight to the last of two writes of a speed, so the writes between
         stay echoes until a report rules them out (F1's cost,
         docs/formal/PARKED-FINDINGS.md).
@@ -4467,9 +4469,6 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             changed = memory[0] != observed
             while memory[0] != observed:
                 memory.popleft()
-        if observed == last and len(memory) == 1:
-            del self._fan_older[climate_id]
-            changed = True
         if changed:
             self._publish_fan_state(climate_id)
 
@@ -4477,9 +4476,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Roll the echo memory for a fan speed MXZ is sending.
 
         A rewrite of the token already commanded rolls nothing (see
-        ``_write_fan``). The memory starts from the two before this one, which
-        the head may still show, and ``auto`` counts like a speed in it: a later
-        report of ``auto`` may be that first one.
+        ``_write_fan``). With no memory yet, as after a start or a hold, it
+        starts from the two before this one, which the head may still show (F1's
+        cost, docs/formal/PARKED-FINDINGS.md). ``auto`` counts like a speed in it:
+        a later report of ``auto`` may be that first one.
         """
         last = self._fan_cmd.get(climate_id)
         if token == last:
