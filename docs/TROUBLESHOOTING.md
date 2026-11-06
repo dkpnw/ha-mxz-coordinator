@@ -241,14 +241,34 @@ head may not advertise an exact `auto` fan mode. See
 <details>
 <summary><b>I changed a head with its remote or app and it changed back</b></summary>
 
-While the coordinator is enabled it is the head's writer. A head switched to `auto`,
-`heat_cool`, or `dry` is put back after about 20 seconds; a head turned off while the plan
-wants it running, after about 30 seconds. If you set up drift alerts, you get one. Other
-changes, such as a setpoint, are corrected on a later update. A fan speed you pick is kept
-as a hold. To run the heads by hand, turn **Coordinator enable** off; MXZ then leaves them
-alone. To hand just one room to its remote, see the next answer. To let a room's head run
-its own Dry (dehumidify) mode, turn on
+A setpoint or off set at a head is adopted by its room once it has held for about 5 seconds
+([Accept changes made at the head](FEATURES.md#accept-changes-made-at-the-head), on by
+default). It's written over during Eco idle or a standby hold, a door or window pause, a freeze
+floor or overheat ceiling run, and on a cloud or generic head with a drive offset (its setpoint
+only). So is heat instead of cool, or cool instead of heat: MXZ picks the shared mode.
+
+A head switched to `auto`, `heat_cool`, or `dry` is put back after about 20 seconds. If you set
+up drift alerts, you get one. With **Accept changes made at the head** off in Configure →
+Comfort, MXZ is the only writer: a head turned off while the plan wants it running is also put
+back, after about 30 seconds, and a setpoint is corrected on a later update.
+
+A fan speed you pick is kept as a hold. To run the heads by hand, turn **Coordinator enable**
+off; MXZ then leaves them alone. To hand just one room to its remote, see the next answer. To
+let a room's head run its own Dry (dehumidify) mode, turn on
 [Allow Dry mode](FEATURES.md#allow-dry-mode) for that room.
+
+</details>
+
+<a id="faq-room-turned-off-by-remote"></a>
+
+<details>
+<summary><b>A room turned itself off, or its target moved, and nobody touched Home Assistant</b></summary>
+
+A change at the head did that: its remote, its own app, or an automation calling the head
+directly ([Accept changes made at the head](FEATURES.md#accept-changes-made-at-the-head)). MXZ
+logs each one at info level as `adopting a change made at`. Turn the room back on, or set its
+target, in Home Assistant or at the head. To stop this, turn the option off in Configure →
+Comfort.
 
 </details>
 

@@ -356,8 +356,12 @@ async def test_plan_parked_off_is_stable_across_callback_delivery(
 async def test_wall_off_timer_callback_reengages_active_head(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A persistent human off during active demand still executes one real heal."""
-    entry, head_a, _b = await _setup_idle(hass)
+    """A persistent human off during active demand still executes one real heal.
+
+    MXZ as the only writer: with Accept changes made at the head on, that off is
+    adopted before this heal is due, and the room is disabled instead.
+    """
+    entry, head_a, _b = await _setup_idle(hass, accept_head_changes=False)
     await _set_temp(hass, SENSOR_A, 75)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "cool"

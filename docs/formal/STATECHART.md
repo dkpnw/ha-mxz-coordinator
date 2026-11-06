@@ -47,6 +47,31 @@ stateDiagram-v2
 | M5 | A change only hands-off votes made starts no hold. Not in this spec: `verification/modehold/MXZModeHold.tla` covers it. | `logic.py` `arbitrate`, `coordinator.py` `_apply` |
 | M6 | Once a coordinated room runs in a mode votes chose, the mode is MXZ's and the hold starts. Also in `MXZModeHold.tla`. | `coordinator.py` `_apply` |
 
+## Changes made at a head
+
+Not in the spec ([why](README.md#what-is-modeled-and-what-isnt)). A second writer of a room's
+target and enable, kept apart from MXZ's writes to the head. On by default; with **Accept changes
+made at the head** off the machine stays in `Watching`, and a change at a head is written over.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Watching
+    Watching --> Holding : A1 a report moves the mode or setpoint, and MXZ's writes can't explain it
+    Holding --> Holding : A2 another such report starts the hold over
+    Holding --> Watching : A3 it goes back, a gate closes, or the room is changed in Home Assistant
+    Holding --> Adopted : A4 it held for ADOPT_DELAY
+    Adopted --> Watching : A5 the plan puts the head on its mode, with the new target
+```
+
+| Id | What happens | Code |
+| --- | --- | --- |
+| A1 | Every report passes MXZ's older writes, then is read against what is left. A write is remembered as it goes out. | `coordinator.py` `_on_head_change`, `coordinator.py` `_watch_head_change`, `coordinator.py` `_call_head_service`, `coordinator.py` `_remember_head_write`, `coordinator.py` `_head_writes_caught_up`, `logic.py` `wrote`, `logic.py` `caught_up` |
+| A2 | While the hold runs, `_apply` writes nothing to that head. | `coordinator.py` `_head_change_settling`, `coordinator.py` `_apply`, `coordinator.py` `_arm_or_cancel` |
+| A3 | Eco, a standby hold, Coordinator off, a start, a pause, a floor run, a hands-off room's disablement or a stale cloud report: the change counts for nothing. | `coordinator.py` `_head_adoption`, `coordinator.py` `drop_head_change` |
+| A4 | The room's own number and switch take the change, held to the room's bounds. What the head shows then replaces what it last showed in the memory. | `coordinator.py` `_on_heal_timer`, `coordinator.py` `_async_adopt_head_change`, `coordinator.py` `_head_change_seen`, `logic.py` `seen` |
+| A5 | The next compute and apply. The head's heat or cool never reaches the shared mode. | `coordinator.py` `_apply` |
+
 ## A room's run
 
 ```mermaid

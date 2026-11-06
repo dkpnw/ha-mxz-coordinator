@@ -8,6 +8,9 @@ unit-tested directly.
 from __future__ import annotations
 
 import math
+import operator
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -779,6 +782,69 @@ def opening_due(
     if state == OPENING_CLOSING:
         return since + close_delay
     return None
+
+
+class HeadWriteMemory:
+    """MXZ's own writes of one setting to one head, in order, until reports pass them.
+
+    The rule of the fan memory (F1, docs/formal/PARKED-FINDINGS.md), for a head's
+    mode and each of its setpoints: a head shows its writes in order, so a report
+    of a remembered value is MXZ's own and ends every write older than it. A report
+    of a value not remembered is a person's. The first value is what the head last
+    showed, and the rest are writes it hasn't shown yet.
+
+    ``same(reported, written)`` compares a report with a write. A head can hold a
+    setpoint only on its own grid, so for a setpoint it isn't equality. Its costs
+    are F1's: while a head is behind, a person's pick of one of these older values
+    reads as MXZ's own, and a value written twice stays remembered, with the writes
+    between, until a report rules them out.
+    """
+
+    def __init__(self, size: int) -> None:
+        self._values: deque[Any] = deque(maxlen=size)
+
+    @property
+    def values(self) -> tuple[Any, ...]:
+        """What is remembered, oldest first."""
+        return tuple(self._values)
+
+    def wrote(
+        self, value: Any, shown: Any = None, same: Callable[[Any, Any], bool] = operator.eq
+    ) -> None:
+        """A write is going out while the head shows ``shown`` (None: nothing known).
+
+        What the head shows before a write stays remembered until it reports a
+        later one: until then the same report can come again. A rewrite of the
+        last value adds nothing, or a head slow to take it would pass for caught
+        up on a value MXZ wrote only once.
+        """
+        if shown is not None and not self.own(shown, same):
+            self.seen(shown)
+        if not self._values or self._values[-1] != value:
+            self._values.append(value)
+
+    def own(self, reported: Any, same: Callable[[Any, Any], bool] = operator.eq) -> bool:
+        """Whether this report can be one of MXZ's writes (or the value before them)."""
+        return any(same(reported, value) for value in self._values)
+
+    def caught_up(self, reported: Any, same: Callable[[Any, Any], bool] = operator.eq) -> None:
+        """A report of a remembered value: the writes older than it are behind the head.
+
+        A value written twice counts as its earliest write left: this report may
+        be that one, with the writes after it still coming.
+        """
+        if self.own(reported, same):
+            while not same(reported, self._values[0]):
+                self._values.popleft()
+
+    def seen(self, shown: Any) -> None:
+        """The head shows a value of a person's: it replaces the last one it showed.
+
+        The writes it hasn't shown yet stay, since they can still arrive after it.
+        """
+        if self._values:
+            self._values.popleft()
+        self._values.appendleft(shown)
 
 
 class HeadSight:

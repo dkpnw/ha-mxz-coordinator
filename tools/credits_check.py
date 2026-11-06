@@ -26,7 +26,7 @@ TRAILER = re.compile(r"^co-authored-by:\s*(.*?)\s*<([^>]*)>\s*$", re.IGNORECASE 
 # Co-author emails that are not GitHub noreply addresses, for a co-author with
 # no commit of their own in the range. Lower-case email -> GitHub login; public
 # commit emails only.
-KNOWN_LOGINS = {"csingley@gmail.com": "csingley"}
+KNOWN_LOGINS = {"csingley@gmail.com": "csingley", "bhs2007@gmail.com": "bhspitmonkey"}
 
 
 # Pure parsing ---------------------------------------------------------------

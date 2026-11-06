@@ -122,12 +122,14 @@
         "data": {
           "engage_deadband": "Allowed drift",
           "demand_threshold": "Mode switch threshold",
-          "resting_mode_bias": "Resting mode"
+          "resting_mode_bias": "Resting mode",
+          "accept_head_changes": "Accept changes made at the head"
         },
         "data_description": {
           "engage_deadband": "How far a room can drift from target before its head starts again. A room's own drift number overrides this.",
           "demand_threshold": "How far off target a room must be before the whole system switches between heating and cooling. Higher means fewer switches.",
-          "resting_mode_bias": "The mode the system waits in when every room is at target."
+          "resting_mode_bias": "The mode the system waits in when every room is at target.",
+          "accept_head_changes": "On by default. A setpoint or off set at a head, with its remote or its own app, becomes the room's target or turns the room off once it has held for a few seconds, and turning a head on to heat or cool turns its room on. MXZ still picks heat or cool for every room. Turn this off to make MXZ the only writer, so a change at a head is written over."
         },
         "sections": {
           "advanced": {
@@ -378,12 +380,14 @@
         "data": {
           "engage_deadband": "Allowed drift",
           "demand_threshold": "Mode switch threshold",
-          "resting_mode_bias": "Resting mode"
+          "resting_mode_bias": "Resting mode",
+          "accept_head_changes": "Accept changes made at the head"
         },
         "data_description": {
           "engage_deadband": "How far a room can drift from target before its head starts again. A room's own drift number overrides this.",
           "demand_threshold": "How far off target a room must be before the whole system switches between heating and cooling. Higher means fewer switches.",
-          "resting_mode_bias": "The mode the system waits in when every room is at target."
+          "resting_mode_bias": "The mode the system waits in when every room is at target.",
+          "accept_head_changes": "On by default. A setpoint or off set at a head, with its remote or its own app, becomes the room's target or turns the room off once it has held for a few seconds, and turning a head on to heat or cool turns its room on. MXZ still picks heat or cool for every room. Turn this off to make MXZ the only writer, so a change at a head is written over."
         },
         "sections": {
           "advanced": {

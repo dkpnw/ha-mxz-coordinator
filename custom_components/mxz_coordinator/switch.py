@@ -299,6 +299,8 @@ class MXZZoneEnableSwitch(MXZBaseSwitch):
         elif restored or not was_enabled or not self._attr_is_on:
             self.coordinator._startup_resume.pop(self._zone.slug, None)
             self.coordinator._engage_latch[self._zone.slug] = ""
+        if not restored:
+            self.coordinator.drop_head_change(self._zone.climate_id)
 
 
 class MXZZoneFanAutoSwitch(

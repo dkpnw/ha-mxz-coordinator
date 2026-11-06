@@ -1,6 +1,16 @@
 Third-party notices for ha-mxz-coordinator
 ==========================================
 
+BHSPitMonkey/ha-mxz-coordinator
+-------------------------------
+
+Source: https://github.com/BHSPitMonkey/ha-mxz-coordinator
+Used: commit 4ebc59d, by Stephen Eisenhauer: the accept-changes-at-the-head option.
+Its adoption path and tests are adapted in
+custom_components/mxz_coordinator/coordinator.py and
+tests/test_accept_head_changes.py, with this project's write memory in place of the
+comparison with the room's target, and on by default. License: MIT, as this project's.
+
 ha-climate-zone-sequencer
 -------------------------
 

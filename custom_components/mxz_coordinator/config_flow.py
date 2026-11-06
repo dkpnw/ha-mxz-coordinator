@@ -26,6 +26,7 @@ from .const import (
     CLOUD_PLATFORMS,
     COMFORT_DOMAINS,
     COMFORT_STALE_HOURS_BOUNDS,
+    CONF_ACCEPT_HEAD_CHANGES,
     CONF_CHANGEOVER_COOL_BELOW,
     CONF_CHANGEOVER_ENTITY,
     CONF_CHANGEOVER_HEAT_ABOVE,
@@ -55,6 +56,7 @@ from .const import (
     CONF_SECONDARY_CLIMATE,
     CONF_ZONES,
     CONFIRM_WAIT_BOUNDS,
+    DEFAULT_ACCEPT_HEAD_CHANGES,
     DEFAULT_CHANGEOVER_COOL_BELOW,
     DEFAULT_CHANGEOVER_HEAT_ABOVE,
     DEFAULT_CLAMP_MAX,
@@ -767,7 +769,12 @@ _BLANK_CLEARS = (*_BLANK_DRIFT, CONF_LOST_VOTE_TTL, CONF_COMFORT_STALE_HOURS)
 # on one page, so a page's own validation never needs a value it doesn't show.
 _PAGES: dict[str, tuple[tuple[str, ...], dict[str, tuple[str, ...]]]] = {
     "comfort": (
-        (CONF_ENGAGE_DEADBAND, CONF_DEMAND_THRESHOLD, CONF_RESTING_MODE_BIAS),
+        (
+            CONF_ENGAGE_DEADBAND,
+            CONF_DEMAND_THRESHOLD,
+            CONF_RESTING_MODE_BIAS,
+            CONF_ACCEPT_HEAD_CHANGES,
+        ),
         {
             "advanced": (
                 CONF_MODE_HYSTERESIS,
@@ -1634,6 +1641,10 @@ def _tunables_schema(
                 vol.Optional(key, description={"suggested_value": eff.get(key)}): drift
                 for key in _BLANK_DRIFT
             },
+            vol.Optional(
+                CONF_ACCEPT_HEAD_CHANGES,
+                default=eff.get(CONF_ACCEPT_HEAD_CHANGES, DEFAULT_ACCEPT_HEAD_CHANGES),
+            ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_MODE_HYSTERESIS,
                 default=eff.get(CONF_MODE_HYSTERESIS, DEFAULT_MODE_HYSTERESIS),

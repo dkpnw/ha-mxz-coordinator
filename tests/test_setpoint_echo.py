@@ -40,6 +40,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.mxz_coordinator.const import (
+    CONF_ACCEPT_HEAD_CHANGES,
     CONF_PRIMARY_CLIMATE,
     CONF_PRIMARY_SENSOR,
     CONF_SECONDARY_CLIMATE,
@@ -169,8 +170,14 @@ class WholeCelsiusHead(CN105Head):
     _attr_target_temperature_step = 1.0
 
 
-async def _start(hass: HomeAssistant, heads: list, units=US_CUSTOMARY_SYSTEM) -> MockConfigEntry:
-    """Two zones on ``heads``, coordinator and both rooms enabled."""
+async def _start(
+    hass: HomeAssistant, heads: list, units=US_CUSTOMARY_SYSTEM, *, accept: bool = True,
+) -> MockConfigEntry:
+    """Two zones on ``heads``, coordinator and both rooms enabled.
+
+    ``accept=False`` is for a test of a head someone else moved being written over,
+    which is MXZ as the only writer: Accept changes made at the head off.
+    """
     hass.config.units = units
 
     async def _climate(hass, config, async_add_entities, discovery_info=None):
@@ -189,6 +196,7 @@ async def _start(hass: HomeAssistant, heads: list, units=US_CUSTOMARY_SYSTEM) ->
             CONF_SECONDARY_CLIMATE: heads[1].entity_id,
             CONF_PRIMARY_SENSOR: SENSORS[0],
             CONF_SECONDARY_SENSOR: SENSORS[1],
+            CONF_ACCEPT_HEAD_CHANGES: accept,
         },
     )
     entry.add_to_hass(hass)
@@ -444,7 +452,7 @@ async def test_range_head_changed_by_someone_is_resent(
     """
     head = HEADS[name]
     heads = [head("a"), head("b")]
-    entry = await _start(hass, heads)
+    entry = await _start(hass, heads, accept=False)
     room = await _engage(hass, entry, mode, target)
     low, high = _edges(mode, target)
     eid = heads[0].entity_id
@@ -467,7 +475,7 @@ async def test_single_head_changed_by_someone_is_resent(
 ) -> None:
     """Same guard on the single-setpoint path."""
     heads = [CN105SingleHead("a"), CN105SingleHead("b")]
-    entry = await _start(hass, heads)
+    entry = await _start(hass, heads, accept=False)
     room = await _engage(hass, entry, "cool", target)
     eid = heads[0].entity_id
 
@@ -482,7 +490,7 @@ async def test_single_head_changed_by_someone_is_resent(
 async def test_head_in_wrong_mode_is_resent(hass: HomeAssistant, cls) -> None:
     """Right setpoint, wrong mode -> MXZ re-sends."""
     heads = [cls("a"), cls("b")]
-    entry = await _start(hass, heads)
+    entry = await _start(hass, heads, accept=False)
     room = await _engage(hass, entry, "cool", 64)
     eid = heads[0].entity_id
 
@@ -499,7 +507,7 @@ async def test_head_in_wrong_mode_is_resent(hass: HomeAssistant, cls) -> None:
 async def test_celsius_system_half_degree_drift_is_resent(hass: HomeAssistant) -> None:
     """°C system, 0.5 °C head: exact match skips; a full 0.5 °C step off re-sends."""
     heads = [HalfCelsiusHead("a"), HalfCelsiusHead("b")]
-    entry = await _start(hass, heads, METRIC_SYSTEM)
+    entry = await _start(hass, heads, METRIC_SYSTEM, accept=False)
     room = await _engage(hass, entry, "cool", 21.0, off=0.5)
     eid = heads[0].entity_id
     a = hass.states.get(eid)
@@ -527,7 +535,7 @@ async def test_whole_celsius_head_latches_half_up(hass: HomeAssistant) -> None:
     re-send every cycle. A real one-step move is still re-sent.
     """
     heads = [WholeCelsiusHead("a"), WholeCelsiusHead("b")]
-    entry = await _start(hass, heads, METRIC_SYSTEM)
+    entry = await _start(hass, heads, METRIC_SYSTEM, accept=False)
     room = await _engage(hass, entry, "cool", 20.5, off=0.5)
     eid = heads[0].entity_id
     assert _band(hass, eid) == (20.0, 21.0)  # sent (19.5, 20.5)
@@ -548,7 +556,7 @@ async def test_whole_celsius_head_latches_half_up(hass: HomeAssistant) -> None:
 async def test_fahrenheit_native_head_unchanged(hass: HomeAssistant, cls) -> None:
     """°F system, °F whole-degree head (step unknown or 1): exact skips, 1 °F off re-sends."""
     heads = [cls("a"), cls("b")]
-    entry = await _start(hass, heads)
+    entry = await _start(hass, heads, accept=False)
     room = await _engage(hass, entry, "cool", 64)
     eid = heads[0].entity_id
     first = list(heads[0].writes)

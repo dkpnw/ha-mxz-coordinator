@@ -129,12 +129,13 @@ limit** (default 78 °F / 26 °C), with fixed eco setpoints.
 - These are software policies, not certified freeze protection or guarantees of zero
   draw.
 
-**A head changed at the wall.** While the coordinator is enabled it is the head's writer.
-A head switched to `auto`, `heat_cool`, or `dry` is put back after about 20 seconds (`dry`
-stays in a room with [Allow Dry mode](#allow-dry-mode) on); a head turned off while the
-plan wants it running, after about 30 seconds. A head the plan
-parked off is not treated as drift. If you set a **Notify on drift** service, you get an
-alert.
+**A head changed at the wall.** A setpoint or off set at a head is adopted by its room
+([Accept changes made at the head](#accept-changes-made-at-the-head), on by default). A head
+switched to `auto`, `heat_cool`, or `dry` is put back after about 20 seconds (`dry`
+stays in a room with [Allow Dry mode](#allow-dry-mode) on). With that option off, MXZ is the
+only writer, and a head turned off while the plan wants it running is also put back, after
+about 30 seconds. A head the plan parked off is not treated as drift. If you set a
+**Notify on drift** service, you get an alert when a head is put back.
 
 **Presets and manual refresh.** Example presets:
 [day/night/away](../examples/presets.yaml). The `mxz_coordinator.recompute` service
@@ -356,6 +357,58 @@ avoid that, save the toggle on its own.
   `temperature` is refused for a range room too; send `target_temp_low` and
   `target_temp_high`. For one number in an automation or a script, write the room's
   target number, which moves the range.
+
+## Accept changes made at the head
+
+A setpoint or off set at a head, with its IR remote or its own app, is adopted instead of
+written over, once it has held for about 5 seconds. It's on by default, including for rooms
+set up before it existed. To make MXZ the only writer, turn off **Accept changes made at the
+head** in Configure → Comfort. A change at a head is then written over, as it was before.
+
+| At the head | What the room does |
+| --- | --- |
+| A new setpoint | The room's target follows it: the high edge in cool, the low edge in heat, or the one setpoint of a single-setpoint head. In a [dual setpoint](#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint) room, Cool to in cool and Heat to in heat, pushing the other at the minimum gap. |
+| Off | The room is disabled, and stays off. A room with [Let its own remote run it](#run-one-room-from-its-own-remote) on is then its remote's, as when it is disabled anywhere else. |
+| On, to heat or cool | The room is enabled, with the new setpoint if it has one. |
+| Heat instead of cool, or cool instead of heat | Never adopted. MXZ still picks the shared mode, so the head goes back on the plan's mode, with the new target if the change came with a setpoint. |
+| `heat_cool`, `auto`, or `dry` | Never adopted. Put back after about 20 seconds, unless [Allow Dry mode](#allow-dry-mode) leaves `dry` alone. |
+| `fan_only` | Never adopted. Put back at the next update. |
+
+**Not adopted.** These are put back at the next update, as with the option off, or left alone
+where MXZ writes nothing:
+
+- During Eco idle or a standby hold, or with **Coordinator enable** off. A change made in one
+  of those isn't adopted when it ends either, and neither is one made while Home Assistant was
+  down or still starting.
+- A head the plan parked, in `fan_only` or off. An off while the plan itself wants off can't be
+  told apart from the plan's.
+- A room paused for its door or window ([Running the room anyway](#running-the-room-anyway) is
+  unchanged), or a disabled room with [Let its own remote run it](#run-one-room-from-its-own-remote)
+  on: its head is its remote's, and turning it on doesn't enable the room.
+- During a [freeze floor or overheat ceiling](#freeze-floor-and-overheat-ceiling) run.
+- A setpoint on a [cloud](#cloud-heads-beta) or [generic](#generic-heads-beta) head with a drive
+  offset. It runs past the room's target by that offset, so what it shows isn't the target. Its
+  off and on are adopted; set the offset to 0 and its setpoint is too.
+
+**Safety still wins.** An adopted target is held to the room's bounds: the Lowest and Highest
+setpoint, and what the head accepts. A room turned off at its head still has its freeze floor
+and overheat ceiling.
+
+**MXZ's own writes.** MXZ remembers its recent mode and setpoint writes, per head, until the
+head's reports pass them, the same way it does for [fan speeds](#who-drives-the-fan). So a slow
+head showing a write of MXZ's late isn't read as a person. While a head is behind, a change at
+it to one of those remembered values reads as MXZ's own and is written over; any other value is
+adopted. A change undone within the 5 seconds does nothing, and a change to the
+room in Home Assistant during those 5 seconds wins over the one at the head, as the later one.
+A start inside those 5 seconds drops the change. See
+[F1's limits](formal/PARKED-FINDINGS.md#f1-limits) for the fan's version of these costs.
+
+Automated tests use invented heads. A real IR remote on Mitsubishi heads is on the check list
+before this ships in a release.
+
+The idea, its scope and its first version are
+[@BHSPitMonkey](https://github.com/BHSPitMonkey)'s
+([Discussion #103](https://github.com/dkpnw/ha-mxz-coordinator/discussions/103)).
 
 ## Run one room from its own remote
 

@@ -108,6 +108,8 @@ class RigHead(HeadEntity):
         self.lags = False
         self.unreported_fan: str | None = None
         self.fan_writes_shown = 0
+        self.lags_commands = False
+        self.unreported_commands: list[dict[str, Any]] = []
 
     def reset(self) -> None:
         """A new example's head: off, fan auto, nothing written yet."""
@@ -116,6 +118,9 @@ class RigHead(HeadEntity):
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         self.mode_writes.append(hvac_mode)
+        if self.lags_commands:
+            self.unreported_commands.append({"hvac_mode": hvac_mode})
+            return
         self._attr_hvac_mode = hvac_mode
         self.async_write_ha_state()
 
@@ -128,6 +133,13 @@ class RigHead(HeadEntity):
         self.async_write_ha_state()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
+        if self.lags_commands:
+            self.unreported_commands.append(kwargs)
+            return
+        self._apply_setpoints(kwargs)
+        self.async_write_ha_state()
+
+    def _apply_setpoints(self, kwargs: dict[str, Any]) -> None:
         if (mode := kwargs.get("hvac_mode")) is not None:
             if mode != self._attr_hvac_mode:
                 self.mode_writes.append(mode)
@@ -135,6 +147,26 @@ class RigHead(HeadEntity):
         if (low := kwargs.get("target_temp_low")) is not None:
             self._attr_native_target_temperature_low = low
         if (high := kwargs.get("target_temp_high")) is not None:
+            self._attr_native_target_temperature_high = high
+
+    def report_next_command(self) -> bool:
+        """A head lagging on its mode and setpoints shows the oldest write it hasn't yet.
+        False once none is left."""
+        if not self.unreported_commands:
+            return False
+        self._apply_setpoints(self.unreported_commands.pop(0))
+        self.async_write_ha_state()
+        return True
+
+    def person_setpoint(
+        self, *, mode: str | None = None, low: float | None = None, high: float | None = None,
+    ) -> None:
+        """A person at the remote: a mode and setpoints, directly on the head."""
+        if mode is not None:
+            self._attr_hvac_mode = HVACMode(mode)
+        if low is not None:
+            self._attr_native_target_temperature_low = low
+        if high is not None:
             self._attr_native_target_temperature_high = high
         self.async_write_ha_state()
 
@@ -234,6 +266,12 @@ class Rig:
         await self.hass.async_block_till_done()
         await self.settle()
 
+    async def report_next_command(self, room: int = 0) -> bool:
+        shown = self.heads[room].report_next_command()
+        await self.hass.async_block_till_done()
+        await self.settle()
+        return shown
+
     async def report_next_fan(self, room: int = 0) -> bool:
         shown = self.heads[room].report_next_fan()
         await self.hass.async_block_till_done()
@@ -296,10 +334,13 @@ async def open_rig(
     window: str | None = None,
     fan_max: str | None = None,
     lags: bool = False,
+    data: dict[str, Any] | None = None,
+    first_room: dict[str, Any] | None = None,
 ) -> Rig:
     """A fresh entry with both rooms and the coordinator on, computed once.
 
     ``window`` is the first room's door/window reading, and turns its pause on.
+    ``data`` and ``first_room`` add to the entry's settings and to its first room's.
     """
     # A restored state counts only if newer than the entry (#7): this example's
     # entities must not inherit the last example's states under the same ids.
@@ -320,7 +361,8 @@ async def open_rig(
     if window is not None:
         hass.states.async_set(WINDOW, window, {"friendly_name": "Property window"})
         first |= {ZONE_OPENING_ENTITY: WINDOW, ZONE_OPENING_PAUSE: True}
-    data: dict[str, Any] = {
+    first |= first_room or {}
+    entry_data: dict[str, Any] = {
         CONF_ZONES: [
             first,
             {ZONE_NAME: "Den", ZONE_CLIMATE: heads[1].entity_id, ZONE_SENSOR: SENSORS[1]},
@@ -328,10 +370,11 @@ async def open_rig(
         CONF_FAN_BOOST_ENABLE: True,
         CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
         CONF_MODE_HYSTERESIS: HOLD,
+        **(data or {}),
     }
     if fan_max is not None:
-        data[CONF_FAN_BOOST_MAX] = fan_max
-    entry = MockConfigEntry(domain=DOMAIN, title="MXZ Coordinator", data=data, version=2, minor_version=2)
+        entry_data[CONF_FAN_BOOST_MAX] = fan_max
+    entry = MockConfigEntry(domain=DOMAIN, title="MXZ Coordinator", data=entry_data, version=2, minor_version=2)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()

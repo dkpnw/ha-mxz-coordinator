@@ -18,6 +18,7 @@ import asyncio
 import copy
 import logging
 import math
+import operator
 import time
 from collections import deque
 from collections.abc import Callable, Iterable
@@ -71,6 +72,7 @@ from .cloud import (
 from .const import (
     ACTION_VOTE_HOLD,
     ACTION_VOTE_SETTLE,
+    ADOPT_DELAY,
     BAND_DRIFT_DELAY,
     BANNED_MODES,
     CHANGEOVER_INTERVAL_MINUTES,
@@ -80,6 +82,7 @@ from .const import (
     CLOUD_STEP_C,
     CLOUD_STEP_F,
     COMFORT_STALE_HOURS_BOUNDS,
+    CONF_ACCEPT_HEAD_CHANGES,
     CONF_CHANGEOVER_COOL_BELOW,
     CONF_CHANGEOVER_ENTITY,
     CONF_CHANGEOVER_HEAT_ABOVE,
@@ -118,6 +121,7 @@ from .const import (
     CONF_SECONDARY_VANE_VERTICAL,
     CONF_ZONES,
     CONFIRM_WAIT_BOUNDS,
+    DEFAULT_ACCEPT_HEAD_CHANGES,
     DEFAULT_COIL_DRY_MINUTES,
     DEFAULT_COMFORT_STALE_HOURS,
     DEFAULT_CONFIRM_WAIT,
@@ -156,6 +160,7 @@ from .const import (
     GENERIC_WRITE_INTERVAL,
     HEAD_TYPE_GENERIC,
     HEAD_TYPE_LOCAL,
+    HEAD_WRITES_REMEMBERED,
     HEALTH_AWAITING,
     HEALTH_ELIGIBLE,
     HEALTH_HEALTHY,
@@ -245,6 +250,7 @@ from .logic import (
     Demand,
     FloorRun,
     HeadSight,
+    HeadWriteMemory,
     RangeError,
     arbitrate,
     call_edges,
@@ -276,6 +282,10 @@ if TYPE_CHECKING:
     from homeassistant.core import EventStateChangedData, EventStateReportedData, State
 
 _LOGGER = logging.getLogger(__name__)
+
+# What MXZ remembers of its head writes (logic.HeadWriteMemory), by service field.
+_HEAD_WRITE_MODE = "hvac_mode"
+_HEAD_WRITE_FIELDS = (_HEAD_WRITE_MODE, "temperature", "target_temp_low", "target_temp_high")
 
 
 def read_room_temp(state: Any, system_unit: str) -> float | None:
@@ -1042,6 +1052,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_active: dict[str, tuple[str, float]] = {}
         self._dry_timers: dict[str, Any] = {}
         # Delta-proportional fan boost (overrides the firmware's weak "auto").
+        # Adopt a setpoint or on/off set at a head instead of writing over it.
+        self.accept_head_changes: bool = bool(
+            conf.get(CONF_ACCEPT_HEAD_CHANGES, DEFAULT_ACCEPT_HEAD_CHANGES)
+        )
         self.fan_boost_enable: bool = bool(
             conf.get(CONF_FAN_BOOST_ENABLE, DEFAULT_FAN_BOOST_ENABLE)
         )
@@ -1360,6 +1374,14 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._command_observations: dict[str, dict[str, Any]] = hass.data.setdefault(
             f"{DOMAIN}_command_observations", {}
         )
+        # Lives with HA like the above, so a reload keeps what the head may still
+        # report. Held per unit: a °F/°C switch's reload must not compare a
+        # remembered 70 °F with a report in °C.
+        self._head_writes: dict[str, dict[str, HeadWriteMemory]] = hass.data.setdefault(
+            f"{DOMAIN}_head_writes", {}
+        ).setdefault(self.temp_unit, {})
+        # What moved at each head since its adopt timer was armed: "mode", "setpoint".
+        self._adopt_moved: dict[str, set[str]] = {}
         # Seed data so entities have something to read before the first refresh.
         self.data = self._compute()
         if self._freshness:
@@ -1857,10 +1879,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             elif zone.slug not in self._engage_latch and zone.enable:
                 # An enabled room's target changed: preserve the existing
                 # live retargeting behavior, separately from restart intent.
+                # With changes at the head accepted, a head a person flipped off
+                # the shared mode is no run of MXZ's: its heat/cool isn't adopted.
                 head = self.hass.states.get(zone.climate_id)
                 self._engage_latch[zone.slug] = (
                     head.state
                     if head is not None and head.state in (MODE_COOL, MODE_HEAT)
+                    and (not self.accept_head_changes or head.state == self.current_shared_mode)
                     else ""
                 )
             prior_engage = self._engage_latch.get(zone.slug, "")
@@ -2857,6 +2882,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for zone, engage, floor, dry in zip(self.zones, engages, floors, drys):
             if zone.climate_id in self._vane_kicks:
                 continue  # mid vane-kick: leave the head alone until it finishes
+            if self._head_change_settling(zone.climate_id):
+                continue  # a change made at the head is holding: don't undo it yet
             if self._opening_paused(zone):
                 # Door/window pause: straight to off (no coil-dry run, no fan,
                 # setpoint or vane write), and only to a head that is on. A
@@ -3218,6 +3245,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         *, observation: dict[str, Any] | None = None,
     ) -> None:
         """Observe one software call, never claim physical receipt."""
+        # Before the call: the head's report can arrive while it runs.
+        self._remember_head_write(climate_id, payload)
         observed = observation if observation is not None else self._command_observations.setdefault(climate_id, {})
         if observation is None:
             # Ordinary issuance has waited for both the old handler and its
@@ -5021,6 +5050,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         mode = new_state.state if new_state else None
         if new_state is not None:
             self._fan_caught_up(entity_id, new_state.attributes.get("fan_mode"))
+            self._head_writes_caught_up(entity_id, new_state)
         refresh_needed = False
         refresh_now = False
         sight = self._sight.get(entity_id)
@@ -5198,6 +5228,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             and not stale
         )
         self._arm_or_cancel(entity_id, "off", off_drift, OFF_WHILE_ENABLED_DELAY)
+        self._watch_head_change(entity_id, old_state, new_state)
         if (cloud := self._cloud.get(entity_id)) is not None and cloud.unresponsive:
             refresh_needed = True  # an out-of-control cloud head reported again
 
@@ -5257,6 +5288,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """A drift condition persisted past its debounce window."""
         self._heal_timers.pop(key, None)
         entity_id, kind = key
+        if kind == "adopt":
+            self.hass.async_create_task(self._async_adopt_head_change(entity_id))
+            return
         state = self.hass.states.get(entity_id)
         mode = state.state if state else None
         if kind == "band":
@@ -5274,6 +5308,242 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         still = still and not self._cloud_stale_report(entity_id, mode=mode)
         if still and self.coordinator_enable and not self.inhibited:
             self.hass.async_create_task(self._heal_and_notify())
+
+    # -- accept changes made at the head ---------------------------------------
+    # From @BHSPitMonkey's fork (Discussion #103), rebuilt on MXZ's write memory: a
+    # report MXZ's own writes can explain is never a person, however late it comes.
+    def _head_write_same(self, climate_id: str, name: str) -> Callable[[Any, Any], bool]:
+        """How a report of this field compares with a write of it."""
+        if name == _HEAD_WRITE_MODE:
+            return operator.eq
+        return partial(self._head_already_at, climate_id)
+
+    @staticmethod
+    def _head_shows(state: Any, name: str) -> Any:
+        """What a head's state shows for this field, None if nothing usable."""
+        if state is None or state.state in UNAVAILABLE_STATES:
+            return None
+        if name == _HEAD_WRITE_MODE:
+            return state.state
+        return _as_float(state.attributes.get(name))
+
+    def _remember_head_write(self, climate_id: str, payload: dict[str, Any]) -> None:
+        """Keep a mode or setpoint MXZ is sending, as ``_remember_fan_write`` does a fan."""
+        state = self.hass.states.get(climate_id)
+        memory = self._head_writes.setdefault(climate_id, {})
+        for name in _HEAD_WRITE_FIELDS:
+            if name in payload:
+                memory.setdefault(name, HeadWriteMemory(HEAD_WRITES_REMEMBERED)).wrote(
+                    payload[name], self._head_shows(state, name),
+                    self._head_write_same(climate_id, name),
+                )
+
+    def _head_writes_caught_up(self, climate_id: str, state: Any) -> None:
+        """A head's report: the writes before it are behind the head for good."""
+        for name, memory in self._head_writes.get(climate_id, {}).items():
+            shown = self._head_shows(state, name)
+            if shown is not None:
+                memory.caught_up(shown, self._head_write_same(climate_id, name))
+
+    def _head_write_is_own(self, climate_id: str, name: str, shown: Any) -> bool:
+        memory = self._head_writes.get(climate_id, {}).get(name)
+        return memory is not None and memory.own(shown, self._head_write_same(climate_id, name))
+
+    def _head_setpoint_field(self, climate_id: str, state: Any) -> str | None:
+        """The setpoint carrying the room's target in the mode this head shows.
+
+        The same one MXZ writes: the high edge in cool, the low edge in heat, or
+        a single-setpoint or cloud head's one setpoint. None off heat and cool.
+        """
+        if state.state not in (MODE_COOL, MODE_HEAT):
+            return None
+        features = int(state.attributes.get("supported_features") or 0)
+        if climate_id in self._cloud or not features & 2:
+            return "temperature"
+        return "target_temp_high" if state.state == MODE_COOL else "target_temp_low"
+
+    def _target_for_head_setpoint(self, climate_id: str, shown: float) -> float:
+        """The target on our step that leaves this head where a person put it.
+
+        18.5 °C on a CN105 reads 65.5 °F here, whose nearest whole °F is 66, and 66
+        °F would move the head on to 19 °C. So the nearest target the head would
+        hold ``shown`` for, a step either side if need be; with none, the nearest.
+        """
+        step = self.target_step or 1.0
+        nearest = snap_to_step(shown, step)
+        return next(
+            (
+                target for target in (nearest, nearest - step, nearest + step)
+                if self._head_already_at(climate_id, shown, target)
+            ),
+            nearest,
+        )
+
+    def _head_adoption(self, climate_id: str, moved: set[str]) -> dict[str, Any] | None:
+        """What this head's change asks of its room now; None if it isn't a person's.
+
+        An empty result is a person's change with nothing to adopt, like a
+        heat/cool choice: the head still goes back on the plan. ``enable`` and
+        ``target`` are the room's new enable and target. Only what moved counts, and
+        only if MXZ's own writes can't explain it, so a mode change alone never
+        reads the setpoint the head happened to be on as a new target.
+        """
+        zone = self._zone_of(climate_id)
+        state = self.hass.states.get(climate_id)
+        if (
+            not self.accept_head_changes
+            or self._retired
+            or not self.coordinator_enable
+            or self.inhibited
+            or self._eco_active()
+            or self._startup_quiet
+            or zone is None
+            or state is None
+            or state.state in UNAVAILABLE_STATES
+            # A disabled hands-off room's head is the person's, on purpose; a
+            # floor run's is MXZ's until it ends; a paused room's has its own rule.
+            or self._hands_off_phase(zone) is not None
+            or self.floor_tripped(zone.slug)
+            or self._opening_paused(zone)
+            or self._cloud_stale_report(climate_id, mode=state.state)
+        ):
+            return None
+        mode = state.state
+        mode_press = "mode" in moved and not self._head_write_is_own(
+            climate_id, _HEAD_WRITE_MODE, mode
+        )
+        if mode == MODE_OFF:
+            # An off the plan itself wants is not a request.
+            if mode_press and zone.enable and self._planned_act_for(climate_id) != MODE_OFF:
+                return {"enable": False}
+            return None
+        name = self._head_setpoint_field(climate_id, state)
+        if name is None:
+            return None  # fan_only is the park; heat_cool, auto and dry are healed
+        if not zone.enable and not mode_press:
+            return None
+        shown = _as_float(state.attributes.get(name))
+        setpoint_press = (
+            "setpoint" in moved and shown is not None
+            and not self._head_write_is_own(climate_id, name, shown)
+        )
+        if not mode_press and not setpoint_press:
+            return None
+        change: dict[str, Any] = {} if zone.enable else {"enable": True}
+        # A cloud head runs past the room's target by its drive offset, so what it
+        # shows isn't the target and stays MXZ's to write.
+        driven = climate_id in self._cloud and bool(zone.drive_offset)
+        if setpoint_press and not driven:
+            target = clamp(
+                self._target_for_head_setpoint(climate_id, cast("float", shown)),
+                self.head_target_bounds(climate_id),
+            )
+            step = self.target_step or 1.0
+            heat_target, cool_target = self.zone_side_targets(zone)
+            current = cool_target if mode == MODE_COOL else heat_target
+            if abs(target - current) >= step / 2:
+                change["target"] = target
+        return change
+
+    @callback
+    def _watch_head_change(self, climate_id: str, old_state: Any, new_state: Any) -> None:
+        """Arm, re-arm or cancel the adopt timer on a head's report.
+
+        A report from or to unavailable is the head (re)loading, never a person,
+        and a fan or vane report moves nothing here. Each report that moves the
+        mode or the setpoint starts the hold over.
+        """
+        if (
+            not self.accept_head_changes or old_state is None or new_state is None
+            or old_state.state in UNAVAILABLE_STATES or new_state.state in UNAVAILABLE_STATES
+        ):
+            return
+        moved = {"mode"} if old_state.state != new_state.state else set()
+        name = self._head_setpoint_field(climate_id, new_state)
+        if name is not None and old_state.attributes.get(name) != new_state.attributes.get(name):
+            moved.add("setpoint")
+        if not moved:
+            return
+        moved |= self._adopt_moved.get(climate_id, set())
+        if self._head_adoption(climate_id, moved) is None:
+            self.drop_head_change(climate_id)
+            return
+        self._adopt_moved[climate_id] = moved
+        self._arm_or_cancel(climate_id, "adopt", True, ADOPT_DELAY)
+
+    def _head_change_settling(self, climate_id: str) -> bool:
+        """Whether a person's change at this head is still holding, and would still count."""
+        return (climate_id, "adopt") in self._heal_timers and self._head_adoption(
+            climate_id, self._adopt_moved.get(climate_id, set())
+        ) is not None
+
+    @callback
+    def drop_head_change(self, climate_id: str) -> None:
+        """A hold ends with nothing to adopt. A change to the room in Home Assistant
+        during one ends it too: the later change wins."""
+        self._arm_or_cancel(climate_id, "adopt", False, ADOPT_DELAY)
+        self._adopt_moved.pop(climate_id, None)
+
+    def _head_change_seen(self, climate_id: str, state: Any, moved: set[str]) -> None:
+        """A person's change is what the head shows now, whatever MXZ wrote before it."""
+        memory = self._head_writes.get(climate_id, {})
+        names = []
+        if "mode" in moved:
+            names.append(_HEAD_WRITE_MODE)
+        if "setpoint" in moved and (name := self._head_setpoint_field(climate_id, state)):
+            names.append(name)
+        for name in names:
+            shown = self._head_shows(state, name)
+            if name in memory and shown is not None and not self._head_write_is_own(
+                climate_id, name, shown
+            ):
+                memory[name].seen(shown)
+
+    def _sibling_entity(self, platform: str, key: str) -> str | None:
+        """One of this entry's own entities by its key, under whatever it was renamed to."""
+        return er.async_get(self.hass).async_get_entity_id(
+            platform, DOMAIN, f"{self.config_entry.entry_id}_{key}"
+        )
+
+    async def _async_adopt_head_change(self, climate_id: str) -> None:
+        """A change at a head held past the delay: copy it to the room, then re-plan.
+
+        Through the room's own number and switch, so it follows their rules and
+        restores like any other change. The apply this ends then puts the head on
+        the plan's mode, with the new target. If a write is refused, nothing is
+        adopted and that apply overwrites the head, as it would with the option off.
+        """
+        moved = self._adopt_moved.pop(climate_id, set())
+        change = self._head_adoption(climate_id, moved)
+        try:
+            if change is None:
+                return
+            zone = cast("Zone", self._zone_of(climate_id))
+            state = self.hass.states.get(climate_id)
+            self._head_change_seen(climate_id, state, moved)
+            if change:
+                _LOGGER.info("MXZ: adopting a change made at %s: %s", climate_id, change)
+            if "target" in change:
+                suffix = "target"
+                if zone.dual:
+                    suffix += "_high" if cast("State", state).state == MODE_COOL else "_low"
+                if eid := self._sibling_entity("number", f"{zone.slug}_{suffix}"):
+                    await self.hass.services.async_call(
+                        "number", "set_value",
+                        {"entity_id": eid, "value": change["target"]}, blocking=True,
+                    )
+            if "enable" in change and (
+                eid := self._sibling_entity("switch", f"{zone.slug}_enable")
+            ):
+                await self.hass.services.async_call(
+                    "switch", "turn_on" if change["enable"] else "turn_off",
+                    {"entity_id": eid}, blocking=True,
+                )
+        except HomeAssistantError as err:
+            _LOGGER.warning("MXZ: couldn't adopt a change made at %s: %s", climate_id, err)
+        finally:
+            if not self._retired:
+                await self.async_request_refresh()
 
     async def _heal_and_notify(self) -> None:
         await self.async_request_refresh()
@@ -7076,6 +7346,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         retargeting behavior. A disabled room or a still-unresolved startup gets
         a fresh decision; new intent must not revive an old pending run.
         """
+        for zone in self.zones:
+            if zone.slug == slug:
+                self.drop_head_change(zone.climate_id)
         if slug in self._startup_resume or not self.coordinator_enable or not any(
             zone.slug == slug and zone.enable for zone in self.zones
         ):

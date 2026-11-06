@@ -917,7 +917,10 @@ async def test_an_untouched_options_pass_changes_no_stored_option(
     # Whole stores, so no other key can appear, change, or go. A Comfort pass
     # on 3.10.0 already stores the page's shown fields at their defaults (the
     # reviewer's 521daac capture): exactly these, and nothing for the new box.
-    shown = {"engage_deadband": 1.0, "mode_hysteresis": 600.0, "resting_mode_bias": "last"}
+    shown = {
+        "accept_head_changes": True, "engage_deadband": 1.0, "mode_hysteresis": 600.0,
+        "resting_mode_bias": "last",
+    }
     assert not shown.keys() & before[0].keys() and not shown.keys() & before[1].keys()
     assert data == {**before[0], **shown}
     assert options == {**before[1], **shown}

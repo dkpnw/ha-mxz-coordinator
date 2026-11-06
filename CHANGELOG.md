@@ -10,6 +10,30 @@ on your equipment.
 
 ## Unreleased
 
+Beta first. **Accept changes made at the head is new and on for every install, existing ones
+included.** To turn it off, go to Configure → Comfort and turn off **Accept changes made at the
+head**; MXZ is then the only writer, as before.
+
+- **Accept changes made at the head
+  ([Discussion #103](https://github.com/dkpnw/ha-mxz-coordinator/discussions/103)).** A setpoint
+  or off set at a head, with its IR remote or its own app, is adopted once it has held for about
+  5 seconds, instead of being written over. The room's target follows the setpoint (high edge in
+  cool, low edge in heat, or the one setpoint), off at the head disables the room, and on to heat
+  or cool enables it. The head's heat or cool choice is never adopted: MXZ still picks the shared
+  mode and puts the head back on the plan's mode, with the new target. `heat_cool`, `auto` and
+  `dry` are still put back. Nothing is adopted during Eco idle, a standby hold, with
+  **Coordinator enable** off, during a door or window pause or a floor or ceiling run, in a
+  disabled own-remote room, or from a head the plan merely parked. A cloud or generic head with a
+  drive offset adopts its off and on but not its setpoint. The Lowest and Highest setpoint and
+  the head's own limits still hold an adopted target, and a room turned off at its head keeps its
+  freeze floor and overheat ceiling. Thanks to [@BHSPitMonkey](https://github.com/BHSPitMonkey)
+  (Stephen Eisenhauer), who asked for it and built the first version on a fork. Rebuilt here on
+  the fan memory from 3.21.0: MXZ remembers its own mode and setpoint writes per head until the
+  head's reports pass them, so a slow head showing an old write isn't read as a remote press. A
+  press of a value MXZ didn't recently write is adopted even while the head lags. Not yet tried on
+  real heads with a real IR remote; that check comes before a release.
+  [MIGRATION.md](docs/MIGRATION.md) lists what behaves differently.
+
 ## 3.21.0 (November 6, 2026)
 
 A °F/°C switch now keeps what you saved and reloads MXZ by itself, and a slow local head no
