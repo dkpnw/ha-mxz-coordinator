@@ -302,6 +302,11 @@ DUAL_HANDOFF_KEY = "mxz_coordinator_dual_handoff"
 # min, high max). A floor outside these is rejected, never clamped.
 FLOOR_RANGE_F = (35.0, 65.0, 75.0, 100.0)
 FLOOR_RANGE_C = (2.0, 18.0, 24.0, 38.0)
+# The unit the entry's Head setpoint range (CONF_CLAMP_MIN/MAX) and each room's
+# ZONE_FLOOR_LOW/HIGH were last converted to, from the first °F/°C switch on. A
+# load whose system unit differs converts them again. An entry that has never
+# seen a switch has no such key, and is never written for this.
+CONF_SAVED_TEMP_UNIT = "saved_temp_unit"
 # The no-progress cap (decision 11): this long actually driving the head
 # without one step of new best reading ends the run as `blind`.
 FLOOR_STALL_SECONDS = 2 * 3600
@@ -448,6 +453,10 @@ FAN_MIDDLE = "middle"
 FAN_HIGH = "high"
 # Ascending true airflow speed; idx 0..4.
 FAN_LADDER = (FAN_QUIET, FAN_LOW, FAN_MEDIUM, FAN_MIDDLE, FAN_HIGH)
+# Older fan writes a head still behind may yet show, kept per head beyond the
+# last two: enough for a slow head to lag down the whole ladder and back, twice.
+# Past it the oldest goes, and a report of that one would read as a pick.
+FAN_OLDER_WRITES = 4 * len(FAN_LADDER)
 # delta (°F off-target) >= up_at[i] to step UP into rung i+1
 FAN_BOOST_UP_AT = (1.0, 2.0, 3.0, 4.0)
 # up_at - 0.5 hysteresis; leave rung i once delta < down_at[i-1]

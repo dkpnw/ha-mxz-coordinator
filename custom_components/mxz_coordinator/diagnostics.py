@@ -394,6 +394,7 @@ def _manual_fan(coordinator: Any, zone: Any) -> dict[str, Any]:
         "latched": coordinator._fan_latched.get(head, False),
         "commanded": coordinator._fan_cmd.get(head),
         "previous": coordinator._fan_prev.get(head),
+        "older": coordinator.fan_older_commands(head),
         "ladder_index": coordinator._fan_idx.get(head),
         "turn_on_pending": head in coordinator._fan_on_pending,
         "restored_latch": coordinator._fan_restore.get(head),

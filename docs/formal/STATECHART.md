@@ -124,11 +124,11 @@ stateDiagram-v2
 | --- | --- | --- |
 | F1, F2 | With no memory, `auto` sets the baseline. A speed the ladder would stay on is adopted (a hold placed there is lost: documented), a fan_only idle on an established entry reads as ours (#25), and anything else seeds a hold. | `coordinator.py` `_observe_fan_latch`, `coordinator.py` `_seed_matches_boost`, `coordinator.py` `_seed_is_own_idle` |
 | F3 | Boost picks a rung and writes it once. A rewrite of the commanded token doesn't roll the memory (#14). | `coordinator.py` `_apply_fan`, `logic.py` `fan_for_delta`, `coordinator.py` `_write_fan` |
-| F4 | A speed in neither `_fan_cmd` nor `_fan_prev` is a person's. MXZ makes no fan write while held. | `coordinator.py` `_observe_fan_latch`, `coordinator.py` `_hold_at` |
-| F5 | One of the two remembered speeds reads as MXZ's echo: not held, and boost writes over it. A pick of the speed showing can't be read at all. | `coordinator.py` `_observe_fan_latch` |
+| F4 | A speed in neither `_fan_cmd` nor `_fan_prev`, and not in `_fan_older` either, is a person's. MXZ makes no fan write while held. | `coordinator.py` `_observe_fan_latch`, `coordinator.py` `_hold_at` |
+| F5 | One of the two remembered speeds reads as MXZ's echo: not held, and boost writes over it. So does an older write, until the head's reports pass it (F1). A pick of the speed showing can't be read at all. | `coordinator.py` `_observe_fan_latch`, `coordinator.py` `_remember_fan_write`, `coordinator.py` `_fan_caught_up` |
 | F6 | A hold's memory is the held speed, so any other speed moves it. | `coordinator.py` `_hold_at` |
 | F7, F8 | Fan auto on adopts the showing speed and hands it back. Fan auto off holds it. At `auto`, off does nothing. | `coordinator.py` `async_set_fan_auto`, `coordinator.py` `_adopt_fan_speed` |
-| F9 | The switch restores the held or not-held truth and, if not held, the two remembered speeds, limited to what boost could write. | `switch.py` `async_added_to_hass`, `coordinator.py` `restore_fan_hold` |
+| F9 | The switch restores the held or not-held truth and, if not held, the remembered speeds with any older writes, limited to what boost could write. | `switch.py` `async_added_to_hass`, `coordinator.py` `restore_fan_hold` |
 | F10, F11 | The first speed read settles it. Held stays held at that speed. Not held: a speed boost could never write holds; one in memory, or any in-ceiling rung with no memory or in a fan_only idle, is ours; otherwise it conservatively holds. | `coordinator.py` `_reconcile_restored_hold` |
 
 ## Lifecycle

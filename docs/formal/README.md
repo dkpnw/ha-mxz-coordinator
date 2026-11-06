@@ -8,7 +8,7 @@ changes (dwell, anti-flip), the door/window pause, the manual fan hold and resta
 | [STATECHART.md](STATECHART.md) | The machine as a chart, each transition mapped to its code. |
 | [tla/MXZCoordinator.tla](tla/MXZCoordinator.tla) | The same machine in TLA+. TLC checks every order of steps at small bounds. |
 | `tests/test_properties_*.py` | Hypothesis properties on the real integration, in the normal suite on every lane. |
-| [PARKED-FINDINGS.md](PARKED-FINDINGS.md) | What these checks found and this work did not fix. |
+| [PARKED-FINDINGS.md](PARKED-FINDINGS.md) | What these checks found, and the accepted exception on cloud heads. |
 
 The model finds orderings nobody thought to test, and the properties check that the code
 itself does what the model says. A pass covers the model at these bounds and the examples
@@ -22,9 +22,10 @@ stay as they are, and this model doesn't repeat them.
 
 | Rule | TLC invariant | Hypothesis properties on the real code |
 | --- | --- | --- |
-| A manual fan choice is never written over, apart from the exceptions below. | `ManualFanKept` | `test_a_pick_is_never_written_over_until_it_is_handed_back`, `test_a_cloud_heads_pick_is_never_written_over` |
+| A manual fan choice is never written over, apart from the exceptions below. | `ManualFanKept` | `test_a_pick_is_never_written_over_until_it_is_handed_back`, `test_a_cloud_heads_pick_is_never_written_over`, `test_a_lagging_heads_pick_of_a_speed_mxz_never_wrote_is_held` |
 | A manual fan choice shows as a hold, across every start. | `ManualFanShown` | `test_a_pick_is_never_written_over_until_it_is_handed_back`, `test_a_start_changes_nothing_anyone_can_see` |
 | MXZ doesn't hold a speed nobody touched, with a head up to one write behind. | `NoFalseHold` | `test_a_slow_heads_own_echo_is_not_a_hold_one_write_behind` |
+| Nor with a head further behind, including at a start's first read, whether it jumps to the latest write or shows each in order (F1). [The limits](PARKED-FINDINGS.md#f1-limits) are out of order, past the memory's bound, and one moment for a start. | `NoFalseHoldTwoBehind`, in `ci-fan-lag`, for a head that jumps only | `test_no_person_no_hold_however_far_a_head_lags`, `test_no_person_no_hold_when_a_head_jumps_to_its_latest_write`, `test_no_person_no_hold_when_a_head_reports_every_write_in_order` |
 | No mode flip inside the hold, across any start. | `NoFlipInDwell` | `test_no_flip_inside_the_hold_and_no_wait_after_it`, `test_arbitrate_never_changes_the_mode_while_the_hold_holds` |
 | With the hold over and only the other mode calling, the mode changes. | `NoExtraWait` | `test_no_flip_inside_the_hold_and_no_wait_after_it` |
 | A start neither restarts the hold nor forgets it. | `HoldClockKept` | `test_no_flip_inside_the_hold_and_no_wait_after_it`, `test_a_start_keeps_what_is_left_of_the_hold_and_never_more`, `test_no_stored_change_holds_nothing` |
@@ -39,14 +40,12 @@ Each is explicit, not a gap. In the spec, a pick's `pickKind` names which of the
 it, and only a `strict` pick is bound with no exception. In the tests, each exception is
 pinned by a passing test that fails if the behavior changes. They aren't xfails because
 `tools/pytest_phases.py`, which every CI suite pass runs under, fails a run on any xfail.
-[The cloud1104 parked list](#where-the-known-items-came-from) is where the first three
-were found.
+[The cloud1104 parked list](#where-the-known-items-came-from) is where the first was found.
 
 | Exception | Spec | Pinned by |
 | --- | --- | --- |
-| **A pick of a remembered speed reads as MXZ's echo**, and boost writes over it. It's found on cloud heads and shared with local ones. The memory is the last two distinct speeds in `_fan_cmd` and `_fan_prev`, which also takes in a speed that was held or handed back: hold low, hand it back from the remote, pick low again with nothing written between, and it isn't held. | `pickKind = "echo"`; reachable by `NeverKnownExceptionLosesAPick` | `test_the_exception_is_exactly_the_last_two`, `test_the_exception_can_lose_the_pick`, `test_the_exception_on_a_cloud_head` |
-| **A room's target isn't converted on a °F/°C switch.** The stored number is read in the new unit and held to its range. `docs/CONFIGURATION.md` tells people to re-enter targets. | Not modeled: one unit | `test_known_exception_a_target_is_not_converted_on_a_unit_switch` |
-| **A live unit switch takes effect at the next load.** `docs/CONFIGURATION.md` says to reload or restart. | Not modeled: one unit | `test_known_exception_a_live_unit_switch_takes_effect_at_the_next_load` |
+| **A pick of a remembered speed reads as MXZ's echo**, and boost writes over it. It's found on cloud heads and shared with local ones. The memory is the last two distinct speeds in `_fan_cmd` and `_fan_prev`, which also takes in a speed that was held or handed back: hold low, hand it back from the remote, pick low again with nothing written between, and it isn't held. The same goes for the older writes in `_fan_older` that a head's reports haven't passed yet (F1's cost): a pick of one of those reads as an echo too. That can outlast the lag by one such pick, when a head jumps to the last of two writes of a speed. The first write after a start can also read the speed before the last write that way. | `pickKind = "echo"`; reachable by `NeverKnownExceptionLosesAPick` | `test_the_exception_is_exactly_the_last_two`, `test_the_exception_can_lose_the_pick`, `test_the_exception_on_a_cloud_head`, `test_a_head_caught_up_reads_an_older_write_as_a_pick`, `test_a_prompt_heads_passed_speed_holds_during_the_next_writes_window`, `test_a_head_that_only_reports_the_repeat_costs_one_pick_at_most` and `test_known_cost_the_first_write_after_a_start_can_read_one_speed_more` in `tests/test_fan_lag_memory.py` |
+| **On a cloud head, a re-pick of the speed MXZ just wrote can't be told from its own write**, and boost's next step writes over it. Accepted: see [PARKED-FINDINGS.md](PARKED-FINDINGS.md). | Not a step of the machine | `test_a_cloud_re_pick_of_the_speed_just_written_is_overwritten` in `tests/test_cloud_heads.py` |
 | **Picking the speed already showing can't be read.** Nothing changes for MXZ to see. | Not a step of the machine | `test_picking_the_speed_already_showing_is_invisible` in `tests/test_drive.py` |
 | **A pick MXZ hasn't read before a stop, or made while it is down**, can read as its own speed where the token could be ours. `_reconcile_restored_hold` documents it. | `pickKind = "outage"` | `test_s6_gesture_during_outage_not_held_before` in `tests/test_fan_hold_restore.py` |
 | **A crash can lose a hold.** The Fan auto truth is in restore data, which Home Assistant writes at a stop and every 15 minutes. After a crash, the switch's docstring's remembered-token edge applies. Most other speeds still hold, conservatively. | `pickKind = "crash"` | The spec's `ci-fan-crash` |
@@ -57,20 +56,21 @@ were found.
 
 ### Where the known items came from
 
-The first three exceptions in the table were found by the cloud head review, and parked
-outside this repository for a product decision: stored targets across a unit switch, a live
-unit switch, and a pick of the previous fan speed.
+The first exception in the table was found by the cloud head review and parked outside this
+repository for a product decision, with two more that have since been fixed: stored targets
+across a unit switch, and a live unit switch. `test_a_target_is_converted_on_a_unit_switch`
+and `test_a_live_unit_switch_reloads_with_a_held_fan_and_the_hold_kept` hold those now.
 
-Open finding F1, a slow head read as a person's pick, is in
-[PARKED-FINDINGS.md](PARKED-FINDINGS.md). `NoFalseHoldTwoBehind` is required to break until
-it's fixed.
+F1, a slow head read as a person's pick, is fixed for a head that shows its writes in order or
+jumps to the latest, and is described in [PARKED-FINDINGS.md](PARKED-FINDINGS.md). No finding is
+open beyond the limits listed there.
 
 ## What is modeled, and what isn't
 
 **In the spec.** Rooms in priority order, enabled, with the default drift and threshold.
 Each room's reading as one of six positions, its engage latch, and its head's mode. The
 shared mode, Resting mode, the hold and its record. Room 1's door/window state, delays,
-override and store. Room 1's fan: reported speed, command memory, ladder index, latch,
+override and store. Room 1's fan: reported speed, command memory with its older writes, ladder index, latch,
 pending restore, restore data, and a head that reports late. A person's pick of the mode,
 the fan and the head's mode. The Fan auto and Window Override switches. Reload, restart with
 the fan touched during the outage, and crash.
@@ -78,11 +78,21 @@ the fan touched during the outage, and crash.
 **Not in the spec.**
 
 - Hands-off votes and wall-clock steps: `verification/modehold/` has them. There's one clock here.
+- °F and °C: the machine has one unit. `tests/test_unit_switch.py` and the two properties
+  named above cover a switch.
 - Safety priority, floors and ceilings, Comfort priority, Dry, eco, lockouts, standby, lost
   heads, sensor freshness: `tests/test_modehold_properties.py` covers the arbitration ones for one decision.
 - Cloud heads' batching, write interval and confirm wait. Their latch is the same
   `_observe_fan_latch`, so the rule is in the model, and the properties run on a cloud head.
 - Idle actions other than fan_only, the coil-dry wait, vanes, setpoints, notices, `fan_on_pending`.
+- A head working through a queue of older fan writes. The model's head reports only the latest,
+  and its older writes are a set, so where the code keeps them after a report of a speed written
+  twice, the model has forgotten them. And where the code's memory stays as the last write once
+  a head has caught up, the model's next write puts back the speed before it, so the model's echo
+  is wider there. `tests/test_fan_lag_memory.py`,
+  `test_no_person_no_hold_when_a_head_reports_every_write_in_order`,
+  `test_no_person_no_hold_when_a_head_jumps_to_its_latest_write` and
+  `test_the_exception_is_still_the_last_two_with_a_write_in_flight` cover this.
 - Anything between `_compute` and the end of `_apply`: one Decide is one step, so a pick
   arriving while a delivery awaits isn't modeled.
 - The fan ladder is cut to three rungs with the ceiling at the second. Delays and the hold are whole ticks.
@@ -101,7 +111,7 @@ You need Java 11 or later and `tla2tools.jar` 1.7.4 (sha256
 ```sh
 export TLA2TOOLS=/path/to/tla2tools.jar   # and JAVA, if java isn't on PATH
 python3 tools/formal_tlc.py check     # every config passes every rule it lists
-python3 tools/formal_tlc.py cover     # every reachability goal has a path, each open finding still breaks
+python3 tools/formal_tlc.py cover     # every reachability goal has a path, any open finding still breaks
 python3 tools/formal_tlc.py mutants   # every broken copy of the spec breaks its named rule
 python3 tools/formal_tlc.py all       # those three, as the workflow runs them
 ```
@@ -112,7 +122,7 @@ By hand, from `docs/formal/tla/`: `java -cp "$TLA2TOOLS" tlc2.TLC -workers auto 
 | --- | --- |
 | `ci-fan` | One room's fan, outage picks and restarts, no passing time |
 | `ci-fan-crash` | The same, with crashes and the periodic restore-data dump |
-| `ci-fan-lag` | The same, with a head that reports late |
+| `ci-fan-lag` | The same, with a head that reports late, however many writes behind |
 | `ci-window` | One room's door/window, with delays, reloads and restarts |
 | `ci-window-fan` | The door/window and the fan together, reloads, delays at 0, one reading |
 | `ci-arbitration` | Two rooms, picks, reloads, restarts, crashes, a hold of 2 ticks |
@@ -134,5 +144,5 @@ For a wider search with fresh random draws, and to prove each one can fail:
 ```sh
 MXZ_PROPERTY_EXAMPLES=400 MXZ_PROPERTY_RANDOM=1 python -m pytest tests/test_properties_fan.py -q -p no:cacheprovider
 MXZ_PYTHON="$(command -v python)" python3 tools/formal_tlc.py code   # every broken copy of the code fails its named property
-python -m pytest verification/findings -q -p no:cacheprovider        # open findings, each a strict xfail
+python -m pytest verification/findings -q -p no:cacheprovider        # each finding's replay: F1's now passes
 ```

@@ -107,6 +107,7 @@ class RigHead(HeadEntity):
         self.mode_writes: list[str] = []
         self.lags = False
         self.unreported_fan: str | None = None
+        self.fan_writes_shown = 0
 
     def reset(self) -> None:
         """A new example's head: off, fan auto, nothing written yet."""
@@ -143,6 +144,17 @@ class RigHead(HeadEntity):
             self._attr_fan_mode = self.unreported_fan
             self.unreported_fan = None
             self.async_write_ha_state()
+
+    def report_next_fan(self) -> bool:
+        """A lagging head that applies its writes one at a time: it shows the oldest it hasn't
+        shown yet, however many came after it. False once none is left."""
+        if self.fan_writes_shown >= len(self.fan_writes):
+            return False
+        self._attr_fan_mode = self.fan_writes[self.fan_writes_shown]
+        self.fan_writes_shown += 1
+        self.unreported_fan = None
+        self.async_write_ha_state()
+        return True
 
     def person_fan(self, token: str) -> None:
         """A person picks a speed on the remote; it is the last thing the head got."""
@@ -221,6 +233,12 @@ class Rig:
         self.heads[room].report_fan()
         await self.hass.async_block_till_done()
         await self.settle()
+
+    async def report_next_fan(self, room: int = 0) -> bool:
+        shown = self.heads[room].report_next_fan()
+        await self.hass.async_block_till_done()
+        await self.settle()
+        return shown
 
     async def switch(self, suffix: str, on: bool) -> None:
         await self.hass.services.async_call(

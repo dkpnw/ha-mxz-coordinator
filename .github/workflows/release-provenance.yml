@@ -40,6 +40,27 @@ jobs:
           ref: refs/tags/${{ env.TAG }}
           fetch-depth: 1
           persist-credentials: false
+      # Runs no code from the tag: this job can write to the release and sign.
+      - name: Check the tag, the manifest and the pre-release flag agree
+        run: |
+          version="$(python3 -I -c 'import json; print(json.load(open("custom_components/mxz_coordinator/manifest.json"))["version"])')"
+          prerelease="$(gh release view "$TAG" --json isPrerelease --jq .isPrerelease)"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag '$TAG' is not 'v$version' from manifest.json"
+            exit 1
+          fi
+          if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+b[0-9]+$ ]]; then
+            wanted=true
+          elif [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            wanted=false
+          else
+            echo "::error::manifest version '$version' is neither X.Y.Z nor X.Y.ZbN"
+            exit 1
+          fi
+          if [ "$prerelease" != "$wanted" ]; then
+            echo "::error::release '$TAG' has pre-release '$prerelease', and version '$version' needs '$wanted'"
+            exit 1
+          fi
       - name: Build a deterministic source zip
         run: |
           mtime="$(git log -1 --format=%cI HEAD)"

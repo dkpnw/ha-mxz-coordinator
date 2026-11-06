@@ -51,6 +51,7 @@ def _restart(coord, restore: dict | None = None) -> None:
     """Wipe per-head decision memory like a HA restart; inject the switch's restore."""
     coord._fan_cmd.clear()
     coord._fan_prev.clear()
+    coord._fan_older.clear()
     coord._fan_latched.clear()
     coord._fan_idx.clear()
     coord._engage_latch.clear()

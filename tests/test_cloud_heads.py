@@ -1019,3 +1019,25 @@ async def test_an_unavailable_head_is_sent_nothing(hass: HomeAssistant) -> None:
         ("set_hvac_mode", {"hvac_mode": "heat"}),
         ("set_temperature", {"temperature": 22.0}),
     ]
+
+
+async def test_a_cloud_re_pick_of_the_speed_just_written_is_overwritten(hass: HomeAssistant) -> None:
+    """The accepted exception (docs/formal/PARKED-FINDINGS.md): a person picks the speed MXZ
+    just wrote. The head's report can't show it, so it isn't held, and boost's next step
+    writes over it. The control is test_the_exception_on_a_cloud_head's never-sent pick."""
+    from tests.test_properties_fan import _cloud_entry, _cloud_step, _fans
+
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head = ComfortHead("a", temperature=70.0)
+    await register(hass, {"kumo_cloud": [head]})
+    entry = await _cloud_entry(hass, head)
+    await _cloud_step(hass, entry, head)
+    assert _fans(head)[-1] == "low"
+    assert head.device["fan"] == "low"
+    head.device["fan"] = "low"  # the person's pick: nothing a report could show
+    head.poll()
+    await hass.async_block_till_done()
+    await _cloud_step(hass, entry, head)
+    assert row(hass, entry, 0)["fan_hold"] is False
+    assert _fans(head)[-1] == "medium"
+    assert head.device["fan"] == "medium"

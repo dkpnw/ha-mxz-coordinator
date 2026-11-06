@@ -416,7 +416,10 @@ take your room sensor as its own. So for a cloud head MXZ:
   wait of a heat or cool write that sent no fan (a new setpoint, say), the fan is still
   decided: a step that comes due goes out on its own once the write interval allows, and
   a speed you pick on the head is held from then on. After a write that sent a fan, a
-  speed you pick is noticed when that write's wait ends;
+  speed you pick is noticed when that write's wait ends. The one accepted exception: **if
+  you pick the same speed MXZ just wrote, or the one before it, MXZ can't tell, and fan
+  boost's next step writes over it.** The head shows a speed MXZ expects either way. To keep
+  that speed, turn the room's **Fan auto** off, which holds whatever speed is showing;
 - holds a cloud head for one confirm wait after a restart or reload, so a write just
   before it isn't sent twice and a late report isn't taken for someone's change. For that
   wait an own-remote room whose cloud head is under its own remote has no vote;

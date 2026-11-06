@@ -19,7 +19,8 @@ import copy
 import logging
 import math
 import time
-from collections.abc import Callable
+from collections import deque
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from functools import partial
@@ -32,6 +33,7 @@ from homeassistant.components.climate import (
 )
 from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
+    EVENT_CORE_CONFIG_UPDATE,
     STATE_ON,
     STATE_UNAVAILABLE,
     UnitOfTemperature,
@@ -64,6 +66,7 @@ from .cloud import (
     drive_setpoint,
     offset_in_unit,
     snap_to_step,
+    target_in_unit,
 )
 from .const import (
     ACTION_VOTE_HOLD,
@@ -107,6 +110,7 @@ from .const import (
     CONF_PRIMARY_VANE_HORIZONTAL,
     CONF_PRIMARY_VANE_VERTICAL,
     CONF_RESTING_MODE_BIAS,
+    CONF_SAVED_TEMP_UNIT,
     CONF_SECONDARY_CLIMATE,
     CONF_SECONDARY_SENSOR,
     CONF_SECONDARY_STAGE,
@@ -142,7 +146,10 @@ from .const import (
     EVIDENCE_HA_WRITE,
     FAN_AUTO,
     FAN_LADDER,
+    FAN_OLDER_WRITES,
     FLOOR_NOTICE_SECONDS,
+    FLOOR_RANGE_C,
+    FLOOR_RANGE_F,
     FLOOR_STALL_SECONDS,
     FLOOR_YIELD_SECONDS,
     GENERIC_CONFIRM_WAIT,
@@ -795,6 +802,68 @@ def _restored_opening(stored: Any) -> dict[str, Any]:
     }
 
 
+def _convert_saved_temps(
+    hass: HomeAssistant, entry: ConfigEntry, saved_in: str, unit: str
+) -> None:
+    """Move the entry's saved setpoint range and room floors from ``saved_in`` to ``unit``.
+
+    A room's target converts where it restores (number.py), and can only be held
+    to a range in the same unit. A floor runs a disabled room's head, so it can't
+    be read in the wrong one. Their unit goes in the same write
+    (``CONF_SAVED_TEMP_UNIT``), so a crash can't convert them twice. A floor is
+    held to the new unit's range; with nothing saved there is nothing to record.
+    """
+    celsius = unit == UnitOfTemperature.CELSIUS
+    step = unit_profile(celsius)["target_step"]
+    low_min, low_max, high_min, high_max = FLOOR_RANGE_C if celsius else FLOOR_RANGE_F
+    floors = {ZONE_FLOOR_LOW: (low_min, low_max), ZONE_FLOOR_HIGH: (high_min, high_max)}
+
+    def moved(value: Any) -> Any:
+        return target_in_unit(value, saved_in, unit, step) if _finite_number(value) else value
+
+    def room(zone: Any) -> Any:
+        if not isinstance(zone, dict):
+            return zone
+        out = dict(zone)
+        for key, (low, high) in floors.items():
+            if _finite_number(out.get(key)):
+                out[key] = min(max(moved(out[key]), low), high)
+        return out
+
+    def section(values: Any) -> dict[str, Any]:
+        out = {k: moved(v) if k in (CONF_CLAMP_MIN, CONF_CLAMP_MAX) else v for k, v in values.items()}
+        if isinstance(out.get(CONF_ZONES), list):
+            out[CONF_ZONES] = [room(zone) for zone in out[CONF_ZONES]]
+        return out
+
+    conf = {**entry.data, **entry.options}
+    zones = conf.get(CONF_ZONES)
+    if not any(_finite_number(conf.get(key)) for key in (CONF_CLAMP_MIN, CONF_CLAMP_MAX)) and not any(
+        isinstance(zone, dict) and _finite_number(zone.get(key))
+        for zone in (zones if isinstance(zones, list) else ()) for key in floors
+    ):
+        return
+    hass.config_entries.async_update_entry(
+        entry,
+        data={**section(entry.data), CONF_SAVED_TEMP_UNIT: unit},
+        # Empty options stay empty: setup discloses running from the data mirror.
+        options={**section(entry.options), CONF_SAVED_TEMP_UNIT: unit} if entry.options else {},
+    )
+
+
+@callback
+def async_keep_saved_temps_in_unit(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Before a load: an entry that has been through a switch follows the next one.
+
+    An entry that hasn't has no unit on record. Its first switch is found when a
+    room's target restores (``MXZCoordinator.note_saved_unit``).
+    """
+    saved_in = {**entry.data, **entry.options}.get(CONF_SAVED_TEMP_UNIT)
+    unit = str(hass.config.units.temperature_unit)
+    if saved_in in (UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT) and saved_in != unit:
+        _convert_saved_temps(hass, entry, saved_in, unit)
+
+
 # ---------------------------------------------------------------------------
 # Coordinator
 # ---------------------------------------------------------------------------
@@ -984,6 +1053,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # value — a mismatch is only a user departure if it differs from BOTH).
         self._fan_cmd: dict[str, str] = {}
         self._fan_prev: dict[str, str] = {}
+        # A head can lag further than that (F1, docs/formal/PARKED-FINDINGS.md):
+        # the speeds MXZ wrote that this head may yet show, in the order written,
+        # a speed written twice appearing twice, per head. Its reports drop what
+        # came before them, so a head caught up leaves the last write alone in it
+        # (see _fan_caught_up).
+        self._fan_older: dict[str, deque[str]] = {}
         self._fan_latched: dict[str, bool] = {}
         # Pre-restart latch truth restored by the Fan-auto switch
         # (RestoreEntity), consumed once at the first seed observation per
@@ -1423,6 +1498,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsubs.append(
             self.hass.bus.async_listen(EVENT_RECOMPUTE, self._on_recompute_event)
         )
+        self._unsubs.append(
+            self.hass.bus.async_listen(EVENT_CORE_CONFIG_UPDATE, self._on_core_config_update)
+        )
         # Optional local-weather seasonal changeover: re-read on the weather entity's
         # own updates + hourly, and drive the lockout switches from it.
         if self.changeover_entity:
@@ -1481,6 +1559,51 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsubs.append(async_at_start(self.hass, self._on_ha_start))
         self._arm_hold_end_timer()  # a hold carried over from the last run
         await self.async_refresh()
+
+    def note_saved_unit(self, saved_in: str | None) -> None:
+        """A room's value restored from the other unit: this is the entry's first switch.
+
+        Called before that value is held to its bounds, so they convert first.
+        Once the entry has a unit on record, ``async_keep_saved_temps_in_unit``
+        has already dealt with this load, and a restore data dump older than the
+        switch (a crash) can't convert anything a second time.
+        """
+        entry = self.config_entry
+        if (
+            saved_in not in (UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT)
+            or saved_in == self.temp_unit
+            or CONF_SAVED_TEMP_UNIT in {**entry.data, **entry.options}
+        ):
+            return
+        _convert_saved_temps(self.hass, entry, saved_in, self.temp_unit)
+        conf = {**entry.data, **entry.options}
+        defaults = self._profile["defaults"]
+        self.clamp_min = float(conf.get(CONF_CLAMP_MIN, defaults[CONF_CLAMP_MIN]))
+        self.clamp_max = float(conf.get(CONF_CLAMP_MAX, defaults[CONF_CLAMP_MAX]))
+        for zone, room in zip(self.zones, conf.get(CONF_ZONES) or (), strict=False):
+            if isinstance(room, dict):
+                zone.floor_low = _finite(room.get(ZONE_FLOOR_LOW))
+                zone.floor_high = _finite(room.get(ZONE_FLOOR_HIGH))
+        self._built_conf = copy.deepcopy(conf)
+
+    @callback
+    def _on_core_config_update(self, _event: Event[Any]) -> None:
+        """Home Assistant's temperature unit changed: reload this entry, once.
+
+        Everything here works in the unit it loaded with, and Home Assistant now
+        reads what MXZ sends in the new one, so this incarnation writes nothing
+        more. The load that follows converts what was saved in the old unit.
+        Any other change to Home Assistant's core config is ignored.
+        """
+        if self._retired or self.hass.config.units.temperature_unit == self.temp_unit:
+            return
+        _LOGGER.info(
+            "Home Assistant's temperature unit changed from %s to %s: reloading MXZ",
+            self.temp_unit, self.hass.config.units.temperature_unit,
+        )
+        self._retired = True
+        self._retire_deliveries()
+        self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
 
     async def async_shutdown_listeners(self) -> None:
         """Retire this context, then cancel its listeners, timers, and kick tasks.
@@ -3809,9 +3932,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # interval held must not climb on while it waits.
                 self._fan_idx[climate_id] = FAN_LADDER.index(fan)
             # The latch's command memory, exactly as a local fan write keeps it.
-            if fan != self._fan_cmd.get(climate_id):
-                self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, fan)
-                self._fan_cmd[climate_id] = fan
+            self._remember_fan_write(climate_id, fan)
             self._publish_fan_state(climate_id)
         _LOGGER.debug("MXZ: cloud head %s batch %s", climate_id, calls)
         self._publish_delivery()
@@ -4029,7 +4150,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         * observed "auto"                 -> released (user handed control back)
         * observed token != BOTH the last- and prior-commanded token -> latched
           (a user departure; the double-token check absorbs the echo race where
-          the head still reports the token we wrote one cycle ago)
+          the head still reports the token we wrote one cycle ago), unless the
+          token is one of the older writes the head's reports haven't passed
+          yet, which it may still show (``_fan_older``)
         * no _fan_cmd memory yet (first compute with nothing restored): a
           non-"auto" reading seeds LATCHED, mirroring the engage-latch's "resume
           from the head's own state" — a manual pick that predates the restart
@@ -4056,6 +4179,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         a re-gesture to the SAME token the head already reports is invisible; that
         limitation is accepted.
         """
+        self._fan_caught_up(climate_id, observed)
         if climate_id in self._fan_on_pending:
             self._fan_on_pending.remove(climate_id)
             self._fan_restore.pop(climate_id, None)
@@ -4082,6 +4206,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._fan_cmd.get(climate_id),
             self._fan_prev.get(climate_id),
         )
+        if departed and observed in self.fan_older_commands(climate_id):
+            departed = False  # a head still behind: our own older write
         if not (seeding or departed):
             # A standing hold: no gesture this cycle, so nothing changes.
             return self._fan_latched.get(climate_id, False)
@@ -4147,7 +4273,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._hold_at(climate_id, observed)
             return True
         last = self._fan_cmd.get(climate_id)
-        remembered = observed in (last, self._fan_prev.get(climate_id))
+        remembered = observed in (
+            last, self._fan_prev.get(climate_id), *self._fan_older.get(climate_id, ()),
+        )
         ours = (
             observed in FAN_LADDER
             and FAN_LADDER.index(observed) <= self._fan_max_idx()
@@ -4165,6 +4293,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Baseline stamped so a slow echo of this token isn't a departure.
             self._fan_prev[climate_id] = observed
             self._fan_cmd[climate_id] = observed
+            self._fan_older.pop(climate_id, None)
         if act in (MODE_COOL, MODE_HEAT) and observed in FAN_LADDER:
             self._fan_idx[climate_id] = min(
                 FAN_LADDER.index(observed), self._fan_max_idx()
@@ -4185,6 +4314,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fan_latched[climate_id] = True
         self._fan_prev[climate_id] = observed
         self._fan_cmd[climate_id] = observed
+        self._fan_older.pop(climate_id, None)
 
     def _adopt_fan_speed(
         self, climate_id: str, observed: str, idx: int | None = None
@@ -4202,6 +4332,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fan_latched[climate_id] = False
         self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, observed)
         self._fan_cmd[climate_id] = observed
+        self._fan_older.pop(climate_id, None)
         self._fan_idx[climate_id] = self._fan_max_idx() if idx is None else idx
 
     def restore_fan_hold(
@@ -4211,6 +4342,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         *,
         last: str | None = None,
         prior: str | None = None,
+        older: Iterable[str] = (),
         on_pending: bool = False,
     ) -> None:
         """Record the Fan-auto switch's restored pre-restart latch truth.
@@ -4231,6 +4363,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         token itself: the seed records it from the observed head, so nothing
         is carried for it (a hold released during the outage stays released,
         and a later non-auto report on it is a new hold either way).
+
+        ``older`` is the same for a head that was further behind at the stop
+        (see ``fan_older_record``). Only speeds boost could write are taken back:
+        anything else is no echo.
         """
         self._fan_restore[climate_id] = held
         self._fan_restore_problem.pop(climate_id, None)
@@ -4251,6 +4387,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             self._fan_cmd[climate_id] = eligible(last)
             self._fan_prev[climate_id] = eligible(last if prior is None else prior)
+            kept = [token for token in older if eligible(token) == token]
+            if kept:
+                last_two = dict.fromkeys((self._fan_prev[climate_id], self._fan_cmd[climate_id]))
+                self._fan_older[climate_id] = deque((*kept, *last_two), maxlen=FAN_OLDER_WRITES + 2)
+            else:
+                self._fan_older.pop(climate_id, None)
 
     def fan_command_memory(self, climate_id: str) -> tuple[str | None, str | None]:
         """The last two command/adopted-observation baselines: ``(last, prior)``.
@@ -4261,6 +4403,96 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         so the memory rides a restart (see ``restore_fan_hold``).
         """
         return (self._fan_cmd.get(climate_id), self._fan_prev.get(climate_id))
+
+    def fan_older_commands(self, climate_id: str) -> list[str]:
+        """Older echo baselines of a head still behind, oldest first (see ``_fan_older``).
+
+        The speeds this adds to the last two, each once: never those, and never
+        auto, whose report releases a hold whatever is remembered.
+        """
+        skip = (self._fan_cmd.get(climate_id), self._fan_prev.get(climate_id), FAN_AUTO)
+        return [token for token in dict.fromkeys(self._fan_older.get(climate_id, ())) if token not in skip]
+
+    def fan_older_record(self, climate_id: str) -> list[str]:
+        """What a start needs back of ``_fan_older``, oldest first.
+
+        Unlike ``fan_older_commands`` it's the writes in order, so a last-two
+        speed written earlier too keeps that place, and a late report of it isn't
+        read as the last write. The trailing last two are left out: the restore
+        puts them back. So is a leading auto, which the head is showing or has
+        passed, and which MXZ won't write again while it's showing.
+
+        Empty for a head showing the last write with no older speed left to
+        read as an echo. That's what a prompt head looks like, and its record
+        keeps its old shape. A head in the same state that was really showing an
+        earlier write of that speed loses its place (F1's limits,
+        docs/formal/PARKED-FINDINGS.md).
+        """
+        if not self.fan_older_commands(climate_id):
+            head = self.hass.states.get(climate_id)
+            if head is not None and head.attributes.get("fan_mode") == self._fan_cmd.get(climate_id):
+                return []
+        last = self._fan_cmd.get(climate_id)
+        record = list(self._fan_older.get(climate_id, ()))
+        for written in (last, self._fan_prev.get(climate_id)):
+            if record and record[-1] == written:
+                record.pop()
+        while record and record[0] == FAN_AUTO:
+            del record[0]
+        return record
+
+    def _fan_caught_up(self, climate_id: str, observed: Any) -> None:
+        """A head's report: the writes before it are behind the head for good.
+
+        A head shows its writes in order, so it can't show those again, and a
+        pick of one from here is a pick. A speed written more than once counts as
+        its earliest write left: this report may be that one, with the rest of
+        the writes still coming. A report of ``_fan_prev`` drops nothing, which
+        is wider than it has to be and only for a head still one write behind.
+
+        A report of the last command with no other write left has caught up, and
+        the memory stays as that one write. The next write adds to it, so a speed
+        the head has passed doesn't come back. That can't tell a head that jumped
+        straight to the last of two writes of a speed, so the writes between
+        stay echoes until a report rules them out (F1's cost,
+        docs/formal/PARKED-FINDINGS.md).
+
+        It is checked on the head's own report, not only at the next compute: a
+        pick can arrive before that compute runs.
+        """
+        memory = self._fan_older.get(climate_id)
+        if not memory or observed not in memory:
+            return
+        last = self._fan_cmd.get(climate_id)
+        changed = False
+        if observed == last or observed != self._fan_prev.get(climate_id):
+            changed = memory[0] != observed
+            while memory[0] != observed:
+                memory.popleft()
+        if changed:
+            self._publish_fan_state(climate_id)
+
+    def _remember_fan_write(self, climate_id: str, token: str) -> None:
+        """Roll the echo memory for a fan speed MXZ is sending.
+
+        A rewrite of the token already commanded rolls nothing (see
+        ``_write_fan``). With no memory yet, as after a start or a hold, it
+        starts from the two before this one, which the head may still show (F1's
+        cost, docs/formal/PARKED-FINDINGS.md). ``auto`` counts like a speed in it:
+        a later report of ``auto`` may be that first one.
+        """
+        last = self._fan_cmd.get(climate_id)
+        if token == last:
+            return
+        prev = self._fan_prev.get(climate_id)
+        self._fan_prev[climate_id] = token if last is None else last
+        self._fan_cmd[climate_id] = token
+        if last is None:
+            return
+        memory = self._fan_older.setdefault(climate_id, deque(maxlen=FAN_OLDER_WRITES + 2))
+        if not memory:
+            memory.extend(dict.fromkeys(written for written in (prev, last) if written is not None))
+        memory.append(token)
 
     def _publish_fan_state(self, climate_id: str) -> None:
         """Keep the existing clean-state channel current before yielding."""
@@ -4342,6 +4574,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fan_restore.pop(climate_id, None)
         self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, observed)
         self._fan_cmd[climate_id] = observed
+        self._fan_older.pop(climate_id, None)
         self._fan_latched[climate_id] = True
         self._fan_on_pending.discard(climate_id)
         self._publish_fan_state(climate_id)
@@ -4435,10 +4668,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         prev therefore survives until the next DISTINCT command — the original
         design's invariant. The cost is unchanged from what the README already
         documents: a user re-pick of the token prev remembers is invisible.
+        Speeds older than prev stay echoes only until the head reports a later
+        write (``_fan_older``), so the same is true of those for that long.
         """
-        if token != self._fan_cmd.get(climate_id):
-            self._fan_prev[climate_id] = self._fan_cmd.get(climate_id, token)
-            self._fan_cmd[climate_id] = token
+        self._remember_fan_write(climate_id, token)
         self._publish_fan_state(climate_id)
         await self.async_head_service(
             climate_id, "set_fan_mode",
@@ -4720,6 +4953,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         new_state = event.data.get("new_state")
         old_state = event.data.get("old_state")
         mode = new_state.state if new_state else None
+        if new_state is not None:
+            self._fan_caught_up(entity_id, new_state.attributes.get("fan_mode"))
         refresh_needed = False
         refresh_now = False
         sight = self._sight.get(entity_id)
@@ -6963,6 +7198,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._fan_restore[cid] = self._fan_latched.get(cid, False)
             self._fan_cmd.pop(cid, None)
             self._fan_prev.pop(cid, None)
+            self._fan_older.pop(cid, None)
             self._fan_latched.pop(cid, None)
             self._fan_idx.pop(cid, None)
             self._publish_fan_state(cid)

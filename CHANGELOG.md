@@ -10,6 +10,35 @@ on your equipment.
 
 ## Unreleased
 
+- **A slow local head no longer reads as a manual fan pick
+  ([F1](docs/formal/PARKED-FINDINGS.md)).** MXZ now remembers its older fan writes, per head,
+  until the head's reports pass them. A report two or more writes behind isn't a hold, from a
+  head that shows its writes in order or jumps to the latest. One that shows them out of order
+  can still read as a pick, and so can an in-order head at one moment of a restart, both
+  [listed](docs/formal/PARKED-FINDINGS.md#f1-limits). A speed MXZ didn't recently write is
+  still held at once and across a restart. While a head is behind, a pick of one of those older writes reads as MXZ's own,
+  and in one case that can outlast the lag by one pick. A head that has reported MXZ's last write
+  still reads only the last two speeds as MXZ's own, with the next write in flight too, except for
+  the first write after a restart, which can read one speed more. `NoFalseHoldTwoBehind` now holds in the
+  TLA+ model, whose head only ever jumps to the latest; tests cover the in-order case.
+- **A °F/°C switch converts what's saved.** A room's target, Heat to and Cool to, Freeze floor
+  and Overheat ceiling, and the Lowest and Highest setpoint keep their temperature: 59 °F is
+  15 °C, not 31 °C. A room's own drift only scales. Each is converted once per switch, across
+  repeats and restarts. From its first switch on, an entry stores a new `saved_temp_unit` key
+  beside the range and floors; an entry that never switches isn't written. Other Configure
+  values keep their numbers: see
+  [CONFIGURATION.md](docs/CONFIGURATION.md).
+- **A live °F/°C switch reloads MXZ by itself,** so its entities show the new unit at once. A
+  manual fan speed, the shared mode and the mode-change wait carry over. It no longer needs a
+  manual reload or restart.
+- **Docs.** On a cloud head, a manual re-pick of the same fan speed MXZ just wrote can't be told
+  from MXZ's own write and is overwritten: this is the accepted exception, now in the README
+  and [PARKED-FINDINGS.md](docs/formal/PARKED-FINDINGS.md).
+- **Beta releases (docs and tooling only).** [RELEASING.md](docs/RELEASING.md) now covers the
+  beta format (`3.21.0b1`, tag `v3.21.0b1`, a GitHub pre-release, the CHANGELOG staying under
+  Unreleased) and how testers opt in through HACS. The `release-provenance` workflow fails unless
+  the tag is `v` plus the manifest's version, and the release is a pre-release exactly when the
+  version has `bN`.
 - **Formal checks of the coordinator (tests and docs only, no behavior change).**
   [docs/formal](docs/formal/README.md) has a statechart and a TLA+ model of the mode
   arbitration, the mode-change hold, the door/window pause, the manual fan hold and restart

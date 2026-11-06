@@ -48,12 +48,20 @@ _ZONE_ICONS = ("mdi:bed", "mdi:sofa")  # legacy zone-0/1 icons; generic beyond
 # Neither channel is a delivery journal or an arbitrary-crash guarantee.
 ATTR_LAST_FAN_COMMAND = "last_fan_command"
 ATTR_PRIOR_FAN_COMMAND = "prior_fan_command"
+ATTR_OLDER_FAN_COMMANDS = "older_fan_commands"
 ATTR_FAN_ON_PENDING = "fan_on_pending"
 
 
 def _token(value: Any) -> str | None:
     """A restored fan token, or None for anything that is not one."""
     return value if isinstance(value, str) else None
+
+
+def _older_tokens(value: Any) -> tuple[str, ...]:
+    """Restored older echo baselines; anything but a list of tokens is none."""
+    if not isinstance(value, list) or not all(isinstance(token, str) for token in value):
+        return ()
+    return tuple(value)
 
 
 def _pending_handback(data: Any, held: bool) -> bool:
@@ -82,6 +90,9 @@ class FanHoldRestoreData(ExtraStoredData):
     Readers before this field ignore it; a record without it restores the
     bool alone.
 
+    ``older`` is that memory's older end, only while the head was behind at the
+    stop, oldest first. Absent otherwise, so most records keep their old shape.
+
     ``on_pending`` is earned only by explicit ON with no usable speed. It
     survives a saved restart and is consumed once by the first usable report,
     or cancelled by later OFF. It is not own-command or delivery provenance.
@@ -92,10 +103,11 @@ class FanHoldRestoreData(ExtraStoredData):
     last: str | None = None
     prior: str | None = None
     on_pending: bool = False
+    older: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         """Serialize for the restore store."""
-        data = {
+        data: dict[str, Any] = {
             "held": self.held,
             ATTR_LAST_FAN_COMMAND: self.last,
             ATTR_PRIOR_FAN_COMMAND: self.prior,
@@ -104,6 +116,8 @@ class FanHoldRestoreData(ExtraStoredData):
         # handback awaits a report. Contradictory held truth always wins.
         if self.on_pending is True and self.held is False:
             data[ATTR_FAN_ON_PENDING] = True
+        if self.older:
+            data[ATTR_OLDER_FAN_COMMANDS] = list(self.older)
         return data
 
     @classmethod
@@ -120,6 +134,7 @@ class FanHoldRestoreData(ExtraStoredData):
             _token(data.get(ATTR_LAST_FAN_COMMAND)),
             _token(data.get(ATTR_PRIOR_FAN_COMMAND)),
             _pending_handback(data, held),
+            _older_tokens(data.get(ATTR_OLDER_FAN_COMMANDS)),
         )
 
 
@@ -358,6 +373,7 @@ class MXZZoneFanAutoSwitch(
                     _token(last.attributes.get(ATTR_LAST_FAN_COMMAND)),
                     _token(last.attributes.get(ATTR_PRIOR_FAN_COMMAND)),
                     _pending_handback(last.attributes, last.state == "off"),
+                    _older_tokens(last.attributes.get(ATTR_OLDER_FAN_COMMANDS)),
                 )
             elif (extra := await self.async_get_last_extra_data()) is not None:
                 stored = FanHoldRestoreData.from_dict(extra.as_dict())
@@ -367,6 +383,7 @@ class MXZZoneFanAutoSwitch(
                     held=stored.held,
                     last=stored.last,
                     prior=stored.prior,
+                    older=stored.older,
                     on_pending=stored.on_pending and self.coordinator.config_entry.created_at is not None,
                 )
             else:
@@ -409,6 +426,8 @@ class MXZZoneFanAutoSwitch(
         }
         if self._zone.climate_id in self.coordinator._fan_on_pending:
             attributes[ATTR_FAN_ON_PENDING] = True
+        if older := self.coordinator.fan_older_record(self._zone.climate_id):
+            attributes[ATTR_OLDER_FAN_COMMANDS] = older
         return attributes
 
     @property
@@ -420,6 +439,7 @@ class MXZZoneFanAutoSwitch(
             last=last,
             prior=prior,
             on_pending=self._zone.climate_id in self.coordinator._fan_on_pending,
+            older=tuple(self.coordinator.fan_older_record(self._zone.climate_id)),
         )
 
     @property
