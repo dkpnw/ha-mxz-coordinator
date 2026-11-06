@@ -1633,18 +1633,21 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.clamp_min = float(conf.get(CONF_CLAMP_MIN, defaults[CONF_CLAMP_MIN]))
         self.clamp_max = float(conf.get(CONF_CLAMP_MAX, defaults[CONF_CLAMP_MAX]))
         self._read_saved_tunables(conf)
+        drift_min, drift_max = self._profile["engage_bounds"]
         for zone, room in zip(self.zones, conf.get(CONF_ZONES) or (), strict=False):
             if isinstance(room, dict):
                 zone.floor_low = _finite(room.get(ZONE_FLOOR_LOW))
                 zone.floor_high = _finite(room.get(ZONE_FLOOR_HIGH))
                 zone.drift_cooler_by = _drift_side(
                     room.get(ZONE_DRIFT_COOLER_BY),
-                    *self._profile["engage_bounds"],
+                    drift_min,
+                    drift_max,
                     f'"Let it get cooler by" for {zone.name}',
                 )
                 zone.drift_warmer_by = _drift_side(
                     room.get(ZONE_DRIFT_WARMER_BY),
-                    *self._profile["engage_bounds"],
+                    drift_min,
+                    drift_max,
                     f'"Let it get warmer by" for {zone.name}',
                 )
         self._built_conf = copy.deepcopy(conf)
