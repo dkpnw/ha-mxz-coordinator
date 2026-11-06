@@ -41,7 +41,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_DRIFT_WARMER_BY,
 )
 from custom_components.mxz_coordinator.coordinator import _convert_saved_temps
-from tests.flow_pages import default, press, prefilled, submit, suggested
+from tests.flow_pages import default, prefilled, press, submit, suggested
 from tests.property_rig import HOLD, PURE, Rig, open_rig
 from tests.restore_store import replace_stored_state, stored_state
 from tests.test_drive import _set_target
