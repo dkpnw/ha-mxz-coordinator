@@ -802,24 +802,58 @@ def _restored_opening(stored: Any) -> dict[str, Any]:
     }
 
 
+# What an entry saves in the system unit, by how it follows a °F/°C switch.
+_SAVED_TEMPERATURES = (
+    CONF_CLAMP_MIN,
+    CONF_CLAMP_MAX,
+    CONF_ECO_HEAT_MIN,
+    CONF_ECO_COOL_MAX,
+    CONF_HEAT_LOCKOUT_FLOOR,
+    CONF_COOL_LOCKOUT_CEILING,
+    CONF_CHANGEOVER_HEAT_ABOVE,
+    CONF_CHANGEOVER_COOL_BELOW,
+)
+_SAVED_DRIFTS = (CONF_ENGAGE_DEADBAND, CONF_DRIFT_COOLER_BY, CONF_DRIFT_WARMER_BY)
+
+
 def _convert_saved_temps(
     hass: HomeAssistant, entry: ConfigEntry, saved_in: str, unit: str
 ) -> None:
-    """Move the entry's saved setpoint range and room floors from ``saved_in`` to ``unit``.
+    """Move what the entry saved in the system unit from ``saved_in`` to ``unit``.
 
     A room's target converts where it restores (number.py), and can only be held
-    to a range in the same unit. A floor runs a disabled room's head, so it can't
-    be read in the wrong one. Their unit goes in the same write
-    (``CONF_SAVED_TEMP_UNIT``), so a crash can't convert them twice. A floor is
-    held to the new unit's range; with nothing saved there is nothing to record.
+    to a range in the same unit. A floor runs a disabled room's head, and a
+    lockout or Away limit decides what a room may do, so none can be read in the
+    wrong one. Temperatures land on the target step. Differences only scale, onto
+    the step of the drift box, so Mode switch threshold keeps its place against
+    Allowed drift. Their unit goes in the same write (``CONF_SAVED_TEMP_UNIT``),
+    so a crash can't convert them twice. A floor and a drift are held to the new
+    unit's range. With nothing saved and no unit on record there is nothing to
+    record; a unit on record always moves, or the next save would convert again.
     """
     celsius = unit == UnitOfTemperature.CELSIUS
-    step = unit_profile(celsius)["target_step"]
+    profile = unit_profile(celsius)
+    step = profile["target_step"]
+    drift_min, drift_max = profile["engage_bounds"]
     low_min, low_max, high_min, high_max = FLOOR_RANGE_C if celsius else FLOOR_RANGE_F
     floors = {ZONE_FLOOR_LOW: (low_min, low_max), ZONE_FLOOR_HIGH: (high_min, high_max)}
 
     def moved(value: Any) -> Any:
         return target_in_unit(value, saved_in, unit, step) if _finite_number(value) else value
+
+    def scaled(value: float) -> float:
+        return snap_to_step(offset_in_unit(value, saved_in, celsius), drift_min / 2)
+
+    def field(key: str, value: Any) -> Any:
+        if key in _SAVED_TEMPERATURES:
+            return moved(value)
+        if not _finite_number(value):
+            return value
+        if key == CONF_DEMAND_THRESHOLD:
+            return scaled(value)
+        if key in _SAVED_DRIFTS:
+            return min(max(scaled(value), drift_min), drift_max)
+        return value
 
     def room(zone: Any) -> Any:
         if not isinstance(zone, dict):
@@ -831,16 +865,23 @@ def _convert_saved_temps(
         return out
 
     def section(values: Any) -> dict[str, Any]:
-        out = {k: moved(v) if k in (CONF_CLAMP_MIN, CONF_CLAMP_MAX) else v for k, v in values.items()}
+        out = {k: field(k, v) for k, v in values.items()}
         if isinstance(out.get(CONF_ZONES), list):
             out[CONF_ZONES] = [room(zone) for zone in out[CONF_ZONES]]
         return out
 
     conf = {**entry.data, **entry.options}
     zones = conf.get(CONF_ZONES)
-    if not any(_finite_number(conf.get(key)) for key in (CONF_CLAMP_MIN, CONF_CLAMP_MAX)) and not any(
-        isinstance(zone, dict) and _finite_number(zone.get(key))
-        for zone in (zones if isinstance(zones, list) else ()) for key in floors
+    if (
+        CONF_SAVED_TEMP_UNIT not in conf
+        and not any(
+            _finite_number(conf.get(key))
+            for key in (*_SAVED_TEMPERATURES, CONF_DEMAND_THRESHOLD, *_SAVED_DRIFTS)
+        )
+        and not any(
+            isinstance(zone, dict) and _finite_number(zone.get(key))
+            for zone in (zones if isinstance(zones, list) else ()) for key in floors
+        )
     ):
         return
     hass.config_entries.async_update_entry(
@@ -946,28 +987,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Unit-dependent tunables fall back to the system-unit profile default;
         # unit-free ones (hysteresis seconds, resting bias, fan boost) keep their
         # plain DEFAULT_*.
-        self.demand_threshold: float = conf.get(
-            CONF_DEMAND_THRESHOLD, _defaults[CONF_DEMAND_THRESHOLD]
-        )
-        # Re-engage drift: clamped to the unit profile's sane range so a
-        # hand-edited or legacy value can't collapse the coast window or park
-        # rooms degrees off target. The UI enforces the same bounds. One that
-        # isn't a finite number is the unit's default: setup must not fail on
-        # it, and the Configure menu names it so it can be fixed.
-        _emin, _emax = self._profile["engage_bounds"]
-        _allowed = _stored_number(conf.get(CONF_ENGAGE_DEADBAND), '"Allowed drift"')
-        if _allowed is None:
-            _allowed = float(_defaults[CONF_ENGAGE_DEADBAND])
-        self.engage_deadband: float = min(max(_allowed, _emin), _emax)
-        # Uneven drift: None (no key) means Allowed drift on that side. A
-        # stored value is clamped into the same bounds, for the same reason,
-        # and one that isn't a finite number reads as blank.
-        self.drift_cooler_by: float | None = _drift_side(
-            conf.get(CONF_DRIFT_COOLER_BY), _emin, _emax, '"Let it get cooler by"'
-        )
-        self.drift_warmer_by: float | None = _drift_side(
-            conf.get(CONF_DRIFT_WARMER_BY), _emin, _emax, '"Let it get warmer by"'
-        )
+        self._read_saved_tunables(conf)
         self.hysteresis: int = conf.get(CONF_MODE_HYSTERESIS, DEFAULT_MODE_HYSTERESIS)
         # How long a lost head's last-known vote still counts, in seconds.
         # Blank (no key) is the default; a stored value is clamped into the
@@ -982,31 +1002,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # How long an action-basis vote still counts after its head stops
         # running, in seconds (see logic.HeadSight.action_vote).
         self.action_vote_hold: float = float(ACTION_VOTE_HOLD)
-        self.eco_cool_max: float = conf.get(
-            CONF_ECO_COOL_MAX, _defaults[CONF_ECO_COOL_MAX]
-        )
-        self.eco_heat_min: float = conf.get(
-            CONF_ECO_HEAT_MIN, _defaults[CONF_ECO_HEAT_MIN]
-        )
         self.clamp_min: float = float(conf.get(CONF_CLAMP_MIN, _defaults[CONF_CLAMP_MIN]))
         self.clamp_max: float = float(conf.get(CONF_CLAMP_MAX, _defaults[CONF_CLAMP_MAX]))
         self.resting_mode_bias: str = conf.get(
             CONF_RESTING_MODE_BIAS, DEFAULT_RESTING_MODE_BIAS
         )
-        self.heat_lockout_floor: float = conf.get(
-            CONF_HEAT_LOCKOUT_FLOOR, _defaults[CONF_HEAT_LOCKOUT_FLOOR]
-        )
-        self.cool_lockout_ceiling: float = conf.get(
-            CONF_COOL_LOCKOUT_CEILING, _defaults[CONF_COOL_LOCKOUT_CEILING]
-        )
         # Optional local-weather seasonal changeover (auto-drives the lockouts).
         self.changeover_entity: str | None = conf.get(CONF_CHANGEOVER_ENTITY) or None
-        self.changeover_heat_above: float = conf.get(
-            CONF_CHANGEOVER_HEAT_ABOVE, _defaults[CONF_CHANGEOVER_HEAT_ABOVE]
-        )
-        self.changeover_cool_below: float = conf.get(
-            CONF_CHANGEOVER_COOL_BELOW, _defaults[CONF_CHANGEOVER_COOL_BELOW]
-        )
         # Optional external inhibit / low-power standby (grid-down, load-shed):
         # while the watched entity reads `inhibit_active_state` the coordinator
         # parks its heads at `inhibit_action` and self-restores on release.
@@ -1560,6 +1562,50 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._arm_hold_end_timer()  # a hold carried over from the last run
         await self.async_refresh()
 
+    def _read_saved_tunables(self, conf: dict[str, Any]) -> None:
+        """Read the tunables a °F/°C switch converts, from a load or a first switch."""
+        _defaults: dict[str, Any] = self._profile["defaults"]
+        self.demand_threshold: float = conf.get(
+            CONF_DEMAND_THRESHOLD, _defaults[CONF_DEMAND_THRESHOLD]
+        )
+        # Re-engage drift: clamped to the unit profile's sane range so a
+        # hand-edited or legacy value can't collapse the coast window or park
+        # rooms degrees off target. The UI enforces the same bounds. One that
+        # isn't a finite number is the unit's default: setup must not fail on
+        # it, and the Configure menu names it so it can be fixed.
+        _emin, _emax = self._profile["engage_bounds"]
+        _allowed = _stored_number(conf.get(CONF_ENGAGE_DEADBAND), '"Allowed drift"')
+        if _allowed is None:
+            _allowed = float(_defaults[CONF_ENGAGE_DEADBAND])
+        self.engage_deadband: float = min(max(_allowed, _emin), _emax)
+        # Uneven drift: None (no key) means Allowed drift on that side. A
+        # stored value is clamped into the same bounds, for the same reason,
+        # and one that isn't a finite number reads as blank.
+        self.drift_cooler_by: float | None = _drift_side(
+            conf.get(CONF_DRIFT_COOLER_BY), _emin, _emax, '"Let it get cooler by"'
+        )
+        self.drift_warmer_by: float | None = _drift_side(
+            conf.get(CONF_DRIFT_WARMER_BY), _emin, _emax, '"Let it get warmer by"'
+        )
+        self.eco_cool_max: float = conf.get(
+            CONF_ECO_COOL_MAX, _defaults[CONF_ECO_COOL_MAX]
+        )
+        self.eco_heat_min: float = conf.get(
+            CONF_ECO_HEAT_MIN, _defaults[CONF_ECO_HEAT_MIN]
+        )
+        self.heat_lockout_floor: float = conf.get(
+            CONF_HEAT_LOCKOUT_FLOOR, _defaults[CONF_HEAT_LOCKOUT_FLOOR]
+        )
+        self.cool_lockout_ceiling: float = conf.get(
+            CONF_COOL_LOCKOUT_CEILING, _defaults[CONF_COOL_LOCKOUT_CEILING]
+        )
+        self.changeover_heat_above: float = conf.get(
+            CONF_CHANGEOVER_HEAT_ABOVE, _defaults[CONF_CHANGEOVER_HEAT_ABOVE]
+        )
+        self.changeover_cool_below: float = conf.get(
+            CONF_CHANGEOVER_COOL_BELOW, _defaults[CONF_CHANGEOVER_COOL_BELOW]
+        )
+
     def note_saved_unit(self, saved_in: str | None) -> None:
         """A room's value restored from the other unit: this is the entry's first switch.
 
@@ -1580,6 +1626,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         defaults = self._profile["defaults"]
         self.clamp_min = float(conf.get(CONF_CLAMP_MIN, defaults[CONF_CLAMP_MIN]))
         self.clamp_max = float(conf.get(CONF_CLAMP_MAX, defaults[CONF_CLAMP_MAX]))
+        self._read_saved_tunables(conf)
         for zone, room in zip(self.zones, conf.get(CONF_ZONES) or (), strict=False):
             if isinstance(room, dict):
                 zone.floor_low = _finite(room.get(ZONE_FLOOR_LOW))

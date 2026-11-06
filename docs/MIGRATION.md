@@ -389,8 +389,9 @@ nothing.
 **Existing entries are unchanged.** No config-entry version change, no migration: a
 room with neither key has no floor, which is every room of every entry saved before
 these settings existed, and it behaves exactly as before. A stored value that is not
-a finite number is treated as no floor. The values are not converted if you later
-change Home Assistant's unit system; re-enter them in the new unit.
+a finite number is treated as no floor. 3.16.0 doesn't convert the values if you later
+change Home Assistant's unit system, so re-enter them in the new unit. Later versions
+convert them: see [How saving works](CONFIGURATION.md#how-saving-works).
 
 While a room is disabled, a tripped floor heats it and a tripped ceiling cools it, to
 3 °F (1.5 °C) back inside, then the head goes off. A tripped freeze floor's heat beats
