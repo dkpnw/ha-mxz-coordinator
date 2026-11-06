@@ -1,5 +1,25 @@
 # Upgrading and migrating MXZ Coordinator
 
+## Changes made at a head are accepted (unreleased)
+
+**Nothing to do, but a behavior changes for every install.** No config-entry version change, and
+no migration writes anything. **Accept changes made at the head** is a new option on Configure →
+Comfort, and an entry with no stored value has it on. These cases behave differently with it on:
+
+- **A setpoint set at a head** becomes the room's target once it has held for about 5 seconds.
+  It used to be written over.
+- **A head turned off at the head** disables its room once that has held. It used to be put back
+  after about 30 seconds. A running room turned off this way goes straight to off, with no
+  coil-drying run, as when it is disabled anywhere else.
+- **A disabled room's head turned on to heat or cool** enables the room. It used to be put back
+  off. A disabled room with Let its own remote run it on is unchanged.
+- **The head isn't overwritten during those 5 seconds.** MXZ writes nothing to it, fan included,
+  until the change has been adopted or has gone away.
+
+To go back to MXZ as the only writer, turn the option off in Configure → Comfort. A rollback to
+3.21.0 ignores the stored key. Adopted targets and enable states stay as they were adopted.
+See [Accept changes made at the head](FEATURES.md#accept-changes-made-at-the-head).
+
 ## °F/°C switches convert what's saved (3.21.0)
 
 **Nothing to do.** No config-entry version change (it stays 2.2) and no migration at upgrade.

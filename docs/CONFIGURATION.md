@@ -20,6 +20,7 @@ nothing and leave today's behavior unchanged.
 | **Comfort** | Allowed drift | 1 / 0.5 (range 0.5–5 / 0.25–2.5) | How far a satisfied room drifts before it runs again. A room's own drift number can override it. |
 | | Mode switch threshold | 3 / 1.5 | How far off target a room must be to vote to flip the shared mode. |
 | | Resting mode | Last used | Last used, Cool, or Heat: the shared mode when no room is calling. |
+| | Accept changes made at the head | on | A setpoint or off set at a head, with its remote or its own app, is adopted by its room once it has held for about 5 seconds, and turning a head on to heat or cool turns its room on. MXZ still picks heat or cool. Turn it off here to make MXZ the only writer. An entry with no stored value has it on. See [Accept changes made at the head](FEATURES.md#accept-changes-made-at-the-head). |
 | | *Advanced:* Minimum time between mode switches | 600 seconds | Minimum dwell between shared heat/cool changes. |
 | | *Advanced:* Let it get cooler by / Let it get warmer by | blank (range 0.5–5 / 0.25–2.5) | [Uneven drift](FEATURES.md#uneven-drift): how far below target before heating, and above before cooling. |
 | | *Advanced:* Keep a lost head's vote for | blank = 30 minutes (range 1–240) | [When a head goes unavailable](FEATURES.md#when-a-head-goes-unavailable). |

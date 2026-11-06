@@ -67,6 +67,17 @@ open beyond the limits listed there.
 
 ## What is modeled, and what isn't
 
+**A second writer, not in either spec.** A person's change at a head adopted by its room
+(`coordinator.py` `_head_adoption`, Accept changes made at the head) writes a room's target and
+enable, which neither spec has as variables: they are fixed at enabled with the default target.
+Its rule, that a report MXZ's own writes can explain is never a person, is the fan memory's rule
+for a head's mode and setpoints (`logic.py` `HeadWriteMemory`), and tests hold it, not TLC:
+`test_no_person_no_adoption_however_a_head_lags` and
+`test_every_report_of_a_head_showing_writes_in_order_reads_as_own` in
+`tests/test_accept_head_changes.py`. [STATECHART.md](STATECHART.md#changes-made-at-a-head) charts
+it. Modeling it is parked, not done: nothing here checks how it interacts with the shared mode's
+hold beyond those tests.
+
 **In the spec.** Rooms in priority order, enabled, with the default drift and threshold.
 Each room's reading as one of six positions, its engage latch, and its head's mode. The
 shared mode, Resting mode, the hold and its record. Room 1's door/window state, delays,

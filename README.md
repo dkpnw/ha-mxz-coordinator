@@ -308,6 +308,11 @@ reorder heads later.
 - **Each room's drift number** overrides Allowed drift for that room; **Follow global
   drift** hands it back.
 - **Fan auto** on gives the fan back to fan boost; picking a speed holds it.
+- **The head's own remote or app** still works: a setpoint or off set there is
+  [adopted by the room](docs/FEATURES.md#accept-changes-made-at-the-head) once it has held for
+  about 5 seconds, and turning a head on to heat or cool turns its room on. MXZ still picks heat
+  or cool. To make MXZ the only writer, turn off **Accept changes made at the head** in
+  Configure → Comfort.
 - **Heat lockout**, **Cool lockout**, and **Eco idle** switches cover the season and
   away. The example [day/night/away presets](examples/presets.yaml) set targets and Eco
   idle.
@@ -535,7 +540,7 @@ pages, and each saves only what it shows:
 
 | Page | What you set |
 | --- | --- |
-| **Comfort** | Allowed drift, Mode switch threshold, Resting mode, and (under Advanced) the mode-switch wait, uneven drift, and how long a lost head's vote counts. |
+| **Comfort** | Allowed drift, Mode switch threshold, Resting mode, Accept changes made at the head, and (under Advanced) the mode-switch wait, uneven drift, and how long a lost head's vote counts. |
 | **Fan and idle** | Fan boost and its top speed, and what a room does when it reaches target. |
 | **Seasons** | A weather source and the heat and cool lockout temperatures, with safety overrides. |
 | **Away and setpoint limits** | The away band, and the lowest and highest setpoint a head may get. |
@@ -642,6 +647,7 @@ Heads keep their last commanded state; use their own controls if they stay parke
 
 MXZ Coordinator got this good because people ran it on their own systems, found the edges, and took the time to write them up. Some sent the fix too. Thank you all.
 
+- [@BHSPitMonkey](https://github.com/BHSPitMonkey) (Stephen Eisenhauer) asked for changes made at a head to count, and built it on a fork first: the option's scope, its 5-second hold, and the first version of its code and tests. Accept changes made at the head is rebuilt from that ([Discussion #103](https://github.com/dkpnw/ha-mxz-coordinator/discussions/103)).
 - [@calvindomenico](https://github.com/calvindomenico) found the restart bug where a `fan_only` idle room came back with a fan hold that never cleared, with timing across three zones that pinned it down ([#25](https://github.com/dkpnw/ha-mxz-coordinator/issues/25)). He then sent [#26](https://github.com/dkpnw/ha-mxz-coordinator/pull/26), which found the no-record restart path. His idea and test were ported into 3.4.0 with co-author credit. Before that, he caught a ducted air handler's phantom vane and sent the fix ([#9](https://github.com/dkpnw/ha-mxz-coordinator/pull/9), 3.0.2). He traced a rejected setpoint on °C-native heads down to the rounding step ([#10](https://github.com/dkpnw/ha-mxz-coordinator/issues/10), fixed in 3.0.2). And he proposed, designed, and built the standby hold ([#12](https://github.com/dkpnw/ha-mxz-coordinator/issues/12), [#13](https://github.com/dkpnw/ha-mxz-coordinator/pull/13), 3.1.0).
 - [@amosyuen](https://github.com/amosyuen) caught that the room tile dropped `hvac_mode` from `climate.set_temperature`, and came with the root cause and the exact line of code ([#17](https://github.com/dkpnw/ha-mxz-coordinator/issues/17), 3.1.3). He asked for per-room drift, and his presence-tier idea shaped its design ([#18](https://github.com/dkpnw/ha-mxz-coordinator/issues/18), 3.2.0). He also caught the entry showing up under Helpers instead of Integrations ([#19](https://github.com/dkpnw/ha-mxz-coordinator/issues/19), 3.1.3). His push to consolidate entities ([#20](https://github.com/dkpnw/ha-mxz-coordinator/issues/20)) got a written explanation of why each room's number and switch are the source of truth.
 - [@andrewblane](https://github.com/andrewblane) found on a 6-zone system that the first two zones ignored their own names, and sent the fix ([#8](https://github.com/dkpnw/ha-mxz-coordinator/pull/8), 3.0.0-beta.16). He also caught a parked room's tile showing heating or cooling during a standoff, and sent that fix too ([#16](https://github.com/dkpnw/ha-mxz-coordinator/pull/16), 3.1.3).
