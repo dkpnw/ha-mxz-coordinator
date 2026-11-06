@@ -106,6 +106,27 @@ Mitsubishi manuals on stock AUTO.
 <!-- "whats-new" stays above the newest What's new section; the others are old links. -->
 <a id="whats-new"></a><a id="whats-new-in-3120"></a><a id="whats-new-in-3111"></a>
 
+## What's new in 3.21.0
+
+**A °F/°C switch keeps what you saved.** Switch Home Assistant's temperature unit and MXZ
+reloads by itself, so its entities show the new unit at once. Room targets and the
+temperatures in Configure stay the same temperature (59 °F becomes 15 °C), and drift settings
+only scale. A manual fan speed, the shared mode and the mode-change wait carry over. See
+[Configuration](docs/CONFIGURATION.md) and [Migration](docs/MIGRATION.md).
+
+**A slow local head no longer reads as a manual fan pick.** MXZ remembers its older fan writes
+per head until the head's reports pass them, so a late report doesn't put the room on hold. A
+speed MXZ didn't recently write is still held at once. The
+[limits](docs/formal/PARKED-FINDINGS.md#f1-limits) are listed.
+
+**Diagnostics and repair issues.** [Download diagnostics](#download-diagnostics-for-a-bug-report)
+gives you a file for a bug report, with secrets removed. A [repair issue](#repair-issues)
+appears once a head, room sensor or configured entity has been a problem for 15 minutes, and
+clears when the fault does. Control and defaults are unchanged.
+
+**Cloud and generic heads (beta).** A fan step no longer stalls behind a new setpoint when the
+last fan write wasn't confirmed yet.
+
 ## What's new in 3.20.0
 
 **Door/window pause (off by default).** In Configure → Rooms → (room) → **Door/window
@@ -577,7 +598,7 @@ what it holds is MXZ's state at that moment.
 
 Go to **Settings → Devices & services → MXZ Coordinator**, open the ⋮ menu on the entry,
 and choose **Download diagnostics**. The device page's ⋮ menu has the same download. This
-needs a version newer than 3.20.0.
+needs 3.21.0 or newer.
 
 The file has your MXZ settings and, for each room, the head's mode and capabilities, votes,
 holds, manual fan picks, door or window pause, mode-change wait, sensor health, and the last
