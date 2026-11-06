@@ -10,6 +10,13 @@ on your equipment.
 
 ## Unreleased
 
+## 3.21.0 (November 6, 2026)
+
+A °F/°C switch now keeps what you saved and reloads MXZ by itself, and a slow local head no
+longer reads as a manual fan pick. MXZ also offers **Download diagnostics** and raises repair
+issues. Existing settings and defaults are unchanged, and no migration is needed;
+[MIGRATION.md](docs/MIGRATION.md) lists what behaves differently.
+
 - **A slow local head no longer reads as a manual fan pick
   ([F1](docs/formal/PARKED-FINDINGS.md)).** MXZ now remembers its older fan writes, per head,
   until the head's reports pass them. A report two or more writes behind isn't a hold, from a
@@ -45,9 +52,9 @@ on your equipment.
   arbitration, the mode-change hold, the door/window pause, the manual fan hold and restart
   continuity, with a new TLC workflow that isn't a required check. New Hypothesis property
   tests hold the same rules on the real integration on every lane, so the test locks now
-  pin `hypothesis` and `sortedcontainers`. One open finding is recorded, not fixed: a local
-  head that reports two different fan writes late can read as a manual hold
-  ([F1](docs/formal/PARKED-FINDINGS.md)).
+  pin `hypothesis` and `sortedcontainers`. They turned up one finding: a local head that
+  reports two different fan writes late could read as a manual hold
+  ([F1](docs/formal/PARKED-FINDINGS.md), fixed above).
 - **Tests.** The phase evidence test passes on pytest 9.2 (Home Assistant's dev test
   requirements), whose automatic ids drop long parameter values. It now sets its ids
   explicitly, so its collection line still outgrows the stdout buffer. No change to MXZ itself.
@@ -59,8 +66,7 @@ on your equipment.
   another. A late report of the fan it replaced is still ignored inside the wait, and a
   speed someone picks is still held and not written over.
 - **Docs.** Generic heads have a [tested by users](docs/FEATURES.md#tested-by-users) list
-  (none verified yet), and there is a new generic head report form. CONFIGURATION now says a
-  °F/°C switch takes effect when MXZ next loads and that room targets aren't converted.
+  (none verified yet), and there is a new generic head report form.
   [RELEASING](docs/RELEASING.md) has a release cadence section: batched releases, betas as
   GitHub pre-releases, and a house hardware check plus the owner's OK for every release.
 - **Diagnostics and repair issues (visibility only; control and defaults are unchanged).**

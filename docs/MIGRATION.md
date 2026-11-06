@@ -1,5 +1,46 @@
 # Upgrading and migrating MXZ Coordinator
 
+## °F/°C switches convert what's saved (3.21.0)
+
+**Nothing to do.** No config-entry version change (it stays 2.2) and no migration at upgrade.
+No existing setting's default or range changed, and an entry that never switches units isn't
+written. These cases behave differently:
+
+- **A live °F/°C switch reloads MXZ by itself,** once, so its entities show the new unit at
+  once. A manual fan speed, the shared mode and the mode-change wait carry over. Any other
+  change to Home Assistant's core config is ignored.
+- **Temperatures convert,** rounded to the new unit's target step and held to its range where
+  the setting has one: each room's target, Heat to and Cool to, Freeze floor and Overheat
+  ceiling; on Away and setpoint limits, the Away limits and the Lowest and Highest setpoint;
+  and on Seasons, the two lockouts, Heat anyway below and Cool anyway above.
+- **Differences only scale,** with no 32° offset: Allowed drift, Mode switch threshold, and
+  Let it get cooler by and warmer by on Comfort; a room's own drift number; and Let it get
+  cooler by and warmer by in each room's Uneven drift section (2 °F becomes 1.125 °C).
+- **`saved_temp_unit` is new.** An entry's first live switch writes it to the entry's data, and
+  to its options if it has any, in the same write as the converted values, so a crash can't
+  convert them twice. Each later load whose system unit differs from it converts again. An
+  entry with nothing saved to convert has nothing to record, and gets no key.
+- **An entry from before this version has no `saved_temp_unit`.** Its first switch is found
+  when a room's target restores in the other unit (`note_saved_unit`), and converts then. A
+  switch made before this version, or while Home Assistant was down with no such save to read,
+  converts nothing, so check Configure after it. See [Configuration](CONFIGURATION.md).
+- **Slow local heads.** While a head is behind at a stop, the Fan auto switch's restore data
+  also holds `older_fan_commands`, MXZ's older fan writes to it. While a head is behind, a pick
+  of one of those speeds reads as MXZ's own. See
+  [F1's limits](formal/PARKED-FINDINGS.md#f1-limits).
+- **Repair issues.** A head, room sensor or configured entity that stays a problem for 15
+  minutes raises a repair issue, which clears with the fault. See
+  [Repair issues](../README.md#repair-issues).
+
+On a rollback, 3.20.0 doesn't read `saved_temp_unit` or `older_fan_commands` (checked by
+reading the 3.20.0 code, not run). Saved values stay as they are, in the unit they were last
+converted to, so they still read correctly if the unit hasn't changed since. 3.20.0 has no
+conversion and no reload on a switch, so a °F/°C switch needs a manual reload there and leaves
+Configure's numbers and room targets as they read. It has no **Download diagnostics** and raises
+no repair issues. Its Configure pages keep `saved_temp_unit` on a save. So after a switch made
+on 3.20.0, upgrading again converts Configure's saved values from the unit on record: check
+Configure if you retyped them while on 3.20.0.
+
 ## Door/window pause and mode-hold fixes (3.20.0)
 
 **Nothing to do.** No config-entry version change (it stays 2.2) and no migration. No

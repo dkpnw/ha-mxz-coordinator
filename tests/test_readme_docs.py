@@ -191,11 +191,10 @@ def test_bug_report_asks_for_the_diagnostics_file() -> None:
     assert "#download-diagnostics-for-a-bug-report" in field
 
 
-def test_changelog_notes_this_under_unreleased_with_no_version_of_its_own() -> None:
-    changelog = Path("CHANGELOG.md").read_text()
-    unreleased = changelog.split("## Unreleased", 1)[1].split("\n## ", 1)[0]
-    assert "Download diagnostics" in unreleased
-    assert "repair" in unreleased
+def test_changelog_notes_this_in_the_release_that_shipped_it() -> None:
+    section = _changelog_section(Path("CHANGELOG.md").read_text(), "3.21.0")
+    assert "Download diagnostics" in section
+    assert "repair" in section
 
 
 ISSUE_FORMS = sorted(
