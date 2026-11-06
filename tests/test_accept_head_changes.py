@@ -124,6 +124,14 @@ async def _cooling(hass: HomeAssistant, freezer: Any, **kwargs: Any) -> Rig:
     return rig
 
 
+async def _time_passes(rig: Rig) -> None:
+    """Long enough for a hold and the debounced refresh after it, with no compute forced."""
+    for _ in range(2):
+        rig.freezer.tick(timedelta(seconds=HELD))
+        async_fire_time_changed(rig.hass, dt_util.utcnow())
+        await rig.hass.async_block_till_done()
+
+
 async def _press(rig: Rig, **change: Any) -> None:
     """A person at the head, with no compute after it."""
     rig.heads[0].person_setpoint(**change)
@@ -273,6 +281,7 @@ async def _mock_rooms(
 
 
 async def _elapse(hass: HomeAssistant, seconds: float) -> None:
+    await hass.async_block_till_done()  # the head's report arms its timer first, on every core
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=seconds))
     await hass.async_block_till_done()
 
@@ -317,6 +326,52 @@ async def test_head_on_enables_the_room_with_the_setpoint_it_was_given(hass: Hom
     await rig.close()
 
 
+async def test_a_setpoint_alone_doesnt_enable_a_disabled_room(hass: HomeAssistant, freezer: Any) -> None:
+    """The head hasn't shown the off MXZ sent it yet, and a press there isn't turning it on."""
+    rig = await _cooling(hass, freezer)
+    rig.heads[0].lags_commands = True
+    await rig.switch("_primary_enable", False)
+    assert rig.heads[0].mode == "cool"
+    await _press(rig, low=64, high=66)
+    assert not _armed(rig)
+    await rig.later(HELD)
+    assert _enabled(rig) is False
+    assert _target(rig) == TARGET
+    await rig.close()
+
+
+async def test_a_flip_alone_doesnt_read_a_setpoint_mxz_has_forgotten(hass: HomeAssistant, freezer: Any) -> None:
+    """Memory lost, head behind the target: the mode moved, the setpoint it was on didn't."""
+    rig = await _cooling(hass, freezer)
+    rig.heads[0].lags_commands = True
+    await _set_target(hass, rig.eid("_primary_target"), 72)
+    await rig.settle()
+    rig.coord._head_writes.clear()
+    rig.heads[0].lags_commands = False
+    await _press(rig, mode="heat")
+    assert _armed(rig) is True
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    await rig.close()
+
+
+async def test_a_head_coming_back_from_unavailable_is_no_person(hass: HomeAssistant, freezer: Any) -> None:
+    """It may come back on anything, and that is the head reloading."""
+    rig = await _cooling(hass, freezer)
+    head = rig.heads[0]
+    head._attr_available = False
+    head.async_write_ha_state()
+    await hass.async_block_till_done()
+    head._attr_available = True
+    head.person_setpoint(mode="off", low=64, high=66)
+    await hass.async_block_till_done()
+    assert not _armed(rig)
+    await rig.later(HELD)
+    assert _enabled(rig) is True
+    assert _target(rig) == TARGET
+    await rig.close()
+
+
 async def test_head_on_with_its_old_setpoint_enables_without_moving_the_target(
     hass: HomeAssistant, freezer: Any,
 ) -> None:
@@ -345,12 +400,10 @@ async def test_the_heat_cool_choice_is_not_adopted(hass: HomeAssistant, freezer:
 async def test_a_flip_alone_moves_nothing_and_goes_back_by_itself(hass: HomeAssistant, freezer: Any) -> None:
     """No new setpoint, so no new target, and the end of the hold puts the head back."""
     rig = await _cooling(hass, freezer)
+    await _time_passes(rig)  # nothing left over from the setup to compute for it
     await _press(rig, mode="heat")
     assert _armed(rig) is True
-    for _ in range(2):  # the end of the hold, then its debounced refresh: no compute forced
-        freezer.tick(timedelta(seconds=HELD))
-        async_fire_time_changed(hass, dt_util.utcnow())
-        await hass.async_block_till_done()
+    await _time_passes(rig)
     assert rig.heads[0].mode == "cool"
     assert _target(rig) == TARGET
     assert rig.coord.current_shared_mode == "cool"
@@ -410,6 +463,32 @@ async def test_a_change_undone_inside_the_hold_is_nothing(hass: HomeAssistant, f
     await rig.close()
 
 
+async def test_eco_during_the_hold_lets_the_plan_write_at_once(hass: HomeAssistant, freezer: Any) -> None:
+    """The hold only protects a change that would still count."""
+    rig = await _cooling(hass, freezer)
+    await _press(rig, low=64, high=66)
+    await rig.switch("_eco_idle", True)
+    assert rig.heads[0].mode != "cool"  # the room is inside the eco band: not cooling now
+    await rig.later(HELD)
+    assert _target(rig) == TARGET
+    await rig.close()
+
+
+async def test_a_head_put_back_inside_the_hold_gets_what_the_hold_held_off(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """The hold is over, so the next compute writes what the skipped one wanted."""
+    rig = await _cooling(hass, freezer)
+    await _press(rig, low=64, high=66)
+    await rig.temp(0, TARGET)  # a compute in the hold wants this head parked, and is skipped
+    assert rig.heads[0].mode == "cool"
+    await _press(rig, low=TARGET - 2, high=TARGET)
+    assert not _armed(rig)
+    await rig.settle()
+    assert rig.heads[0].mode == "fan_only"
+    await rig.close()
+
+
 async def test_a_fan_report_arms_nothing_and_a_manual_fan_survives_adoption(
     hass: HomeAssistant, freezer: Any,
 ) -> None:
@@ -454,6 +533,22 @@ async def test_a_plan_parked_off_head_is_no_request(hass: HomeAssistant, freezer
     await rig.temp(0, HOT)
     assert rig.heads[0].mode == "cool"
     await rig.temp(0, TARGET)
+    await rig.later(HELD)
+    assert _enabled(rig) is True
+    await rig.close()
+
+
+async def test_the_plans_off_is_no_request_even_with_the_memory_lost(hass: HomeAssistant, freezer: Any) -> None:
+    """A restart loses the memory, but the plan wants that off, so it counts for nothing."""
+    rig = await _cooling(hass, freezer, data={CONF_IDLE_ACTION: IDLE_ACTION_OFF})
+    head = rig.heads[0]
+    head.lags_commands = True
+    await rig.temp(0, TARGET)
+    assert head.mode == "cool"
+    rig.coord._head_writes.clear()
+    assert await rig.report_next_command()
+    assert head.mode == "off"
+    assert not _armed(rig)
     await rig.later(HELD)
     assert _enabled(rig) is True
     await rig.close()
@@ -582,6 +677,7 @@ async def test_a_paused_rooms_head_keeps_its_own_rule(hass: HomeAssistant, freez
     await rig.later(HELD)
     assert rig.heads[0].mode == "cool"  # the person's takeover, as before
     assert _enabled(rig) is True
+    assert _target(rig) == TARGET  # a takeover, not a new target
     await rig.window("off")
     await rig.later(CLOSE_DELAY)
     assert _enabled(rig) is True
@@ -1006,6 +1102,11 @@ async def test_a_safety_limit_still_runs_a_room_turned_off_at_its_head(
     assert _target(rig) == TARGET
     assert _enabled(rig) is False
     assert _edges(rig)[edge] == clear_line
+    await _press(rig, mode="cool" if mode == "heat" else "heat")
+    assert not _armed(rig)
+    await rig.later(HELD)
+    assert _enabled(rig) is False
+    assert head.mode == mode
     await rig.close()
 
 

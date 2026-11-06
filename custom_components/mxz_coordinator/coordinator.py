@@ -5393,7 +5393,6 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if (
             not self.accept_head_changes
             or self._retired
-            or self.hass.config.units.temperature_unit != self.temp_unit
             or not self.coordinator_enable
             or self.inhibited
             or self._eco_active()
@@ -5401,8 +5400,6 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             or zone is None
             or state is None
             or state.state in UNAVAILABLE_STATES
-            or climate_id in self._vane_kicks
-            or climate_id in self._vane_kick_woken
             # A disabled hands-off room's head is the person's, on purpose; a
             # floor run's is MXZ's until it ends; a paused room's has its own rule.
             or self._hands_off_phase(zone) is not None
@@ -5468,16 +5465,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not moved:
             return
         moved |= self._adopt_moved.get(climate_id, set())
-        armed = (climate_id, "adopt") in self._heal_timers
-        wanted = self._head_adoption(climate_id, moved) is not None
-        self._arm_or_cancel(climate_id, "adopt", wanted, ADOPT_DELAY)
-        if wanted:
-            self._adopt_moved[climate_id] = moved
+        if self._head_adoption(climate_id, moved) is None:
+            self.drop_head_change(climate_id)
             return
-        self._adopt_moved.pop(climate_id, None)
-        if armed:
-            # A head put back before the hold ended: apply what the timer held off.
-            self.hass.async_create_task(self.async_request_refresh())
+        self._adopt_moved[climate_id] = moved
+        self._arm_or_cancel(climate_id, "adopt", True, ADOPT_DELAY)
 
     def _head_change_settling(self, climate_id: str) -> bool:
         """Whether a person's change at this head is still holding, and would still count."""
@@ -5487,7 +5479,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @callback
     def drop_head_change(self, climate_id: str) -> None:
-        """The room was changed in Home Assistant during a hold: the later change wins."""
+        """A hold ends with nothing to adopt. A change to the room in Home Assistant
+        during one ends it too: the later change wins."""
         self._arm_or_cancel(climate_id, "adopt", False, ADOPT_DELAY)
         self._adopt_moved.pop(climate_id, None)
 
