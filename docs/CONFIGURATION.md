@@ -75,18 +75,29 @@ The outdoor-unit name and **Notify on drift** service are set in setup and Recon
 - After switching Home Assistant between °F and °C, MXZ reloads itself, so its entities
   show the new unit straight away. A manual fan speed, the shared mode and the mode-change
   wait carry over as they do through any reload. These follow the switch:
-  - **Temperatures convert**, rounded to the new unit's target step and held to its range:
-    each room's target, Heat to and Cool to, Freeze floor and Overheat ceiling, and the
-    Lowest and Highest setpoint. 59 °F becomes 15 °C. Switching back gives 59 °F again. A
-    half degree °C with no whole °F, such as 22.5 °C (72.5 °F), comes back one step off, at
-    23 °C, and then stays there.
-  - **Differences only scale:** a room's own drift (2 °F becomes 1.125 °C) and a set
-    Setpoint drive offset.
-  - **Everything else keeps its number, so check these pages after a switch:** Allowed
-    drift, Mode switch threshold, Let it get cooler by and Let it get warmer by on Comfort,
-    the lockout and safety temperatures on Seasons, and the Away limits. This matters most
-    with a weather source: Lock out cool when the high is at most 50 can lock out cooling
-    all year if it's read as 50 °C.
+  - **Temperatures convert**, rounded to the new unit's target step and held to its range
+    where the setting has one: each room's target, Heat to and Cool to, Freeze floor and
+    Overheat ceiling, the Lowest and Highest setpoint, the Away limits, and on Seasons, Lock
+    out heat when the high is at least, Lock out cool when the high is at most, Heat anyway
+    below and Cool anyway above. 59 °F becomes 15 °C, and Lock out cool when the high is at
+    most 50 °F becomes 10 °C. Switching back gives 59 °F again. A half degree °C with no
+    whole °F, such as 22.5 °C (72.5 °F), comes back one step off, at 23 °C, and then stays
+    there. Two lockout temperatures half a degree °C apart can land on the same whole °F
+    (12.5 and 13 °C are both 55 °F); **Needs attention** on the menu then names them.
+  - **Differences only scale:** Allowed drift, Mode switch threshold, Let it get cooler by
+    and Let it get warmer by on Comfort, a room's own drift (2 °F becomes 1.125 °C) and a
+    set Setpoint drive offset. The Comfort values are rounded to 0.25 °F or 0.125 °C (a
+    threshold of 3 °F becomes 1.625 °C). All but the threshold are held to their range: an
+    Allowed drift of 5 °F becomes 2.5 °C, and switching back gives 4.5 °F.
+  - **A converted value is the same temperature, not the new unit's default.** A saved Heat
+    anyway below of 58 °F becomes 14.5 °C, where a new °C entry would start at 14. A setting
+    that was never saved has no number to convert, and uses the new unit's default.
+  - **A room's own Let it get cooler by and Let it get warmer by keep their number, so check
+    each room's Uneven drift section after a switch.** 2 °F reads as 2 °C.
+  - **A switch MXZ has no record of converts nothing, so check Configure after it.** MXZ
+    finds an entry's first switch from the unit saved with a room's target. A switch made
+    before this version, or while Home Assistant was down with no such save to read, leaves
+    these numbers as they read.
 
   A head changing its own unit changes nothing here: MXZ's numbers are in Home Assistant's
   unit, and Home Assistant converts for the head.
