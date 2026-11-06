@@ -18,6 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from hypothesis import given
 from hypothesis import strategies as st
+from pytest_homeassistant_custom_component.common import MockModule, mock_integration
 
 from custom_components.mxz_coordinator.const import (
     CONF_CHANGEOVER_COOL_BELOW,
@@ -44,6 +45,7 @@ from custom_components.mxz_coordinator.coordinator import _convert_saved_temps
 from tests.flow_pages import default, prefilled, press, submit, suggested
 from tests.property_rig import HOLD, PURE, Rig, open_rig
 from tests.restore_store import replace_stored_state, stored_state
+from tests.test_changeover import _setup_mock_weather
 from tests.test_drive import _set_target
 from tests.test_unit_switch import _live, _offline, _state
 
@@ -247,6 +249,27 @@ async def test_lock_out_cool_at_50_f_doesnt_become_50_c(hass: HomeAssistant, fre
     await rig.close()
 
 
+async def test_a_weather_forecast_is_read_against_the_converted_numbers(hass: HomeAssistant, freezer: Any) -> None:
+    """The source this matters most for. The forecast is native °F, and Home Assistant hands
+    it over in the system unit, so a 59 °F high arrives as 15 °C."""
+    mock_integration(hass, MockModule("test"))
+    weather = await _setup_mock_weather(hass)
+    rig = await _configured(hass, freezer, {**SAVED_F, CONF_CHANGEOVER_ENTITY: weather.entity_id})
+
+    async def lockouts_at(high: float) -> tuple[str, str]:
+        weather.set_high(high)
+        await hass.async_block_till_done()
+        return _state(rig, "_heat_lockout").state, _state(rig, "_cool_lockout").state
+
+    assert await lockouts_at(59) == ("off", "off")
+    await _live(rig, C)
+    assert await lockouts_at(60) == ("off", "off")
+    assert await lockouts_at(50) == ("off", "on")
+    assert await lockouts_at(59) == ("off", "off")
+    assert await lockouts_at(68) == ("on", "off")
+    await rig.close()
+
+
 async def _room_at_21_c(rig: Rig) -> None:
     await _live(rig, C)
     for slug in ("primary", "secondary"):
@@ -336,6 +359,19 @@ async def test_a_page_never_saved_keeps_the_new_units_default(hass: HomeAssistan
     assert CONF_CHANGEOVER_COOL_BELOW not in {**rig.entry.data, **rig.entry.options}
     assert CONF_DRIFT_COOLER_BY not in {**rig.entry.data, **rig.entry.options}
     assert rig.coord.drift_cooler_by is None
+    await rig.close()
+
+
+async def test_a_switch_that_converts_still_reloads_once(hass: HomeAssistant, freezer: Any) -> None:
+    """The write mustn't start a second reload, on the first switch or a later one."""
+    rig = await _configured(hass, freezer, SAVED_F)
+    real = hass.config_entries.async_reload
+    for unit in (C, F):
+        with patch.object(hass.config_entries, "async_reload", side_effect=real) as reload:
+            await _live(rig, unit)
+            await rig.settle()
+            await hass.async_block_till_done()
+            assert reload.call_count == 1
     await rig.close()
 
 
