@@ -51,7 +51,7 @@ case "$mode" in
     printf '%s\n' "$result" > "$root/$mode.exit"
     # A failed or timed-out full pass shows its last lines in its own step, at
     # most 200 lines and 64 KiB (one long line can't flood it); the export still
-    # prints every log whole. The step keeps the pass's exit.
+    # carries every log whole. The step keeps the pass's exit.
     if test "$mode" = suite && test "$result" != 0; then
       tail -n 200 -- "$root/$mode.log" | tail -c 65536 || true
     fi

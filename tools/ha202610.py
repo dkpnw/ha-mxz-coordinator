@@ -5,7 +5,9 @@ observed hashes; the stock plugin version is not a public release identity.
 """
 
 import argparse
+import base64
 import email
+import gzip
 import hashlib
 import importlib
 import importlib.metadata
@@ -28,6 +30,12 @@ SOURCE = Path(__file__).resolve().parents[1]
 INPUTS = SOURCE / "requirements/ha2026.10"
 PLUGIN = "pytest-homeassistant-custom-component"
 RESERVE = 1610612736
+# The text a full pass may put into the job log, as ever. A longer log goes in whole,
+# gzipped, if that fits; past the second limit it is runaway output and refused.
+PASS_LOGS = ("suite.log", "fakeboot.log")
+PASS_TEXT_LIMIT = 5 * 2**20
+PASS_LOG_LIMIT = 32 * 2**20
+VIEW_HEAD, VIEW_TAIL = 16 * 2**10, 64 * 2**10
 
 
 def require(condition, message):
@@ -556,6 +564,21 @@ def fakeboot_clock_errors(raw):
     return [] if lines == ["FAKEBOOT_UPTIME=120"] else ["missing, repeated or wrong fresh-boot clock"]
 
 
+def gzipped_export(name, raw):
+    """All of a long log as gzip and base64, after a view of its ends marked as partial."""
+    packed = gzip.compress(raw, mtime=0)
+    encoded = base64.b64encode(packed).decode()
+    omitted = len(raw) - VIEW_HEAD - VIEW_TAIL
+    return "\n".join((
+        f"TRUNCATED_VIEW {name} HEAD_BYTES {VIEW_HEAD} OMITTED_BYTES {omitted} TAIL_BYTES {VIEW_TAIL}",
+        raw[:VIEW_HEAD].decode(errors="replace"),
+        f"TRUNCATED {omitted} BYTES OF {name}; THE COMPLETE LOG IS THE GZIP_BASE64 BLOCK BELOW",
+        raw[-VIEW_TAIL:].decode(errors="replace"),
+        f"GZIP_BASE64_BEGIN {name} GZIP_BYTES {len(packed)} GZIP_SHA256 {hashlib.sha256(packed).hexdigest()}",
+        *(encoded[i:i + 4096] for i in range(0, len(encoded), 4096)),
+        f"GZIP_BASE64_END {name}"))
+
+
 def export(root, data):
     errors = []
     for label in ("create-venv", "bootstrap-pip", "build-tools", "plugin-identity", "core-identity",
@@ -586,14 +609,23 @@ def export(root, data):
     checks = root / "checks.log"
     if checks.is_file():
         errors.extend(phase_log_errors(checks.read_text(), "0\n"))
-    # Bounded complete text export, never truncate a log and label it complete.
+    # Bounded complete export, never truncate a log and label it complete.
     paths = [p for p in root.glob("*") if p.is_file()]
     paths += sorted((root / "logs").glob("*/*"))
     for path in sorted(paths):
-        limit = {"suite.log": 5 * 2**20, "fakeboot.log": 5 * 2**20, "sentinel.log": 2**20,
+        limit = {"suite.log": PASS_LOG_LIMIT, "fakeboot.log": PASS_LOG_LIMIT, "sentinel.log": 2**20,
                  "checks.log": 2**20}.get(path.name, 6 * 2**20)
         if path.stat().st_size > limit or path.is_symlink():
             errors.append("oversize or symlink " + str(path))
+            continue
+        if path.name in PASS_LOGS and path.stat().st_size > PASS_TEXT_LIMIT:
+            raw = path.read_bytes()
+            text = gzipped_export(path.name, raw)
+            if len(text.encode()) > PASS_TEXT_LIMIT:
+                errors.append("oversize gzipped export " + str(path))
+                continue
+            print("FILE", path.relative_to(root), "BYTES", len(raw), "SHA256", hashlib.sha256(raw).hexdigest())
+            print(text)
             continue
         print("FILE", path.relative_to(root), "BYTES", path.stat().st_size, "SHA256", digest(path))
         print(path.read_text())
