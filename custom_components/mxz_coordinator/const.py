@@ -302,7 +302,8 @@ DUAL_HANDOFF_KEY = "mxz_coordinator_dual_handoff"
 # min, high max). A floor outside these is rejected, never clamped.
 FLOOR_RANGE_F = (35.0, 65.0, 75.0, 100.0)
 FLOOR_RANGE_C = (2.0, 18.0, 24.0, 38.0)
-# The unit the entry's Head setpoint range (CONF_CLAMP_MIN/MAX) and each room's
+# The unit the entry's saved temperatures and differences (coordinator's
+# _SAVED_TEMPERATURES, _SAVED_DRIFTS, CONF_DEMAND_THRESHOLD) and each room's
 # ZONE_FLOOR_LOW/HIGH were last converted to, from the first °F/°C switch on. A
 # load whose system unit differs converts them again. An entry that has never
 # seen a switch has no such key, and is never written for this.
