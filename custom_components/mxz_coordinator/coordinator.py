@@ -814,6 +814,7 @@ _SAVED_TEMPERATURES = (
     CONF_CHANGEOVER_COOL_BELOW,
 )
 _SAVED_DRIFTS = (CONF_ENGAGE_DEADBAND, CONF_DRIFT_COOLER_BY, CONF_DRIFT_WARMER_BY)
+_SAVED_ROOM_DRIFTS = (ZONE_DRIFT_COOLER_BY, ZONE_DRIFT_WARMER_BY)
 
 
 def _convert_saved_temps(
@@ -824,12 +825,13 @@ def _convert_saved_temps(
     A room's target converts where it restores (number.py), and can only be held
     to a range in the same unit. A floor runs a disabled room's head, and a
     lockout or Away limit decides what a room may do, so none can be read in the
-    wrong one. Temperatures land on the target step. Differences only scale, onto
-    the step of the drift box, so Mode switch threshold keeps its place against
-    Allowed drift. Their unit goes in the same write (``CONF_SAVED_TEMP_UNIT``),
-    so a crash can't convert them twice. A floor and a drift are held to the new
-    unit's range. With nothing saved and no unit on record there is nothing to
-    record; a unit on record always moves, or the next save would convert again.
+    wrong one. Temperatures land on the target step. Differences, a room's own
+    uneven drift among them, only scale, onto the step of the drift box, so Mode
+    switch threshold keeps its place against Allowed drift. Their unit goes in the
+    same write (``CONF_SAVED_TEMP_UNIT``), so a crash can't convert them twice. A
+    floor and a drift are held to the new unit's range. With nothing saved and no
+    unit on record there is nothing to record; a unit on record always moves, or
+    the next save would convert again.
     """
     celsius = unit == UnitOfTemperature.CELSIUS
     profile = unit_profile(celsius)
@@ -862,6 +864,9 @@ def _convert_saved_temps(
         for key, (low, high) in floors.items():
             if _finite_number(out.get(key)):
                 out[key] = min(max(moved(out[key]), low), high)
+        for key in _SAVED_ROOM_DRIFTS:
+            if _finite_number(out.get(key)):
+                out[key] = min(max(scaled(out[key]), drift_min), drift_max)
         return out
 
     def section(values: Any) -> dict[str, Any]:
@@ -880,7 +885,8 @@ def _convert_saved_temps(
         )
         and not any(
             isinstance(zone, dict) and _finite_number(zone.get(key))
-            for zone in (zones if isinstance(zones, list) else ()) for key in floors
+            for zone in (zones if isinstance(zones, list) else ())
+            for key in (*floors, *_SAVED_ROOM_DRIFTS)
         )
     ):
         return
@@ -1627,10 +1633,23 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.clamp_min = float(conf.get(CONF_CLAMP_MIN, defaults[CONF_CLAMP_MIN]))
         self.clamp_max = float(conf.get(CONF_CLAMP_MAX, defaults[CONF_CLAMP_MAX]))
         self._read_saved_tunables(conf)
+        drift_min, drift_max = self._profile["engage_bounds"]
         for zone, room in zip(self.zones, conf.get(CONF_ZONES) or (), strict=False):
             if isinstance(room, dict):
                 zone.floor_low = _finite(room.get(ZONE_FLOOR_LOW))
                 zone.floor_high = _finite(room.get(ZONE_FLOOR_HIGH))
+                zone.drift_cooler_by = _drift_side(
+                    room.get(ZONE_DRIFT_COOLER_BY),
+                    drift_min,
+                    drift_max,
+                    f'"Let it get cooler by" for {zone.name}',
+                )
+                zone.drift_warmer_by = _drift_side(
+                    room.get(ZONE_DRIFT_WARMER_BY),
+                    drift_min,
+                    drift_max,
+                    f'"Let it get warmer by" for {zone.name}',
+                )
         self._built_conf = copy.deepcopy(conf)
 
     @callback

@@ -25,11 +25,10 @@ on your equipment.
   and Overheat ceiling, the Lowest and Highest setpoint, the Away limits, and the lockout and
   safety temperatures on Seasons keep their temperature: 59 °F is 15 °C, not 31 °C, and Lock out
   cool when the high is at most 50 °F is 10 °C, not 50 °C. A room's own drift number, Allowed
-  drift, Mode switch threshold, and Let it get cooler by and warmer by on Comfort only scale. Each
-  is converted once per switch, across repeats and restarts. From its first switch on, an entry
-  stores a new `saved_temp_unit` key beside them; an entry that never switches isn't written. A
-  room's own Let it get cooler by and warmer by keep their numbers: see
-  [CONFIGURATION.md](docs/CONFIGURATION.md).
+  drift, Mode switch threshold, and Let it get cooler by and warmer by, on Comfort and in each
+  room's Uneven drift section, only scale. Each is converted once per switch, across repeats and
+  restarts. From its first switch on, an entry stores a new `saved_temp_unit` key beside them; an
+  entry that never switches isn't written. See [CONFIGURATION.md](docs/CONFIGURATION.md).
 - **A live °F/°C switch reloads MXZ by itself,** so its entities show the new unit at once. A
   manual fan speed, the shared mode and the mode-change wait carry over. It no longer needs a
   manual reload or restart.

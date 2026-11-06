@@ -304,9 +304,10 @@ FLOOR_RANGE_F = (35.0, 65.0, 75.0, 100.0)
 FLOOR_RANGE_C = (2.0, 18.0, 24.0, 38.0)
 # The unit the entry's saved temperatures and differences (coordinator's
 # _SAVED_TEMPERATURES, _SAVED_DRIFTS, CONF_DEMAND_THRESHOLD) and each room's
-# ZONE_FLOOR_LOW/HIGH were last converted to, from the first °F/°C switch on. A
-# load whose system unit differs converts them again. An entry that has never
-# seen a switch has no such key, and is never written for this.
+# ZONE_FLOOR_LOW/HIGH and ZONE_DRIFT_COOLER_BY/WARMER_BY were last converted to,
+# from the first °F/°C switch on. A load whose system unit differs converts them
+# again. An entry that has never seen a switch has no such key, and is never
+# written for this.
 CONF_SAVED_TEMP_UNIT = "saved_temp_unit"
 # The no-progress cap (decision 11): this long actually driving the head
 # without one step of new best reading ends the run as `blind`.
