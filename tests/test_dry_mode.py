@@ -756,8 +756,12 @@ async def test_coordinator_off_parks_nothing_and_tells_nothing(hass: HomeAssista
 # Leaving dry starts the coil-dry run
 # ---------------------------------------------------------------------------
 async def test_leaving_dry_starts_the_coil_dry_run(hass: HomeAssistant) -> None:
-    """Turned off from dry, the head dries its coil in fan_only, then goes off."""
-    rig = await _setup(hass, idle=IDLE_ACTION_OFF_AFTER_DRY)
+    """Turned off from dry, the head dries its coil in fan_only, then goes off.
+
+    MXZ as the only writer: with Accept changes made at the head on, that off is
+    adopted and disables the room, and a disabled room goes straight to off.
+    """
+    rig = await _setup(hass, idle=IDLE_ACTION_OFF_AFTER_DRY, accept_head_changes=False)
     assert rig.state(1) == "off"  # never ran: no coil-dry owed
     await rig.person(1, "dry")
     await rig.recompute()

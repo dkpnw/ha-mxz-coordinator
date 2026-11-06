@@ -419,6 +419,14 @@ CONF_COOL_LOCKOUT_CEILING = "cool_lockout_ceiling"
 CONF_CHANGEOVER_ENTITY = "changeover_entity"
 CONF_CHANGEOVER_HEAT_ABOVE = "changeover_heat_above"
 CONF_CHANGEOVER_COOL_BELOW = "changeover_cool_below"
+# Accept changes made at the head: a setpoint or on/off set at a head (its remote
+# or its own app) is adopted by the room instead of written over. On by default,
+# so an entry with no key has it on; False in its options makes MXZ the only
+# writer. The head's heat/cool choice is never adopted: the plan keeps the shared
+# mode. From @BHSPitMonkey's fork (Discussion #103).
+CONF_ACCEPT_HEAD_CHANGES = "accept_head_changes"
+DEFAULT_ACCEPT_HEAD_CHANGES = True
+
 # Optional delta-proportional "fan boost" (Tesla-style: bigger off-target -> faster fan).
 CONF_FAN_BOOST_ENABLE = "fan_boost_enable"
 CONF_FAN_BOOST_MAX = "fan_boost_max"
@@ -459,6 +467,9 @@ FAN_LADDER = (FAN_QUIET, FAN_LOW, FAN_MEDIUM, FAN_MIDDLE, FAN_HIGH)
 # last two: enough for a slow head to lag down the whole ladder and back, twice.
 # Past it the oldest goes, and a report of that one would read as a pick.
 FAN_OLDER_WRITES = 4 * len(FAN_LADDER)
+# The same bound for what MXZ remembers of its mode and setpoint writes, per head
+# and per mode or setpoint (logic.HeadWriteMemory).
+HEAD_WRITES_REMEMBERED = FAN_OLDER_WRITES + 2
 # delta (°F off-target) >= up_at[i] to step UP into rung i+1
 FAN_BOOST_UP_AT = (1.0, 2.0, 3.0, 4.0)
 # up_at - 0.5 hysteresis; leave rung i once delta < down_at[i-1]
@@ -640,6 +651,7 @@ HEARTBEAT_MINUTES = 15
 # Self-heal debounce windows (YAML `for:` durations)
 BAND_DRIFT_DELAY = 20  # head in heat_cool/auto/dry this long -> re-apply
 OFF_WHILE_ENABLED_DELAY = 30  # head off while enabled this long -> re-apply
+ADOPT_DELAY = 5  # a change made at a head holds this long (s) -> adopted
 STARTUP_RECOVER_DELAY = 40  # after HA start, wait this long then recompute
 
 # A seed with no fan-hold restore data reads a fan_only idle token as our own

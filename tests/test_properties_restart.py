@@ -25,6 +25,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from custom_components.mxz_coordinator.const import (
+    ADOPT_DELAY,
     CONF_CLAMP_MAX,
     CONF_CLAMP_MIN,
     FAN_AUTO,
@@ -116,6 +117,9 @@ async def test_a_start_changes_nothing_anyone_can_see(
     try:
         for step in (*opener, *steps):
             await _drive(rig, step)
+        # A person's last change at a head has held and been adopted or put back: a
+        # start inside that hold is tests/test_accept_head_changes.py's.
+        await rig.later(ADOPT_DELAY + 1)
         await rig.settle()
         await rig.settle()
         before = _visible(rig)

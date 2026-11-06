@@ -23,6 +23,7 @@ PAGE_FIELDS: dict[str, tuple[str, ...]] = {
         "engage_deadband",
         "demand_threshold",
         "resting_mode_bias",
+        "accept_head_changes",
         "mode_hysteresis",
         "drift_cooler_by",
         "drift_warmer_by",

@@ -81,6 +81,7 @@ HALL_SENSOR = "sensor.hall_temperature"
 # would show up as a difference rather than as two matching mistakes.
 _TUNING_KEYS = frozenset(
     {
+        "accept_head_changes",
         "demand_threshold",
         "engage_deadband",
         "mode_hysteresis",
@@ -375,8 +376,8 @@ async def test_s07_s08_skipping_advanced_equals_submitting_it_untouched(
     profile = dict(unit_profile(celsius)["defaults"])
     assert set(skipped) == _TUNING_KEYS
     # changeover_entity / inhibit_entity are optional with no default, so a
-    # default submit has never stored them. Eighteen keys, not twenty.
-    assert len(skipped) == 18
+    # default submit has never stored them. Nineteen keys, not twenty-one.
+    assert len(skipped) == 19
     assert "changeover_entity" not in skipped
     assert "inhibit_entity" not in skipped
     assert skipped[CONF_DEMAND_THRESHOLD] == pytest.approx(
@@ -857,7 +858,7 @@ async def test_s23_summary_is_complete_and_nothing_is_written_until_confirmed(
         "Priority 2  Bedroom",
         f"  Head:   {BEDROOM}",
         BEDROOM_SENSOR,
-        "Comfort settings: defaults for °F (18 values). Idle: off_after_dry.",
+        "Comfort settings: defaults for °F (19 values). Idle: off_after_dry.",
     ):
         assert expected in summary, (expected, summary)
     assert hass.config_entries.async_entries(DOMAIN) == []

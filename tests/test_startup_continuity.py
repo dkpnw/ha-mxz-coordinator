@@ -1080,8 +1080,12 @@ def test_restore_record_memory_is_tolerant(record: dict, expected) -> None:
 async def test_restored_run_waits_for_late_evidence(
     hass: HomeAssistant, mode: str, missing: str,
 ) -> None:
-    """Unknown startup evidence is not a spent run; usable 71/69 resumes to 70."""
-    entry, head_a, head_b = await _setup(hass)
+    """Unknown startup evidence is not a spent run; usable 71/69 resumes to 70.
+
+    MXZ as the only writer: with Accept changes made at the head on, the manual off
+    below is adopted once it has held, and disables the room.
+    """
+    entry, head_a, head_b = await _setup(hass, accept_head_changes=False)
     await _run_b(hass, entry, head_b, mode)
     await _shutdown(hass, entry)
     head = _head(hass, head_b)

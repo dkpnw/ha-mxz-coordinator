@@ -221,7 +221,9 @@ async def test_opted_out_outside_turn_on_is_held_off(
     hass: HomeAssistant, legacy_key: bool
 ) -> None:
     """Probe pr28d: a head timer turns a disabled head on; it goes back off, every cycle."""
-    entry, _a, head_b = await _setup(hass, legacy_key=legacy_key)
+    # MXZ as the only writer: with Accept changes made at the head on, this head on
+    # enables the room (tests/test_accept_head_changes.py).
+    entry, _a, head_b = await _setup(hass, legacy_key=legacy_key, accept_head_changes=False)
     await _switch(hass, _eid(hass, entry, "_secondary_enable"), False)
     await _recompute(hass, entry)
     assert _s(hass, head_b) == "off"
@@ -275,7 +277,11 @@ async def test_opted_out_tile_reads_off_and_head_has_no_vote(hass: HomeAssistant
     It is parked within the same cycle, so the tile reads off and the plan
     shows no standoff, whatever the head was doing a moment before.
     """
-    entry, head_a, head_b = await _setup(hass, enable=("_primary_enable", "_coordinator_enable"))
+    # MXZ as the only writer: with Accept changes made at the head on, this head on
+    # enables the room (tests/test_accept_head_changes.py).
+    entry, head_a, head_b = await _setup(
+        hass, enable=("_primary_enable", "_coordinator_enable"), accept_head_changes=False,
+    )
     await _set_temp(hass, SENSOR_A, 76)
     await _remote(hass, head_b, "heat")
     await _recompute(hass, entry)
