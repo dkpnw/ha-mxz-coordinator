@@ -30,8 +30,10 @@ head**; MXZ is then the only writer, as before.
   (Stephen Eisenhauer), who asked for it and built the first version on a fork. Rebuilt here on
   the fan memory from 3.21.0: MXZ remembers its own mode and setpoint writes per head until the
   head's reports pass them, so a slow head showing an old write isn't read as a remote press. A
-  press of a value MXZ didn't recently write is adopted even while the head lags. Not yet tried on
-  real heads with a real IR remote; that check comes before a release.
+  press of a value MXZ didn't recently write is adopted even while the head lags. **3.22.0b1 is a
+  beta published without a test on real Mitsubishi heads with a real IR remote.** Automated suites
+  and CI use invented heads and are not a substitute. The owner waived the house hardware check for
+  this beta only, and the stable 3.22.0 still requires it.
   [MIGRATION.md](docs/MIGRATION.md) lists what behaves differently.
 
 - CI only: the HA 2026.10 qualification now exports a suite or fresh-boot log over 5 MiB whole, gzipped into the job log, instead of failing.
