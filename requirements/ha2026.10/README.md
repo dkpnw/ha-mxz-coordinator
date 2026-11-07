@@ -151,10 +151,26 @@ tracked file hashes are recorded, followed by actual artifact/build/runtime
 receipts. Sentinel and full-suite exits are saved independently of export.
 A failed or timed-out full suite or fresh-boot pass also prints the last 200
 lines of its own log, at most 64 KiB, in its own step, with the step's exit
-unchanged; the export prints every log whole. As in the existing CI, nothing is uploaded as an artifact.
+unchanged; the export carries every log whole. As in the existing CI, nothing is uploaded as an artifact.
 Complete ordinary phases and bounded complete logs are required; missing,
 skipped, failed, malformed, or oversize evidence fails visibly. Existing CI
 continues to own its five job families and three earlier targets.
+
+A suite or fresh-boot log up to 5 MiB is printed as text. A longer one, up to
+32 MiB, is printed as a view of its first 16 KiB and last 64 KiB, marked
+`TRUNCATED`, and then whole as gzip and base64; the block and view together must
+still fit in 5 MiB. Every phase check reads the whole log either way. To get a log
+back from a saved job log (`gh api --allow-escape-sequences
+repos/dkpnw/ha-mxz-coordinator/actions/jobs/JOB/logs > job.log`):
+
+```bash
+sed -E 's/^[^ ]+ //' job.log |
+  sed -n '/^GZIP_BASE64_BEGIN suite\.log /,/^GZIP_BASE64_END suite\.log$/p' |
+  sed '1d;$d' | base64 -d | gunzip > suite.log
+sha256sum suite.log
+```
+
+The hash must equal the one on that log's `FILE` line.
 
 A local run does not prove genuine GitHub-hosted execution. Qualification needs
 a new run attached to the independently reviewed candidate SHA; later product,

@@ -34,6 +34,8 @@ head**; MXZ is then the only writer, as before.
   real heads with a real IR remote; that check comes before a release.
   [MIGRATION.md](docs/MIGRATION.md) lists what behaves differently.
 
+- CI only: the HA 2026.10 qualification now exports a suite or fresh-boot log over 5 MiB whole, gzipped into the job log, instead of failing.
+
 ## 3.21.0 (November 6, 2026)
 
 A °F/°C switch now keeps what you saved and reloads MXZ by itself, and a slow local head no
