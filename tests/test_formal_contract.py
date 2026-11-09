@@ -16,7 +16,7 @@ CODE = ROOT / "custom_components/mxz_coordinator"
 PINNED_ACTION = re.compile(r"[\w./-]+@[0-9a-f]{40}")
 LOCKS = sorted((ROOT / "requirements").glob("constraints-*.txt"))
 # What a property needs from PyPI, the same on every lane.
-PROPERTY_PINS = {"hypothesis": "6.170.14", "sortedcontainers": "2.4.0"}
+PROPERTY_PINS = {"hypothesis": "6.170.15", "sortedcontainers": "2.4.0"}
 
 
 def spec_names() -> set[str]:

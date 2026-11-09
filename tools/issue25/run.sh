@@ -44,7 +44,7 @@ job="$RUNNER_TEMP/issue25-$stage-$GITHUB_RUN_ID-a1"
 mkdir "$job" || refuse preexisting-job
 : > "$job/supervisor.jsonl"
 "$RUNNER_TEMP/mxz-venv/bin/python" tools/check_lock.py requirements/constraints-py312-ha2024.12.5.txt \
-  f814847f3a79c29acc25e8a2952d97ef046b50f1359a78dc183dd385d6ce5bdd 3.12.14 \
+  21c7f4507efdfacb8489a8b6e044dcc2598c9ccd470d93646ae3883c7b5ec501 3.12.14 \
   > "$job/inventory.before.txt"
 cat "$job/inventory.before.txt"
 package_snapshot() {

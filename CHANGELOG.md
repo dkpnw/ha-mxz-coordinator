@@ -39,6 +39,7 @@ head**; MXZ is then the only writer, as before.
 - CI only: the HA 2026.10 qualification now exports a suite or fresh-boot log over 5 MiB whole, gzipped into the job log, instead of failing.
 - CI and tests only: ruff moves to 0.17.4 in the CI tools and in each HA test-lane lock, ruff's target is now set to py312, and a new contract test checks that every test-requirement floor installs under each lane's lock. The pytest floors stay where the HA 2024.12.5 lock holds them.
 - CI and config only: Dependabot no longer proposes pytest, pytest-asyncio or pytest-homeassistant-custom-component bumps, which the HA 2024.12.5 test plugin's exact pins cannot install, and the pre-commit ruff hook moves from 0.16.0 to 0.17.4 to match CI. Contract tests hold both.
+- CI and tests only: hypothesis moves to 6.170.15 in the test requirements, each HA test-lane lock and the exact HA 2026.10 bundle. This supersedes Dependabot PR #111, which raised only the floor, so no lane lock could install it.
 
 ## 3.21.0 (November 6, 2026)
 

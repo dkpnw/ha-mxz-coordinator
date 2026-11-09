@@ -59,7 +59,7 @@ python3.12 -m venv "$work/venv"
 "$work/venv/bin/python" -m pip check
 "$work/venv/bin/python" tools/check_lock.py \
   requirements/constraints-py312-ha2024.12.5.txt \
-  f814847f3a79c29acc25e8a2952d97ef046b50f1359a78dc183dd385d6ce5bdd 3.12.14
+  21c7f4507efdfacb8489a8b6e044dcc2598c9ccd470d93646ae3883c7b5ec501 3.12.14
 "$work/venv/bin/python" -m pytest -p tools.pytest_phases tests/ -q -s -p no:cacheprovider
 FAKE_UPTIME=120 "$work/venv/bin/python" -m pytest -p tools.fakeboot -p tools.pytest_phases \
   tests/ -q -s -p no:cacheprovider
