@@ -143,27 +143,27 @@ jobs:
             runs: suite
             python-version: "3.12.14"
             constraints: requirements/constraints-py312-ha2024.12.5.txt
-            sha256: 0c2ad5a8f350dce79ac5466f0e1f8d1c568962517f01fe139a688dca5b7b82de
+            sha256: f814847f3a79c29acc25e8a2952d97ef046b50f1359a78dc183dd385d6ce5bdd
           - lane: py3.12-ha2024.12.5-fakeboot
             runs: fakeboot
             python-version: "3.12.14"
             constraints: requirements/constraints-py312-ha2024.12.5.txt
-            sha256: 0c2ad5a8f350dce79ac5466f0e1f8d1c568962517f01fe139a688dca5b7b82de
+            sha256: f814847f3a79c29acc25e8a2952d97ef046b50f1359a78dc183dd385d6ce5bdd
           - lane: py3.13-ha2026.2.3
             runs: suite fakeboot
             python-version: "3.13"
             constraints: requirements/constraints-py313-ha2026.2.3.txt
-            sha256: a469bab4273de204856c27036b62f6019bd6fff55bdf4e127f2e72bfbbe0fb36
+            sha256: 7acf7aa24d268206244048ebd395c45a4ef5e12dcec9d53592e1b559ceaa3e4d
           - lane: py3.14-ha2026.9.4
             runs: suite
             python-version: "3.14"
             constraints: requirements/constraints-py314-ha2026.9.4.txt
-            sha256: cf85bc927e5bb618e56290212c27ed49bf0b4b89b523adbe23430cd309e484f3
+            sha256: e580cf01bda5bef96029a6a71896a09da1fbb467a2cfb160b78cd58c583b8242
           - lane: py3.14-ha2026.9.4-fakeboot
             runs: fakeboot
             python-version: "3.14"
             constraints: requirements/constraints-py314-ha2026.9.4.txt
-            sha256: cf85bc927e5bb618e56290212c27ed49bf0b4b89b523adbe23430cd309e484f3
+            sha256: e580cf01bda5bef96029a6a71896a09da1fbb467a2cfb160b78cd58c583b8242
     steps:
       - name: Source and runner boundary
         env:
@@ -423,7 +423,7 @@ jobs:
           python-version: "3.12.14"
       - name: Exact locked installation
         run: |
-          tools/ci-install.sh requirements/constraints-py312-ha2024.12.5.txt 0c2ad5a8f350dce79ac5466f0e1f8d1c568962517f01fe139a688dca5b7b82de 3.12.14 > "$RUNNER_TEMP/install.log" 2>&1
+          tools/ci-install.sh requirements/constraints-py312-ha2024.12.5.txt f814847f3a79c29acc25e8a2952d97ef046b50f1359a78dc183dd385d6ce5bdd 3.12.14 > "$RUNNER_TEMP/install.log" 2>&1
           test "$(wc -c < "$RUNNER_TEMP/install.log")" -le 6291456
       - name: Ordinary admission sentinel
         run: |

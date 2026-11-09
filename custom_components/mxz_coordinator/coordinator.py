@@ -6655,9 +6655,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._floor_notify_trip(zone, want, temp)
         elif was_stalled and not run.stalled:
             self._floor_notify_trip(zone, run.direction, temp)  # a new low re-armed it
-        elif not run.stalled and (held := self._floor_trip_held.get(slug)) is not None:
-            if self._floor_send(zone, "trip", held):  # the hour is up (P8)
-                del self._floor_trip_held[slug]
+        elif (
+            not run.stalled
+            and (held := self._floor_trip_held.get(slug)) is not None
+            and self._floor_send(zone, "trip", held)  # the hour is up (P8)
+        ):
+            del self._floor_trip_held[slug]
         self._floor_runs[slug] = run
         if run.stalled:
             self._floor_hand_back(slug)

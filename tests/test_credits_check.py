@@ -2,7 +2,7 @@
 collection tests answer every git and gh call from invented data."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -118,7 +118,7 @@ def test_parse_log_records():
 
 
 def test_closed_since_filters_date_owner_and_bots():
-    since = datetime(2026, 1, 1, 8, tzinfo=timezone.utc)
+    since = datetime(2026, 1, 1, 8, tzinfo=UTC)
     items = [
         {"number": 1, "author": {"login": "alice"}, "closedAt": "2026-01-01T08:00:00Z"},
         {"number": 2, "author": {"login": "bob"}, "closedAt": "2026-01-01T07:59:59Z"},

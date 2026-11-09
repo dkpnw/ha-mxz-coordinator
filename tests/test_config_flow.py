@@ -2778,11 +2778,12 @@ def _flow_reasons(sources: dict[str, str]) -> dict[tuple[str, str], set[str]]:
                             for item in keyword.value.values
                             if (value := literal(item))
                         )
-            elif isinstance(node, ast.Assign) and any(
-                is_errors_slot(target) for target in node.targets
+            elif (
+                isinstance(node, ast.Assign)
+                and any(is_errors_slot(target) for target in node.targets)
+                and (value := literal(node.value))
             ):
-                if value := literal(node.value):
-                    errors.add(value)
+                errors.add(value)
         return aborts, errors
 
     def helper_reasons(function: ast.FunctionDef) -> set[str]:

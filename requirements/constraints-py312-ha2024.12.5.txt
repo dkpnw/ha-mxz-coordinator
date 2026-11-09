@@ -98,7 +98,7 @@ PyYAML==6.0.2
 requests==2.32.3
 requests-mock==1.12.1
 respx==0.21.1
-ruff==0.16.0
+ruff==0.17.4
 s3transfer==0.19.3
 securetar==2024.11.0
 setuptools==84.2.1

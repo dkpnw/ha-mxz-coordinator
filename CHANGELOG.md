@@ -37,6 +37,7 @@ head**; MXZ is then the only writer, as before.
   [MIGRATION.md](docs/MIGRATION.md) lists what behaves differently.
 
 - CI only: the HA 2026.10 qualification now exports a suite or fresh-boot log over 5 MiB whole, gzipped into the job log, instead of failing.
+- CI and tests only: ruff moves to 0.17.4 in the CI tools and in each HA test-lane lock, ruff's target is now set to py312, and a new contract test checks that every test-requirement floor installs under each lane's lock. The pytest floors stay where the HA 2024.12.5 lock holds them.
 
 ## 3.21.0 (November 6, 2026)
 

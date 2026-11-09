@@ -57,15 +57,15 @@ def test_prerequisites_cannot_pass_when_absent_or_idle():
 
 def test_restore_evidence_rejects_wrong_record_and_getter_substitution():
     from copy import deepcopy
-    from datetime import datetime, timezone
+    from datetime import UTC, datetime
     from types import SimpleNamespace
 
     import pytest
 
     from tools.issue25.test_restore import require_restore_read, require_restore_record
 
-    stamp = datetime(2026, 1, 2, tzinfo=timezone.utc)
-    created = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    stamp = datetime(2026, 1, 2, tzinfo=UTC)
+    created = datetime(2026, 1, 1, tzinfo=UTC)
     entity = "switch.invented_fan_auto"
     record = {"state": {"entity_id": entity, "state": "off", "last_updated": stamp.isoformat()},
               "extra_data": {"held": True}}

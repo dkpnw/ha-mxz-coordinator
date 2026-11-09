@@ -103,7 +103,7 @@ def closed_since(items, since):
         closed = item.get("closedAt")
         if not closed or author.get("is_bot") or is_skipped(login):
             continue
-        if datetime.fromisoformat(closed.replace("Z", "+00:00")) >= since:
+        if datetime.fromisoformat(closed) >= since:
             found.append((login, f"#{item['number']}"))
     return found
 

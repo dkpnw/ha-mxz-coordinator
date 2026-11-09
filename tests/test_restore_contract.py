@@ -5,7 +5,7 @@ import hashlib
 import json
 from contextlib import ExitStack
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib.metadata import Distribution, PackageNotFoundError, distribution
 from pathlib import Path
 
@@ -93,7 +93,7 @@ async def remove_owned(hass, entities):
 
 async def test_real_restore_serialization_and_getters_twice(hass, hass_storage):
     dependency_provenance()
-    created = datetime.now(timezone.utc)
+    created = datetime.now(UTC)
     current = InventedRestoreSensor("cycle")
     owned = [current]
     try:
