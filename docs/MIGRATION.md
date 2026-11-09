@@ -14,7 +14,14 @@ Comfort, and an entry with no stored value has it on. These cases behave differe
 - **A disabled room's head turned on to heat or cool** enables the room. It used to be put back
   off. A disabled room with Let its own remote run it on is unchanged.
 - **The head isn't overwritten during those 5 seconds.** MXZ writes nothing to it, fan included,
-  until the change has been adopted or has gone away.
+  until the change has been adopted or has gone away. A change with nothing to adopt, such as
+  heat instead of cool with no new setpoint, isn't held: the head goes back at the next
+  update, as with the option off.
+- **The drift alert names the room and head,** and goes out at most once per head per hour,
+  with the option on or off. For example: `Study: climate.study_head was in auto, off its
+  coordinated mode - re-applied via the coordinator.` An automation that matched the old text
+  needs the new one. Every heal is logged as `MXZ heal:` in the Home Assistant log, alerted or
+  not.
 
 To go back to MXZ as the only writer, turn the option off in Configure → Comfort. A rollback to
 3.21.0 ignores the stored key. Adopted targets and enable states stay as they were adopted.

@@ -36,6 +36,22 @@ head**; MXZ is then the only writer, as before.
   this beta only, and the stable 3.22.0 still requires it.
   [MIGRATION.md](docs/MIGRATION.md) lists what behaves differently.
 
+- **Fewer, clearer drift alerts with Accept changes made at the head on
+  ([Discussion #103](https://github.com/dkpnw/ha-mxz-coordinator/discussions/103)).**
+  [@BHSPitMonkey](https://github.com/BHSPitMonkey) saw many more "head was off its coordinated
+  mode" alerts after 3.22.0b1. A heat-instead-of-cool (or cool-instead-of-heat) change at a head
+  with nothing to adopt no longer holds the head for 5 seconds: it goes back on the plan at the
+  next update, as with the option off.
+  An off adopted as "disable the room" no longer leaves the 30-second off check running, so
+  re-enabling the room before its head shows on sends no alert. A cloud or generic head's late
+  report of an older setpoint inside its confirm wait is no longer read as a change at the head;
+  it could hold the head, or set the room's target back to the old value. Each heal is now logged
+  as `MXZ heal:` with the room, head, kind of drift and reported mode, and the alert names the
+  room and head and goes out at most once per head per hour (with the option on or off). A head
+  in `auto`, `heat_cool` or `dry` is still put back after about 20 seconds, and with the option
+  off a head turned off is still put back after about 30. The alert's text changed; an
+  automation that matched the old text needs the new one.
+
 - CI only: the HA 2026.10 qualification now exports a suite or fresh-boot log over 5 MiB whole, gzipped into the job log, instead of failing.
 - CI and tests only: ruff moves to 0.17.4 in the CI tools and in each HA test-lane lock, ruff's target is now set to py312, and a new contract test checks that every test-requirement floor installs under each lane's lock. The pytest floors stay where the HA 2024.12.5 lock holds them.
 - CI and config only: Dependabot no longer proposes pytest, pytest-asyncio or pytest-homeassistant-custom-component bumps, which the HA 2024.12.5 test plugin's exact pins cannot install, and the pre-commit ruff hook moves from 0.16.0 to 0.17.4 to match CI. Contract tests hold both.
