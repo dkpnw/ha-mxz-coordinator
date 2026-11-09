@@ -1,5 +1,5 @@
 hypothesis>=6.170.14
-pytest>=8.3.3
-pytest-asyncio>=0.24.0
-pytest-homeassistant-custom-component>=0.13.195
-ruff==0.16.0
+pytest>=9.2.0
+pytest-asyncio>=1.4.1.post1
+pytest-homeassistant-custom-component>=0.13.375
+ruff==0.17.4
