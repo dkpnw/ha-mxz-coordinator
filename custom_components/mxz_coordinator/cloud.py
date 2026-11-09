@@ -21,6 +21,8 @@ No Home Assistant dependency, so the math is tested directly.
 from __future__ import annotations
 
 import math
+import operator
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .const import MODE_COOL, MODE_HEAT
@@ -53,9 +55,12 @@ class CloudHead:
     # is stale.
     older_modes: set[str] = field(default_factory=set)
     older_fans: set[str] = field(default_factory=set)
-    # The last fan sent since the last confirmation. Not an older state until
-    # a later batch sends another: a batch with no fan leaves it current.
+    older_setpoints: set[float] = field(default_factory=set)
+    # The last fan and setpoint sent since the last confirmation. Not older
+    # states until a later batch sends another: a batch with no fan or no
+    # setpoint leaves that one current.
     last_fan: str | None = None
+    last_setpoint: float | None = None
     last_batch: float | None = None
     # The last fan boost step written, for the one-rung-per-step limit.
     fan_at: float | None = None
@@ -75,20 +80,39 @@ class CloudHead:
         """Whether the head is inside a confirm window now."""
         return clock < self.window_until
 
-    def stale(self, clock: float, *, mode: str | None = None, fan: str | None = None) -> bool:
+    def stale(
+        self,
+        clock: float,
+        *,
+        mode: str | None = None,
+        fan: str | None = None,
+        setpoint: float | None = None,
+        same: Callable[[float, float], bool] = operator.eq,
+    ) -> bool:
         """Whether a report inside the window can be an older state.
 
         Inside the startup window any report can be. Inside a batch's window,
-        a mode or fan the head showed before that batch (or one MXZ sent
-        earlier and has not seen confirmed) is stale. A value the head never
-        had is a real change, window or not.
+        a mode, fan or setpoint the head showed before that batch (or one MXZ
+        sent earlier and has not seen confirmed) is stale. A value the head
+        never had is a real change, window or not, and so is the batch's own
+        setpoint. ``same(reported, older)`` compares setpoints, on the head's
+        grid where the caller knows it.
         """
         if not self.pending(clock):
             return False
         if self.startup:
             return True
-        return (mode is not None and mode in self.older_modes) or (
-            fan is not None and fan in self.older_fans
+        return (
+            (mode is not None and mode in self.older_modes)
+            or (fan is not None and fan in self.older_fans)
+            or (
+                setpoint is not None
+                and any(same(setpoint, older) for older in self.older_setpoints)
+                and not (
+                    self.intent is not None and self.intent[1] is not None
+                    and same(setpoint, self.intent[1])
+                )
+            )
         )
 
     def sent(
@@ -97,17 +121,21 @@ class CloudHead:
         intent: tuple[str, float | None, str | None],
         shown_mode: str | None,
         shown_fan: str | None,
+        shown_setpoint: float | None = None,
     ) -> None:
         """Record one batch: a new window, and the states it supersedes.
 
         A batch with no fan supersedes no fan: the fan the head shows then,
         and the last fan MXZ sent even if unconfirmed, is the one it should
-        keep showing, so a report of it is current.
+        keep showing, so a report of it is current. The same for a batch
+        with no setpoint.
         """
         if self.confirmed:
             self.older_modes.clear()
             self.older_fans.clear()
+            self.older_setpoints.clear()
             self.last_fan = None
+            self.last_setpoint = None
         elif self.intent is not None:
             self.older_modes.add(self.intent[0])
         if shown_mode is not None:
@@ -117,6 +145,12 @@ class CloudHead:
             self.older_fans.update(f for f in (self.last_fan, shown_fan) if f is not None)
             self.older_fans.discard(intent[2])
             self.last_fan = intent[2]
+        if intent[1] is not None:
+            self.older_setpoints.update(
+                v for v in (self.last_setpoint, shown_setpoint) if v is not None
+            )
+            self.older_setpoints.discard(intent[1])
+            self.last_setpoint = intent[1]
         self.intent = intent
         self.last_batch = clock
         self.window_until = clock + self.confirm_wait
