@@ -18,6 +18,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    # The HA 2024.12.5 test plugin pins these exactly (pytest 8.3.3, pytest-asyncio
+    # 0.24.0), so a raised floor cannot install in the minimum-HA lane (PR #108).
+    # tests/test_dependabot_contract.py holds this list to the plugin's exact pins.
+    ignore:
+      - dependency-name: pytest
+      - dependency-name: pytest-asyncio
+      - dependency-name: pytest-homeassistant-custom-component
     groups:
       pip:
         patterns:

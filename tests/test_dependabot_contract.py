@@ -9,10 +9,13 @@ holds the configuration that the documentation describes.
 
 from collections import Counter
 from copy import deepcopy
+from importlib.metadata import requires
 from pathlib import Path
 
 import pytest
 import yaml
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 ROOT = Path(__file__).parents[1]
 LOCKS = "/requirements"
@@ -188,3 +191,100 @@ def test_a_subdirectory_without_a_txt_requires_nothing(config, tmp_path):
     """As requirements/ha2026.10 is today: its .lock and .json files are not pip manifests."""
     assert _tree(tmp_path, "bundle/artifacts.lock", "bundle/bundle.json", "bundle/README.md") == {LOCKS}
     assert violations(config, {LOCKS}) == []
+
+
+PLUGIN = "pytest-homeassistant-custom-component"
+
+
+def plugin_exact_pins(plugin_requires):
+    """Names the HA test plugin pins with ==, read from its own metadata."""
+    pins = set()
+    for line in plugin_requires:
+        requirement = Requirement(line)
+        if [spec.operator for spec in requirement.specifier] == ["=="]:
+            pins.add(canonicalize_name(requirement.name))
+    return pins
+
+
+def named_ignore_violations(config, test_requirements, plugin_requires):
+    """The / pip entry ignores exactly the test requirements the HA test plugin caps.
+
+    Each plugin release pins pytest and pytest-asyncio exactly and pins homeassistant
+    exactly, so the minimum-HA lane cannot install a raised floor for any of them
+    (Dependabot PR #108). An extra name would take updates from a dependency nothing
+    caps; a missing one lets Dependabot open a pull request that cannot install.
+    """
+    pinned = plugin_exact_pins(plugin_requires)
+    capped = {canonicalize_name(Requirement(line.split("#", 1)[0]).name)
+              for line in test_requirements.splitlines() if line.split("#", 1)[0].strip()} & pinned
+    if canonicalize_name("homeassistant") in pinned:
+        capped.add(PLUGIN)
+    errors = []
+    ignored = set()
+    for e in config.get("updates", []):
+        if e.get("package-ecosystem") != "pip" or "/" not in entry_directories(e):
+            continue
+        for rule in e.get("ignore", []):
+            name = canonicalize_name(rule.get("dependency-name", ""))
+            ignored.add(name)
+            # A narrowed rule (versions, update-types) would still let a bump through.
+            if set(rule) != {"dependency-name"}:
+                errors.append(f"/ pip ignore of {name} is narrowed")
+    errors += [f"/ pip entry ignores {name}, which the HA test plugin does not pin"
+               for name in sorted(ignored - capped)]
+    errors += [f"/ pip entry does not ignore {name}" for name in sorted(capped - ignored)]
+    return errors
+
+
+@pytest.fixture
+def test_requirements():
+    return (ROOT / "requirements_test.txt").read_text()
+
+
+@pytest.fixture
+def plugin_requires():
+    return requires(PLUGIN)
+
+
+def test_the_root_entry_ignores_what_the_ha_test_plugin_pins(config, test_requirements, plugin_requires):
+    assert named_ignore_violations(config, test_requirements, plugin_requires) == []
+    # The independent oracle: the installed plugin really pins these three.
+    assert {"pytest", "pytest-asyncio", "homeassistant"} <= plugin_exact_pins(plugin_requires)
+
+
+def _root_ignore(c):
+    return entry(c, "pip", "/")["ignore"]
+
+
+@pytest.mark.parametrize(("change", "expected"), [
+    (lambda c: _root_ignore(c).append({"dependency-name": "hypothesis"}),
+     ["/ pip entry ignores hypothesis, which the HA test plugin does not pin"]),
+    (lambda c: _root_ignore(c).append({"dependency-name": "invented-*"}),
+     ["/ pip entry ignores invented-*, which the HA test plugin does not pin"]),
+    (lambda c: _root_ignore(c).remove({"dependency-name": "pytest"}), ["/ pip entry does not ignore pytest"]),
+    (lambda c: _root_ignore(c).remove({"dependency-name": PLUGIN}), [f"/ pip entry does not ignore {PLUGIN}"]),
+    (lambda c: entry(c, "pip", "/").pop("ignore"),
+     ["/ pip entry does not ignore pytest", "/ pip entry does not ignore pytest-asyncio",
+      f"/ pip entry does not ignore {PLUGIN}"]),
+    (lambda c: _root_ignore(c)[0].update({"update-types": ["version-update:semver-major"]}),
+     ["/ pip ignore of pytest is narrowed"]),
+    # Names compare normalized, as Dependabot and pip do.
+    (lambda c: _root_ignore(c)[1].update({"dependency-name": "Pytest_Asyncio"}), []),
+])
+def test_a_wrong_named_ignore_on_the_root_entry_is_refused(config, test_requirements, plugin_requires,
+                                                            change, expected):
+    assert [rule["dependency-name"] for rule in _root_ignore(config)] == [
+        "pytest", "pytest-asyncio", PLUGIN]
+    change(config)
+    assert named_ignore_violations(config, test_requirements, plugin_requires) == expected
+
+
+def test_an_ignore_outlives_the_pin_that_justified_it(config, test_requirements):
+    """If a plugin release stopped pinning pytest, the pytest ignore would have to go."""
+    invented = ["pytest-asyncio==0.24.0", "pytest>=8", "homeassistant==2024.12.5"]
+    assert named_ignore_violations(config, test_requirements, invented) == [
+        "/ pip entry ignores pytest, which the HA test plugin does not pin"]
+    # Nor does the plugin itself stay ignored once it stops pinning homeassistant.
+    invented = ["pytest-asyncio==0.24.0", "pytest==8.3.3", "homeassistant>=2024.12"]
+    assert named_ignore_violations(config, test_requirements, invented) == [
+        f"/ pip entry ignores {PLUGIN}, which the HA test plugin does not pin"]

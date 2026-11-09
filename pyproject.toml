@@ -2,8 +2,8 @@
 
 [tool.ruff]
 # The real minimum: HA 2024.12 needs Python 3.12. Left unset, the target is ruff's own
-# default, which moved from py310 to py311 in 0.17, so the pre-commit hook (0.16.0) and CI
-# (0.17.4) disagreed on whether tomllib is stdlib (I001).
+# default, which moved from py310 to py311 in 0.17, so a ruff 0.16 hook and CI (0.17.4)
+# disagreed on whether tomllib is stdlib (I001). The pre-commit hook is now 0.17.4 too.
 target-version = "py312"
 
 [tool.ruff.lint]

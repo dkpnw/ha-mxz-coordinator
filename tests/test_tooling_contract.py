@@ -278,3 +278,56 @@ FLOOR_LOCK = "requirements/constraints-py312-ha2024.12.5.txt"
 ])
 def test_a_floor_the_lock_cannot_meet_is_refused(requirements, expected):
     assert floor_violations(requirements, (ROOT / FLOOR_LOCK).read_text()) == expected
+
+
+RUFF_HOOK = "https://github.com/astral-sh/ruff-pre-commit"
+
+
+def hook_violations(pre_commit, ruff_pin):
+    """The ruff pre-commit hook is frozen to a commit and runs the ruff CI runs.
+
+    With 0.16.0 in the hook and 0.17.4 in CI, a commit could pass the hook and fail CI.
+    Comments are not YAML data, so the frozen tag is read from the text; that the SHA
+    is that tag's commit is checked against GitHub when the hook is bumped.
+    """
+    repos = [r for r in yaml.safe_load(pre_commit).get("repos", []) if r.get("repo") == RUFF_HOOK]
+    if len(repos) != 1:
+        return ["no single ruff hook"]
+    errors = []
+    rev = str(repos[0].get("rev", ""))
+    if not re.fullmatch(r"[0-9a-f]{40}", rev):
+        errors.append("ruff hook not frozen to a commit")
+    frozen = re.search(rf"^\s*rev:\s*{re.escape(rev)}\s+# frozen: v(\S+)$", pre_commit, re.MULTILINE)
+    if not frozen or frozen.group(1) != ruff_pin:
+        errors.append("ruff hook differs from CI")
+    if "ruff-check" not in [hook.get("id") for hook in repos[0].get("hooks", [])]:
+        errors.append("ruff hook does not check")
+    return errors
+
+
+def pre_commit_text():
+    return (ROOT / ".pre-commit-config.yaml").read_text()
+
+
+def test_the_ruff_hook_runs_the_ci_ruff():
+    ruff = pins((ROOT / "requirements_ci.in").read_text())["ruff"]
+    assert ruff == "0.17.4"
+    assert hook_violations(pre_commit_text(), ruff) == []
+
+
+FROZEN = "c0f278f1254ccc8fb09676bcdb8d847e7db493e5  # frozen: v0.17.4"
+
+
+@pytest.mark.parametrize(("old", "new", "expected"), [
+    # The pin this PR replaced.
+    (FROZEN, "cb8c523fd4835aba42af70f4cad5568db4df0b6c  # frozen: v0.16.0", ["ruff hook differs from CI"]),
+    (FROZEN, "v0.17.4", ["ruff hook not frozen to a commit", "ruff hook differs from CI"]),
+    (FROZEN, "c0f278f1254ccc8fb09676bcdb8d847e7db493e5", ["ruff hook differs from CI"]),
+    (FROZEN, "c0f278f1254ccc8fb09676bcdb8d847e7db493e5  # frozen: v0.17.40", ["ruff hook differs from CI"]),
+    ("id: ruff-check", "id: ruff-format", ["ruff hook does not check"]),
+    (RUFF_HOOK, "https://github.com/invented/ruff-pre-commit", ["no single ruff hook"]),
+])
+def test_a_drifted_ruff_hook_is_refused(old, new, expected):
+    text = pre_commit_text()
+    assert text.count(old) == 1
+    assert hook_violations(text.replace(old, new), "0.17.4") == expected
