@@ -7,15 +7,17 @@ only. Whether GitHub then opens no pull request can only be seen on GitHub; this
 holds the configuration that the documentation describes.
 """
 
+import json
 from collections import Counter
 from copy import deepcopy
-from importlib.metadata import requires
 from pathlib import Path
 
 import pytest
 import yaml
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
+
+from tests.test_tooling_contract import FLOOR_LOCK, floor_violations, pins
 
 ROOT = Path(__file__).parents[1]
 LOCKS = "/requirements"
@@ -241,15 +243,65 @@ def test_requirements():
     return (ROOT / "requirements_test.txt").read_text()
 
 
+# The floor plugin's Requires-Dist, copied from its wheel's METADATA (sha256 in the
+# file). Read from the repo, not from the installed plugin: a lane on HA core's own
+# test plugin has no pytest-homeassistant-custom-component metadata, and on newer lanes
+# the installed plugin is not the floor's. Refresh it whenever FLOOR_LOCK moves the plugin.
+FLOOR_PLUGIN = ROOT / "tests/floor_plugin_requires.json"
+
+
+def record_violations(record, lock):
+    """The record is the requirements of the plugin the floor lock installs.
+
+    Its name and version must be the floor lock's plugin pin, and the floor lock must
+    satisfy every requirement in it, as it does when pip installs that plugin.
+    """
+    errors = []
+    locked = {canonicalize_name(name): version for name, version in pins(lock).items()}
+    pinned = f"{record.get('name')}=={record.get('version')}"
+    if canonicalize_name(record.get("name", "")) != PLUGIN or locked.get(PLUGIN) != record.get("version"):
+        errors.append(f"record is {pinned}, floor lock pins {PLUGIN}=={locked.get(PLUGIN)}")
+    errors += [f"record requires {e}" for e in floor_violations("\n".join(record["requires_dist"]), lock)]
+    return errors
+
+
 @pytest.fixture
-def plugin_requires():
-    return requires(PLUGIN)
+def floor_record():
+    return json.loads(FLOOR_PLUGIN.read_text())
 
 
-def test_the_root_entry_ignores_what_the_ha_test_plugin_pins(config, test_requirements, plugin_requires):
+@pytest.fixture
+def floor_lock():
+    return (ROOT / FLOOR_LOCK).read_text()
+
+
+@pytest.fixture
+def plugin_requires(floor_record):
+    return floor_record["requires_dist"]
+
+
+def test_the_root_entry_ignores_what_the_ha_test_plugin_pins(config, test_requirements, plugin_requires,
+                                                              floor_record, floor_lock):
+    assert record_violations(floor_record, floor_lock) == []
     assert named_ignore_violations(config, test_requirements, plugin_requires) == []
-    # The independent oracle: the installed plugin really pins these three.
+    # The independent oracle: the floor plugin really pins these three.
     assert {"pytest", "pytest-asyncio", "homeassistant"} <= plugin_exact_pins(plugin_requires)
+
+
+@pytest.mark.parametrize(("change", "expected"), [
+    # The plugin the 2026.9.4 lane lock installs is not the floor's.
+    (lambda r: r.update({"version": "0.13.367"}),
+     [f"record is {PLUGIN}==0.13.367, floor lock pins {PLUGIN}==0.13.195"]),
+    (lambda r: r.update({"name": "pytest-home-assistant"}),
+     [f"record is pytest-home-assistant==0.13.195, floor lock pins {PLUGIN}==0.13.195"]),
+    (lambda r: r["requires_dist"].append("pytest==9.0.3"), ["record requires pytest==9.0.3 refuses 8.3.3"]),
+    (lambda r: r["requires_dist"].append("homeassistant==2024.12.0"),
+     ["record requires homeassistant==2024.12.0 refuses 2024.12.5"]),
+    (lambda r: r["requires_dist"].append("invented-plugin==1"), ["record requires invented-plugin not in the lock"]),
+])
+def test_a_record_of_another_plugin_is_refused(floor_record, floor_lock, change, expected):
+    change(floor_record)
+    assert record_violations(floor_record, floor_lock) == expected
 
 
 def _root_ignore(c):
