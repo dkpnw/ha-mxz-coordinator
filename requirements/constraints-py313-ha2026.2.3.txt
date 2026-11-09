@@ -108,7 +108,7 @@ regex==2026.9.29
 requests==2.32.5
 requests-mock==1.12.1
 respx==0.22.0
-ruff==0.16.0
+ruff==0.17.4
 s3transfer==0.19.3
 securetar==2025.2.1
 sentence_stream==1.4.0

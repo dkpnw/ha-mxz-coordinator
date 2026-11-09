@@ -1,8 +1,10 @@
 # Tool configuration only: this repository is not an installable Python package.
 
 [tool.ruff]
-# target-version stays unset on purpose. Setting it to the real minimum (py312) would turn
-# on version-gated pyupgrade findings that CI has never enforced.
+# The real minimum: HA 2024.12 needs Python 3.12. Left unset, the target is ruff's own
+# default, which moved from py310 to py311 in 0.17, so the pre-commit hook (0.16.0) and CI
+# (0.17.4) disagreed on whether tomllib is stdlib (I001).
+target-version = "py312"
 
 [tool.ruff.lint]
 # Exactly the rules ruff 0.16.0 enables with no configuration (`ruff check --isolated

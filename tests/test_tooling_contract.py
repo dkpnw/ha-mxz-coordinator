@@ -1,12 +1,15 @@
 """Static boundaries of the shared tooling: pinned tools, the coverage floor, strict mypy."""
 
 import re
+import tomllib
 from copy import deepcopy
 from pathlib import Path
 
 import pytest
-import tomllib
 import yaml
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+from packaging.version import Version
 
 ROOT = Path(__file__).parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
@@ -168,7 +171,7 @@ WORKFLOW_FAULTS = {
     "unpinned action": lambda q: _job(q, "mypy")["steps"][0].update(uses="actions/checkout@v7"),
     "persistent checkout": lambda q: _job(q, "mypy")["steps"][0]["with"].update({"persist-credentials": "true"}),
     "python differs from the lane": lambda q: _job(q, "mypy")["steps"][1]["with"].update({"python-version": "3.13"}),
-    "lock differs from the lane": lambda q: _replace_run(q, "coverage", "Exact locked installation", "cf85bc9", "0f85bc9"),
+    "lock differs from the lane": lambda q: _replace_run(q, "coverage", "Exact locked installation", "e580cf0", "0580cf0"),
     "coverage run": lambda q: _replace_run(q, "coverage", COVERAGE_STEP, " tests/ ", " tests/test_climate.py "),
     "mypy run": lambda q: _replace_run(q, "mypy", MYPY_STEP, "--python-executable", "--ignore-errors --python-executable"),
 }
@@ -208,8 +211,8 @@ def test_a_raised_floor_is_accepted(config):
 
 @pytest.mark.parametrize(("change", "expected"), [
     (lambda s, k, t: (s.replace("mypy==2.4.1", "mypy==2.4.0"), k, t), "lock differs from its source"),
-    (lambda s, k, t: (s, k.replace("ruff==0.16.0", "ruff==0.15.0"), t), "lock differs from its source"),
-    (lambda s, k, t: (s, k, t.replace("ruff==0.16.0", "ruff==0.15.0")), "two ruff versions"),
+    (lambda s, k, t: (s, k.replace("ruff==0.17.4", "ruff==0.16.0"), t), "lock differs from its source"),
+    (lambda s, k, t: (s, k, t.replace("ruff==0.17.4", "ruff==0.16.0")), "two ruff versions"),
     (lambda s, k, t: (s, re.sub(r"(ruff==\S+)(?: \\\n\s+--hash=\S+)+", r"\1", k), t), "requirement without a hash"),
 ])
 def test_a_drifted_tool_lock_is_refused(change, expected):
@@ -217,9 +220,61 @@ def test_a_drifted_tool_lock_is_refused(change, expected):
 
 
 @pytest.mark.parametrize("line", [
-    "- run: pip install ruff==0.16.0",
+    "- run: pip install ruff==0.17.4",
     "- run: pip install -r requirements_ci.txt",
     "- run: python -m pip install --require-hashes -r requirements_test.txt",
 ])
 def test_an_unhashed_install_is_refused(line):
     assert unhashed_installs([line]) == [line]
+
+
+def floor_violations(test_requirements, lock):
+    """Each requirements_test.txt line must admit the lane lock's exact pin.
+
+    CI installs with -c lock -r lock -r requirements_test.txt, so a floor above the pin
+    is ResolutionImpossible (Dependabot PR #108: pytest>=9.2.0 against pytest==8.3.3).
+    """
+    locked = {canonicalize_name(name): Version(version) for name, version in pins(lock).items()}
+    errors = []
+    for line in test_requirements.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        requirement = Requirement(line)
+        version = locked.get(canonicalize_name(requirement.name))
+        if version is None:
+            errors.append(f"{requirement.name} not in the lock")
+        elif not requirement.specifier.contains(version, prereleases=True):
+            errors.append(f"{requirement.name}{requirement.specifier} refuses {version}")
+    return errors
+
+
+def lane_locks():
+    include = load(WORKFLOWS / "ci.yml")["jobs"]["pytest"]["strategy"]["matrix"]["include"]
+    return sorted({entry["constraints"] for entry in include})
+
+
+def test_test_requirements_install_under_every_lane_lock():
+    locks = lane_locks()
+    assert len(locks) == 3
+    test_requirements = (ROOT / "requirements_test.txt").read_text()
+    for lock in locks:
+        assert floor_violations(test_requirements, (ROOT / lock).read_text()) == [], lock
+
+
+FLOOR_LOCK = "requirements/constraints-py312-ha2024.12.5.txt"
+
+
+@pytest.mark.parametrize(("requirements", "expected"), [
+    # The floors Dependabot PR #108 proposed.
+    ("pytest>=9.2.0\npytest-asyncio>=1.4.1.post1\npytest-homeassistant-custom-component>=0.13.375\n",
+     ["pytest>=9.2.0 refuses 8.3.3", "pytest-asyncio>=1.4.1.post1 refuses 0.24.0",
+      "pytest-homeassistant-custom-component>=0.13.375 refuses 0.13.195"]),
+    ("ruff==0.16.0\n", ["ruff==0.16.0 refuses 0.17.4"]),
+    ("hypothesis>=6.170.15  # one above the lock\n", ["hypothesis>=6.170.15 refuses 6.170.14"]),
+    ("invented-plugin>=1\n", ["invented-plugin not in the lock"]),
+    # Names compare normalized, and a floor equal to the pin is admitted.
+    ("Pytest_Asyncio>=0.24.0\npytest>=8.3.3\n", []),
+])
+def test_a_floor_the_lock_cannot_meet_is_refused(requirements, expected):
+    assert floor_violations(requirements, (ROOT / FLOOR_LOCK).read_text()) == expected
