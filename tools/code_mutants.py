@@ -136,13 +136,13 @@ MUTANTS: dict[str, Mutant] = {
     ),
     'C16': Mutant(
         "a person's change isn't a takeover", 'take_over',
-        'self._records[zone.slug]["override"] = "manual"',
+        'self._records[zone.slug].override = "manual"',
         'pass',
         'tests/test_properties_window.py::test_a_pause_stops_the_head_and_a_takeover_holds_until_the_window_closes',
     ),
     'C17': Mutant(
         "a closed reading doesn't end an override", 'step',
-        'if raw == CLOSED_READ and record["override"] is not None:',
+        'if raw == CLOSED_READ and record.override is not None:',
         'if False:',
         'tests/test_properties_window.py::test_a_pause_stops_the_head_and_a_takeover_holds_until_the_window_closes',
     ),
@@ -400,8 +400,8 @@ MUTANTS: dict[str, Mutant] = {
     ),
     'H19': Mutant(
         'a pause restamps the hold', '_transition',
-        '            record["paused_at"] = now\n',
-        '            record["paused_at"] = now\n            self._host._stamp_mode_change()\n',
+        '            record.paused_at = now\n',
+        '            record.paused_at = now\n            self._host._stamp_mode_change()\n',
         'tests/test_door_window.py::test_a_pause_and_a_resume_never_touch_the_hold',
     ),
     'H20': Mutant(
@@ -412,20 +412,20 @@ MUTANTS: dict[str, Mutant] = {
     ),
     'H21': Mutant(
         "a person's change on a paused head is not a takeover", 'take_over',
-        '        self._records[zone.slug]["override"] = "manual"\n',
+        '        self._records[zone.slug].override = "manual"\n',
         '        pass\n',
         'tests/test_door_window.py::test_a_manual_change_holds_until_the_window_closes',
     ),
     'H22': Mutant(
         'a pause turns the room Off', '_transition',
-        '            record["paused_at"] = now\n',
-        '            record["paused_at"] = now\n            zone.enable = False\n',
+        '            record.paused_at = now\n',
+        '            record.paused_at = now\n            zone.enable = False\n',
         'tests/test_door_window.py::test_the_rooms_mode_is_never_rewritten_and_off_stays_off',
     ),
     'H23': Mutant(
         'a restart forgets the pause', '__init__',
-        '            zone.slug: _restored_opening((stored or {}).get(zone.climate_id))\n',
-        '            zone.slug: _restored_opening(None)\n',
+        '            zone.slug: OpeningRecord.restored((stored or {}).get(zone.climate_id))\n',
+        '            zone.slug: OpeningRecord.restored(None)\n',
         'tests/test_door_window.py::test_a_pause_outlives_a_restart',
     ),
     'H24': Mutant(

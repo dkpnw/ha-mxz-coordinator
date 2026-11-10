@@ -81,7 +81,7 @@ from tests.flow_pages import (
     submit,
     suggested,
 )
-from tests.restart import restart
+from tests.restart import restart, stopped
 from tests.test_drive import MockHead, _eid, _set_target, _set_temp
 from tests.test_dry_mode import DryHead
 from tests.test_startup_continuity import _head
@@ -714,6 +714,62 @@ async def test_a_pause_outlives_a_restart(hass: HomeAssistant, freezer) -> None:
     await rig.later(CLOSE + 1)
     assert rig.head() == MODE_COOL
     assert rig.notices() == [PAUSE_NOTICE, RESUME_NOTICE]
+
+
+async def test_a_pause_is_stored_as_the_record_a_start_reads(
+    hass: HomeAssistant, freezer, hass_storage
+) -> None:
+    """The store holds each room's state, override, pause start, snapshot and
+    notice flag, by head, and nothing else."""
+    rig = await _setup(hass, freezer, study={**WINDOW_ON, ZONE_OPENING_NOTIFY: True})
+    before = dt_util.utcnow().timestamp()
+    await rig.open_and_pause()
+    after = dt_util.utcnow().timestamp()
+    async with stopped(rig.hass, rig.entry):
+        stored = hass_storage[f"{DOMAIN}.{rig.entry.entry_id}.openings"]
+        assert stored["version"] == 1
+        assert list(stored["data"]) == ["rooms"]
+        assert list(stored["data"]["rooms"]) == [rig.heads[0]]
+        room = stored["data"]["rooms"][rig.heads[0]]
+        assert set(room) == {"state", "override", "paused_at", "snapshot", "notified"}
+        assert (room["state"], room["override"], room["notified"]) == ("paused", None, True)
+        assert before <= room["paused_at"] <= after
+        assert set(room["snapshot"]) == {"hvac_mode", "fan_mode", "fan_held", "vanes", "dry"}
+        assert (room["snapshot"]["hvac_mode"], room["snapshot"]["dry"]) == (MODE_COOL, False)
+
+
+async def test_a_stored_pause_written_by_hand_resumes_as_written(
+    hass: HomeAssistant, freezer, hass_storage
+) -> None:
+    """A record in the stored shape, written while Home Assistant is down (as an
+    earlier release wrote it), is the room's pause from the first plan on."""
+    rig = await _setup(hass, freezer, study={**WINDOW_ON, ZONE_OPENING_NOTIFY: True})
+    assert rig.head() == MODE_COOL
+    paused_at = float(int(dt_util.utcnow().timestamp()) - 600)
+    key = f"{DOMAIN}.{rig.entry.entry_id}.openings"
+    async with stopped(rig.hass, rig.entry):
+        await rig.window("on")
+        hass_storage[key] = {
+            "version": 1, "minor_version": 1, "key": key,
+            "data": {"rooms": {rig.heads[0]: {
+                "state": "paused", "override": None, "paused_at": paused_at,
+                "snapshot": {
+                    "hvac_mode": MODE_COOL, "fan_mode": "auto", "fan_held": False,
+                    "vanes": {}, "dry": False,
+                },
+                "notified": True,
+            }}},
+        }
+    await rig.recompute()
+    assert rig.opening()["opening_state"] == "paused"
+    assert rig.head() == "off"
+    assert rig.thermostat().attributes["paused_since"] == (
+        dt_util.utc_from_timestamp(paused_at).isoformat(timespec="seconds")
+    )
+    await rig.window("off")
+    await rig.later(CLOSE + 1)
+    assert rig.head() == MODE_COOL
+    assert rig.notices() == [RESUME_NOTICE]  # the stored flag says its pause notice went out
 
 
 async def test_closed_during_a_restart_waits_the_full_close_delay(

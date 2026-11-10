@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from homeassistant.core import Event, HomeAssistant, callback
@@ -90,22 +91,49 @@ async def async_remove_openings(hass: HomeAssistant, entry_id: str) -> None:
     hass.data.get(f"{DOMAIN}_openings_stores", {}).pop(entry_id, None)
 
 
-def _restored_opening(stored: Any) -> dict[str, Any]:
-    """A room's door/window record as a start reads it; anything unreadable is closed."""
-    data: Any = stored if isinstance(stored, dict) else {}
-    state = data.get("state")
-    override = data.get("override")
-    paused_at = data.get("paused_at")
-    snapshot = data.get("snapshot")
-    return {
-        "state": state if state in _OPENING_STATES else OPENING_CLOSED,
-        "override": override if override in _OPENING_OVERRIDES else None,
-        "paused_at": float(paused_at) if finite_number(paused_at) else None,
-        "snapshot": snapshot if isinstance(snapshot, dict) else None,
-        "notified": data.get("notified") is True,
-        # In memory only: re-read from the opening entity at every evaluation.
-        "due": None,
-    }
+@dataclass
+class OpeningRecord:
+    """One room's door/window record: what the store keeps, and when its delay ends.
+
+    ``override`` is a person's: "switch" or "manual", or None. ``paused_at``
+    is the wall-clock start of the pause and ``snapshot`` the head as the
+    pause found it. ``notified`` says whether the pause notice went out.
+    ``due`` is in memory only: it is re-read from the opening entity at every
+    evaluation.
+    """
+
+    state: str = OPENING_CLOSED
+    override: str | None = None
+    paused_at: float | None = None
+    snapshot: dict[str, Any] | None = None
+    notified: bool = False
+    due: float | None = None
+
+    @classmethod
+    def restored(cls, stored: Any) -> OpeningRecord:
+        """The record as a start reads it; anything unreadable is closed."""
+        data: Any = stored if isinstance(stored, dict) else {}
+        state = data.get("state")
+        override = data.get("override")
+        paused_at = data.get("paused_at")
+        snapshot = data.get("snapshot")
+        return cls(
+            state=state if state in _OPENING_STATES else OPENING_CLOSED,
+            override=override if override in _OPENING_OVERRIDES else None,
+            paused_at=float(paused_at) if finite_number(paused_at) else None,
+            snapshot=snapshot if isinstance(snapshot, dict) else None,
+            notified=data.get("notified") is True,
+        )
+
+    def stored(self) -> dict[str, Any]:
+        """What the store keeps of it."""
+        return {
+            "state": self.state,
+            "override": self.override,
+            "paused_at": self.paused_at,
+            "snapshot": self.snapshot,
+            "notified": self.notified,
+        }
 
 
 def _delay_text(seconds: float) -> str:
@@ -153,7 +181,7 @@ class OpeningHost(Protocol):
 
 
 class OpeningPause:
-    """Every paused-capable room's door/window record, its store and its wakeups.
+    """The door/window pause of each room that has it on: records, store, wakeups.
 
     The coordinator calls it from the compute (``step``), the apply (``paused``,
     then ``async_restore_vanes``), a head's report (``take_over``), a vane pick
@@ -170,7 +198,7 @@ class OpeningPause:
         started: float,
     ) -> None:
         """Each room with the pause on, its record as last stored (see
-        _restored_opening), so a pause outlives a reload or a restart.
+        OpeningRecord.restored), so a pause outlives a reload or a restart.
         Evaluated from ``start`` on; the seed compute only shows it. One
         wakeup per room for the end of its open or close delay; the monotonic
         time of each room's last pause notice (the rate limit, in memory
@@ -183,8 +211,8 @@ class OpeningPause:
         self._zones = zones
         self._started = started
         self._store = _openings_store(host.hass, entry_id)
-        self._records: dict[str, dict[str, Any]] = {
-            zone.slug: _restored_opening((stored or {}).get(zone.climate_id))
+        self._records: dict[str, OpeningRecord] = {
+            zone.slug: OpeningRecord.restored((stored or {}).get(zone.climate_id))
             for zone in zones
             if zone.opening_active
         }
@@ -211,8 +239,9 @@ class OpeningPause:
             self._save()
 
     def record(self, slug: str) -> dict[str, Any] | None:
-        """This room's record as it stands (diagnostics), or None without the pause."""
-        return self._records.get(slug)
+        """This room's record as it stands, for diagnostics; None without the pause."""
+        record = self._records.get(slug)
+        return None if record is None else asdict(record)
 
     def paused(self, zone: Zone) -> bool:
         """Whether this room is paused for its door/window now (and so off, no vote).
@@ -223,7 +252,7 @@ class OpeningPause:
         record = self._records.get(zone.slug)
         return (
             record is not None and zone.enable
-            and record["state"] in OPENING_PAUSED_STATES
+            and record.state in OPENING_PAUSED_STATES
         )
 
     def step(self, zone: Zone, now: float) -> bool:
@@ -248,24 +277,24 @@ class OpeningPause:
                 self._started,
             )
             changed = False
-            if raw == CLOSED_READ and record["override"] is not None:
+            if raw == CLOSED_READ and record.override is not None:
                 # A closed reading ends an override: the next opening pauses.
-                record["override"] = None
+                record.override = None
                 changed = True
-            old = record["state"]
+            old = record.state
             new = opening_state(
                 raw=raw, since=since, now=now,
                 open_delay=zone.opening_open_delay,
                 close_delay=zone.opening_close_delay,
-                prior=old, override=record["override"] is not None,
+                prior=old, override=record.override is not None,
             )
-            record["due"] = opening_due(
+            record.due = opening_due(
                 state=new, since=since,
                 open_delay=zone.opening_open_delay,
                 close_delay=zone.opening_close_delay,
             )
             if new != old:
-                record["state"] = new
+                record.state = new
                 self._transition(zone, record, old, new, now)
                 changed = True
             if changed:
@@ -273,15 +302,15 @@ class OpeningPause:
         return self.paused(zone)
 
     def _transition(
-        self, zone: Zone, record: dict[str, Any], old: str, new: str, now: float
+        self, zone: Zone, record: OpeningRecord, old: str, new: str, now: float
     ) -> None:
         """One change of a room's door/window state: snapshot, restore, notice."""
         was_paused = old in OPENING_PAUSED_STATES
         is_paused = new in OPENING_PAUSED_STATES
         _LOGGER.info("MXZ: %s door/window %s -> %s", zone.name, old, new)
         if is_paused and not was_paused:
-            record["paused_at"] = now
-            record["snapshot"] = self._snapshot(zone)
+            record.paused_at = now
+            record.snapshot = self._snapshot(zone)
             sensor = self._hass.states.get(cast("str", zone.opening_entity))
             what = sensor.name if sensor is not None else zone.opening_entity
             self._notice(
@@ -294,10 +323,10 @@ class OpeningPause:
             # paused <-> closing (still paused: the close delay is counting),
             # or opening <-> closed, or an override before any pause.
             return
-        snapshot = record["snapshot"] or {}
-        manual = record["override"] == "manual"
-        record["paused_at"] = None
-        record["snapshot"] = None
+        snapshot = record.snapshot or {}
+        manual = record.override == "manual"
+        record.paused_at = None
+        record.snapshot = None
         if new == OPENING_OVERRIDDEN:
             self._notice(
                 zone, record, "override",
@@ -344,7 +373,7 @@ class OpeningPause:
         }
 
     def _notice(
-        self, zone: Zone, record: dict[str, Any], kind: str, message: str
+        self, zone: Zone, record: OpeningRecord, kind: str, message: str
     ) -> None:
         """Send one door/window notice, if the room asks for them, rate limited.
 
@@ -363,14 +392,14 @@ class OpeningPause:
                 not zone.enable or not self._host.coordinator_enable
                 or (last is not None and clock - last < OPENING_NOTIFY_SECONDS)
             ):
-                record["notified"] = False
+                record.notified = False
                 return
             self._notice_at[zone.slug] = clock
-            record["notified"] = True
+            record.notified = True
         else:
-            if not record["notified"]:
+            if not record.notified:
                 return
-            record["notified"] = False
+            record.notified = False
         self._hass.async_create_task(
             self._send_notice(message, zone.opening_notify_service)
         )
@@ -391,15 +420,15 @@ class OpeningPause:
 
     def take_over(self, zone: Zone) -> None:
         """A person changed this paused room's head: their change stands until it closes."""
-        self._records[zone.slug]["override"] = "manual"
+        self._records[zone.slug].override = "manual"
         self._save()
 
     def keep_vane(self, zone: Zone, vane_id: str, option: str) -> None:
         """A vane picked while paused: no kick now; the resume sends it."""
         record = self._records[zone.slug]
-        snapshot = record["snapshot"] if isinstance(record["snapshot"], dict) else {}
+        snapshot = record.snapshot or {}
         vanes: Any = snapshot.get("vanes") if isinstance(snapshot.get("vanes"), dict) else {}
-        record["snapshot"] = {**snapshot, "vanes": {**vanes, vane_id: option}}
+        record.snapshot = {**snapshot, "vanes": {**vanes, vane_id: option}}
         self._save()
 
     async def async_restore_vanes(self) -> None:
@@ -436,10 +465,7 @@ class OpeningPause:
             return
         data = {
             OPENINGS_ROOMS_KEY: {
-                zone.climate_id: {
-                    key: self._records[zone.slug][key]
-                    for key in ("state", "override", "paused_at", "snapshot", "notified")
-                }
+                zone.climate_id: self._records[zone.slug].stored()
                 for zone in self._zones
                 if zone.slug in self._records
             }
@@ -475,8 +501,8 @@ class OpeningPause:
             return
         now = dt_util.utcnow().timestamp()
         for slug, record in self._records.items():
-            if record["due"] is not None:
-                self._arm_timer(slug, record["due"] - now)
+            if record.due is not None:
+                self._arm_timer(slug, record.due - now)
 
     def _arm_timer(self, slug: str, delay: float) -> None:
         """Replace this room's wakeup with one ``delay`` seconds from now."""
@@ -503,7 +529,7 @@ class OpeningPause:
     def state_of(self, slug: str) -> str | None:
         """This room's door/window state, or None for a room without the pause."""
         record = self._records.get(slug)
-        return None if record is None else record["state"]
+        return None if record is None else record.state
 
     def attributes(self, zone: Zone) -> dict[str, Any]:
         """A paused room says so, and when it resumes; nothing for a room without it.
@@ -517,7 +543,7 @@ class OpeningPause:
         record = self._records.get(zone.slug)
         if record is None:
             return {}
-        state = record["state"]
+        state = record.state
         reason = (
             OPENING_REASON_PAUSED if self.paused(zone)
             else OPENING_REASON_OVERRIDDEN if state == OPENING_OVERRIDDEN
@@ -527,15 +553,15 @@ class OpeningPause:
             "opening_entity": zone.opening_entity,
             "opening_state": state,
             "paused_reason": reason,
-            "window_override": record["override"] is not None,
-            "paused_since": _iso(record["paused_at"]),
-            "resumes_at": _iso(record["due"]) if state == OPENING_CLOSING else None,
+            "window_override": record.override is not None,
+            "paused_since": _iso(record.paused_at),
+            "resumes_at": _iso(record.due) if state == OPENING_CLOSING else None,
         }
 
     def override_on(self, slug: str) -> bool:
         """Whether a person is running this room with its door/window open."""
         record = self._records.get(slug)
-        return record is not None and record["override"] is not None
+        return record is not None and record.override is not None
 
     async def async_set_override(self, zone: Zone, on: bool) -> None:
         """The room's Window Override switch.
@@ -551,9 +577,9 @@ class OpeningPause:
         sensor = self._hass.states.get(cast("str", zone.opening_entity))
         closed = opening_reading(sensor.state if sensor is not None else None) == CLOSED_READ
         override = "switch" if on and not closed else None
-        if override == record["override"] or (on and record["override"] is not None):
+        if override == record.override or (on and record.override is not None):
             self._host._redraw_rooms()
             return
-        record["override"] = override
+        record.override = override
         self._save()
         await self._host.async_user_changed(at_once=True)
