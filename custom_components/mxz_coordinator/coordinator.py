@@ -62,6 +62,7 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 from .capabilities import head_has_fan_auto, head_lists_dry, state_lists_dry
 from .cloud import (
     CLOUD_NOT_CONTROLLABLE,
+    CLOUD_PENDING,
     CloudHead,
     clamp,
     drive_setpoint,
@@ -1257,11 +1258,6 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.heat_lockout: bool = False
         self.cool_lockout: bool = False
         self.current_shared_mode: str = MODE_COOL  # restored by the select entity
-        # Ordinal of explicit shared-mode requests. It carries no direction, no
-        # clock and no persistence: it exists so an apply that started before a
-        # person's request cannot write its older plan back over that request
-        # (see the writeback at the end of _apply).
-        self._selection_seq: int = 0
 
         # When the last real mode change was, on the monotonic clock: an NTP
         # step correction must not be able to transiently defeat or prematurely
@@ -2499,10 +2495,6 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data_once(self) -> dict[str, Any]:
         """Recompute and apply one plan."""
         plan = self._compute()
-        # Read the request ordinal this plan was computed against before any
-        # head service is awaited: a selection landing while those services are
-        # in flight is newer than this plan.
-        selection_seq = self._selection_seq
         self._applying_plan = plan
         # This is computed intent, not delivery confirmation. Per-head software
         # status accompanies it, and in-flight action ownership remains separate.
@@ -2513,7 +2505,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self._coasted:
             self._cancel_coast_timer()
         try:
-            await self._apply(plan, selection_seq)
+            await self._apply(plan)
             # _apply is what settles the manual-fan latch (it reads each head's
             # observed fan_mode), so re-stamp fan_hold from the post-apply state —
             # otherwise the plan's diagnostic would lag the latch by a cycle. It
@@ -2845,12 +2837,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._coast_timer = None
 
     # -- actuator (mirrors script.mxz_coordinate) ---------------------------
-    async def _apply(self, plan: dict[str, Any], selection_seq: int) -> None:
-        """Schedule each head's ordered plan writes; idempotent.
+    async def _apply(self, plan: dict[str, Any]) -> None:
+        """Schedule each head's ordered plan writes, record the mode, then wait; idempotent.
 
-        ``selection_seq`` is the explicit-request ordinal read when this plan
-        was computed; the writeback at the end skips itself if a person has
-        asked for a direction since.
+        Nothing is awaited between the compute and the mode's writeback, so a
+        person's pick is either read by this plan or made after its record,
+        and no head's outcome, a reload or a new input can skip the record of
+        a change already sent to the heads.
         """
         # A hand-back (P3) is for this apply only: one skipped (Coordinator
         # off, a standby park, no plan yet) leaves the head as MXZ left it.
@@ -3018,22 +3011,23 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 tasks.append(task)
                 if taken is not None:
                     self._floor_expect_command(zone, state, low, high)
+        self._write_back_mode(plan, engages)
         await self._wait_deliveries(tasks)
         await self._restore_opening_vanes()
 
-        # Stamp the flip only on a real mode change (cool<->heat) — and never
-        # over a person's request that arrived while the head services above
-        # were in flight. This plan was computed before that request, so its
-        # direction is the older one; the request keeps the selector and the
-        # clock it already set, and the refresh it queued computes next.
-        # A flip only hands-off heads asked for is not one the coordinator
-        # caused, so it starts no dwell (see logic.arbitrate()). Once a
-        # coordinated room runs in that mode, the mode is ours: stamp it then,
-        # as if that room had flipped it, so the next reversal is dwelled.
-        # The vote's undoing (back to the resting bias) starts no dwell either,
-        # but leaves a mode that owes the vote nothing: a run there is no flip.
-        if selection_seq != self._selection_seq:
-            return
+    def _write_back_mode(self, plan: dict[str, Any], engages: list[str]) -> None:
+        """The plan's mode becomes the shared mode, stamped and recorded.
+
+        Called with the heads' commands queued and none of them run yet. Stamp
+        the flip only on a real mode change (cool<->heat). A flip only
+        hands-off heads asked for is not one the coordinator caused, so it
+        starts no dwell (see logic.arbitrate()). Once a coordinated room runs
+        in that mode, the mode is ours: stamp it then, as if that room had
+        flipped it, so the next reversal is dwelled. The vote's undoing (back
+        to the resting bias) starts no dwell either, but leaves a mode that
+        owes the vote nothing: a run there is no flip.
+        """
+        state = plan["state"]
         if state != self.current_shared_mode:
             self.current_shared_mode = state
             self._mode_by_votes = (
@@ -3132,8 +3126,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             self._floor_rejected(climate_id, err, active)
         except Exception as err:
-            # Unexpected dependency failures retain the existing global failure
-            # and restore-channel semantics, even if this head outlives a plan.
+            # A head's own refusal arrives above as HomeAssistantError
+            # (_call_head_service); this is a fault in MXZ's own steps, and
+            # fails the plan, even if this head outlives it.
             _LOGGER.exception("MXZ: unexpected command failure for %s", climate_id)
             self._delivery_error = err
             self.last_update_success = False
@@ -3270,7 +3265,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 command_status="rejected", command_failed_at=dt_util.utcnow().isoformat(),
                 command_error=str(err),
             )
-            raise
+            if isinstance(err, HomeAssistantError):
+                raise
+            # Whatever a head's handler raises is that head's refusal, not a
+            # fault of MXZ's: its room is degraded and the plan goes on.
+            raise HomeAssistantError(f"{climate_id} raised {err!r}") from err
         else:
             observed.update(command_status="returned", command_returned_at=dt_util.utcnow().isoformat())
         finally:
@@ -3929,13 +3928,14 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {}
         clock = time.monotonic()
         left = cloud.window_until - clock
+        status = cloud.status(clock)
         return {
             "head_type": zone.head_type,
             # pending / confirmed / unconfirmed / not_controllable
-            "cloud_status": cloud.status(clock),
+            "cloud_status": status,
             "cloud_pending_until": (
                 dt_util.utc_from_timestamp(round(dt_util.utcnow().timestamp() + left)).isoformat()
-                if left > 0 else None
+                if status == CLOUD_PENDING else None
             ),
             "cloud_confirmed_at": cloud.confirmed_at,
             "drive_offset": zone.drive_offset,
@@ -4040,10 +4040,22 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._publish_fan_state(climate_id)
         _LOGGER.debug("MXZ: cloud head %s batch %s", climate_id, calls)
         self._publish_delivery()
-        for service, payload in calls:
-            if not self._delivery_owned(active):
-                return
-            await self.async_head_service(climate_id, service, payload)
+        try:
+            for service, payload in calls:
+                if not self._delivery_owned(active):
+                    return
+                await self.async_head_service(climate_id, service, payload)
+        except HomeAssistantError:
+            now = time.monotonic()
+            cloud.refused(now)
+            # Nothing waits on a refused batch, so nothing else may wake the
+            # plan for the next: wake it when the write interval lets that one
+            # out, or now if the refusal itself took longer than the interval.
+            if cloud.wait_for_slot(now) > 0:
+                self._sync_cloud_timer()
+            elif not self._retired:
+                self.hass.async_create_task(self.async_request_refresh())
+            raise
         self._floor_accepted(climate_id, active)
 
     def _cloud_fan(
@@ -5230,7 +5242,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # drift (the plan wants that head awake).
         off_drift = self._off_while_enabled(entity_id, mode) and not self.inhibited and not stale
         self._arm_or_cancel(entity_id, "off", off_drift, OFF_WHILE_ENABLED_DELAY)
-        self._watch_head_change(entity_id, old_state, new_state)
+        if self._watch_head_change(entity_id, old_state, new_state):
+            refresh_needed = True  # a hold ended with nothing adopted: the plan owes the head
         if (cloud := self._cloud.get(entity_id)) is not None and cloud.unresponsive:
             refresh_needed = True  # an out-of-control cloud head reported again
 
@@ -5454,7 +5467,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return change
 
     @callback
-    def _watch_head_change(self, climate_id: str, old_state: Any, new_state: Any) -> None:
+    def _watch_head_change(self, climate_id: str, old_state: Any, new_state: Any) -> bool:
         """Arm, re-arm or cancel the adopt timer on a head's report.
 
         A report from or to unavailable is the head (re)loading, never a person,
@@ -5462,24 +5475,41 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         mode or the setpoint starts the hold over. A change with nothing to adopt
         (a heat/cool flip alone) holds nothing: the head goes back on the plan at
         the next compute, as with the option off.
+
+        True when this report ended a hold with nothing adopted (a press taken
+        back, say): the plan skipped the head while it held, and arming it
+        disowned any command still waiting, so the caller must re-plan.
         """
         if (
             not self.accept_head_changes or old_state is None or new_state is None
             or old_state.state in UNAVAILABLE_STATES or new_state.state in UNAVAILABLE_STATES
         ):
-            return
+            return False
         moved = {"mode"} if old_state.state != new_state.state else set()
         name = self._head_setpoint_field(climate_id, new_state)
         if name is not None and old_state.attributes.get(name) != new_state.attributes.get(name):
             moved.add("setpoint")
         if not moved:
-            return
+            return False
         moved |= self._adopt_moved.get(climate_id, set())
         if not self._head_adoption(climate_id, moved):
+            held = (climate_id, "adopt") in self._heal_timers
             self.drop_head_change(climate_id)
-            return
+            return held
         self._adopt_moved[climate_id] = moved
         self._arm_or_cancel(climate_id, "adopt", True, ADOPT_DELAY)
+        self._disown_waiting_command(climate_id)
+        return False
+
+    def _disown_waiting_command(self, climate_id: str) -> None:
+        """A person's change at the head is newer than a command of ours still to
+        be sent: disown it, as a superseded one is. One already sent cannot be
+        called back. Whoever ends the hold re-plans: an adoption does, and so
+        does a hold that ends with nothing adopted (``_watch_head_change``)."""
+        active = self._deliveries.get(climate_id)
+        if active is not None and active["owner"] is self:
+            active["superseded"] = True
+            self._publish_delivery()
 
     def _head_change_settling(self, climate_id: str) -> bool:
         """Whether a person's change at this head is still holding, and would still count.
@@ -7080,13 +7110,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._floor_end(zone.slug)  # their earlier run is not handed back
         self._floor_yield[zone.slug] = (run.direction, now)
         self._hands_off_released.add(zone.slug)
-        # A command of ours still waiting to be sent (an off during the wait)
-        # would land over theirs: disown it, as a superseded one is. One
-        # already sent cannot be called back.
-        active = self._deliveries.get(zone.climate_id)
-        if active is not None and active["owner"] is self:
-            active["superseded"] = True
-            self._publish_delivery()
+        self._disown_waiting_command(zone.climate_id)
         _LOGGER.info(
             "MXZ floor: %s's head was changed by hand during a floor run; "
             "MXZ leaves it to that person until the floor re-arms", zone.name,
@@ -7437,9 +7461,6 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         coordinator on, wake a disabled room, or lift a lockout, the eco band, a
         standby hold or a setpoint clamp.
         """
-        # Count the request before anything can await: an apply already in
-        # flight must not write its older direction back over it.
-        self._selection_seq += 1
         if mode != self.current_shared_mode:
             self.current_shared_mode = mode
             self._mode_by_votes = False

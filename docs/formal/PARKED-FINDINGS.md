@@ -3,7 +3,29 @@
 No finding is open for a head that shows MXZ's fan writes in the order it got them, or jumps
 to the latest, apart from one narrow case at a start. A head that does anything else isn't
 covered. [F1's limits](#f1-limits) has both.
-This page keeps what F1 was and how it was fixed, and the one accepted exception on cloud heads.
+This page keeps what F1 was and how it was fixed, the one accepted exception on cloud heads, and
+two open findings on changes made at a head, each waiting on a decision.
+
+## Open: changes made at a head can adopt MXZ's own write
+
+Both break the rule that a report MXZ's own writes can explain is never a person, with Accept
+changes made at the head on (the default). Both were found or confirmed by TLC and run on the real
+code on invented heads; nothing ran on a real head. Each is a rule that `tools/formal_tlc.py cover`
+requires to keep breaking until it is decided, and
+[STATE-MACHINES.md](../STATE-MACHINES.md#4-invalid-states-and-transitions-the-code-can-reach) has
+the evidence and the options.
+
+- **SM-1, `StartWriteNeverAdopted` in `ci-adopt-restart`.** MXZ's memory of its own head writes is
+  in `hass.data`, so a reload keeps it and a process start doesn't. A write from before the start
+  that a lagging head shows more than 40 seconds after Home Assistant starts (after startup quiet)
+  reads as a press and moves the room's target. Whether a real head can report that late is not
+  known. `test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_write_out` pins the
+  quiet window, which holds.
+- **SM-10, `QueuedWriteNeverAdopted` in `ci-adopt`.** A write a lagging head hasn't shown yet can
+  drop out of the memory: a rewrite of the same target is kept once, a person's press of a
+  remembered value catches the memory up past older writes, and `HeadWriteMemory.seen` replaces
+  the value it takes for the one shown. When that write lands after a person's later press, it is
+  adopted over the press.
 
 ## Accepted: a re-pick of the same speed on a cloud head
 

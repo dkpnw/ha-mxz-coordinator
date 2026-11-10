@@ -705,7 +705,7 @@ async def _retained_apply(
     # Not awaited: this only constructs the coroutine object. Its body — and
     # so the retirement guard at the top of it — does not run until a caller
     # below schedules this reference.
-    pending = coord._apply(plan, coord._selection_seq)
+    pending = coord._apply(plan)
 
     await _set_temp(hass, "sensor.room_a_temp", 70)
     await coord.async_refresh()

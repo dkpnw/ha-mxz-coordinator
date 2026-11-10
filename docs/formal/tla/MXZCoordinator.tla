@@ -12,6 +12,11 @@
 (* here.                                                                   *)
 (*                                                                         *)
 (* Decide is one MXZCoordinator._compute plus its _apply, taken as a step. *)
+(* With WithSplit, Decide is the compute and the mode's record, with no    *)
+(* await between them as in _apply, and each head's command is its own     *)
+(* later step (Deliver, Refuse), so inputs and starts can land between.    *)
+(* WithAdopt adds room 1's setpoint as the head shows it and the changes   *)
+(* made at the head (Accept changes made at the head).                     *)
 (* Time is whole ticks on one clock. Rooms are in priority order, enabled, *)
 (* with Allowed drift 1 and Mode switch threshold 3 as multiples of one    *)
 (* reading position (see Demand and Engage). Room 1 is the room with the   *)
@@ -36,7 +41,10 @@ CONSTANTS
     WithSelect,   \* a person picks the shared mode
     WithReload,   \* a config entry reload
     WithRestart,  \* Home Assistant stops, a person may touch the fan, it starts
-    WithCrash     \* Home Assistant dies without its stop
+    WithCrash,    \* Home Assistant dies without its stop
+    WithSplit,    \* the heads' commands are steps after the decision, and can be refused
+    WithAdopt,    \* room 1's setpoint, a lagging head, and changes made at the head
+    QueueMax      \* WithAdopt: MXZ's setpoint writes a head can be behind by
 
 None == "none"
 \* "No time": no record, no stamp. Outside every time the model reaches.
@@ -71,6 +79,12 @@ PausedStates == {Paused, Closing}   \* const.OPENING_PAUSED_STATES
 \*   seed      made with no command memory (the seed's documented adoption)
 \*   inflight  a Fan auto off with a write of MXZ's already sent, which can still land
 PickKinds == {"strict", "echo", "outage", "crash", "seed", "inflight"}
+
+\* WithAdopt: setpoints as three values. A person sets 1 or 2 as the room's target in
+\* Home Assistant; 3 is pressed only at the head, so a target of 3 was adopted.
+Targets == {1, 2}
+Setpoints == {1, 2, 3}
+WriteKinds == {"mxz", "start", "echo", "seen"}
 
 VARIABLES
     real, boot,         \* true time, this coordinator's start
@@ -113,15 +127,36 @@ VARIABLES
     falseHoldTwoBehind, \* the same latch with the head two or more writes behind (F1, fixed)
     restoreBroken,      \* a start brought back something other than what was running
     pauseBroken,        \* a paused room's head got a fan write, or its call counted
-    overrideBroken      \* a live override was parked or dropped with the window not closed
+    overrideBroken,     \* a live override was parked or dropped with the window not closed
+    \* WithSplit: the apply in flight (_apply's queued deliveries).
+    phase,              \* "idle", or "applying" while a command is still to go
+    want,               \* each head's command in the apply (logic.head_action)
+    left,               \* the heads whose command hasn't run yet
+    refused,            \* the heads whose command raised in the last apply
+    fresh,              \* no input since the decision: the apply is current
+    picked,             \* ghost: a person picked a mode since the decision
+    trailing,           \* ghost: a head was sent a direction the record doesn't hold
+    cutShort,           \* ghost: a start landed inside an apply
+    \* WithAdopt: room 1's setpoint.
+    target,             \* the room's target (its number entity)
+    spShown,            \* the setpoint the head shows
+    spQueue,            \* MXZ's writes the head hasn't shown yet, oldest first, with ghost kinds
+    spMem,              \* logic.HeadWriteMemory for it, in hass.data: oldest first
+    holding,            \* the adopt hold is armed (_heal_timers "adopt")
+    quiet,              \* coordinator._startup_quiet
+    shownKind,          \* ghost: what put spShown there: "person", or a queued write's kind
+    adopted,            \* ghost: the kinds of MXZ's own writes the target took
+    writeInHold         \* ghost: MXZ wrote room 1's setpoint while a hold counted
 
+splitVars == <<phase, want, left, refused, fresh, picked, trailing, cutShort>>
+adoptVars == <<target, spShown, spQueue, spMem, holding, quiet, shownKind, adopted, writeInHold>>
 fanVars == <<fanShown, fanSent, fanCmd, fanPrev, fanOlder, fanIdx, fanLatched, fanRestore, saved>>
 winVars == <<winRead, winChanged, winState, winOverride, storedWin, storedOverride>>
 ghosts == <<lastChange, decided, pick, pickKind, pickSeen, gesture, flipInDwell, flipLate,
             fanOverwritten, exceptionLost, falseHold, twoBehind, falseHoldTwoBehind, twoBehind, falseHoldTwoBehind, restoreBroken,
             pauseBroken, overrideBroken>>
 vars == <<real, boot, pos, latch, head, mode, stamp, storedMode, storedStamp, restoredOn,
-          fanVars, winVars, ghosts>>
+          fanVars, winVars, ghosts, splitVars, adoptVars>>
 
 \* logic.room_call: a demand past the threshold, band = max(threshold, drift).
 Demand(p) == IF p = 3 THEN "cool" ELSE IF p = -3 THEN "heat" ELSE None
@@ -259,6 +294,23 @@ NoDump == [has |-> FALSE, held |-> FALSE, last |-> None, prior |-> None, older |
 \* switch.py's restore eligibility in restore_fan_hold.
 Eligible(t) == IF InCeiling(t) THEN t ELSE "auto"
 
+\* The mode a start would read from the record (restore_shared_mode, no restore data).
+Recorded == IF storedMode = None THEN "cool" ELSE storedMode
+
+\* logic.HeadWriteMemory: own, seen, wrote and caught_up.
+Own(mem, v) == \E i \in 1..Len(mem) : mem[i] = v
+Seen(mem, v) == IF Len(mem) = 0 THEN <<v>> ELSE <<v>> \o Tail(mem)
+Wrote(mem, v, shown) ==
+    LET m == IF Own(mem, shown) THEN mem ELSE Seen(mem, shown)
+    IN IF Len(m) > 0 /\ m[Len(m)] = v THEN m ELSE Append(m, v)
+RECURSIVE CaughtUp(_, _)
+CaughtUp(mem, v) == IF ~Own(mem, v) \/ mem[1] = v THEN mem ELSE CaughtUp(Tail(mem), v)
+
+\* The queued writes the memory no longer holds, filed under what dropped them.
+Orphan(queue, mem, cause) ==
+    [i \in 1..Len(queue) |-> IF queue[i].kind = "mxz" /\ ~Own(mem, queue[i].v)
+                              THEN [queue[i] EXCEPT !.kind = cause] ELSE queue[i]]
+
 TypeOK ==
     /\ real \in 0..MaxReal /\ boot \in 0..MaxReal
     /\ pos \in [RoomIds -> Readings]
@@ -275,6 +327,10 @@ TypeOK ==
     /\ winOverride \in {None, "switch", "manual"}
     /\ storedOverride \in {None, "switch", "manual"}
     /\ pick \in {None} \cup Tokens /\ pickKind \in {None} \cup PickKinds
+    /\ phase \in {"idle", "applying"} /\ left \subseteq RoomIds /\ refused \subseteq RoomIds
+    /\ want \in [RoomIds -> {"off", "fan_only"} \cup Modes]
+    /\ target \in Setpoints /\ spShown \in Setpoints /\ Len(spQueue) <= QueueMax
+    /\ shownKind \in WriteKinds \cup {"person"} /\ adopted \subseteq WriteKinds
 
 Init ==
     /\ real = 0 /\ boot = 0
@@ -294,6 +350,10 @@ Init ==
     /\ fanOverwritten = FALSE /\ exceptionLost = FALSE /\ falseHold = FALSE
     /\ twoBehind = FALSE /\ falseHoldTwoBehind = FALSE
     /\ restoreBroken = FALSE /\ pauseBroken = FALSE /\ overrideBroken = FALSE
+    /\ phase = "idle" /\ want = head /\ left = {} /\ refused = {} /\ fresh = TRUE
+    /\ picked = FALSE /\ trailing = FALSE /\ cutShort = FALSE
+    /\ target = 1 /\ spShown = 1 /\ spQueue = <<>> /\ spMem = <<>> /\ holding = FALSE
+    /\ quiet = FALSE /\ shownKind = "mxz" /\ adopted = {} /\ writeInHold = FALSE
 
 (***************************************************************************)
 (* Decide: MXZCoordinator._compute then _apply.                            *)
@@ -345,11 +405,18 @@ Decide ==
         \* README's conservative hold (S11b), so it isn't one of these.
         startHoldBehind == rolled.latched /\ ~fanLatched /\ ~gesture /\ fanRestore = "free"
                            /\ fanCmd # None /\ twoBehind /\ InCeiling(fanShown)
-    IN
-    /\ latch' = nl
-    /\ head' = [r \in RoomIds |->
+        \* logic.head_action for each head.
+        acts == [r \in RoomIds |->
                   IF r = 1 /\ isPaused THEN "off"
                   ELSE IF nl[r] = state THEN state ELSE "fan_only"]
+    IN
+    /\ phase = "idle"
+    /\ latch' = nl
+    /\ head' = IF WithSplit THEN head ELSE acts
+    /\ want' = IF WithSplit THEN acts ELSE want
+    /\ left' = IF WithSplit THEN {r \in RoomIds : acts[r] # head[r]} ELSE {}
+    /\ phase' = IF left' = {} THEN "idle" ELSE "applying"
+    /\ refused' = {} /\ fresh' = TRUE /\ picked' = FALSE
     /\ mode' = state
     /\ stamp' = IF changed THEN real ELSE stamp
     /\ storedMode' = IF changed THEN state ELSE storedMode
@@ -363,7 +430,7 @@ Decide ==
     /\ winState' = newWin /\ winOverride' = override0
     /\ storedWin' = newWin /\ storedOverride' = override0
     /\ lastChange' = IF changed THEN real ELSE lastChange
-    /\ decided' = TRUE
+    /\ decided' = (left' = {})
     /\ pick' = IF overwritesPick THEN None ELSE pick
     /\ pickKind' = IF overwritesPick THEN None ELSE pickKind
     /\ pickSeen' = IF WithFan THEN pick # None ELSE pickSeen
@@ -374,16 +441,52 @@ Decide ==
     /\ falseHold' = (falseHold \/ (newHold /\ ~twoBehind))
     /\ falseHoldTwoBehind' = (falseHoldTwoBehind \/ (newHold /\ twoBehind) \/ startHoldBehind)
     /\ twoBehind' = (fanSent' # None /\ (twoBehind \/ (written /\ fanSent # None /\ fan.token # fanSent)))
-    /\ pauseBroken' = (pauseBroken \/ (isPaused /\ (written \/ head'[1] # "off"
+    /\ pauseBroken' = (pauseBroken \/ (isPaused /\ (written \/ acts[1] # "off"
                                        \/ (changed /\ Rooms = 1 /\ state # Resting))))
     /\ overrideBroken' = (overrideBroken \/ (winOverride # None /\ winRead # "closed"
-                                             /\ (override0 = None \/ isPaused \/ head'[1] = "off")))
+                                             /\ (override0 = None \/ isPaused \/ acts[1] = "off")))
     /\ UNCHANGED <<real, boot, pos, restoredOn, saved, winRead, winChanged, restoreBroken, gesture>>
+    /\ UNCHANGED <<trailing, cutShort, adoptVars>>
+
+(***************************************************************************)
+(* WithSplit: one head's command from the apply in flight, as              *)
+(* MXZCoordinator._deliver_head runs it once the head's lock is free. The  *)
+(* mode was recorded by the Decide that queued it (_write_back_mode runs   *)
+(* before _wait_deliveries). Refuse is a head whose handler raised: since  *)
+(* _call_head_service, whatever it raised is that room's alone, and the    *)
+(* next update tries again. The apply is over once no command is left; it  *)
+(* counts as a decision only if nothing came in since (`fresh`).           *)
+(***************************************************************************)
+Finish(r) ==
+    /\ left' = left \ {r}
+    /\ phase' = IF left' = {} THEN "idle" ELSE "applying"
+    /\ decided' = (left' = {} /\ fresh)
+
+Deliver == WithSplit /\ \E r \in left :
+    /\ phase = "applying"
+    /\ head' = [head EXCEPT ![r] = want[r]]
+    /\ Finish(r)
+    /\ trailing' = (trailing \/ (want[r] \in Modes /\ want[r] # Recorded /\ ~picked))
+    /\ UNCHANGED <<real, boot, pos, latch, mode, stamp, storedMode, storedStamp, restoredOn, fanVars, winVars>>
+    /\ UNCHANGED <<lastChange, pick, pickKind, pickSeen, gesture, flipInDwell, flipLate, fanOverwritten,
+                   exceptionLost, falseHold, twoBehind, falseHoldTwoBehind, restoreBroken, pauseBroken, overrideBroken>>
+    /\ UNCHANGED <<want, refused, fresh, picked, cutShort, adoptVars>>
+
+Refuse == WithSplit /\ \E r \in left :
+    /\ phase = "applying"
+    /\ refused' = refused \cup {r}
+    /\ Finish(r)
+    /\ UNCHANGED <<real, boot, pos, latch, head, mode, stamp, storedMode, storedStamp, restoredOn, fanVars, winVars>>
+    /\ UNCHANGED <<lastChange, pick, pickKind, pickSeen, gesture, flipInDwell, flipLate, fanOverwritten,
+                   exceptionLost, falseHold, twoBehind, falseHoldTwoBehind, restoreBroken, pauseBroken, overrideBroken>>
+    /\ UNCHANGED <<want, fresh, picked, trailing, cutShort, adoptVars>>
 
 \* The room's reading changes (a sensor reports).
 Reading == \E r \in RoomIds, p \in Readings :
     /\ p # pos[r] /\ pos' = [pos EXCEPT ![r] = p]
     /\ decided' = FALSE
+    /\ fresh' = IF phase = "applying" THEN FALSE ELSE fresh
+    /\ UNCHANGED <<phase, want, left, refused, picked, trailing, cutShort, adoptVars>>
     /\ UNCHANGED <<real, boot, latch, head, mode, stamp, storedMode, storedStamp, restoredOn, fanVars, winVars>>
     /\ UNCHANGED <<lastChange, pick, pickKind, pickSeen, gesture, flipInDwell, flipLate,
                    fanOverwritten, exceptionLost, falseHold, twoBehind, falseHoldTwoBehind, restoreBroken, pauseBroken, overrideBroken>>
@@ -391,6 +494,7 @@ Reading == \E r \in RoomIds, p \in Readings :
 Tick ==
     /\ real < MaxReal /\ real' = real + 1
     /\ decided' = FALSE
+    /\ UNCHANGED <<splitVars, adoptVars>>
     /\ UNCHANGED <<boot, pos, latch, head, mode, stamp, storedMode, storedStamp, restoredOn, fanVars, winVars>>
     /\ UNCHANGED <<lastChange, pick, pickKind, pickSeen, gesture, flipInDwell, flipLate,
                    fanOverwritten, exceptionLost, falseHold, twoBehind, falseHoldTwoBehind, restoreBroken, pauseBroken, overrideBroken>>
@@ -401,6 +505,9 @@ Select == WithSelect /\ \E m \in Modes :
     /\ m # mode
     /\ mode' = m /\ stamp' = real /\ storedMode' = m /\ storedStamp' = real
     /\ lastChange' = real /\ decided' = FALSE
+    /\ fresh' = IF phase = "applying" THEN FALSE ELSE fresh
+    /\ picked' = (picked \/ phase = "applying")
+    /\ UNCHANGED <<phase, want, left, refused, trailing, cutShort, adoptVars>>
     /\ UNCHANGED <<real, boot, pos, latch, head, restoredOn, fanVars, winVars>>
     /\ UNCHANGED <<pick, pickKind, pickSeen, gesture, flipInDwell, flipLate,
                    fanOverwritten, exceptionLost, falseHold, twoBehind, falseHoldTwoBehind, restoreBroken, pauseBroken, overrideBroken>>
@@ -409,6 +516,8 @@ Select == WithSelect /\ \E m \in Modes :
 \* Picking the speed already showing changes nothing that can be read, so it is
 \* not a step: _observe_fan_latch's docstring accepts that.
 PersonFan == WithFan /\ \E t \in Tokens :
+    /\ fresh' = IF phase = "applying" THEN FALSE ELSE fresh
+    /\ UNCHANGED <<phase, want, left, refused, picked, trailing, cutShort, adoptVars>>
     /\ t # fanShown
     /\ fanShown' = t /\ fanSent' = None
     /\ pick' = IF t = "auto" THEN None ELSE t
@@ -430,6 +539,8 @@ PersonFan == WithFan /\ \E t \in Tokens :
 
 \* A lagging head reports the last fan MXZ sent it.
 HeadReports ==
+    /\ fresh' = IF phase = "applying" THEN FALSE ELSE fresh
+    /\ UNCHANGED <<phase, want, left, refused, picked, trailing, cutShort, adoptVars>>
     /\ WithLag
     /\ fanSent # None
     /\ fanShown' = fanSent /\ fanSent' = None
@@ -445,6 +556,8 @@ HeadReports ==
 
 \* coordinator.async_set_fan_auto(on=True): hand back and adopt the showing speed.
 FanAutoOnGesture ==
+    /\ fresh' = IF phase = "applying" THEN FALSE ELSE fresh
+    /\ UNCHANGED <<phase, want, left, refused, picked, trailing, cutShort, adoptVars>>
     /\ WithFan
     /\ fanRestore' = None
     /\ LET a == Adopt(Memory, fanShown, NoIdx)
@@ -462,6 +575,8 @@ FanAutoOnGesture ==
 \* coordinator.async_set_fan_auto(on=False): hold the showing speed. At auto, a no-op
 \* (it only drops a pending restore, as its code does).
 FanAutoOffGesture ==
+    /\ fresh' = IF phase = "applying" THEN FALSE ELSE fresh
+    /\ UNCHANGED <<phase, want, left, refused, picked, trailing, cutShort, adoptVars>>
     /\ WithFan
     /\ fanShown # "auto"
     /\ fanRestore' = None
@@ -478,6 +593,7 @@ FanAutoOffGesture ==
 \* HA writes restore data every 15 minutes (the periodic dump a crash falls back on).
 Dump ==
     /\ WithCrash
+    /\ UNCHANGED <<splitVars, adoptVars>>
     /\ saved' = Dumped
     /\ saved # Dumped
     /\ decided' = FALSE
@@ -489,6 +605,8 @@ Dump ==
 \* The door/window reads something else (coordinator._on_opening_change's recompute
 \* is a later Decide).
 WindowReads == WithWindow /\ \E x \in {"open", "closed", None} :
+    /\ fresh' = IF phase = "applying" THEN FALSE ELSE fresh
+    /\ UNCHANGED <<phase, want, left, refused, picked, trailing, cutShort, adoptVars>>
     /\ x # winRead /\ winRead' = x /\ winChanged' = real
     /\ decided' = FALSE
     /\ UNCHANGED <<real, boot, pos, latch, head, mode, stamp, storedMode, storedStamp, restoredOn, fanVars,
@@ -499,6 +617,8 @@ WindowReads == WithWindow /\ \E x \in {"open", "closed", None} :
 \* A person changes room 1's head mode. coordinator._on_head_change: a real change to
 \* anything but off, on a paused room, is a takeover, saved at once.
 PersonMode == WithWindow /\ \E m \in {"off", "fan_only"} \cup Modes :
+    /\ fresh' = IF phase = "applying" THEN FALSE ELSE fresh
+    /\ UNCHANGED <<phase, want, left, refused, picked, trailing, cutShort, adoptVars>>
     /\ m # head[1]
     /\ head' = [head EXCEPT ![1] = m]
     /\ IF m # "off" /\ winState \in PausedStates
@@ -515,6 +635,8 @@ OverrideSwitch == WithWindow /\ \E on \in BOOLEAN :
     LET new == IF on /\ winRead # "closed" THEN "switch" ELSE None
     IN /\ new # winOverride
        /\ ~(on /\ winOverride # None)
+       /\ fresh' = IF phase = "applying" THEN FALSE ELSE fresh
+       /\ UNCHANGED <<phase, want, left, refused, picked, trailing, cutShort, adoptVars>>
        /\ winOverride' = new /\ storedOverride' = new
        /\ decided' = FALSE
        /\ UNCHANGED <<real, boot, pos, latch, head, mode, stamp, storedMode, storedStamp, restoredOn, fanVars,
@@ -532,7 +654,7 @@ OverrideSwitch == WithWindow /\ \E on \in BOOLEAN :
 (* the last periodic dump. `outage` is the fan the head shows when this    *)
 (* start first reads it.                                                   *)
 (***************************************************************************)
-Start(crash, outage) ==
+Start(process, crash, outage) ==
     LET record == IF crash THEN saved ELSE Dumped
         heldBack == record.has /\ record.held
         carries == record.has /\ ~record.held /\ record.last # None
@@ -568,19 +690,103 @@ Start(crash, outage) ==
     /\ gesture' = (gesture \/ (moved /\ outage # "auto") \/ crash)
     /\ restoreBroken' = (restoreBroken \/ newMode # mode \/ storedStamp # stamp
                          \/ storedWin # winState \/ storedOverride # winOverride)
+    \* A retired apply sends nothing more (_delivery_owned); what it sent stays sent.
+    /\ phase' = "idle" /\ left' = {} /\ refused' = {} /\ fresh' = TRUE /\ picked' = FALSE
+    /\ cutShort' = (cutShort \/ phase = "applying")
+    /\ UNCHANGED <<want, trailing>>
+    \* The head write memory is in hass.data: a reload keeps it, a new process has none.
+    \* No hold is saved, and a process start is quiet until STARTUP_RECOVER_DELAY.
+    /\ spMem' = IF process THEN <<>> ELSE spMem
+    /\ holding' = FALSE
+    /\ quiet' = (WithAdopt /\ process)
+    /\ spQueue' = IF process THEN Orphan(spQueue, <<>>, "start") ELSE spQueue
+    /\ UNCHANGED <<target, spShown, shownKind, adopted, writeInHold>>
     /\ UNCHANGED <<real, pos, head, storedMode, storedStamp, winRead, winChanged, storedWin, storedOverride>>
     /\ UNCHANGED <<lastChange, flipInDwell, flipLate, fanOverwritten, exceptionLost, falseHold, twoBehind, falseHoldTwoBehind,
                    pauseBroken, overrideBroken>>
 
-Reload == WithReload /\ Start(FALSE, fanShown)
-Restart == WithRestart /\ \E t \in (IF WithFan THEN Tokens ELSE {fanShown}) : Start(FALSE, t)
-Crash == WithCrash /\ \E t \in (IF WithFan THEN Tokens ELSE {fanShown}) : Start(TRUE, t)
+Reload == WithReload /\ Start(FALSE, FALSE, fanShown)
+Restart == WithRestart /\ \E t \in (IF WithFan THEN Tokens ELSE {fanShown}) : Start(TRUE, FALSE, t)
+Crash == WithCrash /\ \E t \in (IF WithFan THEN Tokens ELSE {fanShown}) : Start(TRUE, TRUE, t)
+
+(***************************************************************************)
+(* WithAdopt: room 1's setpoint and changes made at its head               *)
+(* (coordinator._watch_head_change, _head_adoption,                        *)
+(* _async_adopt_head_change; logic.HeadWriteMemory). The head is running,  *)
+(* so its setpoint field is fixed; only the setpoint moves. A head that    *)
+(* lags shows MXZ's writes in order, each later (spQueue). Gates other     *)
+(* than startup quiet are out of this model. Each queued write carries a   *)
+(* ghost kind: "mxz" while the memory still holds its value, else what     *)
+(* dropped it: a process start, a person's press of a remembered value     *)
+(* ("echo"), or HeadWriteMemory.seen in an adoption or a write ("seen").  *)
+(***************************************************************************)
+others == <<real, boot, pos, latch, head, mode, stamp, storedMode, storedStamp, restoredOn,
+            fanVars, winVars, ghosts, splitVars>>
+
+\* A report that moves the setpoint (_on_head_change): the memory catches up, then the
+\* hold is armed if the report is a change to adopt, and dropped if not.
+Report(v, by) ==
+    LET own == Own(spMem, v)
+    IN /\ spShown' = v /\ shownKind' = by
+       /\ spMem' = IF own THEN CaughtUp(spMem, v) ELSE spMem
+       /\ holding' = (~own /\ v # target /\ ~quiet)
+
+\* number.async_set_native_value: a person sets the target in Home Assistant, which
+\* ends a hold (drop_head_change): the later change wins.
+SetTarget == WithAdopt /\ \E v \in Targets :
+    /\ v # target /\ target' = v /\ holding' = FALSE
+    /\ UNCHANGED <<spShown, spQueue, spMem, quiet, shownKind, adopted, writeInHold, others>>
+
+\* The apply's setpoint write (_apply_head, _call_head_service): skipped while a hold
+\* counts (_head_change_settling), remembered before it goes out.
+WriteSp ==
+    /\ WithAdopt /\ ~holding /\ spShown # target /\ Len(spQueue) < QueueMax
+    /\ spMem' = Wrote(spMem, target, spShown)
+    /\ spQueue' = Append(Orphan(spQueue, spMem', "seen"), [v |-> target, kind |-> "mxz"])
+    /\ writeInHold' = (writeInHold \/ holding)
+    /\ UNCHANGED <<target, spShown, holding, quiet, shownKind, adopted, others>>
+
+\* The lagging head shows the oldest write it hasn't shown yet.
+HeadShows ==
+    /\ WithAdopt /\ Len(spQueue) > 0
+    /\ spQueue' = Tail(spQueue)
+    /\ IF Head(spQueue).v = spShown
+       THEN UNCHANGED <<spShown, spMem, holding, shownKind>>
+       ELSE Report(Head(spQueue).v, Head(spQueue).kind)
+    /\ UNCHANGED <<target, quiet, adopted, writeInHold, others>>
+
+\* A person at the head's remote. Writes still queued at the head can land after it.
+PersonPress == WithAdopt /\ \E v \in Setpoints :
+    /\ v # spShown /\ Report(v, "person")
+    /\ spQueue' = Orphan(spQueue, spMem', "echo")
+    /\ UNCHANGED <<target, quiet, adopted, writeInHold, others>>
+
+\* The hold ends (ADOPT_DELAY): a change that still counts becomes the room's target.
+\* The ghost files an adopted write of MXZ's by how it got past the memory.
+AdoptFires ==
+    /\ WithAdopt /\ holding
+    /\ holding' = FALSE
+    /\ IF ~Own(spMem, spShown) /\ spShown # target /\ ~quiet
+       THEN /\ target' = spShown
+            /\ spMem' = IF Len(spMem) > 0 THEN Seen(spMem, spShown) ELSE spMem
+            /\ spQueue' = Orphan(spQueue, spMem', "seen")
+            /\ adopted' = adopted \cup (IF shownKind = "person" THEN {} ELSE {shownKind})
+       ELSE UNCHANGED <<target, spMem, spQueue, adopted>>
+    /\ UNCHANGED <<spShown, quiet, shownKind, writeInHold, others>>
+
+\* coordinator._on_startup_timer, STARTUP_RECOVER_DELAY after Home Assistant starts.
+QuietEnds ==
+    /\ WithAdopt /\ quiet
+    /\ quiet' = FALSE
+    /\ UNCHANGED <<target, spShown, spQueue, spMem, holding, shownKind, adopted, writeInHold, others>>
 
 Next ==
     \/ Decide \/ Reading \/ Tick \/ Select
     \/ PersonFan \/ HeadReports \/ FanAutoOnGesture \/ FanAutoOffGesture \/ Dump
     \/ WindowReads \/ PersonMode \/ OverrideSwitch
     \/ Reload \/ Restart \/ Crash
+    \/ Deliver \/ Refuse
+    \/ SetTarget \/ WriteSp \/ HeadShows \/ PersonPress \/ AdoptFires \/ QuietEnds
 
 Spec == Init /\ [][Next]_vars
 
@@ -615,15 +821,31 @@ HoldClockKept == stamp = lastChange
 \* A start brings back the shared mode, the hold, the door/window state and an override.
 RestartRestores == ~restoreBroken
 
-\* After a Decide no head runs against the shared mode.
-HeadsFollowMode == decided => \A r \in RoomIds : head[r] \in {mode, "fan_only", "off"}
+\* After a Decide no head runs against the shared mode, apart from a head that refused
+\* its command (the README's exceptions).
+HeadsFollowMode == decided => \A r \in RoomIds \ refused : head[r] \in {mode, "fan_only", "off"}
 
 \* After a Decide a paused head is off, and in a pause no fan is written and its call counts for nothing.
-PauseStopsHead == /\ (decided /\ winState \in PausedStates) => head[1] = "off"
+PauseStopsHead == /\ (decided /\ winState \in PausedStates /\ 1 \notin refused) => head[1] = "off"
                   /\ ~pauseBroken
 
 \* A person's override holds until the window reads closed.
 OverrideHolds == ~overrideBroken
+
+\* A head is never sent a direction the record doesn't hold, unless a person has picked
+\* a mode since that apply's decision: nothing a head does can leave the record behind.
+RecordLeadsHeads == ~trailing
+
+\* The target never takes a value that only MXZ's own writes put on the head. Three ways
+\* past the memory are open findings in docs/STATE-MACHINES.md, each a rule of its own:
+\* a write from before a process start (SM-1), and a write still queued that a person's
+\* press of a remembered value, or an adoption, dropped from the memory (SM-10).
+OwnWriteNeverAdopted == "mxz" \notin adopted
+StartWriteNeverAdopted == "start" \notin adopted
+QueuedWriteNeverAdopted == adopted \cap {"echo", "seen"} = {}
+
+\* No setpoint write to a head while a change made at it holds.
+HoldBlocksWrite == ~writeInHold
 
 (***************************************************************************)
 (* Reachability. Each of these is expected to BREAK, in the config named   *)
@@ -639,4 +861,8 @@ NeverOverrideRunning == ~(decided /\ winOverride = "manual" /\ winRead = "open" 
 NeverPauseRestored == ~(~decided /\ boot > 0 /\ winState = Paused)
 NeverLagEcho == ~(fanSent # None /\ fanCmd = fanSent /\ fanShown = fanPrev /\ fanShown # fanCmd)
 NeverTwoBehindEcho == ~(decided /\ twoBehind /\ fanShown \in fanOlder /\ ~fanLatched)
+NeverRefused == refused = {}
+NeverCutShort == ~cutShort
+NeverAdopts == target \in Targets
+NeverLateOwnWriteInQuiet == ~(quiet /\ shownKind = "start" /\ spShown # target /\ ~Own(spMem, spShown))
 =============================================================================

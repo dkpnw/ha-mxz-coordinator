@@ -62,6 +62,30 @@ head**; MXZ is then the only writer, as before.
   now ends "re-applying via the coordinator." instead of "re-applied", because it can go out
   before the head is written. An automation that matched the old text needs the new one.
 
+- **A head that fails in an unexpected way no longer takes MXZ down with it.** A head whose
+  integration raised an error other than Home Assistant's own (a bug in that integration, or a
+  library's timeout passed through) made the room thermostats and the plan sensor unavailable,
+  and the mode change it was part of was not recorded: the Shared mode select kept showing the
+  old mode, no mode-change wait started, and the outdoor unit could reverse a second later. Now
+  that head's room shows the command as rejected and is tried again at the next update, as for
+  any refused command, and the change is recorded and held. The mode is now recorded before any
+  head is sent it, so no head's answer, new input or reload can leave the record behind.
+
+- **A cloud or generic head's refused write is tried again sooner.** When the head's
+  integration refused a write batch, MXZ still waited out the whole confirm wait (90 seconds by
+  default, up to 600) before sending it again, and the room's row read `pending`. It is now sent
+  again once the write interval allows (60 seconds by default), with or without anything else
+  happening in the house, and the row reads `unconfirmed`. A freeze floor or overheat ceiling whose command such a head refuses now reads
+  held, as on a local head, instead of heat or cool.
+
+- **A change at the head is no longer written over by a command MXZ planned before it.** With
+  Accept changes made at the head on, a setpoint or off pressed at a head while MXZ's own command
+  to that head was still waiting its turn (behind a slow head, a fan pick on the room's thermostat
+  or a vane kick's cleanup) was overwritten when that command went out, so the press was lost. That
+  waiting command is now dropped, and the press is adopted as usual. A press taken back within the
+  5 seconds leaves nothing to adopt, and the room's own setting then still reaches the head.
+
+- Docs and tests only: [docs/STATE-MACHINES.md](docs/STATE-MACHINES.md) lists every state machine in the integration, the invalid states found, and what became of each. The TLA+ model now checks an apply's commands as separate steps and changes made at a head, with two open findings on the latter waiting on a decision. The property rig's restart now drops everything MXZ keeps in memory and starts Home Assistant as a real restart does.
 - CI only: the HA 2026.10 qualification now exports a suite or fresh-boot log over 5 MiB whole, gzipped into the job log, instead of failing.
 - CI and tests only: ruff moves to 0.17.4 in the CI tools and in each HA test-lane lock, ruff's target is now set to py312, and a new contract test checks that every test-requirement floor installs under each lane's lock. The pytest floors stay where the HA 2024.12.5 lock holds them.
 - CI and config only: Dependabot no longer proposes pytest, pytest-asyncio or pytest-homeassistant-custom-component bumps, which the HA 2024.12.5 test plugin's exact pins cannot install, and the pre-commit ruff hook moves from 0.16.0 to 0.17.4 to match CI. Contract tests hold both.

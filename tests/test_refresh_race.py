@@ -455,9 +455,9 @@ async def test_ready_request_after_application_publishes_current_inputs(
             hass.async_create_task(_set_band(hass, entry, "number", narrow))
         )
 
-    async def apply(plan, selection_seq):
+    async def apply(plan):
         nonlocal armed
-        await original_apply(plan, selection_seq)
+        await original_apply(plan)
         if armed:
             armed = False
             entered.set()
@@ -500,11 +500,11 @@ async def test_direct_refresh_consumes_redundant_followup(
     release = asyncio.Event()
     original_apply = coord._apply
 
-    async def apply(plan, selection_seq):
+    async def apply(plan):
         if len(snapshots) == 1:
             entered.set()
             await release.wait()
-        await original_apply(plan, selection_seq)
+        await original_apply(plan)
 
     monkeypatch.setattr(coord, "_apply", apply)
     start = coord.async_refresh if origin == "direct" else coord.async_request_refresh
@@ -539,13 +539,13 @@ async def test_interrupted_active_refresh_keeps_requested_followup(
     release = asyncio.Event()
     original_apply = coord._apply
 
-    async def apply(plan, selection_seq):
+    async def apply(plan):
         if len(snapshots) == 1:
             entered.set()
             await release.wait()
             if end == "exception":
                 raise RuntimeError("injected apply failure")
-        await original_apply(plan, selection_seq)
+        await original_apply(plan)
 
     monkeypatch.setattr(coord, "_apply", apply)
     start = coord.async_refresh if origin == "direct" else coord.async_request_refresh
@@ -586,11 +586,11 @@ async def test_cancelled_direct_waiter_does_not_consume_followup(
     release = asyncio.Event()
     original_apply = coord._apply
 
-    async def apply(plan, selection_seq):
+    async def apply(plan):
         if len(snapshots) == 1:
             entered.set()
             await release.wait()
-        await original_apply(plan, selection_seq)
+        await original_apply(plan)
 
     monkeypatch.setattr(coord, "_apply", apply)
     start = coord.async_refresh if origin == "direct" else coord.async_request_refresh
@@ -639,11 +639,11 @@ async def test_retirement_cancels_completion_followup(
     release = asyncio.Event()
     original_apply = coord._apply
 
-    async def apply(plan, selection_seq):
+    async def apply(plan):
         if len(snapshots) == 1:
             entered.set()
             await release.wait()
-        await original_apply(plan, selection_seq)
+        await original_apply(plan)
 
     monkeypatch.setattr(coord, "_apply", apply)
     first = hass.async_create_task(coord.async_refresh())
@@ -708,12 +708,12 @@ async def test_two_active_windows_each_coalesce_once(
     release = [asyncio.Event(), asyncio.Event()]
     original_apply = coord._apply
 
-    async def apply(plan, selection_seq):
+    async def apply(plan):
         index = len(snapshots) - 1
         if index < 2:
             entered[index].set()
             await release[index].wait()
-        await original_apply(plan, selection_seq)
+        await original_apply(plan)
 
     monkeypatch.setattr(coord, "_apply", apply)
     start = coord.async_refresh if origin == "direct" else coord.async_request_refresh

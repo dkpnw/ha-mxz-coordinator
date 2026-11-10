@@ -242,9 +242,11 @@ included; `ci-votes-restarts*` combine votes with reloads and restarts, and
   only when it is newer (the decision for F3), so that path stays; it is
   documented in docs/FEATURES.md "Mode-change wait" and has not been
   replayed on the real code.
-- One `Decide` is one `_compute` plus `_apply` with no event between; a
-  person's pick or a reading arriving during an `_apply` (the
-  `_selection_seq` guard) is not modeled.
+- One `Decide` is one `_compute` plus `_apply` with no event between. The
+  code records the mode (`_write_back_mode`) before any head is sent it, so a
+  pick or a reading during the deliveries finds the record written;
+  `docs/formal/tla/MXZCoordinator.tla` checks the deliveries as steps
+  (`ci-apply`), this model does not.
 - The Store record is written at the change (`async_delay_save(..., 0)`): a
   crash within that one event-loop turn would lose it too, and is not
   modeled. The model's record times and the select's `last_changed` are the

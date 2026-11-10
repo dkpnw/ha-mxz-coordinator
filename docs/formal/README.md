@@ -1,7 +1,8 @@
 # Formal checks of the coordinator
 
 Three checks of one set of rules: the coordinator's mode arbitration, the hold between mode
-changes (dwell, anti-flip), the door/window pause, the manual fan hold and restart continuity.
+changes (dwell, anti-flip), the door/window pause, the manual fan hold, restart continuity, the
+apply as separate steps, and changes made at a head.
 
 | File | What it is |
 | --- | --- |
@@ -9,6 +10,7 @@ changes (dwell, anti-flip), the door/window pause, the manual fan hold and resta
 | [tla/MXZCoordinator.tla](tla/MXZCoordinator.tla) | The same machine in TLA+. TLC checks every order of steps at small bounds. |
 | `tests/test_properties_*.py` | Hypothesis properties on the real integration, in the normal suite on every lane. |
 | [PARKED-FINDINGS.md](PARKED-FINDINGS.md) | What these checks found, and the accepted exception on cloud heads. |
+| [../STATE-MACHINES.md](../STATE-MACHINES.md) | Every state machine in the integration, explicit or implicit, with the invalid states found and where each is held. This folder is its formal part. |
 
 The model finds orderings nobody thought to test, and the properties check that the code
 itself does what the model says. A pass covers the model at these bounds and the examples
@@ -33,6 +35,11 @@ stay as they are, and this model doesn't repeat them.
 | After a decision no head runs against the shared mode. A run keeps Resting mode waiting. | `HeadsFollowMode` | `test_no_flip_inside_the_hold_and_no_wait_after_it`, `test_a_run_in_the_shared_mode_keeps_it_from_resting_mode` |
 | A window pause stops the head, writes it no fan, and its call counts for nothing. | `PauseStopsHead` | `test_a_pause_stops_the_head_and_a_takeover_holds_until_the_window_closes`, `test_a_paused_room_never_keeps_or_turns_the_shared_mode`, `test_the_delays_decide_a_pause_and_a_resume`, `test_only_a_running_delay_has_a_wakeup`, `test_only_on_and_off_are_readings`, `test_no_reading_never_starts_a_pause_and_never_ends_one` |
 | A person's override holds until the window reads closed. | `OverrideHolds` | `test_a_pause_stops_the_head_and_a_takeover_holds_until_the_window_closes`, `test_an_override_is_never_paused_and_a_closed_reading_ends_it` |
+| A head is never sent a direction the record doesn't hold, so a head's error, a new input or a reload can't leave the record behind. | `RecordLeadsHeads`, in `ci-apply` | `test_a_head_is_sent_a_new_mode_only_once_it_is_the_recorded_mode`, `test_a_head_that_raises_during_a_mode_change_doesnt_undo_the_change` in `tests/test_head_fault.py` |
+| A change made at a head is never MXZ's own write: the target never takes a value only MXZ put on the head, apart from the open findings below. | `OwnWriteNeverAdopted`, in `ci-adopt` and `ci-adopt-restart` | `test_no_person_no_adoption_however_a_head_lags`, `test_every_report_of_a_head_showing_writes_in_order_reads_as_own` in `tests/test_accept_head_changes.py` |
+| A reload keeps MXZ's record of its writes, so a write from before it is never adopted. | `StartWriteNeverAdopted`, in `ci-adopt`; open after a process start (SM-1) | `test_the_memory_rides_a_reload_with_the_head_still_behind`, `test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_write_out` |
+| MXZ doesn't write a head's setpoint while a change made there holds. | `HoldBlocksWrite`, in `ci-adopt` | `test_a_change_must_hold_and_isnt_overwritten_while_it_does`, `test_a_press_while_mxzs_command_waits_for_the_head_is_adopted` |
+| Open, SM-10: a write still queued at a head that the memory has dropped is never adopted. | `QueuedWriteNeverAdopted`, a finding in `ci-adopt` | None: it breaks. [STATE-MACHINES.md](../STATE-MACHINES.md#sm-10-a-write-still-queued-at-a-head-can-drop-out-of-mxzs-memory-and-be-adopted-as-a-press) |
 
 ## Documented exceptions
 
@@ -53,6 +60,8 @@ pinned by a passing test that fails if the behavior changes. They aren't xfails 
 | **A start can hold a speed nobody touched**: `_reconcile_restored_hold`'s conservative false hold. A speed boost could never have written holds, even right after a hand-back. | `NoFalseHold` counts live reads only | `test_s11b_not_held_seed_above_boost_ceiling` in `tests/test_fan_hold_restore.py` |
 | **A write already sent can land after a Fan auto gesture.** MXZ writes nothing after the gesture, but a head still applying the earlier write can report it next. | `pickKind = "inflight"`; `gesture` | The spec's `ci-fan-lag` |
 | **A change on the head during the close delay** lasts one compute: the window has already closed, so the room goes on closing. It's chart transition W8. | Reachable in `ci-window` | `OverrideHolds` binds only while the window isn't closed |
+| **A head that refuses its command keeps its old mode** while the others run the new one, until it takes a retry at a later update (SM-5). Sending parks before runs would be a change to the delivery queue. | `refused`; `HeadsFollowMode` and `PauseStopsHead` leave a refused head out; reachable by `NeverRefused` in `ci-apply` | `test_a_head_that_raises_during_a_mode_change_doesnt_undo_the_change` |
+| **A fixed standby park sends every head to the park mode**, a paused one included. `PauseStopsHead` holds because standby is outside the model. | Not a step of the machine | `docs/FEATURES.md`, standby hold |
 
 ### Where the known items came from
 
@@ -67,16 +76,23 @@ open beyond the limits listed there.
 
 ## What is modeled, and what isn't
 
-**A second writer, not in either spec.** A person's change at a head adopted by its room
-(`coordinator.py` `_head_adoption`, Accept changes made at the head) writes a room's target and
-enable, which neither spec has as variables: they are fixed at enabled with the default target.
-Its rule, that a report MXZ's own writes can explain is never a person, is the fan memory's rule
-for a head's mode and setpoints (`logic.py` `HeadWriteMemory`), and tests hold it, not TLC:
-`test_no_person_no_adoption_however_a_head_lags` and
-`test_every_report_of_a_head_showing_writes_in_order_reads_as_own` in
-`tests/test_accept_head_changes.py`. [STATECHART.md](STATECHART.md#changes-made-at-a-head) charts
-it. Modeling it is parked, not done: nothing here checks how it interacts with the shared mode's
-hold beyond those tests.
+**A second writer, in `ci-adopt` and `ci-adopt-restart` for room 1's setpoint.** A person's
+change at a head adopted by its room (`coordinator.py` `_head_adoption`, Accept changes made at
+the head) writes the room's target. Its rule, that a report MXZ's own writes can explain is never
+a person, is the fan memory's rule for a head's mode and setpoints (`logic.py`
+`HeadWriteMemory`). The model has room 1's target, the setpoint its head shows, the writes a
+lagging head hasn't shown yet in order, the memory as `HeadWriteMemory` keeps it, the hold, startup
+quiet, a reload and a process start. Each queued write carries a ghost kind saying how it left the
+memory, if it did, so the strict rule is checked and each way past it is a finding of its own:
+SM-1 (a process start) and SM-10 (a person's press of a remembered value, or `HeadWriteMemory.seen`
+replacing a queued write). The enable (on and off at the head), the heat/cool choice and every gate
+but startup quiet are not in it; the tests in `tests/test_accept_head_changes.py` hold those.
+[STATECHART.md](STATECHART.md#changes-made-at-a-head) charts it.
+
+**The apply as steps, in `ci-apply`.** With `WithSplit`, a Decide is the compute and the mode's
+record (`_write_back_mode` runs with the heads' commands queued and none run yet), and each head's
+command is a later step that can be refused. Readings, picks, reloads and restarts land between
+them. An apply counts as a decision only if nothing came in since.
 
 **In the spec.** Rooms in priority order, enabled, with the default drift and threshold.
 Each room's reading as one of six positions, its engage latch, and its head's mode. The
@@ -104,8 +120,14 @@ the fan touched during the outage, and crash.
   `test_no_person_no_hold_when_a_head_reports_every_write_in_order`,
   `test_no_person_no_hold_when_a_head_jumps_to_its_latest_write` and
   `test_the_exception_is_still_the_last_two_with_a_write_in_flight` cover this.
-- Anything between `_compute` and the end of `_apply`: one Decide is one step, so a pick
-  arriving while a delivery awaits isn't modeled.
+- The delivery queue itself (`_queue_delivery`): one apply at a time, every command of an apply
+  goes before the next decision, and a later plan never supersedes a queued command. A head's
+  lock, a vane cleanup, a manual gesture waiting its turn, and a head whose handler never returns
+  are in `tests/test_command_delivery.py` and `tests/test_refresh_race.py`. A change made at a
+  head while a command waits (SM-6) is in `tests/test_accept_head_changes.py`.
+- Cloud heads' batching (SM-3 is held by `tests/test_cloud_heads.py`), the refresh debouncer
+  and its follow-up, floors, Dry, seasons, standby and vanes: see
+  [STATE-MACHINES.md](../STATE-MACHINES.md) section 6.3.
 - The fan ladder is cut to three rungs with the ceiling at the second. Delays and the hold are whole ticks.
 - Fan rules for a second room. Those dicts are per head, and `test_manual_fan_latch_isolated_per_zone` covers it.
 
@@ -139,6 +161,9 @@ By hand, from `docs/formal/tla/`: `java -cp "$TLA2TOOLS" tlc2.TLC -workers auto 
 | `ci-arbitration` | Two rooms, picks, reloads, restarts, crashes, a hold of 2 ticks |
 | `ci-arbitration-rest-heat` | The same with Resting mode set to heat |
 | `ci-arbitration-window` | Two rooms, one with a door/window |
+| `ci-apply` | Two rooms, the apply as steps with refused commands, picks, readings, reloads and restarts between them |
+| `ci-adopt` | Room 1's setpoint: a head up to two writes behind, presses at the head, targets set in Home Assistant, reloads |
+| `ci-adopt-restart` | The same with process starts and startup quiet instead of only reloads |
 
 ## Run the property tests
 
