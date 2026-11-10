@@ -182,7 +182,7 @@ numbers: `nan` and `±inf` are rejected.
   entry.
 - An error on a field inside a collapsed section is shown above that section, which
   opens: Home Assistant does not show field errors inside a section.
-- An invalid freshness profile is one error for the room page: “Nothing was saved.”
+- An invalid freshness profile is one error for the room page.
 
 <details>
 <summary>Screenshots of Configure errors and a successful save</summary>

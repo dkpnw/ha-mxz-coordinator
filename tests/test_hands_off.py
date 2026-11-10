@@ -1522,10 +1522,13 @@ async def test_room_page_opts_one_room_in_and_out(hass: HomeAssistant) -> None:
 
 _HANDS_OFF_LABEL = "Let its own remote run it while disabled"
 _HANDS_OFF_DESCRIPTION = (
-    "Off (the default): a disabled room's head is held off, as always. "
-    "On: when you disable the room, MXZ turns the head off once, retrying until "
-    "the head reports off. Then MXZ leaves the head alone until you enable the "
-    "room again."
+    "Off (the default): MXZ keeps a disabled room's head off. Turning that head "
+    "on to heat or cool, with its remote or its own app, enables the room again, "
+    "because \"Accept changes made at the head\" is on by default for every "
+    "install. Turn that off in Configure → Comfort and MXZ turns the head back off "
+    "instead. On: when you disable the room, MXZ turns the head off once, retrying "
+    "until the head reports off. Then MXZ leaves the head alone until you enable "
+    "the room again."
 )
 
 

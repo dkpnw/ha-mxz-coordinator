@@ -73,7 +73,7 @@ async def _rig(
 
 def _heals(calls: list[ServiceCall]) -> list[str]:
     """Every heal notice sent so far."""
-    return [call.data["message"] for call in calls if "re-applied via the coordinator" in call.data["message"]]
+    return [call.data["message"] for call in calls if "re-applying via the coordinator" in call.data["message"]]
 
 
 async def _quietly(rig: Rig, seconds: int) -> None:
@@ -170,7 +170,7 @@ async def test_a_flip_then_a_banned_mode_heals_once_after_the_band_delay(
     await _quietly(rig, 2)
     assert rig.heads[0].mode == "cool"
     assert _heals(calls) == [
-        f"Study: {HEAD} was in {mode}, off its coordinated mode - re-applied via the coordinator."
+        f"Study: {HEAD} was in {mode}, off its coordinated mode - re-applying via the coordinator."
     ]
     assert _target(rig) == TARGET
     assert _enabled(rig) is True
@@ -247,7 +247,7 @@ async def test_an_off_that_isnt_adopted_still_heals_and_notifies(hass: HomeAssis
     assert _enabled(rig) is True
     assert rig.heads[0].mode == "cool"
     assert _heals(calls) == [
-        f"Study: {HEAD} was off while its room is enabled - re-applied via the coordinator."
+        f"Study: {HEAD} was off while its room is enabled - re-applying via the coordinator."
     ]
     await rig.close()
 
@@ -279,7 +279,7 @@ async def test_option_off_heals_and_notifies_as_before(
     await _quietly(rig, 2)
     assert rig.heads[0].mode == "cool"
     assert _edges(rig) == (TARGET - 2, TARGET)
-    assert _heals(calls) == [f"Study: {HEAD} {message} - re-applied via the coordinator."]
+    assert _heals(calls) == [f"Study: {HEAD} {message} - re-applying via the coordinator."]
     assert _target(rig) == TARGET
     assert _enabled(rig) is True
     await rig.close()
@@ -326,7 +326,7 @@ async def test_a_heal_is_logged_every_time_and_notified_once_per_head_per_hour(
     rig.heads[0].person_mode("heat_cool")
     await _quietly(rig, BAND_DRIFT_DELAY + 1)
     assert _heals(calls)[1:] == [
-        f"Study: {HEAD} was in heat_cool, off its coordinated mode - re-applied via the coordinator."
+        f"Study: {HEAD} was in heat_cool, off its coordinated mode - re-applying via the coordinator."
     ]
     await rig.close()
 
@@ -339,8 +339,8 @@ async def test_the_limit_is_per_head(hass: HomeAssistant, freezer: Any) -> None:
     rig.heads[1].person_mode("dry")
     await _quietly(rig, BAND_DRIFT_DELAY + 1)
     assert _heals(calls) == [
-        f"Study: {HEAD} was in auto, off its coordinated mode - re-applied via the coordinator.",
-        f"Den: {OTHER} was in dry, off its coordinated mode - re-applied via the coordinator.",
+        f"Study: {HEAD} was in auto, off its coordinated mode - re-applying via the coordinator.",
+        f"Den: {OTHER} was in dry, off its coordinated mode - re-applying via the coordinator.",
     ]
     await rig.close()
 

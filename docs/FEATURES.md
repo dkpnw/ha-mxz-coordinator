@@ -29,10 +29,14 @@ named here live in Configure; see [Configuration](CONFIGURATION.md) for the menu
   hardware AUTO or heat/cool simultaneously.
 - Turning the tile off disables that room. Disabling a room relinquishes its
   coordination; it does not promise to power the raw head off.
-- By default a disabled room's head is held off: MXZ turns it off on every update,
-  including after someone turns it on from its own remote or timer. To run one room from
-  its own remote instead, turn on **Let its own remote run it while disabled** for it;
-  see [Run one room from its own remote](#run-one-room-from-its-own-remote).
+- MXZ keeps a disabled room's head off. If someone turns that head on to heat or cool
+  from its own remote, app, or timer, the room is enabled again after about 5 seconds. A
+  head turned on in any other mode is turned off again. That is
+  [Accept changes made at the head](#accept-changes-made-at-the-head), which is on by
+  default for every install, existing ones included. With it turned off in Configure →
+  Comfort, MXZ turns the head off on every update, whatever it was turned on to. To run
+  one room from its own remote instead, turn on **Let its own remote run it while
+  disabled** for it; see [Run one room from its own remote](#run-one-room-from-its-own-remote).
 
 Expose the per-room thermostats to HomeKit/Google, or use them in HA. Avoid exposing a
 second raw-head control for the same room.
@@ -415,9 +419,11 @@ The idea, its scope and its first version are
 ## Run one room from its own remote
 
 **Let its own remote run it while disabled** is a per-room setting in Configure → Rooms →
-(room). It is off for every room, and for every room of an existing install after
-upgrading, so nothing changes until you turn it on: a disabled room's head is held off,
-as always.
+(room). It is off for every room until you turn it on. With it off, MXZ keeps a disabled
+room's head off, and a head turned on to heat or cool at the head enables its room again.
+That is [Accept changes made at the head](#accept-changes-made-at-the-head), which is on by
+default for every install. To have MXZ turn the head back off instead, turn that option off
+in Configure → Comfort.
 
 With it on, when you disable that room (its switch, or its tile set to `off`):
 

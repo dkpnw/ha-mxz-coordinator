@@ -19,7 +19,7 @@ Comfort, and an entry with no stored value has it on. These cases behave differe
   update, as with the option off.
 - **The drift alert names the room and head,** and goes out at most once per head per hour,
   with the option on or off. For example: `Study: climate.study_head was in auto, off its
-  coordinated mode - re-applied via the coordinator.` An automation that matched the old text
+  coordinated mode - re-applying via the coordinator.` An automation that matched the old text
   needs the new one. Every heal is logged as `MXZ heal:` in the Home Assistant log, alerted or
   not.
 

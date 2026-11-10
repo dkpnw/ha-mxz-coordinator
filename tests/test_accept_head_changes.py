@@ -132,9 +132,9 @@ async def _time_passes(rig: Rig) -> None:
         await rig.hass.async_block_till_done()
 
 
-async def _press(rig: Rig, **change: Any) -> None:
-    """A person at the head, with no compute after it."""
-    rig.heads[0].person_setpoint(**change)
+async def _press(rig: Rig, room: int = 0, **change: Any) -> None:
+    """A person at the room's head, with no compute after it."""
+    rig.heads[room].person_setpoint(**change)
     await rig.hass.async_block_till_done()
 
 
@@ -456,6 +456,47 @@ async def test_each_press_starts_the_hold_over(hass: HomeAssistant, freezer: Any
     assert _target(rig) == TARGET
     await rig.later(2)
     assert _target(rig) == 66
+    await rig.close()
+
+
+async def test_two_heads_pressed_inside_one_hold_are_each_adopted(hass: HomeAssistant, freezer: Any) -> None:
+    """The first head's adoption neither writes over the second head's hold nor ends it."""
+    rig = await open_rig(hass, freezer, temps=(HOT, HOT))
+    assert [head.mode for head in rig.heads] == ["cool", "cool"]
+    await _press(rig, low=64, high=66)
+    await rig.later(2)
+    await _press(rig, 1, low=66, high=68)
+    await rig.later(ADOPT_DELAY - 1)  # the Study's hold is over, the Den's is not
+    assert _target(rig) == 66
+    assert float(hass.states.get(rig.eid("_secondary_target")).state) == TARGET
+    den = hass.states.get(rig.heads[1].entity_id)
+    assert (den.attributes["target_temp_low"], den.attributes["target_temp_high"]) == (66, 68)
+    await rig.later(2)
+    assert float(hass.states.get(rig.eid("_secondary_target")).state) == 68
+    assert _target(rig) == 66
+    await rig.close()
+
+
+async def test_a_room_enabled_at_its_head_inside_the_mode_wait_waits_for_it(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """Adopting cool at a disabled room's head takes its target, not the shared mode."""
+    rig = await open_rig(hass, freezer, temps=(COLD, TARGET))
+    study = rig.eid("_primary_thermostat")
+    assert hass.states.get(study).attributes["mode_change_hold_remaining"] == HOLD
+    await rig.switch("_secondary_enable", False)
+    await rig.temp(0, TARGET)
+    await _press(rig, 1, mode="cool", low=64, high=66)
+    await rig.later(HELD)
+    assert hass.states.get(rig.eid("_secondary_enable")).state == "on"
+    assert float(hass.states.get(rig.eid("_secondary_target")).state) == 66
+    assert hass.states.get(rig.eid("_plan")).state == "heat"
+    assert hass.states.get(study).attributes["mode_change_hold_remaining"] > 0
+    assert rig.heads[1].mode != "cool"
+    await rig.later(HOLD)
+    assert hass.states.get(rig.eid("_plan")).state == "cool"
+    assert rig.heads[1].mode == "cool"
+    assert float(hass.states.get(rig.eid("_secondary_target")).state) == 66
     await rig.close()
 
 

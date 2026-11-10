@@ -48,6 +48,7 @@ from pytest_homeassistant_custom_component.common import (
 
 from custom_components.mxz_coordinator.capabilities import IDLE_ACTION_LABELS
 from custom_components.mxz_coordinator.const import (
+    ADOPT_DELAY,
     BAND_DRIFT_DELAY,
     CONF_IDLE_ACTION,
     CONF_INHIBIT_ACTION,
@@ -270,7 +271,7 @@ async def test_option_off_dry_is_still_healed(hass: HomeAssistant, stored: Any) 
     await rig.later(BAND_DRIFT_DELAY + 1)
     assert rig.state(1) == "fan_only"  # the plan's idle action, re-applied
     assert rig.notices() == [
-        f"Bedroom: {rig.heads[1]} was in dry, off its coordinated mode - re-applied via the coordinator."
+        f"Bedroom: {rig.heads[1]} was in dry, off its coordinated mode - re-applying via the coordinator."
     ]
     # A room that never opted in keeps exactly the row it had before.
     assert not {"allow_dry", "dry", "dry_vote"} & set(rig.row(1))
@@ -773,6 +774,21 @@ async def test_leaving_dry_starts_the_coil_dry_run(hass: HomeAssistant) -> None:
     assert rig.state(1) == "off"
 
 
+async def test_turned_off_from_dry_at_the_head_skips_the_coil_dry_run(hass: HomeAssistant) -> None:
+    """The default: that off is adopted, the room is disabled, and its head stays off."""
+    rig = await _setup(hass, idle=IDLE_ACTION_OFF_AFTER_DRY)
+    await rig.person(1, "dry")
+    await rig.recompute()
+    age_coil_dry(rig.coord, rig.heads[1], rig.coord.coil_dry_seconds + 5)
+    rig.forget()
+    await rig.person(1, "off")
+    await rig.later(ADOPT_DELAY + 1)
+    await rig.recompute()
+    assert hass.states.get(rig.eid("_secondary_enable")).state == "off"
+    assert rig.state(1) == "off"
+    assert "fan_only" not in rig.modes_sent(1)
+
+
 async def test_option_off_dry_owes_no_coil_dry(hass: HomeAssistant) -> None:
     """The control: opted out, the dry head is put straight back to off, as before."""
     rig = await _setup(hass, zones=({}, {}), idle=IDLE_ACTION_OFF_AFTER_DRY)
@@ -934,7 +950,8 @@ def test_room_page_copy_is_translated() -> None:
     assert label == "Allow Dry mode"
     assert description.startswith("Off (the default): if this head is put in Dry, MXZ puts it back")
     assert "doesn't turn Dry back on" in description
-    assert "Shown only for a head that offers Dry." in description
+    assert "Shown only for a head that offers Dry." not in description
+    assert "Apple Home may show a Cool choice for this room." in description
 
 
 # ---------------------------------------------------------------------------

@@ -836,6 +836,11 @@ async def test_s22_manual_control_paragraph_states_only_shipped_behaviour(
     assert '"Fan auto" switch off to hold' in review
     assert "turn that room's enable switch off" in review
     assert '"Coordinator enable" off' in review
+    assert (
+        'By default, a setpoint or off set at a head is kept and changes its room. '
+        'To have MXZ write over those too, turn off "Accept changes made at the head" '
+        'in Configure → Comfort.'
+    ) in review
     # Nothing here may promise the M24 semantics no code implements yet.
     for unbuilt in ("Resume automatic control", "wall remote", "survives a restart"):
         assert unbuilt not in review

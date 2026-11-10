@@ -597,10 +597,8 @@ def test_the_help_text_says_what_blank_means_in_both_flows() -> None:
     raw = (Path(component.__file__).parent / "strings.json").read_text("utf-8")
     strings = json.loads(raw)
     help_text = (
-        "Leave blank to use Allowed drift. The room always runs back to its"
-        " target. These only set how far it can wander before a head starts"
-        " again. A room's own drift number, once set, replaces both. A room's"
-        " own uneven drift (Rooms, then the room) replaces either one."
+        "Leave blank to use Allowed drift. A room's own drift number, once set,"
+        " replaces this. So does a room's own uneven drift (Rooms, then the room)."
     )
     for flow in ("config", "options"):
         advanced = strings[flow]["step"]["comfort"]["sections"]["advanced"]

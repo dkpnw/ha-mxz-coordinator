@@ -990,14 +990,11 @@ def _strings(name: str) -> dict[str, Any]:
 ROOM_SECTION = {
     "name": "Uneven drift",
     "description": (
-        "Optional, for power users: leave both empty to change nothing. The room"
-        " always runs back to its target. These only set how far it can wander"
-        " before its head starts again. For each side, MXZ uses the first of"
-        " these that's set: this page, this room's drift number (once you or an"
-        " automation set it; Follow global drift clears it), Comfort's \"Let it"
-        " get cooler by\" or \"Let it get warmer by\", and then Allowed drift. The"
-        " drift number still shows one value; its drift_heat and drift_cool"
-        " attributes show the drift in use on each side."
+        "For each side, MXZ uses the first of these that's set: this page, this"
+        " room's drift number (once you or an automation set it; Follow global"
+        " drift clears it), Comfort's \"Let it get cooler by\" or \"Let it get"
+        " warmer by\", and then Allowed drift. The drift number's drift_heat and"
+        " drift_cool attributes show the drift in use on each side."
     ),
     "data": {
         FIELD_COOLER: "Let it get cooler by",
@@ -1006,13 +1003,11 @@ ROOM_SECTION = {
     "data_description": {
         FIELD_COOLER: (
             "How far below target this room can get before heating starts."
-            " Overrides this room's drift number and Comfort, on the heat side"
-            " only. 0.5-5 °F (0.25-2.5 °C)."
+            " 0.5-5 °F (0.25-2.5 °C)."
         ),
         FIELD_WARMER: (
             "How far above target this room can get before cooling starts."
-            " Overrides this room's drift number and Comfort, on the cool side"
-            " only. 0.5-5 °F (0.25-2.5 °C)."
+            " 0.5-5 °F (0.25-2.5 °C)."
         ),
     },
 }
