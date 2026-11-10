@@ -82,7 +82,8 @@ head**; MXZ is then the only writer, as before.
   Accept changes made at the head on, a setpoint or off pressed at a head while MXZ's own command
   to that head was still waiting its turn (behind a slow head, a fan pick on the room's thermostat
   or a vane kick's cleanup) was overwritten when that command went out, so the press was lost. That
-  waiting command is now dropped, and the press is adopted as usual.
+  waiting command is now dropped, and the press is adopted as usual. A press taken back within the
+  5 seconds leaves nothing to adopt, and the room's own setting then still reaches the head.
 
 - Docs and tests only: [docs/STATE-MACHINES.md](docs/STATE-MACHINES.md) lists every state machine in the integration, the invalid states found, and what became of each. The TLA+ model now checks an apply's commands as separate steps and changes made at a head, with two open findings on the latter waiting on a decision. The property rig's restart now drops everything MXZ keeps in memory and starts Home Assistant as a real restart does.
 - CI only: the HA 2026.10 qualification now exports a suite or fresh-boot log over 5 MiB whole, gzipped into the job log, instead of failing.

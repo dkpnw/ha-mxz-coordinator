@@ -1438,9 +1438,12 @@ async def test_a_cloud_heads_older_mode_in_its_window_is_not_adopted(hass: HomeA
     assert hass.states.get(_eid(hass, entry, "_primary_enable")).state == "off"
 
 
-async def _queued_behind_a_gesture(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> Callable[[], Awaitable[None]]:
+async def _queued_behind_a_gesture(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch, *, fan_mode: str = "low", target: float | None = None,
+) -> Callable[[], Awaitable[None]]:
     """A fan pick on the room's thermostat holds the head's handler open, and a plan's
-    command to the head queues behind it. Returns what lets the handler finish."""
+    command to the head queues behind it, for a new ``target`` set in Home Assistant if
+    one is given. Returns what lets the handler finish."""
     hass, head = rig.hass, rig.heads[0]
     entered, release = asyncio.Event(), asyncio.Event()
     fan = type(head).async_set_fan_mode
@@ -1453,10 +1456,15 @@ async def _queued_behind_a_gesture(rig: Rig, monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(head, "async_set_fan_mode", slow)
     gesture = hass.async_create_task(hass.services.async_call(
         "climate", "set_fan_mode",
-        {"entity_id": rig.eid("_primary_thermostat"), "fan_mode": "low"}, blocking=True,
+        {"entity_id": rig.eid("_primary_thermostat"), "fan_mode": fan_mode}, blocking=True,
     ))
     while not entered.is_set():
         await asyncio.sleep(0)
+    if target is not None:
+        await hass.services.async_call(
+            "number", "set_value", {"entity_id": rig.eid("_primary_target"), "value": target},
+            blocking=True,
+        )
     refresh = hass.async_create_task(rig.coord.async_refresh())
     for _ in range(20):
         await asyncio.sleep(0)
@@ -1495,4 +1503,56 @@ async def test_a_flip_alone_while_mxzs_command_waits_is_put_back_by_it(
     await done()
     assert rig.heads[0].mode == "cool"
     assert _target(rig) == TARGET
+    await rig.close()
+
+
+async def _settle_without_a_compute(rig: Rig, seconds: int) -> None:
+    """Time passes one second at a time, and only Home Assistant's own timers run."""
+    for _ in range(seconds):
+        rig.freezer.tick(1)
+        async_fire_time_changed(rig.hass, dt_util.utcnow())
+        await rig.hass.async_block_till_done()
+
+
+async def _taken_in(rig: Rig) -> None:
+    """Let the head's report reach MXZ without waiting on the held handler."""
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+
+@pytest.mark.parametrize("taken_back", ["before the command's turn", "after the command's turn", None])
+async def test_a_press_taken_back_in_its_hold_leaves_the_room_target_to_reach_the_head(
+    hass: HomeAssistant, freezer: Any, monkeypatch: pytest.MonkeyPatch, taken_back: str | None,
+) -> None:
+    """SM-6's disown, undone: a press taken back leaves nothing adopted, so the plan owes the head
+    the room's new target. No compute is forced once the command is queued, so MXZ must wake itself.
+
+    ``None`` is the negative: a press that stays is adopted, and the waiting command never goes.
+    It also shows the press arms the hold in this setup, so the two cases above take it back.
+    """
+    rig = await _cooling(hass, freezer)
+    head = rig.heads[0]
+    new = TARGET + 4
+    # Past any refresh cooldown, so no deferred refresh is left to wake MXZ by chance.
+    await _settle_without_a_compute(rig, 60)
+    done = await _queued_behind_a_gesture(rig, monkeypatch, fan_mode=head.fan, target=new)
+    assert rig.row()["command_deferred"], "no command is waiting for the head"
+    assert _edges(rig) == (TARGET - 2, TARGET)
+    head.person_setpoint(low=TARGET - 6, high=TARGET - 4)
+    await _taken_in(rig)
+    if taken_back == "before the command's turn":
+        head.person_setpoint(low=TARGET - 2, high=TARGET)
+        await _taken_in(rig)
+    await done()
+    if taken_back == "after the command's turn":
+        assert _edges(rig) == (TARGET - 6, TARGET - 4)  # the disowned command sent nothing
+        head.person_setpoint(low=TARGET - 2, high=TARGET)
+        await hass.async_block_till_done()
+    await _settle_without_a_compute(rig, 300)
+    if taken_back is None:
+        assert _target(rig) == TARGET - 4
+        assert _edges(rig) == (TARGET - 6, TARGET - 4)
+    else:
+        assert _target(rig) == new
+        assert _edges(rig) == (new - 2, new)
     await rig.close()

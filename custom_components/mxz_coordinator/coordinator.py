@@ -5234,7 +5234,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # drift (the plan wants that head awake).
         off_drift = self._off_while_enabled(entity_id, mode) and not self.inhibited and not stale
         self._arm_or_cancel(entity_id, "off", off_drift, OFF_WHILE_ENABLED_DELAY)
-        self._watch_head_change(entity_id, old_state, new_state)
+        if self._watch_head_change(entity_id, old_state, new_state):
+            refresh_needed = True  # a hold ended with nothing adopted: the plan owes the head
         if (cloud := self._cloud.get(entity_id)) is not None and cloud.unresponsive:
             refresh_needed = True  # an out-of-control cloud head reported again
 
@@ -5458,7 +5459,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return change
 
     @callback
-    def _watch_head_change(self, climate_id: str, old_state: Any, new_state: Any) -> None:
+    def _watch_head_change(self, climate_id: str, old_state: Any, new_state: Any) -> bool:
         """Arm, re-arm or cancel the adopt timer on a head's report.
 
         A report from or to unavailable is the head (re)loading, never a person,
@@ -5466,30 +5467,37 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         mode or the setpoint starts the hold over. A change with nothing to adopt
         (a heat/cool flip alone) holds nothing: the head goes back on the plan at
         the next compute, as with the option off.
+
+        True when this report ended a hold with nothing adopted (a press taken
+        back, say): the plan skipped the head while it held, and arming it
+        disowned any command still waiting, so the caller must re-plan.
         """
         if (
             not self.accept_head_changes or old_state is None or new_state is None
             or old_state.state in UNAVAILABLE_STATES or new_state.state in UNAVAILABLE_STATES
         ):
-            return
+            return False
         moved = {"mode"} if old_state.state != new_state.state else set()
         name = self._head_setpoint_field(climate_id, new_state)
         if name is not None and old_state.attributes.get(name) != new_state.attributes.get(name):
             moved.add("setpoint")
         if not moved:
-            return
+            return False
         moved |= self._adopt_moved.get(climate_id, set())
         if not self._head_adoption(climate_id, moved):
+            held = (climate_id, "adopt") in self._heal_timers
             self.drop_head_change(climate_id)
-            return
+            return held
         self._adopt_moved[climate_id] = moved
         self._arm_or_cancel(climate_id, "adopt", True, ADOPT_DELAY)
         self._disown_waiting_command(climate_id)
+        return False
 
     def _disown_waiting_command(self, climate_id: str) -> None:
         """A person's change at the head is newer than a command of ours still to
         be sent: disown it, as a superseded one is. One already sent cannot be
-        called back."""
+        called back. Whoever ends the hold re-plans: an adoption does, and so
+        does a hold that ends with nothing adopted (``_watch_head_change``)."""
         active = self._deliveries.get(climate_id)
         if active is not None and active["owner"] is self:
             active["superseded"] = True
