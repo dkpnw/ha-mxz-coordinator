@@ -62,6 +62,15 @@ head**; MXZ is then the only writer, as before.
   now ends "re-applying via the coordinator." instead of "re-applied", because it can go out
   before the head is written. An automation that matched the old text needs the new one.
 
+- **A head that fails in an unexpected way no longer takes MXZ down with it.** A head whose
+  integration raised an error other than Home Assistant's own (a bug in that integration, or a
+  library's timeout passed through) made the room thermostats and the plan sensor unavailable,
+  and the mode change it was part of was not recorded: the Shared mode select kept showing the
+  old mode, no mode-change wait started, and the outdoor unit could reverse a second later. Now
+  that head's room shows the command as rejected and is tried again at the next update, as for
+  any refused command, and the change is recorded and held. The mode is now recorded before any
+  head is sent it, so no head's answer, new input or reload can leave the record behind.
+
 - CI only: the HA 2026.10 qualification now exports a suite or fresh-boot log over 5 MiB whole, gzipped into the job log, instead of failing.
 - CI and tests only: ruff moves to 0.17.4 in the CI tools and in each HA test-lane lock, ruff's target is now set to py312, and a new contract test checks that every test-requirement floor installs under each lane's lock. The pytest floors stay where the HA 2024.12.5 lock holds them.
 - CI and config only: Dependabot no longer proposes pytest, pytest-asyncio or pytest-homeassistant-custom-component bumps, which the HA 2024.12.5 test plugin's exact pins cannot install, and the pre-commit ruff hook moves from 0.16.0 to 0.17.4 to match CI. Contract tests hold both.
