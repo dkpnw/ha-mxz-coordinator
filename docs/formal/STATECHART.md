@@ -46,7 +46,7 @@ stateDiagram-v2
 | M2 | The gate reads `elapsed >= hysteresis` on the monotonic clock. A timer re-renders the entities at the hold's end and decides nothing; another wakes the plan for a flip the hold deferred. | `coordinator.py` `_mode_change_elapsed`, `coordinator.py` `_arm_hold_end_timer`, `coordinator.py` `_sync_dwell_timer` |
 | M3 | A person's pick is never gated. A changed direction stamps the hold at once. An apply already running recorded its direction before it sent any head, so the pick is the newer record. | `select.py` `async_select_option`, `coordinator.py` `async_select_shared_mode` |
 | M4 | With the gate shut, the mode stays, whatever is asked, at any rank. A head wanting the other mode parks at its idle action. | `logic.py` `shared_mode`, `logic.py` `head_action` |
-| M5 | A change only hands-off votes made starts no hold. Not in this spec: `verification/modehold/MXZModeHold.tla` covers it. | `logic.py` `arbitrate`, `coordinator.py` `_apply` |
+| M5 | A change only hands-off votes made starts no hold. Not in this spec: `verification/modehold/MXZModeHold.tla` covers it. | `logic.py` `arbitrate`, `coordinator.py` `_write_back_mode` |
 | M6 | Once a coordinated room runs in a mode votes chose, the mode is MXZ's and the hold starts. Also in `MXZModeHold.tla`. | `coordinator.py` `_write_back_mode` |
 
 ## Changes made at a head
@@ -71,7 +71,7 @@ stateDiagram-v2
 | --- | --- | --- |
 | A1 | Every report passes MXZ's older writes, then is read against what is left. A write is remembered as it goes out. | `coordinator.py` `_on_head_change`, `coordinator.py` `_watch_head_change`, `coordinator.py` `_call_head_service`, `coordinator.py` `_remember_head_write`, `coordinator.py` `_head_writes_caught_up`, `logic.py` `wrote`, `logic.py` `caught_up` |
 | A2 | While the hold runs, `_apply` writes nothing to that head, and a command of MXZ's still waiting for the head is disowned. | `coordinator.py` `_head_change_settling`, `coordinator.py` `_apply`, `coordinator.py` `_arm_or_cancel`, `coordinator.py` `_disown_waiting_command` |
-| A3 | Eco, a standby hold, Coordinator off, a start, a pause, a floor run, a hands-off room's disablement or a stale cloud report: the change counts for nothing. | `coordinator.py` `_head_adoption`, `coordinator.py` `drop_head_change` |
+| A3 | Eco, a standby hold, Coordinator off, a start, a pause, a floor run, a hands-off room's disablement or a stale cloud report: the change counts for nothing. A head report that ends the hold this way, the head put back by hand say, asks for a compute, because the apply skipped that head and A2 disowned its waiting command. | `coordinator.py` `_head_adoption`, `coordinator.py` `drop_head_change`, `coordinator.py` `_watch_head_change`, `coordinator.py` `_on_head_change` |
 | A4 | The room's own number and switch take the change, held to the room's bounds. What the head shows then replaces what it last showed in the memory. | `coordinator.py` `_on_heal_timer`, `coordinator.py` `_async_adopt_head_change`, `coordinator.py` `_head_change_seen`, `logic.py` `seen` |
 | A5 | The next compute and apply. The head's heat or cool never reaches the shared mode. | `coordinator.py` `_apply` |
 

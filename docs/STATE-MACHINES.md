@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| Written | 2026-11-09 (America/Los_Angeles) |
-| Base | `f21dffef5b012ace9b31cf51fd277292f3ffa5b7` (`docs: clean-copy strings and correct accept-at-head help (#114)`). Every line number below is at that commit; the fixes in this change move some by a few lines. Code this change added has no line there and is cited by name (`_write_back_mode`, `_disown_waiting_command`, `CloudHead.refused`). |
+| Written | 2026-11-09 (America/Los_Angeles); updated 2026-11-10 after the second review (section 3.23, and the SM-3 and SM-6 fixes made whole) |
+| Base | `f21dffef5b012ace9b31cf51fd277292f3ffa5b7` (`docs: clean-copy strings and correct accept-at-head help (#114)`). Every line number below is at that commit; the fixes in this change move some by a few lines. Code this change added or changed has no line there and is cited by name (`_write_back_mode`, `_disown_waiting_command`, `CloudHead.refused`, `_watch_head_change`'s return). |
 | How | The catalog and findings SM-1 to SM-9 come from a read-only review with scratch probes on invented heads (section 1). The fixes, the repros, the TLA+ extensions and SM-10 come from the change that added this file. Nothing ran on a real head, a real Home Assistant or a cloud account. |
 | Companion documents | The formal checks: [formal/README.md](formal/README.md), [formal/STATECHART.md](formal/STATECHART.md), [formal/PARKED-FINDINGS.md](formal/PARKED-FINDINGS.md), [formal/tla/MXZCoordinator.tla](formal/tla/MXZCoordinator.tla), `verification/modehold/MXZModeHold.tla`. IDs such as H1 or M1 are those of the whole-repo audit of the same date. |
 
@@ -30,10 +30,10 @@ store needs the owner's OK.
 |---|---|---|
 | SM-1 late pre-restart write adopted | Open, needs a decision | `test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_write_out` (the quiet window); `StartWriteNeverAdopted` breaks in `ci-adopt-restart` |
 | SM-2 a head's unexpected error skips the mode record | Fixed | `tests/test_head_fault.py` |
-| SM-3 a refused cloud batch waits out the confirm wait | Fixed | `test_a_refused_batch_is_tried_again_once_the_write_interval_allows`, `test_a_floor_on_a_cloud_head_reads_held_while_its_command_is_refused`, `test_a_refused_batch_leaves_nothing_to_wait_on_and_keeps_the_rate` |
+| SM-3 a refused cloud batch waits out the confirm wait | Fixed | `test_a_refused_batch_goes_out_again_at_the_write_interval_with_nothing_else_happening`, `test_a_batch_refused_after_its_compute_has_ended_still_wakes_the_plan`, `test_a_refusal_that_outlasts_the_write_interval_is_sent_again_at_once`, `test_a_refused_batch_is_tried_again_once_the_write_interval_allows`, `test_a_floor_on_a_cloud_head_reads_held_while_its_command_is_refused`, `test_a_refused_batch_leaves_nothing_to_wait_on_and_keeps_the_rate`, `test_a_refusal_slower_than_the_write_interval_releases_the_next_batch_at_once` |
 | SM-4 the record depends on a race | Fixed | `test_a_head_is_sent_a_new_mode_only_once_it_is_the_recorded_mode`; `RecordLeadsHeads` in `ci-apply` |
 | SM-5 a refusing head stays in the old mode | Documented exception | [formal/README.md](formal/README.md#documented-exceptions); `NeverRefused` reaches it |
-| SM-6 a press while MXZ's command waits is written over | Fixed | `test_a_press_while_mxzs_command_waits_for_the_head_is_adopted`, `test_a_flip_alone_while_mxzs_command_waits_is_put_back_by_it` |
+| SM-6 a press while MXZ's command waits is written over | Fixed | `test_a_press_while_mxzs_command_waits_for_the_head_is_adopted`, `test_a_flip_alone_while_mxzs_command_waits_is_put_back_by_it`, `test_a_press_taken_back_in_its_hold_leaves_the_room_target_to_reach_the_head` |
 | SM-7 a start releases restored season lockouts | Open, needs a decision | Confirmed by a run; no test landed |
 | SM-8 a reload inside an apply loses the hold | Closed by the SM-4 fix | `RecordLeadsHeads` in `ci-apply`, with reloads and restarts inside an apply (`NeverCutShort` reaches them) |
 | SM-9 restore data up to 15 minutes old after a crash | Open, room-state store | — |
@@ -109,6 +109,7 @@ a clean stop and every 15 minutes; `Store` is written at once.
 | 3.20 | Dual setpoint | `MXZCoordinator`, `number.py`, options flow | restore data, with a one-shot `hass.data` hand-off | Tests only |
 | 3.21 | Persistence: what each start brings back | all of the above | — | `RestartRestores` covers the mode, hold, door/window; `ci-fan-crash` covers the fan |
 | 3.22 | Setup, reconfigure and options flows | `config_flow.py` | the flow object | Tests only |
+| 3.23 | Comfort priority | `MXZCoordinator`, `logic.comfort_priority`, `logic.comfort_stale_in` | nothing stored: read live from the entity, its age from Home Assistant's `last_changed` | `MXZModeHold.tla` leaves it out (its header); the arbitration in `tests/test_modehold_properties.py`, the rest tests only |
 
 ---
 
@@ -215,6 +216,7 @@ a reload on purpose, so a new coordinator waits behind an old handler.
 | Retire, or Coordinator switch off | owned → Retired | — | Mark retired and superseded | 3195–3213, 7418–7420 |
 | A person changes a head during a floor run | Queued → Superseded | — | Disown the queued command | 7083–7089, now `_disown_waiting_command` |
 | A person's change at the head arms the adopt hold | Queued → Superseded | the change will be adopted (3.11) | Disown the queued command; one already sent goes ahead (SM-6, fixed) | `_disown_waiting_command`, called where the hold is armed (5481–5482) |
+| A head report ends that hold with nothing adopted (the head put back by hand) | Superseded → re-owned, or Empty → Queued | — | Request a compute. A disowned command still queued is owned again if the plan still wants it, or gets the plan's newer one as `next`; one already skipped is replaced by a new one | `_watch_head_change` returns true and `_on_head_change` refreshes, as the floor-yield row does (5161–5162) |
 
 A head's handler has no timeout. A handler that never returns holds its head's lock for the life
 of the process, reloads included, and the room's row says so (2156–2174). That is a documented
@@ -223,7 +225,9 @@ limit, not a finding.
 **Modeled.** `MXZCoordinator.tla` `Deliver` and `Refuse` (`ci-apply`) take each head's command
 as a step of its own. The locks, supersession, follow-ups and both disowns are in tests only:
 `tests/test_command_delivery.py`, `tests/test_delivery_visibility.py`, and for SM-6
-`tests/test_accept_head_changes.py`.
+`tests/test_accept_head_changes.py`. The disown and its re-plan are tests only too: before the
+second review the disown had no re-plan when the hold ended with nothing adopted, and the head kept
+the old setting until an unrelated compute (section 4, SM-6).
 
 ### 3.4 Command status
 
@@ -372,8 +376,8 @@ and every other gate are in tests only. Additions:
 
 - **The ledger.** One `HeadWriteMemory` per head and per field (mode, and each setpoint field), in `hass.data["mxz_coordinator_head_writes"]`, keyed by unit (1380–1385; `logic.py:787-847`). A write is remembered before it goes out, with what the head showed then (3251–3252, 5336–5345). A report of a remembered value drops the older ones (5062, 5347–5352). A report of anything else is a person's.
 - **Gates.** No adoption while the option is off, the coordinator is retired or off, a standby hold or eco is on, startup quiet is on, the head is unavailable, the room is a disabled hands-off room, its floor is tripped, it is paused, or the report is a stale cloud poll (5399–5415).
-- **The hold.** Five seconds (`const.py:656`). Each further move starts it over and adds to what moved (5471–5482). While it holds and still counts, the apply skips that head (2888–2889, 5484–5491). Arming it also disowns a command for that head still waiting to be sent (`_disown_waiting_command`, SM-6).
-- **What ends a hold with nothing adopted.** The head going back, any gate closing (5478–5480), a change to the room in Home Assistant (7395–7397, `switch.py:302-303`), any start.
+- **The hold.** Five seconds (`const.py:656`). Each further move starts it over and adds to what moved (5471–5482). While it holds and still counts, the apply skips that head (2888–2889, 5484–5491). Arming it also disowns a command for that head still waiting to be sent (`_disown_waiting_command`, SM-6), so whatever ends the hold owes the head a compute.
+- **What ends a hold with nothing adopted.** The head going back, any gate closing (5478–5480), a change to the room in Home Assistant (7395–7397, `switch.py:302-303`), any start. Each is followed by a compute that puts the head back on the plan: the first two because the head report that ends the hold asks for one (`_watch_head_change` returns true, SM-6), the room change through its own refresh, and a start by its first compute. At the base the first two asked for none, which was harmless only while nothing was disowned.
 - **Adoption.** Through the room's own number and switch (5521–5568). A cloud head with a drive offset never gives a target, only an enable (5441–5444). A refused write adopts nothing (5564–5565).
 
 **What a start does.** The hold and the set of what moved are in memory and are lost at any
@@ -471,15 +475,16 @@ only. `_floor_expect` (1165, 6808–6875) is a fourth "is this report my own wri
 
 **States per cloud head** (`cloud.py:37-173`). startup window (any report may be an old poll) →
 unconfirmed or confirmed; a batch sent → pending for the confirm wait → confirmed, or
-unconfirmed and sent again; a batch refused → unconfirmed, sent again once the write interval
-allows; waiting for the write interval; waiting for a fan step; not controllable.
+unconfirmed and sent again; a batch refused → unconfirmed and waiting for the write interval,
+which wakes the plan when it allows the next batch; waiting for the write interval; waiting for a
+fan step; not controllable.
 
 | Event | From → to | Guard | Action | Code |
 |---|---|---|---|---|
 | Build | → startup window | — | One confirm wait in which nothing is sent | 3797–3805, 3979–3991 |
 | The plan wants something the head does not show | → pending | the write interval allows, the head is controllable | Record the batch, then send mode, setpoint, fan | 4012–4047; `cloud.py:118-159` |
 | The same, too soon after the last batch | → waiting for the write interval | — | Wake when due; whatever the plan wants then goes out | 4019–4024 |
-| A call in the batch raises | pending → unconfirmed | — | Drop the batch's intent, so nothing waits on it. The write interval still counts from it, and the window stays open, so a report of an older state is still stale. The room reads rejected and a tripped floor reads held. The next batch goes out once the interval allows (SM-3, fixed) | 4043–4046; `CloudHead.refused`, and `CloudHead.status` reads pending only with an intent or in the startup window |
+| A call in the batch raises | pending → unconfirmed, waiting for the write interval | — | Drop the batch's intent, so nothing waits on it. The write interval still counts from it, and the window stays open, so a report of an older state is still stale. Set `release_at` to the moment the interval allows the next batch and re-arm the cloud wakeup, which the compute that queued the batch may already have done without it; if the refusal itself took longer than the interval, request a compute now. The room reads rejected and a tripped floor reads held (SM-3, fixed) | 4043–4046; `CloudHead.refused(clock)`, `_sync_cloud_timer`; `CloudHead.status` reads pending only with an intent or in the startup window |
 | The plan wants what the last batch carried | pending → pending | inside the confirm wait | Nothing is sent again | 3979–3991 |
 | The head shows everything wanted | pending or unconfirmed → confirmed | the window is over | Stamp the time | 4012–4018 |
 | A report of an older mode, fan or setpoint | pending | inside the window | Not a person, not drift, not a vote | 3906–3919; `cloud.py:83-116` |
@@ -490,7 +495,8 @@ allows; waiting for the write interval; waiting for a fan step; not controllable
 to 300). One fan rung per 300 s. No write while not controllable (3968–3969).
 
 **Modeled.** Nowhere (`docs/formal/README.md:96-97`). Finding SM-3, now fixed, is here; its tests
-are in `tests/test_cloud_heads.py` and `tests/test_cloud_logic.py`.
+are in `tests/test_cloud_heads.py` and `tests/test_cloud_logic.py`. The ones that show the wakeup
+let only Home Assistant's own timers run once the room needs heat.
 
 ### 3.17 Seasons (lockouts)
 
@@ -593,6 +599,53 @@ A flow reserves its heads in its context and releases them when it is sent back 
 (set at `config_flow.py:1963` and `2521`, released at `2304-2321` and `2819-2831`). No invalid transition was found at this depth. Audit M8
 covers the structure.
 
+### 3.23 Comfort priority
+
+Added after the second review, which found this machine missing. From a read of the cited lines
+and the existing tests; nothing new was run for it.
+
+**State per room.** A status, shown as `comfort_priority_status` on the plan row, and the boost
+that goes with it (`logic.py:525-566`):
+
+| Status | Boost | When |
+|---|---|---|
+| `not_set` | 0 | no entity configured |
+| `missing` | 0 | the entity does not exist |
+| `unavailable`, `unknown` | 0 | its state is one of those |
+| `off` | 0 | an on/off entity (`binary_sensor`, `input_boolean`; `const.py:128`) not exactly `on` |
+| `on` | 1 | an on/off entity reading `on`, younger than the stale limit |
+| `stale` | 0 | an on/off entity reading `on` for the stale limit or longer |
+| `number` | its value, negative read as 0 | any other domain with a finite number |
+| `not_a_number` | 0 | any other domain with text, NaN or infinity |
+
+Nothing is stored. Each compute reads the entity (1945–1946; 5926–5950), and the age is the wall
+clock minus Home Assistant's own `last_changed` for it, so a clock stepped back reads as fresh
+(5926–5940).
+
+**Rules.**
+- A boost orders entries only inside their own tier, after the tier and before the room order. At Safety priority or above, and for anything not a positive finite number, it counts 0, so a reading can raise a room and never lower it (`logic.py:504-522`).
+- Stale applies to on/off entities only, never to a number (`logic.py:554-566`).
+- The stale limit is Configure → Comfort → Advanced, in hours: blank is 12, 0 is no limit, and a stored value is clamped to 0–168 (1013–1018, 7811–7826; `const.py:442-443`).
+- `mode_by_comfort_priority` is true only when a boost changed the answer: the same arbitration with every boost at 0 decides otherwise (1993–2002, 2074). The dwell wakeup replays the boost from the plan row (2637).
+
+| Event | From → to | Action | Code |
+|---|---|---|---|
+| Setup | → read at the first compute | Listen to every room's entity | 1573–1582 |
+| The entity changes state | any → its new reading, aged from now | Request a compute | 7546–7549 |
+| An `on` reaches the stale limit | on → stale | One wakeup, armed at the end of each compute for the nearest such moment; it only requests a compute, which re-reads every entity | 5952–5987, 2532; `logic.py:569-586` |
+| A reload | unchanged | Home Assistant keeps the state and its `last_changed`, so a stale `on` stays stale | `test_the_age_survives_a_reload_and_restarts_with_a_new_state` |
+| A Home Assistant restart | stale → on | The entity's state is written again at boot, so its age counts from then | the same test; `docs/FEATURES.md:744-750` documents it |
+| Retire or unload | — | Cancel the wakeup; a late re-sync arms nothing | 1729, 5961; `test_unload_cancels_the_stale_wakeup` |
+
+**Modeled.** `MXZModeHold.tla` leaves Comfort priority out (header, base line 46).
+`tests/test_modehold_properties.py` checks the boost in `logic.arbitrate` for every input in its
+table. The statuses, the stale moment and its wakeup are in tests only:
+`tests/test_comfort_priority_logic.py` and `tests/test_comfort_priority.py`
+(`test_the_stale_moment_wakes_a_recompute_by_itself`).
+
+**Findings.** None found by reading. A restart giving a stuck `on` its boost back is documented
+behavior, not a finding.
+
 ---
 
 ## 4. Invalid states and transitions the code can reach
@@ -693,11 +746,26 @@ is gone.
 
 **Label.** `confirmed (run)` for the missing retry, and for the floor row by the test below.
 
-**Status: fixed.** `CloudHead.refused()` drops the intent of a batch that raised and keeps the
-write interval and the window in which an older report is stale. The row reads `unconfirmed`,
-not `pending`, and `cloud_pending_until` follows the status. The fan memory and ladder index
-are still committed before the calls, so a refused fan write reads as MXZ's echo until the next
-batch: the conservative direction, never a false hold.
+**Status: fixed.** `CloudHead.refused(clock)` drops the intent of a batch that raised and keeps the
+write interval and the window in which an older report is stale. It also sets `release_at` to
+when the interval lets the next batch out, and the refusal re-arms the cloud wakeup for it, or
+requests a compute at once when the refusal took longer than the interval. The row reads
+`unconfirmed`, not `pending`, and `cloud_pending_until` follows the status. The fan memory and
+ladder index are still committed before the calls, so a refused fan write reads as MXZ's echo
+until the next batch: the conservative direction, never a false hold.
+
+The first fix dropped the intent but set no wakeup: `sent()` clears `release_at` and nothing
+else stood for the write interval, so with no other input the cloud timer woke the plan only at
+the window's end. The second review's probe showed the retry still 90 s after the refusal with
+the default confirm wait, and 300 s (an unrelated wakeup) or 600 s with a 600 s one. The landed
+test had recomputed by hand at +59 s and +60 s, so it never showed MXZ waking itself.
+`test_a_refused_batch_goes_out_again_at_the_write_interval_with_nothing_else_happening` now
+moves the clock a second at a time with no compute forced, for both confirm waits, once and
+always refused: every retry is 60 s after the last.
+`test_a_batch_refused_after_its_compute_has_ended_still_wakes_the_plan` covers a batch that
+waited behind the head's lock, and
+`test_a_refusal_that_outlasts_the_write_interval_is_sent_again_at_once` a refusal that took 61 s.
+Each fails on the first fix, and each of the three new lines is needed by one of them.
 
 **The rules it breaks.** "The next ordinary update may try again" (2168). A floor's "MXZ keeps
 trying at each update" (6932–6933, 6962–6963). Honest public state.
@@ -771,6 +839,18 @@ pick on the room's thermostat, queues a plan's command behind it, presses at the
 the pick finish: on the base the head went back to 68–70 and the target stayed 70; with the fix
 the press is adopted. The negative, `test_a_flip_alone_while_mxzs_command_waits_is_put_back_by_it`,
 shows a change with nothing to adopt leaves the command to put the head back.
+
+The first fix had a gap of its own, a regression against the base. A press arms the hold and
+disowns the command; if the person then puts the head back inside the 5 seconds, nothing is
+adopted and the hold ends, but nothing asked for a compute: the disowned command had no `next`,
+a setpoint-only report requests no refresh, and the apply had skipped the head while it held.
+The head kept 68–70 while the room's target read 74, with only Home Assistant's timers running
+for 300 seconds. A head report that ends a hold with nothing adopted now requests a compute, as
+the floor-yield caller of the same disown does.
+`test_a_press_taken_back_in_its_hold_leaves_the_room_target_to_reach_the_head` queues a command
+for a new target behind a fan pick, presses, takes the press back before or after the command's
+turn, and lets only the timers run: the head gets 72–74. Its third case, a press that stays, is
+adopted and the waiting command never goes.
 
 **Evidence.**
 - The apply checks for a holding press only when it queues (2888–2889).
