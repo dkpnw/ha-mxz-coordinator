@@ -125,8 +125,11 @@ fault, and the room has not been dropped.
   wakes the head in the shared mode. A room that needs the other mode has to win it
   first; see [A room needs heating or cooling but its head waits](#faq-waiting) below.
 - A head the plan parked off is not treated as drift, so the coordinator leaves it alone.
-  A head someone turns off while the plan wants it running is turned back on after about
-  30 seconds.
+  A head someone turns off while the plan wants it running disables its room after about
+  5 seconds, and the room stays off until someone enables it again. That is **Accept
+  changes made at the head**, which is on by default for every install, existing ones
+  included. With it turned off in Configure → Comfort, MXZ turns that head back on after
+  about 30 seconds instead.
 - A room waiting for the other mode parks the same way. While eco/away is on, a satisfied
   room parks off at once, with no drying run.
 
@@ -281,8 +284,11 @@ Comfort.
 Turn on **Let its own remote run it while disabled** for that room in Configure → Rooms,
 then disable the room (its switch, or set its tile to `off`). MXZ turns the head off once,
 retrying until the head reports `off`. Then MXZ leaves it alone until you enable the room
-again, across restarts too. With the setting off (the default), a disabled room's head is
-held off, and MXZ turns it back off whenever someone turns it on. See
+again, across restarts too. With the setting off (the default), MXZ keeps a disabled room's
+head off. Turning that head on to heat or cool at the head enables the room, so MXZ
+coordinates it again instead of leaving it to its remote. That is **Accept changes made at
+the head**, which is on by default for every install, existing ones included. With it turned
+off in Configure → Comfort, MXZ turns the head back off whenever someone turns it on. See
 [Run one room from its own remote](FEATURES.md#run-one-room-from-its-own-remote).
 
 </details>

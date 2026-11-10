@@ -94,7 +94,7 @@ Every core feature exists for a reason someone ran into:
 | **Runs each room on the temperature sensor you pick.** | Control follows the room you sit in, not a thermistor up near the ceiling. |
 | **Boosts the fan** the further a room is from target, up to a top speed you choose, and eases it down as the room closes in. A speed you pick by hand is kept until you hand it back. | The fan works hard only while a room is far off. |
 | **Gives each room one thermostat** for Home Assistant dashboards, Apple Home, or Google Home, all set up in the UI with no YAML. | One clean control per room, instead of raw head controls that can fight the plan. |
-| **Puts a head back** if someone switches it to auto, `heat_cool`, or `dry` (unless the room allows Dry mode), or turns it off while its room needs it, and can notify you when that happens. | A stray remote press doesn't quietly break coordination. |
+| **Puts a head back** if someone switches it to auto, `heat_cool`, or `dry` (unless the room allows Dry mode), and can notify you when that happens. A setpoint or off set at the head isn't put back: the room takes it. That is on by default for every install, existing ones included. To have MXZ put those back too, turn off **Accept changes made at the head** in Configure → Comfort. | A stray remote press doesn't quietly break coordination. |
 | **Follows the season** from a weather forecast or outdoor sensor, with heat-anyway and cool-anyway safety limits. | No heating on a day forecast to be warm, or cooling on a cold one. |
 | **Holds an empty house between away limits** (the Eco idle switch), and can **pause on a standby signal** such as a utility load-shed. | Less running when nobody's home, and a clean response to a grid or utility hold. |
 | **Keeps a lost head's last vote for a while** (30 minutes by default), then lets it go. | A short Wi-Fi dropout doesn't swing the shared mode, and a long one doesn't hold it forever. |
@@ -300,7 +300,9 @@ reorder heads later.
 
 - **Each room's thermostat** takes one target and `heat_cool` or `off`. `heat_cool`
   means MXZ picks the shared direction. Turning the tile `off` disables that room, and
-  by default its head is held off.
+  MXZ keeps its head off. Turning that head on to heat or cool at the head enables the
+  room again, by default on every install. To stop that, turn off **Accept changes made
+  at the head** in Configure → Comfort.
 - **Coordinator enable** off hands the heads back to their own controls; they keep
   their last commanded state.
 - **Shared mode** shows the current heat or cool. Picking one switches to it; MXZ can
@@ -540,7 +542,7 @@ pages, and each saves only what it shows:
 
 | Page | What you set |
 | --- | --- |
-| **Comfort** | Allowed drift, Mode switch threshold, Resting mode, Accept changes made at the head, and (under Advanced) the mode-switch wait, uneven drift, and how long a lost head's vote counts. |
+| **Comfort** | Allowed drift, Mode switch threshold, Resting mode, Accept changes made at the head, and (under Advanced) the mode-switch wait, uneven drift, how long a lost head's vote counts, and the Comfort priority stale limit. |
 | **Fan and idle** | Fan boost and its top speed, and what a room does when it reaches target. |
 | **Seasons** | A weather source and the heat and cool lockout temperatures, with safety overrides. |
 | **Away and setpoint limits** | The away band, and the lowest and highest setpoint a head may get. |
