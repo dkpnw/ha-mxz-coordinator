@@ -5484,6 +5484,16 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         self._adopt_moved[climate_id] = moved
         self._arm_or_cancel(climate_id, "adopt", True, ADOPT_DELAY)
+        self._disown_waiting_command(climate_id)
+
+    def _disown_waiting_command(self, climate_id: str) -> None:
+        """A person's change at the head is newer than a command of ours still to
+        be sent: disown it, as a superseded one is. One already sent cannot be
+        called back."""
+        active = self._deliveries.get(climate_id)
+        if active is not None and active["owner"] is self:
+            active["superseded"] = True
+            self._publish_delivery()
 
     def _head_change_settling(self, climate_id: str) -> bool:
         """Whether a person's change at this head is still holding, and would still count.
@@ -7084,13 +7094,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._floor_end(zone.slug)  # their earlier run is not handed back
         self._floor_yield[zone.slug] = (run.direction, now)
         self._hands_off_released.add(zone.slug)
-        # A command of ours still waiting to be sent (an off during the wait)
-        # would land over theirs: disown it, as a superseded one is. One
-        # already sent cannot be called back.
-        active = self._deliveries.get(zone.climate_id)
-        if active is not None and active["owner"] is self:
-            active["superseded"] = True
-            self._publish_delivery()
+        self._disown_waiting_command(zone.climate_id)
         _LOGGER.info(
             "MXZ floor: %s's head was changed by hand during a floor run; "
             "MXZ leaves it to that person until the floor re-arms", zone.name,

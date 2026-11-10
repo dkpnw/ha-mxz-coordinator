@@ -78,6 +78,12 @@ head**; MXZ is then the only writer, as before.
   `unconfirmed`. A freeze floor or overheat ceiling whose command such a head refuses now reads
   held, as on a local head, instead of heat or cool.
 
+- **A change at the head is no longer written over by a command MXZ planned before it.** With
+  Accept changes made at the head on, a setpoint or off pressed at a head while MXZ's own command
+  to that head was still waiting its turn (behind a slow head, a fan pick on the room's thermostat
+  or a vane kick's cleanup) was overwritten when that command went out, so the press was lost. That
+  waiting command is now dropped, and the press is adopted as usual.
+
 - CI only: the HA 2026.10 qualification now exports a suite or fresh-boot log over 5 MiB whole, gzipped into the job log, instead of failing.
 - CI and tests only: ruff moves to 0.17.4 in the CI tools and in each HA test-lane lock, ruff's target is now set to py312, and a new contract test checks that every test-requirement floor installs under each lane's lock. The pytest floors stay where the HA 2024.12.5 lock holds them.
 - CI and config only: Dependabot no longer proposes pytest, pytest-asyncio or pytest-homeassistant-custom-component bumps, which the HA 2024.12.5 test plugin's exact pins cannot install, and the pre-commit ruff hook moves from 0.16.0 to 0.17.4 to match CI. Contract tests hold both.

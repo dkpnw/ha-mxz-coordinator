@@ -8,7 +8,9 @@ change a head directly, as its remote does, never through a service MXZ could se
 
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -1432,3 +1434,63 @@ async def test_a_cloud_heads_older_mode_in_its_window_is_not_adopted(hass: HomeA
     await hass.async_block_till_done()
     await _elapse(hass, HELD)
     assert hass.states.get(_eid(hass, entry, "_primary_enable")).state == "off"
+
+
+async def _queued_behind_a_gesture(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> Callable[[], Awaitable[None]]:
+    """A fan pick on the room's thermostat holds the head's handler open, and a plan's
+    command to the head queues behind it. Returns what lets the handler finish."""
+    hass, head = rig.hass, rig.heads[0]
+    entered, release = asyncio.Event(), asyncio.Event()
+    fan = type(head).async_set_fan_mode
+
+    async def slow(fan_mode: str) -> None:
+        entered.set()
+        await release.wait()
+        await fan(head, fan_mode)
+
+    monkeypatch.setattr(head, "async_set_fan_mode", slow)
+    gesture = hass.async_create_task(hass.services.async_call(
+        "climate", "set_fan_mode",
+        {"entity_id": rig.eid("_primary_thermostat"), "fan_mode": "low"}, blocking=True,
+    ))
+    while not entered.is_set():
+        await asyncio.sleep(0)
+    refresh = hass.async_create_task(rig.coord.async_refresh())
+    for _ in range(20):
+        await asyncio.sleep(0)
+    assert refresh.done()
+
+    async def done() -> None:
+        release.set()
+        await gesture
+        await hass.async_block_till_done()
+
+    return done
+
+
+async def test_a_press_while_mxzs_command_waits_for_the_head_is_adopted(
+    hass: HomeAssistant, freezer: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The command was planned before the press: it waits, and the press wins (SM-6)."""
+    rig = await _cooling(hass, freezer)
+    done = await _queued_behind_a_gesture(rig, monkeypatch)
+    rig.heads[0].person_setpoint(low=64, high=66)
+    await done()
+    assert _edges(rig) == (64, 66)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    assert _edges(rig) == (64, 66)
+    await rig.close()
+
+
+async def test_a_flip_alone_while_mxzs_command_waits_is_put_back_by_it(
+    hass: HomeAssistant, freezer: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The negative: a change with nothing to adopt holds nothing, so the waiting command still goes."""
+    rig = await _cooling(hass, freezer)
+    done = await _queued_behind_a_gesture(rig, monkeypatch)
+    rig.heads[0].person_setpoint(mode="heat")
+    await done()
+    assert rig.heads[0].mode == "cool"
+    assert _target(rig) == TARGET
+    await rig.close()
