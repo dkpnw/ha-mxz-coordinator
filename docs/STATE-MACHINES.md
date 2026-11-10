@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Written | 2026-11-09 (America/Los_Angeles) |
-| Base | `f21dffef5b012ace9b31cf51fd277292f3ffa5b7` (`docs: clean-copy strings and correct accept-at-head help (#114)`). Every line number below is at that commit; the fixes in this change move some by a few lines. |
+| Base | `f21dffef5b012ace9b31cf51fd277292f3ffa5b7` (`docs: clean-copy strings and correct accept-at-head help (#114)`). Every line number below is at that commit; the fixes in this change move some by a few lines. Code this change added has no line there and is cited by name (`_write_back_mode`, `_disown_waiting_command`, `CloudHead.refused`). |
 | How | The catalog and findings SM-1 to SM-9 come from a read-only review with scratch probes on invented heads (section 1). The fixes, the repros, the TLA+ extensions and SM-10 come from the change that added this file. Nothing ran on a real head, a real Home Assistant or a cloud account. |
 | Companion documents | The formal checks: [formal/README.md](formal/README.md), [formal/STATECHART.md](formal/STATECHART.md), [formal/PARKED-FINDINGS.md](formal/PARKED-FINDINGS.md), [formal/tla/MXZCoordinator.tla](formal/tla/MXZCoordinator.tla), `verification/modehold/MXZModeHold.tla`. IDs such as H1 or M1 are those of the whole-repo audit of the same date. |
 
@@ -87,11 +87,11 @@ a clean stop and every 15 minutes; `Store` is written at once.
 
 | § | Machine | Owner | Lives in | Modeled |
 |---|---|---|---|---|
-| 3.1 | Coordinator lifecycle, Coordinator switch, startup quiet | `MXZCoordinator`, `__init__.py`, `switch.py` `MXZSwitch` | memory; the switch in restore data | Chart L1–L4; both specs (`Reload`, `Restart`, `Crash`). The switch and the quiet window: nowhere |
-| 3.2 | Refresh serialization | `MXZCoordinator` | memory | Nowhere |
+| 3.1 | Coordinator lifecycle, Coordinator switch, startup quiet | `MXZCoordinator`, `__init__.py`, `switch.py` `MXZSwitch` | memory; the switch in restore data | Chart L1–L4; both specs (`Reload`, `Restart`, `Crash`). Startup quiet as adoption's gate and a retire inside an apply: `MXZCoordinator.tla` (`ci-adopt-restart`, `ci-apply`). The switch: nowhere |
+| 3.2 | Refresh serialization | `MXZCoordinator` | memory | Inputs landing during one apply: `MXZCoordinator.tla` (`ci-apply`). The lock, the debouncer and the follow-up: nowhere |
 | 3.3 | Per-head delivery slot | `MXZCoordinator` | `hass.data` | `MXZCoordinator.tla` `Deliver`, `Refuse` (`ci-apply`); the queue's locks and supersession in tests only |
 | 3.4 | Command status | `MXZCoordinator` | `hass.data` | Nowhere |
-| 3.5 | Shared mode and its hold | `MXZCoordinator`, `logic.arbitrate`, `select.py` | `Store`, with the select's restore data second | Chart M1–M6; both specs. The writeback's place in the apply: nowhere |
+| 3.5 | Shared mode and its hold | `MXZCoordinator`, `logic.arbitrate`, `select.py` | `Store`, with the select's restore data second | Chart M1–M6; both specs. The writeback's place in the apply: `MXZCoordinator.tla` `WithSplit` (`ci-apply`, `RecordLeadsHeads`) |
 | 3.6 | A room's run, startup resume, coast wakeup | `MXZCoordinator`, `logic.engage_with_latch` | memory, re-read from the head | Chart R1–R4; both specs |
 | 3.7 | Room sensor freshness | `MXZCoordinator`, `logic.sensor_health` | memory | Tests only |
 | 3.8 | Head sight, lost vote, action vote | `logic.HeadSight` | memory | The vote as a mode in `MXZModeHold.tla`; the rest tests only |
@@ -143,9 +143,13 @@ after it starts.
 Startup quiet has three readers: the sensor warning (2356), the blind-floor notice (6898) and
 head adoption (5405). It is not a general "ignore the heads" switch.
 
-**Modeled.** Chart L1–L4. `Reload`, `Restart` and `Crash` in both specs. Not modeled: the
-Coordinator switch (every room is enabled with the coordinator on), startup quiet, and a retire
-that lands inside an apply (`MXZModeHold.tla` lines 10–18 say so).
+**Modeled.** Chart L1–L4. `Reload`, `Restart` and `Crash` in both specs. Startup quiet is in
+`MXZCoordinator.tla` as adoption's gate only: a process start sets `quiet` and `QuietEnds` ends it
+(`ci-adopt-restart`, section 6.2). Its other two readers are not modeled. A retire that lands
+inside an apply is `Reload` or `Restart` while `phase = "applying"` (`ci-apply`, section 6.1);
+`NeverCutShort` shows it is reached. Not modeled: the Coordinator switch (every room is enabled
+with the coordinator on). At the base, `MXZModeHold.tla` lines 10–18 named the retire inside an
+apply as unmodeled; that header now says the record comes before the deliveries.
 
 ### 3.2 Refresh serialization
 
@@ -177,8 +181,12 @@ Retired.
 | Head change that must count now (action vote, door/window delay, settle) | any → Deciding next | — | `_async_refresh_now`: wake the plan, refresh without the cooldown | 2475–2485, 5259–5260, 5856, 6285 |
 | MXZ's own delivery step raises | Applying → failed | — | The refresh fails; the plan sensor and room thermostats read unavailable. At the base a head's own unexpected error did this too (SM-2, fixed) | 3099–3100, 3134–3143 |
 
-**Modeled.** Nowhere: `docs/formal/README.md:107-108`. `tests/test_refresh_race.py` covers it by
-patching `_apply` and reading private fields (audit H3).
+**Modeled.** The lock, the debouncer and the follow-up: nowhere. `ci-apply` takes one apply's
+commands as steps with readings, picks, reloads and restarts landing between them, and an apply
+an input overtook does not count as a decision (section 6.1); it has one apply at a time and no
+follow-up. At the base `docs/formal/README.md:107-108` said nothing between `_compute` and the end
+of `_apply` was modeled. `tests/test_refresh_race.py` covers the rest by patching `_apply` and
+reading private fields (audit H3).
 
 ### 3.3 Per-head delivery slot
 
@@ -205,13 +213,17 @@ a reload on purpose, so a new coordinator waits behind an old handler.
 | Task done | → Empty | — | The recorded successor refreshes | 3145–3157 |
 | A person's gesture on the thermostat (fan, Dry) | occupied → gesture | — | Mark `manual`; the gesture waits for the lock | 3220–3239 |
 | Retire, or Coordinator switch off | owned → Retired | — | Mark retired and superseded | 3195–3213, 7418–7420 |
-| A person changes a head during a floor run | Queued → Superseded | — | Disown the queued command | 7083–7089 |
+| A person changes a head during a floor run | Queued → Superseded | — | Disown the queued command | 7083–7089, now `_disown_waiting_command` |
+| A person's change at the head arms the adopt hold | Queued → Superseded | the change will be adopted (3.11) | Disown the queued command; one already sent goes ahead (SM-6, fixed) | `_disown_waiting_command`, called where the hold is armed (5481–5482) |
 
 A head's handler has no timeout. A handler that never returns holds its head's lock for the life
 of the process, reloads included, and the room's row says so (2156–2174). That is a documented
 limit, not a finding.
 
-**Modeled.** Nowhere. `tests/test_command_delivery.py`, `tests/test_delivery_visibility.py`.
+**Modeled.** `MXZCoordinator.tla` `Deliver` and `Refuse` (`ci-apply`) take each head's command
+as a step of its own. The locks, supersession, follow-ups and both disowns are in tests only:
+`tests/test_command_delivery.py`, `tests/test_delivery_visibility.py`, and for SM-6
+`tests/test_accept_head_changes.py`.
 
 ### 3.4 Command status
 
@@ -235,22 +247,28 @@ retired vane kick's cleanup sends.
 ### 3.5 Shared mode and its hold
 
 Chart M1–M6, `MXZCoordinator.tla` (`Decide`, `Select`, `Start`) and `MXZModeHold.tla` (votes,
-wall-clock steps). Not repeated here. What the chart and both specs leave out is where the mode
-is written inside the apply.
+wall-clock steps). Not repeated here. What the chart leaves out is where the mode is written
+inside the apply; `MXZCoordinator.tla` checks that with each head's command as a step of its own
+(`WithSplit`, section 6.1).
+
+In order, as `_apply` now runs. Nothing is awaited from the compute to the end of the writeback.
 
 | Event | Guard | Action | Code |
 |---|---|---|---|
 | The apply returns early | retired, Coordinator off, a fixed standby park, or no plan | No head write, no writeback | 2858–2880 |
-| The deliveries are queued and awaited | — | The plan waits for every head or for a new input | 3021, 3086–3100 |
-| Writeback, mode changed | no person's pick since the compute | Set the mode, stamp the hold unless votes alone moved it, re-render, write the record | 3035–3045 |
-| Writeback, a room runs in a mode votes chose | same | Stamp the hold, write the record | 3046–3051 |
-| A person picks a mode | — | Count the pick, set the mode, stamp, write the record, request a refresh | 7427–7448 |
+| The deliveries are queued | — | Each head's command is a task that has not run | 2883–3020 |
+| Writeback, mode changed | — | Set the mode, stamp the hold unless votes alone moved it, re-render, write the record | 3037–3045, now `_write_back_mode` |
+| Writeback, a room runs in a mode votes chose | — | Stamp the hold, write the record | 3046–3051, now `_write_back_mode` |
+| The deliveries are awaited | — | The plan waits for every head or for a new input | 3021, 3086–3100 |
+| A person picks a mode | — | Set the mode, stamp, write the record, request a refresh. A pick during the wait comes after the apply's record, and nothing in the apply writes the mode again | 7443–7448 |
 | The record is written | not retired | `Store.async_delay_save(…, 0)` | 2715–2734 |
 | A start | — | The record gives the mode, the hold's remainder and whether votes set it; the select's restore data wins only if newer | 1275–1287, 2736–2764 |
 
 At the base the writeback came after the heads were commanded and could be skipped after they
 were: SM-2, SM-4 and SM-8 are the three ways. It now runs with the commands queued and none run
-(`_write_back_mode`), so none of the three can.
+(`_write_back_mode`), so none of the three can. At the base a count of picks (`_selection_seq`:
+1264, 2505, 3035–3036, 7440–7442) made a writeback after the wait skip itself over a newer pick.
+With no wait before the writeback it had nothing to guard, and it is gone.
 
 Two wakeups serve the hold. One re-renders the entities when it ends (2766–2784). One asks for a
 refresh when a change the hold deferred becomes allowed (2589–2667). Neither captures anything.
@@ -348,11 +366,13 @@ The hourly notice limit is in memory, so a reload restarts it (audit L4).
 
 ### 3.11 Changes made at a head, and the head write ledger
 
-Chart A1–A5. In neither spec. Additions:
+Chart A1–A5. `MXZCoordinator.tla` checks room 1's setpoint with the ledger, the hold and startup
+quiet (`WithAdopt`, `ci-adopt`, `ci-adopt-restart`, section 6.2). The enable, the heat/cool choice
+and every other gate are in tests only. Additions:
 
 - **The ledger.** One `HeadWriteMemory` per head and per field (mode, and each setpoint field), in `hass.data["mxz_coordinator_head_writes"]`, keyed by unit (1380–1385; `logic.py:787-847`). A write is remembered before it goes out, with what the head showed then (3251–3252, 5336–5345). A report of a remembered value drops the older ones (5062, 5347–5352). A report of anything else is a person's.
 - **Gates.** No adoption while the option is off, the coordinator is retired or off, a standby hold or eco is on, startup quiet is on, the head is unavailable, the room is a disabled hands-off room, its floor is tripped, it is paused, or the report is a stale cloud poll (5399–5415).
-- **The hold.** Five seconds (`const.py:656`). Each further move starts it over and adds to what moved (5471–5482). While it holds and still counts, the apply skips that head (2888–2889, 5484–5491).
+- **The hold.** Five seconds (`const.py:656`). Each further move starts it over and adds to what moved (5471–5482). While it holds and still counts, the apply skips that head (2888–2889, 5484–5491). Arming it also disowns a command for that head still waiting to be sent (`_disown_waiting_command`, SM-6).
 - **What ends a hold with nothing adopted.** The head going back, any gate closing (5478–5480), a change to the room in Home Assistant (7395–7397, `switch.py:302-303`), any start.
 - **Adoption.** Through the room's own number and switch (5521–5568). A cloud head with a drive offset never gives a target, only an enable (5441–5444). A refused write adopts nothing (5564–5565).
 
@@ -451,14 +471,15 @@ only. `_floor_expect` (1165, 6808–6875) is a fourth "is this report my own wri
 
 **States per cloud head** (`cloud.py:37-173`). startup window (any report may be an old poll) →
 unconfirmed or confirmed; a batch sent → pending for the confirm wait → confirmed, or
-unconfirmed and sent again; waiting for the write interval; waiting for a fan step; not
-controllable.
+unconfirmed and sent again; a batch refused → unconfirmed, sent again once the write interval
+allows; waiting for the write interval; waiting for a fan step; not controllable.
 
 | Event | From → to | Guard | Action | Code |
 |---|---|---|---|---|
 | Build | → startup window | — | One confirm wait in which nothing is sent | 3797–3805, 3979–3991 |
 | The plan wants something the head does not show | → pending | the write interval allows, the head is controllable | Record the batch, then send mode, setpoint, fan | 4012–4047; `cloud.py:118-159` |
 | The same, too soon after the last batch | → waiting for the write interval | — | Wake when due; whatever the plan wants then goes out | 4019–4024 |
+| A call in the batch raises | pending → unconfirmed | — | Drop the batch's intent, so nothing waits on it. The write interval still counts from it, and the window stays open, so a report of an older state is still stale. The room reads rejected and a tripped floor reads held. The next batch goes out once the interval allows (SM-3, fixed) | 4043–4046; `CloudHead.refused`, and `CloudHead.status` reads pending only with an intent or in the startup window |
 | The plan wants what the last batch carried | pending → pending | inside the confirm wait | Nothing is sent again | 3979–3991 |
 | The head shows everything wanted | pending or unconfirmed → confirmed | the window is over | Stamp the time | 4012–4018 |
 | A report of an older mode, fan or setpoint | pending | inside the window | Not a person, not drift, not a vote | 3906–3919; `cloud.py:83-116` |
@@ -468,7 +489,8 @@ controllable.
 **Rules.** No write in the startup window. At most one batch per write interval (60 s default, 30
 to 300). One fan rung per 300 s. No write while not controllable (3968–3969).
 
-**Modeled.** Nowhere (`docs/formal/README.md:96-97`). Finding SM-3 is here.
+**Modeled.** Nowhere (`docs/formal/README.md:96-97`). Finding SM-3, now fixed, is here; its tests
+are in `tests/test_cloud_heads.py` and `tests/test_cloud_logic.py`.
 
 ### 3.17 Seasons (lockouts)
 
@@ -575,7 +597,7 @@ covers the structure.
 
 ## 4. Invalid states and transitions the code can reach
 
-Findings are numbered SM-1 to SM-9 in this document only. The priority order is in section 5.
+Findings are numbered SM-1 to SM-10 in this document only. The priority order is in section 5.
 
 ### SM-1. A late report of MXZ's own pre-restart write is adopted as a person's press
 
@@ -791,7 +813,9 @@ assert the switch is still on after setup, then add the entity and assert again.
 
 ### SM-8. A reload inside an apply that changes the mode loses the hold
 
-**Label.** `confirmed (read)`. `MXZModeHold.tla` lines 10–18 already name it as unmodeled.
+**Label.** `confirmed (read)`. At the base, `MXZModeHold.tla` lines 10–18 named it as unmodeled.
+That header now says the record comes before the deliveries, and `ci-apply` reaches a reload
+inside an apply (section 6.1).
 
 **Evidence.** A reload retires the coordinator and releases the apply's wait (1708–1709,
 3195–3213). The writeback then sets the mode and stamps the time in memory (3037–3043, 2709–2712)
@@ -866,7 +890,7 @@ what dropped it, so the strict rule `OwnWriteNeverAdopted` passes in both adopti
 | Is a sensor change dropped by the generation check? | Only when a later compute already read it | 4975–4983, 2490–2501 |
 | Can a timer fire into a retired coordinator and write? | No. Each callback checks a retired flag or ends in a request that returns | 2432, 2662, 2836, 4149, 5812, 5854, 5978, 6284; 2452 |
 | Is a vane kick's wake read as a person? | No | 5151–5152, 5171–5172; `test_a_vane_kick_is_not_a_person` |
-| Does a person's pick lose to an apply already running? | No, the writeback skips itself | 3035–3036, 7440–7442 |
+| Does a person's pick lose to an apply already running? | No. The apply writes its mode back before it awaits anything, so a pick during its wait comes after that record and nothing in the apply writes the mode again. At the base the writeback came after the wait and skipped itself over a newer pick (3035–3036, 7440–7442) | `_write_back_mode`; `test_a_newer_selection_survives_an_older_in_flight_apply` |
 | A fixed standby park sends a paused, disabled or released head to the park mode | Documented: the hold "parks every head" | 3484–3500; `docs/FEATURES.md:689` |
 | A lost wakeup in the refresh follow-up | None found by reading. Not proven: unmodeled, not run | 2538–2580 |
 | SM-2, SM-3, SM-4, SM-6, SM-8 | Fixed or closed in the change that added this file | The table at the top |

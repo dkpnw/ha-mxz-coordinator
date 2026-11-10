@@ -127,7 +127,7 @@ the fan touched during the outage, and crash.
   head while a command waits (SM-6) is in `tests/test_accept_head_changes.py`.
 - Cloud heads' batching (SM-3 is held by `tests/test_cloud_heads.py`), the refresh debouncer
   and its follow-up, floors, Dry, seasons, standby and vanes: see
-  [STATE-MACHINES.md](../STATE-MACHINES.md) section 6.4.
+  [STATE-MACHINES.md](../STATE-MACHINES.md) section 6.3.
 - The fan ladder is cut to three rungs with the ceiling at the second. Delays and the hold are whole ticks.
 - Fan rules for a second room. Those dicts are per head, and `test_manual_fan_latch_isolated_per_zone` covers it.
 
