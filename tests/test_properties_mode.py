@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from custom_components.mxz_coordinator.const import MODE_COOL, MODE_HEAT
@@ -195,18 +195,17 @@ async def test_no_flip_inside_the_hold_and_no_wait_after_it(
 def test_a_start_keeps_what_is_left_of_the_hold_and_never_more(ago: float) -> None:
     """The stamp reads as ``ago`` seconds back; a stored time in the future reads as now."""
     stored = dt_util.utcnow().timestamp() - ago
-    before = time.monotonic()
-    stamp = mode_change_stamp(stored)
-    after = time.monotonic()
+    now = time.monotonic()
+    stamp = mode_change_stamp(stored, now)
     assert stamp is not None
     # Rounding in the epoch-seconds round trip, plus a slow runner's pause.
     slack = 1.0
-    assert before - max(0.0, ago) - slack <= stamp <= after - max(0.0, ago) + slack
-    assert stamp <= after
+    assert now - max(0.0, ago) - slack <= stamp <= now - max(0.0, ago) + slack
+    assert stamp <= now
 
 
 def test_no_stored_change_holds_nothing() -> None:
-    assert mode_change_stamp(None) is None
+    assert mode_change_stamp(None, time.monotonic()) is None
 
 
 _finite = st.floats(allow_nan=False, allow_infinity=False, min_value=0, max_value=4e9)
@@ -222,6 +221,11 @@ _records = st.dictionaries(
 
 @PURE
 @given(data=st.one_of(_records, _junk))
+# Every non-finite time, always: what Hypothesis draws shifts with the code it has loaded.
+@example(data={"last_mode_change": math.inf})
+@example(data={"last_mode_change": -math.inf})
+@example(data={"last_mode_change": math.nan})
+@example(data={"last_mode_change": 1.0, "mode": MODES[0], "mode_at": math.inf, "mode_by_votes": False})
 async def test_any_stored_record_loads_as_a_readable_record(hass: HomeAssistant, data: Any) -> None:
     """Whatever the file holds, a start gets a usable record: a mode only with its
     time and flag, and a change time that is finite or none."""

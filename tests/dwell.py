@@ -1,59 +1,61 @@
-"""Age and check the mode-flip dwell clock the same way in every test.
+"""Let the mode-change hold run out, and check what started it, the same way in every test.
 
-The dwell stamp, ``MXZCoordinator._last_mode_change_ts``, is ``time.monotonic()``
-(#32). Monotonic seconds count from an arbitrary origin, on Linux the boot, so
-the suite's old wall-clock sentinel ``0.0`` meant "long ago" only on a host up
-for longer than the hysteresis. On a freshly booted host or CI runner it reads
-as a flip made moments ago and the dwell still holds. ``tools/fakeboot.py``
-runs the suite with the clock reading two minutes since boot to keep it that way.
+The hold runs on the coordinator's clock (#32, ``coord.clock``): monotonic
+seconds from an arbitrary origin, on Linux the boot. The suite's old
+wall-clock sentinel ``0.0`` meant "long ago" only on a host up for longer than
+the hysteresis; ``tools/fakeboot.py`` runs the suite with the clock reading
+two minutes since boot to keep it that way. So a test never writes a stamp: it
+lets the hold's time pass on that clock (``tests/clocks.py``), and reads the
+time since the last change where MXZ publishes it (``tests/peek.py``).
 
-So a test never writes a number into the stamp: it ages the dwell relative to
-the clock the coordinator reads, and checks a re-stamp against the stamp it
-wrote, never against zero.
-
-A fresh install has no mode change on record (the stamp is None) and holds
-nothing. A test whose subject needs the dwell holding from setup says so with
-``record_mode_change``: a change a previous run stored before this setup, as a
-restart finds it.
+A fresh install has no mode change on record and holds nothing. A test whose
+subject needs the hold from setup says so with ``record_mode_change``: a
+change a previous run stored before this setup, as a restart finds it.
 """
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
-# A stamp written during the step under test is this fresh, at most. Seconds,
-# generous for a slow runner. A missing stamp fails on ``before`` instead.
+from homeassistant.util import dt as dt_util
+
+from custom_components.mxz_coordinator.coordinator import (
+    MODE_CHANGE_KEY,
+    _mode_change_store,
+)
+from tests.clocks import pass_time
+from tests.peek import since_mode_change
+
+# A change made during the step under test is at most this many seconds old,
+# generous for a slow runner. A test that checks a step stamped nothing lets
+# at least this much pass after the change it allows.
 RESTAMP_TOLERANCE = 10.0
 
 
-def dwell_long_ago(coord: Any) -> float:
-    """A stamp whose dwell ran out one second ago, at the current hysteresis."""
-    return time.monotonic() - coord.hysteresis - 1
-
-
-def expire_dwell(coord: Any) -> float:
-    """Age the dwell to expired and return the stamp written.
-
-    Keep the return value to prove later that nothing re-stamped the clock
-    (``== stamp``), or that a flip did (``assert_restamped(coord, stamp)``).
+def expire_dwell(coord: Any) -> None:
+    """Let the hold run out: what is left of it passes on the coordinator's
+    clock, and one second more, so the gate reads it open. Every other wait
+    on that clock moves by as much, as it would in the house. With no hold
+    running, no time passes.
     """
-    stamp = dwell_long_ago(coord)
-    coord._last_mode_change_ts = stamp
-    return stamp
+    if (remaining := coord.mode_hold_remaining()) > 0:
+        pass_time(coord, remaining + 1)
 
 
-def assert_restamped(coord: Any, before: float) -> None:
-    """A flip wrote the dwell clock after ``before``, and it reads as now.
+async def assert_restamped(hass: Any, entry: Any) -> None:
+    """A real mode change was made within the step under test: the hold starts now."""
+    since = await since_mode_change(hass, entry)
+    assert since is not None and 0 <= since < RESTAMP_TOLERANCE, since
 
-    Fails if the stamp was not written (it still equals ``before``), and if it
-    was written from another clock: a wall-clock epoch value is not ``<= now``
-    on the monotonic clock.
+
+async def assert_not_restamped(hass: Any, entry: Any) -> None:
+    """No real mode change in the last ``RESTAMP_TOLERANCE`` seconds.
+
+    The test lets at least that much pass after the change it allows, with
+    ``expire_dwell`` or ``pass_time``, before the step that must not stamp.
     """
-    stamp = coord._last_mode_change_ts
-    now = time.monotonic()
-    assert before < stamp <= now, (before, stamp, now)
-    assert now - stamp < RESTAMP_TOLERANCE, (stamp, now)
+    since = await since_mode_change(hass, entry)
+    assert since is None or since >= RESTAMP_TOLERANCE, since
 
 
 async def record_mode_change(hass: Any, entry_id: str, seconds_ago: float = 0.0) -> float:
@@ -61,15 +63,7 @@ async def record_mode_change(hass: Any, entry_id: str, seconds_ago: float = 0.0)
 
     Written through the entry's own store, so the next setup or reload reads
     it exactly as it reads a real record. Returns the wall-clock time stored.
-    (Home Assistant is imported here, so this module stays importable without it.)
     """
-    from homeassistant.util import dt as dt_util
-
-    from custom_components.mxz_coordinator.coordinator import (
-        MODE_CHANGE_KEY,
-        _mode_change_store,
-    )
-
     changed_at = dt_util.utcnow().timestamp() - seconds_ago
     await _mode_change_store(hass, entry_id).async_save({MODE_CHANGE_KEY: changed_at})
     return changed_at

@@ -74,7 +74,7 @@ from custom_components.mxz_coordinator.const import (
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
 from custom_components.mxz_coordinator.logic import PRIORITY_SAFETY, PRIORITY_VOTE
-from tests.clocks import age_coil_dry
+from tests.clocks import pass_time
 from tests.cloud_heads import (
     COMFORT,
     ComfortHead,
@@ -765,11 +765,11 @@ async def test_leaving_dry_starts_the_coil_dry_run(hass: HomeAssistant) -> None:
     await rig.recompute()
     # Dry runs on long past the last compute: the coil-dry run is owed from
     # when the head leaves dry, not from when MXZ last looked.
-    age_coil_dry(rig.coord, rig.heads[1], rig.coord.coil_dry_seconds + 5)
+    pass_time(rig.coord, rig.coord.coil_dry_seconds + 5)
     await rig.person(1, "off")
     await rig.recompute()
     assert rig.state(1) == "fan_only"
-    age_coil_dry(rig.coord, rig.heads[1], rig.coord.coil_dry_seconds + 5)
+    pass_time(rig.coord, rig.coord.coil_dry_seconds + 5)
     await rig.recompute()
     assert rig.state(1) == "off"
 
@@ -779,7 +779,7 @@ async def test_turned_off_from_dry_at_the_head_skips_the_coil_dry_run(hass: Home
     rig = await _setup(hass, idle=IDLE_ACTION_OFF_AFTER_DRY)
     await rig.person(1, "dry")
     await rig.recompute()
-    age_coil_dry(rig.coord, rig.heads[1], rig.coord.coil_dry_seconds + 5)
+    pass_time(rig.coord, rig.coord.coil_dry_seconds + 5)
     rig.forget()
     await rig.person(1, "off")
     await rig.later(ADOPT_DELAY + 1)
@@ -860,8 +860,8 @@ async def test_cloud_dry_is_left_alone_then_parked_for_heat(hass: HomeAssistant)
     row = hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][1]
     assert (row["dry"], row["dry_vote"], row["demand"]) == ("held", "cool", "neutral")
     assert head_writes(calls, b.entity_id) == []
-    await _set_temp(hass, SENSORS[0], 65)
     past_window(entry, a.entity_id)
+    await _set_temp(hass, SENSORS[0], 65)
     await coord.async_refresh()
     await hass.async_block_till_done()
     assert b.device["mode"] == "fan_only"

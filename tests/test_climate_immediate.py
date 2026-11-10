@@ -6,8 +6,8 @@ later on a real install, so a card showed the old mode or setpoint and
 invited a second tap that undid the first.
 
 Each test records the thermostat's state at the moment the change asks for
-its recompute, before any plan has run (``coord._refresh_generation`` is
-unchanged then), and then passes the request on unchanged. Here the first
+its recompute, before any plan has run (no new plan has been published
+then), and then passes the request on unchanged. Here the first
 request runs its plan at once; a later one inside the request cooldown waits,
 and the test may end before it runs. The at-once checks read only the record,
 so they don't depend on it; a check of what the plan does after calls the
@@ -22,6 +22,7 @@ it.
 
 from __future__ import annotations
 
+import weakref
 from typing import Any
 
 import pytest
@@ -40,6 +41,7 @@ from custom_components.mxz_coordinator.const import (
     DRY_PICK_WAIT,
     INHIBIT_ACTION_OFF,
 )
+from tests.peek import debug_view
 from tests.test_dry_entity import LateHead
 from tests.test_dry_mode import INHIBIT, DryHead
 from tests.test_dry_mode import _setup as _dry_setup
@@ -57,22 +59,57 @@ from tests.test_dual_setpoint import (
 from tests.test_startup_continuity import _head
 
 
+class _Plans:
+    """How many plans have run, read from what the coordinator publishes.
+
+    Each plan is a new ``coord.data``, set as its compute runs and handed to
+    every listener when it ends; a re-render with no plan hands over the same
+    one. So each plan is counted once, whatever else redraws the entities.
+    """
+
+    def __init__(self, coord: Any) -> None:
+        self._coord = coord
+        self._last = coord.data
+        self._count = 0
+        coord.async_add_listener(self._look)
+
+    def _look(self) -> None:
+        if self._coord.data is not self._last:
+            self._last = self._coord.data
+            self._count += 1
+
+    @property
+    def count(self) -> int:
+        self._look()
+        return self._count
+
+
+_COUNTERS: weakref.WeakKeyDictionary[Any, _Plans] = weakref.WeakKeyDictionary()
+
+
+def _plans(entry) -> _Plans:
+    """The plan counter of the entry's coordinator, made the first time it is asked for."""
+    coord = entry.runtime_data
+    if coord not in _COUNTERS:
+        _COUNTERS[coord] = _Plans(coord)
+    return _COUNTERS[coord]
+
+
 def _at_refresh(
     hass: HomeAssistant, entry, monkeypatch, *entity_ids: str
 ) -> list[tuple[int, dict[str, State | None]]]:
-    """Record (plan generation, states) whenever a recompute is requested.
+    """Record (plans run so far, states) whenever a recompute is requested.
 
     The real request runs right after the record, so the plan is exactly
     what it would be without this.
     """
     coord = entry.runtime_data
+    plans = _plans(entry)
     seen: list[tuple[int, dict[str, State | None]]] = []
     real = coord.async_request_refresh
 
     async def _request() -> None:
-        seen.append(
-            (coord._refresh_generation, {eid: hass.states.get(eid) for eid in entity_ids})
-        )
+        seen.append((plans.count, {eid: hass.states.get(eid) for eid in entity_ids}))
         await real()
 
     monkeypatch.setattr(coord, "async_request_refresh", _request)
@@ -85,6 +122,11 @@ def _first(entry, seen, generation: int) -> dict[str, State | None]:
     at, states = seen[0]
     assert at == generation, "a plan ran before the change asked for one"
     return states
+
+
+async def _holds(hass: HomeAssistant, entry) -> list[dict[str, Any]]:
+    """Each room's holds, as the diagnostics download shows them."""
+    return [room["holds"] for room in (await debug_view(hass, entry))["rooms"].values()]
 
 
 def _attrs(state: State | None) -> dict[str, Any]:
@@ -100,10 +142,9 @@ async def test_set_hvac_mode_shows_before_the_plan(hass: HomeAssistant, monkeypa
     tile = _eid(hass, entry, "primary_thermostat")
     assert hass.states.get(tile).state == "heat_cool"
     assert hass.states.get(head_a).state == "cool"
-    coord = entry.runtime_data
 
     seen = _at_refresh(hass, entry, monkeypatch, tile, head_a)
-    gen = coord._refresh_generation
+    gen = _plans(entry).count
     await _call(hass, "climate", "set_hvac_mode", {"entity_id": tile, "hvac_mode": "off"})
     states = _first(entry, seen, gen)
     assert states[tile].state == "off"
@@ -111,7 +152,7 @@ async def test_set_hvac_mode_shows_before_the_plan(hass: HomeAssistant, monkeypa
     assert hass.states.get(tile).state == "off"
 
     seen.clear()
-    gen = coord._refresh_generation
+    gen = _plans(entry).count
     await _call(hass, "climate", "set_hvac_mode", {"entity_id": tile, "hvac_mode": "heat_cool"})
     assert _first(entry, seen, gen)[tile].state == "heat_cool"
     assert hass.states.get(tile).state == "heat_cool"
@@ -125,10 +166,9 @@ async def test_enable_switch_shows_on_the_tile_at_once(hass: HomeAssistant, monk
     tile = _eid(hass, entry, "secondary_thermostat")
     switch = _eid(hass, entry, "secondary_enable")
     assert hass.states.get(head_b).state == "cool"
-    coord = entry.runtime_data
 
     seen = _at_refresh(hass, entry, monkeypatch, tile, switch, head_b)
-    gen = coord._refresh_generation
+    gen = _plans(entry).count
     await _call(hass, "switch", "turn_off", {"entity_id": switch})
     states = _first(entry, seen, gen)
     assert states[switch].state == "off"
@@ -138,7 +178,7 @@ async def test_enable_switch_shows_on_the_tile_at_once(hass: HomeAssistant, monk
     assert hass.states.get(head_b).state == "off"  # and the plan still parks it
 
     seen.clear()
-    gen = coord._refresh_generation
+    gen = _plans(entry).count
     await _call(hass, "switch", "turn_on", {"entity_id": switch})
     states = _first(entry, seen, gen)
     assert states[switch].state == "on"
@@ -151,17 +191,16 @@ async def test_set_temperature_shows_before_the_plan(hass: HomeAssistant, monkey
     await _start(hass, entry)
     single = _eid(hass, entry, "secondary_thermostat")
     dual = _eid(hass, entry, "primary_thermostat")
-    coord = entry.runtime_data
     assert _attrs(hass.states.get(single))["temperature"] != 73
     assert _pair(entry) == (69, 71)
 
     seen = _at_refresh(hass, entry, monkeypatch, single, dual)
-    gen = coord._refresh_generation
+    gen = _plans(entry).count
     await _call(hass, "climate", "set_temperature", {"entity_id": single, "temperature": 73})
     assert _attrs(_first(entry, seen, gen)[single])["temperature"] == 73
 
     seen.clear()
-    gen = coord._refresh_generation
+    gen = _plans(entry).count
     await _range(hass, entry, "primary", 66, 76)
     tile = _attrs(_first(entry, seen, gen)[dual])
     assert (tile["target_temp_low"], tile["target_temp_high"]) == (66, 76)
@@ -169,7 +208,7 @@ async def test_set_temperature_shows_before_the_plan(hass: HomeAssistant, monkey
     # A range with the mode in the same call: both show at once.
     await _call(hass, "climate", "set_hvac_mode", {"entity_id": dual, "hvac_mode": "off"})
     seen.clear()
-    gen = coord._refresh_generation
+    gen = _plans(entry).count
     await _range(hass, entry, "primary", 67, 75, hvac_mode="heat_cool")
     states = _first(entry, seen, gen)
     assert states[dual].state == "heat_cool"
@@ -183,28 +222,27 @@ async def test_number_set_value_shows_on_the_tile_at_once(hass: HomeAssistant, m
     await _start(hass, entry)
     single = _eid(hass, entry, "secondary_thermostat")
     dual = _eid(hass, entry, "primary_thermostat")
-    coord = entry.runtime_data
     seen = _at_refresh(hass, entry, monkeypatch, single, dual)
 
-    gen = coord._refresh_generation
+    gen = _plans(entry).count
     await _set(hass, entry, "secondary_target", 74)
     assert _attrs(_first(entry, seen, gen)[single])["temperature"] == 74
 
     seen.clear()
-    gen = coord._refresh_generation
+    gen = _plans(entry).count
     await _set(hass, entry, "primary_target_low", 67)
     tile = _attrs(_first(entry, seen, gen)[dual])
     assert (tile["target_temp_low"], tile["target_temp_high"]) == (67, 71)
 
     seen.clear()
-    gen = coord._refresh_generation
+    gen = _plans(entry).count
     await _set(hass, entry, "primary_target_high", 76)
     tile = _attrs(_first(entry, seen, gen)[dual])
     assert (tile["target_temp_low"], tile["target_temp_high"]) == (67, 76)
 
     # The target number of a range room moves the whole range there.
     seen.clear()
-    gen = coord._refresh_generation
+    gen = _plans(entry).count
     await _set(hass, entry, "primary_target", 70)
     tile = _attrs(_first(entry, seen, gen)[dual])
     assert (tile["target_temp_low"], tile["target_temp_high"]) == _pair(entry)
@@ -256,7 +294,7 @@ async def test_a_dry_pick_shows_before_the_plan(
     tile = rig.eid(BEDROOM)
     assert hass.states.get(tile).state == start
     seen = _at_refresh(hass, rig.entry, monkeypatch, tile, rig.heads[1])
-    gen = rig.coord._refresh_generation
+    gen = _plans(rig.entry).count
     rig.forget()
 
     await _mode(hass, tile, "dry")
@@ -293,7 +331,7 @@ async def test_leaving_dry_shows_before_the_plan(
         "held", "dry", "dry",
     )
     seen = _at_refresh(hass, rig.entry, monkeypatch, tile, rig.heads[1])
-    gen = rig.coord._refresh_generation
+    gen = _plans(rig.entry).count
     rig.forget()
 
     service, mode = leave
@@ -349,15 +387,17 @@ async def test_heat_cool_after_the_head_left_dry_shows_before_the_plan(
     await _call(
         hass, "number", "set_value", {"entity_id": rig.eid("_primary_target"), "value": 71}
     )
-    gen = rig.coord._refresh_generation
+    gen = _plans(rig.entry).count
     await rig.person(1, "fan_only")  # out of dry on the remote: its plan waits
-    assert rig.coord._refresh_generation == gen
+    assert _plans(rig.entry).count == gen
     assert rig.row(1)["dry"] == "held"  # the last plan's, not yet settled again
     seen = _at_refresh(hass, rig.entry, monkeypatch, tile)
 
     await _mode(hass, tile, "heat_cool")
     assert _first(rig.entry, seen, gen)[tile].state == "heat_cool"
-    assert rig.coord._dry_released == set()  # nothing to release: the plan is unchanged
+    assert not any(  # nothing to release: the plan is unchanged
+        holds["dry_released"] for holds in await _holds(hass, rig.entry)
+    )
     await rig.recompute()
     assert (rig.row(1)["dry"], hass.states.get(tile).state) == (None, "heat_cool")
 
@@ -394,14 +434,14 @@ async def test_a_dry_pick_the_head_refuses_leaves_dry_at_once(
     assert len(seen) == 2  # the enable's request, then the refusal's
     assert seen[0][1][tile].state == "dry"  # the pick showed at once, as before
     refused_at, _states = seen[1]
-    assert rig.coord._refresh_generation == refused_at  # no plan since the refusal
-    assert rig.coord._dry_picks == {}
+    assert _plans(rig.entry).count == refused_at  # no plan since the refusal
+    assert not any(holds["dry_pick_pending"] for holds in await _holds(hass, rig.entry))
     at_once = hass.states.get(tile)
     assert at_once.state == "heat_cool"
     assert rig.modes_sent(1) == ["dry"]  # the one refused write, nothing more yet
 
     await rig.later(REQUEST_REFRESH_DEFAULT_COOLDOWN + 1)  # the refusal's plan
-    assert rig.coord._refresh_generation == refused_at + 1
+    assert _plans(rig.entry).count == refused_at + 1
     assert (rig.row(1)["dry"], hass.states.get(tile).state) == (None, "heat_cool")
     # The action shown at once was already the one that plan settles.
     assert hass.states.get(tile).attributes["hvac_action"] == at_once.attributes["hvac_action"]
@@ -450,7 +490,7 @@ async def _start_cooldown(hass: HomeAssistant, rig) -> int:
     await _call(
         hass, "number", "set_value", {"entity_id": rig.eid("_primary_target"), "value": 71}
     )
-    return rig.coord._refresh_generation
+    return _plans(rig.entry).count
 
 
 async def test_a_dry_pick_shows_drying_before_the_plan(hass: HomeAssistant) -> None:
@@ -462,13 +502,13 @@ async def test_a_dry_pick_shows_drying_before_the_plan(hass: HomeAssistant) -> N
     gen = await _start_cooldown(hass, rig)
 
     await _mode(hass, tile, "dry")
-    assert rig.coord._refresh_generation == gen  # the pick's plan still waits
+    assert _plans(rig.entry).count == gen  # the pick's plan still waits
     assert rig.state(1) == "dry"
     shown = hass.states.get(tile)
     assert (shown.state, shown.attributes["hvac_action"]) == ("dry", HVACAction.DRYING)
 
     await rig.later(REQUEST_REFRESH_DEFAULT_COOLDOWN + 1)
-    assert rig.coord._refresh_generation > gen
+    assert _plans(rig.entry).count > gen
     assert rig.row(1)["dry"] == "held"
     assert hass.states.get(tile).attributes["hvac_action"] == HVACAction.DRYING
 
@@ -486,12 +526,12 @@ async def test_heat_cool_from_dry_drops_drying_before_the_plan(hass: HomeAssista
     gen = await _start_cooldown(hass, rig)
 
     await _mode(hass, tile, "heat_cool")
-    assert rig.coord._refresh_generation == gen
+    assert _plans(rig.entry).count == gen
     assert rig.state(1) == "dry"  # untouched until the plan runs
     at_once = hass.states.get(tile)
     assert at_once.state == "heat_cool"
     assert at_once.attributes["hvac_action"] != HVACAction.DRYING
 
     await rig.later(REQUEST_REFRESH_DEFAULT_COOLDOWN + 1)
-    assert rig.coord._refresh_generation > gen and rig.state(1) != "dry"
+    assert _plans(rig.entry).count > gen and rig.state(1) != "dry"
     assert hass.states.get(tile).attributes["hvac_action"] == at_once.attributes["hvac_action"]

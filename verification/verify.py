@@ -12,6 +12,7 @@ against its sha256 below). Output goes to $MXZ_FORMAL_OUT, by default
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import os
 import re
 import shutil
@@ -20,6 +21,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 MODEL = "verification/modehold"
@@ -60,182 +62,81 @@ REPLAYS = {
     f"{FINDINGS}::test_f3_a_crash_soon_after_a_change_restores_the_old_mode_inside_the_hold": "F3",
 }
 
-LOGIC = "custom_components/mxz_coordinator/logic.py"
-COORD = "custom_components/mxz_coordinator/coordinator.py"
-SELECT = "custom_components/mxz_coordinator/select.py"
 TLA = f"{MODEL}/{SPEC}"
 
 
-def _prop(name: str, table: str = "ROOMS3") -> str:
-    return f"{PROPS}::test_arbitration_property[{name}-{table}]"
+def _code_mutants() -> Any:
+    """tools/code_mutants.py, loaded from its path (this runs isolated, with -I)."""
+    spec = importlib.util.spec_from_file_location("code_mutants", ROOT / "tools/code_mutants.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-# (id, what breaks, file, old text, new text, how it must show)
-# A check is ("pytest", node id) that must fail, or ("tlc", config, rule)
-# that must break with that rule.
-MUTANTS = [
-    ("C1", "the hold no longer gates a change (logic.shared_mode)", LOGIC,
-     "if proposed != current and allowed and (standoff or not still):",
-     "if proposed != current and (standoff or not still):",
-     ("pytest", _prop("hold_blocks_every_change"))),
-    ("C2", "votes count while a room is mid-run (logic.arbitrate gate)", LOGIC,
-     "gate_open = commanding_silent and not engaged",
-     "gate_open = commanding_silent",
-     ("pytest", _prop("vote_never_beats_a_call_or_a_run"))),
-    ("C3", "Comfort priority crosses tiers (logic._rank)", LOGIC,
-     "return (demand.priority[0], -comfort_boost(demand), demand.priority[1])",
-     "return (-comfort_boost(demand), demand.priority[0], demand.priority[1])",
-     ("pytest", _prop("highest_rank_decides"))),
-    ("C4", "a vote change is exempt with the gate shut (logic.arbitrate)", LOGIC,
-     "read_only = full != plain and gate_open",
-     "read_only = full != plain",
-     ("pytest", _prop("exempt_only_with_the_gate_open"))),
-    ("C5", "by_safety ignores the direction (logic.arbitrate)", LOGIC,
-     "d.direction == full and d.priority[0] <= PRIORITY_SAFETY for d in active",
-     "d.priority[0] <= PRIORITY_SAFETY for d in active",
-     ("pytest", _prop("by_safety_means_a_safety_want_agrees"))),
-    ("C6", "Resting mode ignored (logic.shared_mode)", LOGIC,
-     "rest = resting if resting in (MODE_COOL, MODE_HEAT) else current",
-     "rest = current",
-     ("pytest", _prop("nothing_calling_rests"))),
-    ("C7", "a stored time in the future holds longer (coordinator.mode_change_stamp)", COORD,
-     "ago = max(0.0, dt_util.utcnow().timestamp() - stored)",
-     "ago = dt_util.utcnow().timestamp() - stored",
-     ("pytest", f"{PROPS}::test_a_start_keeps_what_is_left_of_the_hold_and_never_more")),
-    ("C8", "an unreadable record holds nothing (coordinator.async_load_mode_record)", COORD,
-     "    return ModeRecord(changed_at=dt_util.utcnow().timestamp(), **shared)",
-     "    return ModeRecord(changed_at=None, **shared)",
-     ("pytest", f"{PROPS}::test_a_start_reads_the_record_or_holds_the_full_window")),
-    ("C9", "a room's run in the voted mode is not stamped (coordinator._apply)", COORD,
-     ("            self._mode_by_votes = False\n            self._stamp_mode_change()\n"
-      "            self._record_mode()\n\n    def _queue_delivery"),
-     "            self._mode_by_votes = False\n            self._record_mode()\n\n    def _queue_delivery",
-     ("pytest", (f"{FINDINGS}::test_f2_a_reload_forgets_that_a_room_now_runs_in_the_voted_mode"
-                 "[control_no_reload]"))),
-    ("C10", "Resting mode always heat (logic.shared_mode)", LOGIC,
-     "rest = resting if resting in (MODE_COOL, MODE_HEAT) else current",
-     "rest = MODE_HEAT",
-     ("pytest", (f"{FINDINGS}::test_f1_resting_mode_takes_the_mode_from_a_room_still_running"
-                 "[control_last_used]"))),
-    ("C11", "the select does not restore the mode (select.async_added_to_hass)", SELECT,
-     ("                if last.state in _OPTIONS:\n"
-      "                    restored = last.state"),
-     "                if last.state in _OPTIONS:\n                    pass",
-     ("pytest", (f"{PROMISES}::test_a_start_takes_the_newer_of_the_record_and_the_restore_data"
-                 "[record_without_a_mode]"))),
-    ("C12", "Resting mode takes the mode from a run (logic.arbitrate)", LOGIC,
-     "    if running:\n        resting = None",
-     "    if False:\n        resting = None",
-     ("pytest", f"{FINDINGS}::test_f1_resting_mode_takes_the_mode_from_a_room_still_running[finding]")),
-    ("C13", "the plan never says a room runs in the shared mode (coordinator._compute)", COORD,
-     "        running = current in held_engages\n",
-     "        running = False\n",
-     ("pytest", f"{PROMISES}::test_resting_mode_waits_for_the_run_then_rests")),
-    ("C14", "a start forgets that votes chose the mode (coordinator.restore_shared_mode)", COORD,
-     "            mode, by_votes = record.mode, record.by_votes\n",
-     "            mode, by_votes = record.mode, False\n",
-     ("pytest", f"{PROMISES}::test_a_restart_keeps_that_votes_chose_the_mode[2]")),
-    ("C15", "a change votes made is not written to the record (coordinator._apply)", COORD,
-     ("            self.async_update_listeners()  # let the shared-mode select re-render\n"
-      "            self._record_mode()\n"),
-     "            self.async_update_listeners()  # let the shared-mode select re-render\n",
-     ("pytest", f"{FINDINGS}::test_f2_a_reload_forgets_that_a_room_now_runs_in_the_voted_mode[finding]")),
-    ("C16", "the select's restore data always beats the record (coordinator.restore_shared_mode)", COORD,
-     "            or record.mode_at >= restored_at\n",
-     "            or False\n",
-     ("pytest", (f"{FINDINGS}::test_f3_a_crash_soon_after_a_change_restores_the_old_mode_inside_the_hold"
-                 "[finding]"))),
-    ("C17", "the record always beats newer restore data (coordinator.restore_shared_mode)", COORD,
-     "            or record.mode_at >= restored_at\n",
-     "            or True\n",
-     ("pytest", (f"{PROMISES}::test_a_start_takes_the_newer_of_the_record_and_the_restore_data"
-                 "[restore_data_newer]"))),
-    ("C18", "a paused room still votes (coordinator._compute)", COORD,
-     "            if paused:\n                demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED\n",
-     "            if False:\n                demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED\n",
-     ("pytest", f"{OPENINGS}::test_a_paused_room_never_votes")),
-    ("C19", "a pause restamps the hold (coordinator._opening_transition)", COORD,
-     '            record["paused_at"] = now\n',
-     '            record["paused_at"] = now\n            self._stamp_mode_change()\n',
-     ("pytest", f"{OPENINGS}::test_a_pause_and_a_resume_never_touch_the_hold")),
-    ("C20", "no reading starts a pause (logic.opening_state)", LOGIC,
-     "    return OPENING_PAUSED if paused else OPENING_CLOSED\n",
-     "    return OPENING_PAUSED\n",
-     ("pytest", f"{OPENINGS}::test_no_reading_never_starts_a_pause_and_never_ends_one[unavailable]")),
-    ("C21", "a person's change on a paused head is not a takeover (coordinator._on_head_change)",
-     COORD,
-     '                    self._openings[zone.slug]["override"] = "manual"\n',
-     "                    pass\n",
-     ("pytest", f"{OPENINGS}::test_a_manual_change_holds_until_the_window_closes")),
-    ("C22", "a pause turns the room Off (coordinator._opening_transition)", COORD,
-     '            record["paused_at"] = now\n',
-     '            record["paused_at"] = now\n            zone.enable = False\n',
-     ("pytest", f"{OPENINGS}::test_the_rooms_mode_is_never_rewritten_and_off_stays_off")),
-    ("C23", "a restart forgets the pause (coordinator.__init__)", COORD,
-     "            zone.slug: _restored_opening((openings or {}).get(zone.climate_id))\n",
-     "            zone.slug: _restored_opening(None)\n",
-     ("pytest", f"{OPENINGS}::test_a_pause_outlives_a_restart")),
-    ("C24", "the pause sends the coil-dry fan run first (coordinator._apply)", COORD,
-     "                task = self._queue_delivery(zone.climate_id, MODE_OFF, 0.0, 0.0)\n",
-     ("                task = self._queue_delivery(\n"
-      "                    zone.climate_id, self._idle_act_for(zone.climate_id), 0.0, 0.0\n"
-      "                )\n"),
-     ("pytest", f"{OPENINGS}::test_open_for_the_open_delay_pauses_straight_to_off")),
-    ("M1", "model: the gate reads the wall clock", TLA,
+code_mutants = _code_mutants()
+# The code's broken copies that are the mode-hold rules' twins.
+CODE_MUTANTS = [name for name in code_mutants.MUTANTS if name.startswith("H")]
+
+
+# The model's broken copies: (id, what breaks, old text, new text, config, rule
+# that must break). The code's broken copies that are these rules' twins are the
+# H mutants in tools/code_mutants.py, which `mutants` runs after these.
+MODEL_MUTANTS = [
+    ("M1", "model: the gate reads the wall clock",
      "Mono == real - boot", "Mono == real + skew",
-     ("tlc", "ci-restarts", "HoldKept")),
-    ("M2", "model: no clamp for a stored time in the future", TLA,
+     "ci-restarts", "HoldKept"),
+    ("M2", "model: no clamp for a stored time in the future",
      "IF rec = NoTime THEN NoTime ELSE monoNow - Max0(wallNow - rec)",
      "IF rec = NoTime THEN NoTime ELSE monoNow - (wallNow - rec)",
-     ("tlc", "ci-restarts", "NeverLonger")),
-    ("M3", "model: a reload or restart starts a full hold (#64's bug)", TLA,
+     "ci-restarts", "NeverLonger"),
+    ("M3", "model: a reload or restart starts a full hold (#64's bug)",
      "IF rec = NoTime THEN NoTime ELSE monoNow - Max0(wallNow - rec)",
      "IF rec = NoTime THEN NoTime ELSE monoNow",
-     ("tlc", "ci-restarts", "NoExtraWait")),
-    ("M4", "model: no record on file holds a full window", TLA,
+     "ci-restarts", "NoExtraWait"),
+    ("M4", "model: no record on file holds a full window",
      "IF rec = NoTime THEN NoTime ELSE monoNow - Max0(wallNow - rec)",
      "IF rec = NoTime THEN monoNow ELSE monoNow - Max0(wallNow - rec)",
-     ("tlc", "ci-restarts", "FreshNoWait")),
-    ("M5", "model: a room's run in the voted mode is not stamped", TLA,
+     "ci-restarts", "FreshNoWait"),
+    ("M5", "model: a room's run in the voted mode is not stamped",
      "doStamp  == IF state # mode THEN ~byV ELSE byVotes /\\ runs",
      "doStamp  == IF state # mode THEN ~byV ELSE FALSE",
-     ("tlc", "ci-votes", "HoldKept")),
-    ("M6", "model: votes count while a room is mid-run", TLA,
+     "ci-votes", "HoldKept"),
+    ("M6", "model: votes count while a room is mid-run",
      "gateOpen == Len(cmd) = 0 /\\ ~engaged",
      "gateOpen == Len(cmd) = 0",
-     ("tlc", "ci-votes", "PausedRunKept")),
-    ("M7", "model: the hold no longer gates a change", TLA,
+     "ci-votes", "PausedRunKept"),
+    ("M7", "model: the hold no longer gates a change",
      "IF proposed # current /\\ allowed /\\ (standoff \\/ ~still)",
      "IF proposed # current /\\ (standoff \\/ ~still)",
-     ("tlc", "ci-restarts", "HoldKept")),
-    ("M8", "model: Resting mode takes the mode from a run (F1)", TLA,
+     "ci-restarts", "HoldKept"),
+    ("M8", "model: Resting mode takes the mode from a run (F1)",
      "rest == IF Resting \\in Modes /\\ ~running THEN Resting ELSE current",
      "rest == IF Resting \\in Modes THEN Resting ELSE current",
-     ("tlc", "finding-resting", "PausedRunKept")),
-    ("M9", "model: a start forgets that votes chose the mode (F2)", TLA,
+     "finding-resting", "PausedRunKept"),
+    ("M9", "model: a start forgets that votes chose the mode (F2)",
      "/\\ byVotes' = IF fromRec THEN storedByV ELSE FALSE",
      "/\\ byVotes' = FALSE",
-     ("tlc", "finding-reload-vote", "HoldKept")),
-    ("M10", "model: a start takes the select's restore data over the record (F3)", TLA,
+     "finding-reload-vote", "HoldKept"),
+    ("M10", "model: a start takes the select's restore data over the record (F3)",
      "LET fromRec == storedMode \\in Modes",
      "LET fromRec == FALSE /\\ storedMode \\in Modes",
-     ("tlc", "finding-crash", "HoldKept")),
-    ("M11", "model: a paused room still votes", TLA,
+     "finding-crash", "HoldKept"),
+    ("M11", "model: a paused room still votes",
      "        dem      == [i \\in RoomIds |-> IF paused[i] THEN None ELSE Demand(pos[i])]",
      "        dem      == [i \\in RoomIds |-> Demand(pos[i])]",
-     ("tlc", "ci-openings", "PausedNeverVotes")),
-    ("M12", "model: a pause restamps the hold", TLA,
+     "ci-openings", "PausedNeverVotes"),
+    ("M12", "model: a pause restamps the hold",
      "    /\\ stamp' = stamp        \\* a pause is not a mode change",
      "    /\\ stamp' = Mono",
-     ("tlc", "ci-openings", "PauseKeepsHold")),
-    ("M13", "model: an overridden room pauses again before a close", TLA,
+     "ci-openings", "PauseKeepsHold"),
+    ("M13", "model: an overridden room pauses again before a close",
      "    /\\ ~paused[i] /\\ ~overridden[i]",
      "    /\\ ~paused[i]",
-     ("tlc", "ci-openings", "OverrideNeverPaused")),
-    ("M14", "model: a pause turns the room Off", TLA,
+     "ci-openings", "OverrideNeverPaused"),
+    ("M14", "model: a pause turns the room Off",
      "    /\\ enabled' = enabled    \\* nor does it touch the room's own mode",
      "    /\\ enabled' = [enabled EXCEPT ![i] = FALSE]",
-     ("tlc", "ci-openings-restarts", "PauseKeepsMode")),
+     "ci-openings-restarts", "PauseKeepsMode"),
 ]
 
 
@@ -335,39 +236,34 @@ def check(out: Path) -> int:
 
 
 def mutants(out: Path, only: list[str]) -> int:
+    """The model's broken copies, each with only its rule, then the code's (the H mutants)."""
     ok = True
-    for mid, what, path, old, new, how in MUTANTS:
+    for mid, what, old, new, config, rule in MODEL_MUTANTS:
         if only and mid not in only:
             continue
         scratch = Path(tempfile.mkdtemp(prefix=f"mxz-mutant-{mid}-"))
         try:
-            for part in ("custom_components", "tests", "tools", "verification", "pytest.ini"):
-                src = ROOT / part
-                (shutil.copytree if src.is_dir() else shutil.copy2)(src, scratch / part)
-            target = scratch / path
+            shutil.copytree(ROOT / MODEL, scratch / MODEL)
+            target = scratch / TLA
             text = target.read_text()
             if text.count(old) != 1:
-                print(f"BAD {mid} the text to break is not in {path} exactly once: re-anchor it")
+                print(f"BAD {mid} the text to break is not in {TLA} exactly once: re-anchor it")
                 ok = False
                 continue
             target.write_text(text.replace(old, new))
-            log = out / f"mutant-{mid}.log"
-            if how[0] == "tlc":
-                # Only the rule under test, so TLC's first stop is that rule.
-                cfg = scratch / MODEL / f"{how[1]}.cfg"
-                head = cfg.read_text().split("INVARIANTS")[0]
-                cfg.write_text(f"{head}INVARIANTS\n  {how[2]}\n")
-                verdict, rule = tlc(scratch, how[1], log)
-                caught = (verdict, rule) == ("breaks", how[2])
-                shown = f"TLC {how[1]}: {verdict} {rule}".strip()
-            else:
-                code = pytest(scratch, [how[1]], log)
-                caught = code != 0 and "FAILED" in log.read_text()
-                shown = f"pytest {'FAILED' if code else 'passed'} {how[1].split('::')[-1]}"
-            ok &= caught
-            print(f"{'caught' if caught else 'MISSED'} {mid:4} {what}: {shown}")
+            # Only the rule under test, so TLC's first stop is that rule.
+            cfg = scratch / MODEL / f"{config}.cfg"
+            head = cfg.read_text().split("INVARIANTS")[0]
+            cfg.write_text(f"{head}INVARIANTS\n  {rule}\n")
+            verdict, broke = tlc(scratch, config, out / f"mutant-{mid}.log")
+            caught = (verdict, broke) == ("breaks", rule)
+            print(f"{'caught' if caught else 'MISSED'} {mid:4} {what}: TLC {config}: {verdict} {broke}".rstrip())
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
+        ok &= caught
+    for mid in CODE_MUTANTS:
+        if not only or mid in only:
+            ok &= code_mutants.run(mid, _env("MXZ_PYTHON"), out)
     print(f"evidence {out}")
     print("MUTANTS_ALL_CAUGHT" if ok else "MUTANTS_MISSED")
     return 0 if ok else 1

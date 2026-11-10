@@ -4,7 +4,9 @@ The journeys live outside ``tests/`` so CI's ``pytest tests/`` never collects
 them, which also means ``tests/conftest.py`` is not loaded for them. Its hook
 and fixture are imported here instead, so the journeys run exactly as the
 suite does: pytest-asyncio in auto mode, and the custom integration enabled
-for every test that asks for ``hass``.
+for every test that asks for ``hass``, with the coordinator's clock
+(``mxz_clock``) stood in, so a journey makes time pass with
+``tests.clocks.pass_time``.
 
 Run from the repository root with ``python -m pytest`` so ``tests.*`` and
 ``custom_components.*`` import (see ../SKILL.md).
@@ -14,9 +16,9 @@ from __future__ import annotations
 
 import pytest
 
-from tests.conftest import auto_enable_custom_integrations, pytest_configure
+from tests.conftest import auto_enable_custom_integrations, mxz_clock, pytest_configure
 
-__all__ = ["auto_enable_custom_integrations", "pytest_configure"]
+__all__ = ["auto_enable_custom_integrations", "mxz_clock", "pytest_configure"]
 
 
 @pytest.hookimpl(wrapper=True, tryfirst=True)

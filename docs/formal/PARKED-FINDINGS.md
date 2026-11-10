@@ -140,7 +140,7 @@ it and `ManualFanKept` break if the memory is dropped, if it outlives the lag, o
 
 The model's head only ever reports the latest write, and its memory is a set emptied by that
 report. So the in-order stream and the repeat rule aren't in the model: only the tests above
-hold them, and `tools/formal_tlc.py code` shows those tests break without them (C34 to C41).
+hold them, and `tools/code_mutants.py` shows those tests break without them (C34 to C41).
 The model's next write also puts back the speed before the last, so its echo is wider than the
 code's. That doesn't hide a false hold for its head: the code's memory keeps the speed that head
 shows, and `test_no_person_no_hold_when_a_head_jumps_to_its_latest_write` holds that on the real code.

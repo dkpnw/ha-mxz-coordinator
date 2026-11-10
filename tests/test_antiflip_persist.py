@@ -28,7 +28,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
-    async_mock_restore_state_shutdown_restart,
 )
 
 from custom_components.mxz_coordinator.const import (
@@ -38,8 +37,9 @@ from custom_components.mxz_coordinator.const import (
     MODE_HEAT,
 )
 from custom_components.mxz_coordinator.coordinator import COAST_FOLLOWUP_DELAY
-from tests.clocks import jump_wall_clock
+from tests.clocks import jump_wall_clock, pass_time
 from tests.dwell import RESTAMP_TOLERANCE, expire_dwell
+from tests.restart import restart
 from tests.test_drive import SENSOR_A, _eid, _recompute, _set_temp
 from tests.test_dwell_wakeup import (
     COLD,
@@ -134,20 +134,6 @@ def _stored(hass_storage: dict, entry) -> float:
     return hass_storage[STORE_KEY.format(entry.entry_id)]["data"]["last_mode_change"]
 
 
-async def _restart(hass: HomeAssistant, entry) -> None:
-    """Stop and start again: restore data dumped, the store read from storage.
-
-    The unload drops the entry; dropping the shared store instances is what a
-    new Home Assistant process starts with, so the setup reads what was written.
-    """
-    await async_mock_restore_state_shutdown_restart(hass)
-    assert await hass.config_entries.async_unload(entry.entry_id)
-    await hass.async_block_till_done()
-    hass.data.pop("mxz_coordinator_mode_change_stores")
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-
 async def test_a_mode_change_is_written_at_once_as_wall_clock_time(
     hass: HomeAssistant, hass_storage: dict
 ) -> None:
@@ -174,7 +160,7 @@ async def test_restart_continues_the_hold_from_the_stored_change(
 
     jump_wall_clock(monkeypatch, passed)
     await _set_temp(hass, SENSOR_A, HOT[False])  # wants the change back
-    await _restart(hass, entry)
+    await restart(hass, entry)
 
     plan = _plan(hass, entry)
     if held:
@@ -206,11 +192,11 @@ async def _flip_to(hass: HomeAssistant, entry, mode: str) -> None:
 def _let_time_pass(monkeypatch: pytest.MonkeyPatch, coord, seconds: float) -> None:
     """``seconds`` pass for one running coordinator: both of its clocks move.
 
-    The wall clock carries the record; the monotonic stamp is what the gate
-    reads within the run (``tests/clocks.py``).
+    The wall clock carries the record; the coordinator's clock is what the
+    gate reads within the run (``tests/clocks.py``).
     """
     jump_wall_clock(monkeypatch, seconds)
-    coord._last_mode_change_ts -= seconds
+    pass_time(coord, seconds)
 
 
 @pytest.mark.parametrize(
@@ -236,7 +222,7 @@ async def test_restart_mid_hold_keeps_the_mode_then_changes_when_the_hold_ends(
 
     jump_wall_clock(monkeypatch, 400)
     await _set_temp(hass, SENSOR_A, temp)  # wants the other direction
-    await _restart(hass, entry)
+    await restart(hass, entry)
     coord = entry.runtime_data
 
     plan = _plan(hass, entry)

@@ -16,7 +16,7 @@ from homeassistant.core import State
 
 from custom_components.mxz_coordinator import _async_prune_stale_entities
 from custom_components.mxz_coordinator.const import FAN_LADDER
-from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+from custom_components.mxz_coordinator.coordinator import MXZCoordinator, Zone
 from custom_components.mxz_coordinator.switch import MXZZoneFanAutoSwitch
 
 HEAD = "climate.test_head"
@@ -90,7 +90,9 @@ async def test_handback_supersedes_pending_restore_with_boost_disabled() -> None
 def test_prune_keeps_retained_fan_auto_and_removes_dropped_zone() -> None:
     """Pruning itself keeps retained Fan auto entries, before HA can recreate them."""
     entry = SimpleNamespace(entry_id="test_entry")
-    coordinator = SimpleNamespace(zones=[SimpleNamespace(slug="primary")])
+    coordinator = SimpleNamespace(
+        zones=[Zone(index=0, slug="primary", name="Primary", climate_id=HEAD, sensor_id="sensor.a")]
+    )
     registry = Mock()
     entries = [
         SimpleNamespace(
@@ -112,3 +114,30 @@ def test_prune_keeps_retained_fan_auto_and_removes_dropped_zone() -> None:
     assert registry.async_remove.call_args_list == [call("switch.dropped_fan_auto")], (
         "pruning must remove the dropped zone and retain the current zone's Fan auto"
     )
+
+
+def test_prune_keeps_what_a_dual_room_and_a_door_window_room_still_provide() -> None:
+    """Their heat-to and cool-to numbers and their window entities stay; another room's go."""
+    entry = SimpleNamespace(entry_id="test_entry")
+    dual = Zone(index=0, slug="primary", name="Primary", climate_id=HEAD, sensor_id="sensor.a")
+    dual.dual = True
+    window = Zone(index=1, slug="secondary", name="Secondary", climate_id="climate.b", sensor_id="sensor.b")
+    window.opening_entity, window.opening_pause = "binary_sensor.window", True
+    kept = [
+        f"test_entry_primary_{suffix}" for suffix in ("target_low", "target_high")
+    ] + [f"test_entry_secondary_{suffix}" for suffix in ("window_override", "paused_open")]
+    gone = ["test_entry_secondary_target_low", "test_entry_primary_window_override"]
+    registry = Mock()
+    with (
+        patch("custom_components.mxz_coordinator.er.async_get", return_value=registry),
+        patch(
+            "custom_components.mxz_coordinator.er.async_entries_for_config_entry",
+            return_value=[SimpleNamespace(unique_id=uid, entity_id=uid) for uid in kept + gone],
+        ),
+    ):
+        _async_prune_stale_entities(
+            SimpleNamespace(), entry, SimpleNamespace(zones=[dual, window])
+        )
+
+    assert registry.async_remove.call_args_list == [call(uid) for uid in gone]
+

@@ -14,6 +14,7 @@ pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.components.select import SelectEntity
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import EVENT_CALL_SERVICE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.setup import async_setup_component
@@ -41,6 +42,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_SENSOR,
     ZONE_VANE_VERTICAL,
 )
+from tests.peek import armed_wakeups, debug_view
 
 from .test_drive import MockHead, _eid, _set_temp
 
@@ -151,6 +153,17 @@ async def _park_head_a_off(hass, entry, heads) -> None:
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert hass.states.get(heads[0].entity_id).state == "off"
+
+
+async def _kicks_running(hass: HomeAssistant, entry: MockConfigEntry) -> set[str]:
+    """The rooms whose head a vane kick holds now, as diagnostics shows them."""
+    rooms = (await debug_view(hass, entry))["rooms"]
+    return {slug for slug, room in rooms.items() if room["holds"]["vane_kick_running"]}
+
+
+def _fan_auto(hass: HomeAssistant, entry: MockConfigEntry) -> str:
+    """The Primary's Fan auto switch: off while a speed is held by hand."""
+    return hass.states.get(_eid(hass, entry, "_primary_fan_auto")).state
 
 
 async def _bounded(awaitable, what: str) -> Any:
@@ -473,7 +486,8 @@ async def test_retirement_stops_every_awaited_kick_phase(
     assert all(task.done() for task in harness.kick_tasks)
 
     if action in ("unload", "reload"):
-        assert coord._retired is True
+        # Unloaded, or a fresh incarnation now drives the heads.
+        assert entry.state is ConfigEntryState.NOT_LOADED or entry.runtime_data is not coord
         before = len(service_history)
         await coord.async_apply_vane(head_a, vane.entity_id, "AUTO")
         await hass.async_block_till_done()
@@ -561,7 +575,7 @@ async def test_retirement_is_bounded_when_a_handler_defers_cancellation(
     assert not harness.kick_task.done(), "this test is only honest while it is stuck"
     assert "did not unwind" in caplog.text
     assert head_a not in coord._vane_kicks
-    assert coord._retired is True
+    assert entry.state is ConfigEntryState.NOT_LOADED
     assert hass.states.get(head_a).state == "off"
 
     # And the stuck task still commands nothing once it finally unwinds.
@@ -606,7 +620,7 @@ async def test_a_disowned_kick_stays_silent_when_the_coordinator_returns(
     )
     await hass.async_block_till_done()
     assert coord.coordinator_enable is True
-    assert coord._retired is False
+    assert entry.state is ConfigEntryState.LOADED and entry.runtime_data is coord
     assert coord.inhibited is False
 
     settled = len(harness.commands)
@@ -632,7 +646,7 @@ async def test_retired_coordinator_commands_neither_head_nor_vane(
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    assert coord._retired is True
+    assert entry.state is ConfigEntryState.NOT_LOADED
 
     history: list[dict[str, Any]] = []
     hass.bus.async_listen(
@@ -728,7 +742,7 @@ async def test_retired_entry_applies_nothing_when_a_pending_apply_lands(
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    assert coord._retired is True
+    assert entry.state is ConfigEntryState.NOT_LOADED
 
     before = [_head_snapshot(hass, head.entity_id) for head in heads]
     history = _recorded_calls(hass)
@@ -738,9 +752,7 @@ async def test_retired_entry_applies_nothing_when_a_pending_apply_lands(
     assert history == []
     assert vane.history == []
     assert [_head_snapshot(hass, head.entity_id) for head in heads] == before
-    assert coord._heal_timers == {}
-    assert coord._dry_timers == {}
-    assert coord._dwell_timer is None
+    assert armed_wakeups(coord) == set()
 
 
 async def test_retired_entry_applies_nothing_after_a_reload(
@@ -756,7 +768,6 @@ async def test_retired_entry_applies_nothing_after_a_reload(
 
     await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
-    assert coord._retired is True
     assert entry.runtime_data is not coord  # a live successor is driving now
 
     # Measured from after the successor has settled, so what this asserts is
@@ -769,9 +780,7 @@ async def test_retired_entry_applies_nothing_after_a_reload(
     assert history == []
     assert vane.history == []
     assert [_head_snapshot(hass, head.entity_id) for head in heads] == before
-    assert coord._heal_timers == {}
-    assert coord._dry_timers == {}
-    assert coord._dwell_timer is None
+    assert armed_wakeups(coord) == set()
 
 
 async def test_a_live_coordinator_still_applies_a_retained_plan(
@@ -785,7 +794,7 @@ async def test_a_live_coordinator_still_applies_a_retained_plan(
     coord = entry.runtime_data
     pending = await _retained_apply(hass, entry, heads)
 
-    assert coord._retired is False
+    assert entry.state is ConfigEntryState.LOADED and entry.runtime_data is coord
     history = _recorded_calls(hass)
     await _bounded(pending, "the retained _apply on a live coordinator")
     await hass.async_block_till_done()
@@ -821,7 +830,7 @@ async def test_vane_kick_wakes_off_head(hass: HomeAssistant) -> None:
     assert vane.history == ["—"]
     assert vane.current_option == "—"
     assert hass.states.get(heads[0].entity_id).state == "off"
-    assert entry.runtime_data._vane_kicks == {}
+    assert not await _kicks_running(hass, entry)
     assert entry.runtime_data._vane_kick_woken == set()
     assert entry.runtime_data._vane_pending == {}
 
@@ -870,7 +879,7 @@ async def test_vane_kick_respects_kill_switch(hass: HomeAssistant) -> None:
 
     assert vane.history == ["↓"]  # select still written (best effort)
     assert hass.states.get(heads[0].entity_id).state == "off"  # never woken
-    assert entry.runtime_data._vane_kicks == {}
+    assert not await _kicks_running(hass, entry)
     assert entry.runtime_data._vane_kick_woken == set()
 
 
@@ -916,7 +925,7 @@ async def test_parallel_kicks_keep_per_zone_ownership(
     # Zone B ran to completion and cleaned up only itself.
     assert vane_b.history == ["↓"]
     assert hass.states.get(heads[1].entity_id).state == "off"
-    assert heads[1].entity_id not in coord._vane_kicks
+    assert await _kicks_running(hass, entry) == {"primary"}
     assert heads[1].entity_id not in coord._vane_kick_woken
     # Zone A is untouched: still owned, still paused, still awake for its kick.
     assert coord._vane_kicks[heads[0].entity_id] is harness.kick_task
@@ -928,7 +937,7 @@ async def test_parallel_kicks_keep_per_zone_ownership(
     await hass.async_block_till_done()
     assert vane_a.history == ["SWING"]
     assert harness.commands == [("head", "fan_only"), ("vane", "SWING"), ("head", "off")]
-    assert coord._vane_kicks == {}
+    assert not await _kicks_running(hass, entry)
     assert coord._vane_kick_woken == set()
 
 
@@ -949,7 +958,7 @@ async def test_kick_preserves_explicit_manual_fan_owner(
         blocking=True,
     )
     await entry.runtime_data.async_refresh()
-    assert entry.runtime_data._fan_latched[heads[0].entity_id] is True
+    assert _fan_auto(hass, entry) == "off"  # held by hand
 
     await hass.services.async_call(
         "switch",
@@ -974,5 +983,5 @@ async def test_kick_preserves_explicit_manual_fan_owner(
     assert vane.history == ["↑"]
     assert hass.states.get(heads[0].entity_id).state == "off"
     assert hass.states.get(heads[0].entity_id).attributes["fan_mode"] == "middle"
-    assert entry.runtime_data._fan_latched[heads[0].entity_id] is True
-    assert entry.runtime_data._vane_kicks == {}
+    assert _fan_auto(hass, entry) == "off"
+    assert not await _kicks_running(hass, entry)

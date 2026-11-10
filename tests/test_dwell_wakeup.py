@@ -8,15 +8,14 @@ the model) that carries NO decision: it asks for a recompute of the inputs as
 they are when it fires, so a manual choice made in between wins.
 
 Time idiom, as in ``test_idle_dry``: firing HA's time machinery does not move
-``time.monotonic`` (the dwell clock, deliberately not wall-clock — see
-coordinator.py), so the dwell clock is aged by rewinding the coordinator's
-own stamp and the timer is then fired for real.
+the coordinator's clock (the dwell clock, deliberately not wall-clock — see
+coordinator.py), so the dwell's time is passed on that clock
+(``tests/clocks.py``) and the timer is then fired for real.
 """
 
 from __future__ import annotations
 
 import asyncio
-import time
 from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any
@@ -58,7 +57,9 @@ from custom_components.mxz_coordinator.const import (
     STARTUP_RECOVER_DELAY,
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+from tests.clocks import pass_time
 from tests.dwell import assert_restamped, expire_dwell, record_mode_change
+from tests.peek import armed
 from tests.test_drive import (
     INHIBIT,
     SENSOR_A,
@@ -172,8 +173,8 @@ async def _fire_due(hass: HomeAssistant, seconds: float) -> None:
 
 
 def _age_out_dwell(coord: MXZCoordinator) -> None:
-    """Age the hysteresis clock so the dwell has run out (the suite's rewind)."""
-    coord._last_mode_change_ts -= coord.hysteresis
+    """A full dwell passes on the coordinator's clock."""
+    pass_time(coord, coord.hysteresis)
 
 
 @contextmanager
@@ -211,7 +212,7 @@ async def _defer_a_heat_flip(
     assert plan.attributes["primary_demand"] == MODE_HEAT
     assert plan.state == MODE_COOL  # the flip is deferred...
     assert plan.attributes["mode_change_allowed"] is False  # ...by the dwell
-    assert coord._dwell_timer is not None  # so a wakeup is armed
+    assert armed(coord, "dwell")  # so a wakeup is armed
     return coord
 
 
@@ -246,7 +247,7 @@ async def test_dwell_expiry_alone_reconsiders_the_deferred_flip(
     low, high = HEAT_EDGES[celsius]
     assert head.attributes["target_temp_low"] == low  # normal clamped edges
     assert head.attributes["target_temp_high"] == high
-    assert coord._dwell_timer is None  # nothing left to wait for
+    assert not armed(coord, "dwell")  # nothing left to wait for
 
 
 async def test_wakeup_lands_at_expiry_and_not_before(hass: HomeAssistant) -> None:
@@ -258,7 +259,7 @@ async def test_wakeup_lands_at_expiry_and_not_before(hass: HomeAssistant) -> Non
     _age_out_dwell(coord)  # the decision is ready; only the clock is not
     await _fire_due(hass, coord.hysteresis / 2)
     assert _plan(hass, entry).state == MODE_COOL  # wakeup not due yet
-    assert coord._dwell_timer is not None
+    assert armed(coord, "dwell")
 
     await _fire_due(hass, coord.hysteresis + 5)
     assert _plan(hass, entry).state == MODE_HEAT
@@ -283,20 +284,20 @@ async def test_no_wakeup_while_nothing_is_deferred(hass: HomeAssistant) -> None:
     entry, _a, _b = await _setup_dwell(hass)
     coord = entry.runtime_data
     await _quiesce(hass, coord)
-    assert coord._dwell_timer is None  # both rooms satisfied
+    assert not armed(coord, "dwell")  # both rooms satisfied
 
     await _set_temp(hass, SENSOR_A, HOT[False])  # calls cool — already cooling
     await _recompute(hass, entry)
     assert _plan(hass, entry).attributes["primary_demand"] == MODE_COOL
-    assert coord._dwell_timer is None  # no flip is being held back
+    assert not armed(coord, "dwell")  # no flip is being held back
 
     await _set_temp(hass, SENSOR_A, COLD[False])  # now a flip IS held back
     await _recompute(hass, entry)
-    assert coord._dwell_timer is not None
+    assert armed(coord, "dwell")
 
     await _set_temp(hass, SENSOR_A, NEUTRAL[False])  # ...and the demand goes away
     await _recompute(hass, entry)
-    assert coord._dwell_timer is None
+    assert not armed(coord, "dwell")
 
 
 async def test_a_new_deferral_replaces_the_pending_wakeup(
@@ -312,7 +313,7 @@ async def test_a_new_deferral_replaces_the_pending_wakeup(
     await _set_temp(hass, SENSOR_B, COLD[False])
     await _recompute(hass, entry)
     assert _plan(hass, entry).attributes["secondary_demand"] == MODE_HEAT
-    assert coord._dwell_timer is not None
+    assert armed(coord, "dwell")
 
     # Fire the window WITHOUT ageing the clock: every live wakeup asks for a
     # refresh, and nothing else in this window does.
@@ -321,7 +322,7 @@ async def test_a_new_deferral_replaces_the_pending_wakeup(
     assert len(requests) == 1  # one wakeup fired, not two
 
     assert _plan(hass, entry).state == MODE_COOL  # dwell had not really elapsed
-    assert coord._dwell_timer is not None  # re-armed for the remaining dwell
+    assert armed(coord, "dwell")  # re-armed for the remaining dwell
 
 
 async def test_expiry_already_handled_is_a_no_op(hass: HomeAssistant) -> None:
@@ -334,7 +335,7 @@ async def test_expiry_already_handled_is_a_no_op(hass: HomeAssistant) -> None:
     await _set_temp(hass, SENSOR_A, COLD[False] - 1)
     await _recompute(hass, entry)
     assert _plan(hass, entry).state == MODE_HEAT
-    assert coord._dwell_timer is None
+    assert not armed(coord, "dwell")
 
     calls = _record_calls(hass)
     with _count_refresh_requests(coord) as requests:
@@ -360,7 +361,7 @@ async def test_kill_switch_cancels_the_wakeup(hass: HomeAssistant) -> None:
     )
     await _recompute(hass, entry)
     assert coord.coordinator_enable is False
-    assert coord._dwell_timer is None
+    assert not armed(coord, "dwell")
 
 
 async def test_standby_hold_cancels_the_wakeup(hass: HomeAssistant) -> None:
@@ -376,11 +377,11 @@ async def test_standby_hold_cancels_the_wakeup(hass: HomeAssistant) -> None:
     await _set_hold(hass, "on")
     await _recompute(hass, entry)
     assert coord.inhibited is True
-    assert coord._dwell_timer is None
+    assert not armed(coord, "dwell")
 
     await _set_hold(hass, "off")
     await _recompute(hass, entry)
-    assert coord._dwell_timer is not None
+    assert armed(coord, "dwell")
 
 
 async def test_unload_cancels_the_wakeup(hass: HomeAssistant) -> None:
@@ -390,7 +391,7 @@ async def test_unload_cancels_the_wakeup(hass: HomeAssistant) -> None:
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    assert coord._dwell_timer is None
+    assert not armed(coord, "dwell")
 
     calls = _record_calls(hass)
     _age_out_dwell(coord)
@@ -409,7 +410,7 @@ async def test_reload_cancels_the_old_wakeup(hass: HomeAssistant) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.runtime_data is not old
-    assert old._dwell_timer is None
+    assert not armed(old, "dwell")
 
     _age_out_dwell(old)
     with _count_refresh_requests(old) as requests:
@@ -439,7 +440,7 @@ async def test_manual_room_hold_survives_the_dwell_expiring(
     # on the spot, and there is no longer a flip to wait for.
     assert coord.zones[0].enable is False
     assert _plan(hass, entry).attributes["primary_demand"] == MODE_OFF
-    assert coord._dwell_timer is None
+    assert not armed(coord, "dwell")
 
     calls = _record_calls(hass)
     _age_out_dwell(coord)
@@ -474,7 +475,7 @@ async def test_wakeup_decides_on_the_inputs_at_expiry_not_at_arming(
     assert plan.attributes["primary_demand"] == MODE_COOL  # recomputed, not replayed
     assert plan.state == MODE_COOL
     assert hass.states.get(head_a).state != MODE_HEAT
-    assert coord._dwell_timer is None
+    assert not armed(coord, "dwell")
 
 
 async def test_manual_target_change_before_expiry_governs_the_wakeup(
@@ -487,7 +488,7 @@ async def test_manual_target_change_before_expiry_governs_the_wakeup(
     # 60 °F room, target lowered to 60: the room no longer asks for heat.
     await _set_target(hass, _eid(hass, entry, "_primary_target"), COLD[False])
     assert _plan(hass, entry).attributes["primary_demand"] == DEMAND_NEUTRAL
-    assert coord._dwell_timer is None  # so the wakeup is dropped
+    assert not armed(coord, "dwell")  # so the wakeup is dropped
 
     _age_out_dwell(coord)
     await _fire_due(hass, coord.hysteresis + 5)
@@ -505,7 +506,7 @@ async def test_manual_shared_mode_choice_restarts_the_dwell(
     coord = await _defer_a_heat_flip(hass, entry)
     # Run the startup dwell out first, so whatever holds the mode from here on
     # is the stamp the choice itself writes.
-    long_ago = expire_dwell(coord)
+    expire_dwell(coord)
 
     await hass.services.async_call(
         "select",
@@ -513,7 +514,7 @@ async def test_manual_shared_mode_choice_restarts_the_dwell(
         {"entity_id": _eid(hass, entry, "_shared_mode"), "option": MODE_HEAT},
         blocking=True,
     )
-    assert_restamped(coord, long_ago)
+    await assert_restamped(hass, entry)
     await _recompute(hass, entry)
     assert coord.current_shared_mode == MODE_HEAT
 
@@ -522,7 +523,7 @@ async def test_manual_shared_mode_choice_restarts_the_dwell(
     await _set_temp(hass, SENSOR_A, HOT[False])
     await _recompute(hass, entry)
     assert _plan(hass, entry).attributes["primary_demand"] == MODE_COOL
-    assert coord._dwell_timer is not None
+    assert armed(coord, "dwell")
 
     await _fire_due(hass, coord.hysteresis + 5)
     plan = _plan(hass, entry)
@@ -552,7 +553,7 @@ async def test_heat_lockout_leaves_nothing_for_the_wakeup(
     assert DEFAULT_HEAT_LOCKOUT_FLOOR == 58.0
     assert coord.heat_lockout is True
     assert _plan(hass, entry).attributes["primary_demand"] == DEMAND_NEUTRAL
-    assert coord._dwell_timer is None
+    assert not armed(coord, "dwell")
 
     _age_out_dwell(coord)
     await _fire_due(hass, coord.hysteresis + 5)
@@ -577,8 +578,8 @@ async def test_heat_lockout_leaves_nothing_for_the_wakeup(
 
 
 def _dwell_left(coord: MXZCoordinator, seconds: float) -> None:
-    """Leave ``seconds`` of dwell on the clock (the suite's stamp rewind)."""
-    coord._last_mode_change_ts = time.monotonic() - coord.hysteresis + seconds
+    """Let the dwell run until ``seconds`` of it are left."""
+    pass_time(coord, coord.mode_hold_remaining() - seconds)
 
 
 def _defer_a_flip_without_a_pending_refresh(coord: MXZCoordinator) -> None:
@@ -635,7 +636,7 @@ async def test_dwell_that_expires_during_a_head_command_is_not_lost(
     entry, head_a, head_b = await _setup_dwell(hass)
     coord = entry.runtime_data
     await _quiesce(hass, coord)
-    assert coord._dwell_timer is None
+    assert not armed(coord, "dwell")
 
     with _held_head_command(monkeypatch, head_b) as (entered, release):
         _defer_a_flip_without_a_pending_refresh(coord)
@@ -645,12 +646,12 @@ async def test_dwell_that_expires_during_a_head_command_is_not_lost(
         await asyncio.wait_for(entered.wait(), 5)
 
         # Parked inside _apply, on a plan that defers the flip to heat.
-        assert coord._applying_plan["primary_demand"] == MODE_HEAT
-        assert coord._applying_plan["secondary_demand"] == MODE_COOL
-        assert coord._applying_plan["state"] == MODE_COOL
-        assert coord._applying_plan["mode_change_allowed"] is False
+        assert coord.data["primary_demand"] == MODE_HEAT
+        assert coord.data["secondary_demand"] == MODE_COOL
+        assert coord.data["state"] == MODE_COOL
+        assert coord.data["mode_change_allowed"] is False
 
-        coord._last_mode_change_ts -= 3  # the dwell runs out during the await
+        pass_time(coord, 3)  # the dwell runs out during the await
         release.set()
         await asyncio.wait_for(refresh, 5)
     await hass.async_block_till_done()
@@ -665,7 +666,7 @@ async def test_dwell_that_expires_during_a_head_command_is_not_lost(
     assert plan.state == MODE_HEAT
     assert plan.attributes["mode_change_allowed"] is True
     assert hass.states.get(head_a).state == MODE_HEAT
-    assert coord._dwell_timer is None  # and nothing is left waiting
+    assert not armed(coord, "dwell")  # and nothing is left waiting
 
 
 @pytest.mark.parametrize("retire", ["unload", "reload"])
@@ -687,7 +688,7 @@ async def test_a_refresh_finishing_after_retirement_arms_nothing(
         _defer_a_flip_without_a_pending_refresh(coord)
         refresh = hass.async_create_task(coord.async_refresh())
         await asyncio.wait_for(entered.wait(), 5)
-        assert coord._applying_plan["mode_change_allowed"] is False
+        assert coord.data["mode_change_allowed"] is False
 
         if retire == "unload":
             assert await asyncio.wait_for(
@@ -698,7 +699,7 @@ async def test_a_refresh_finishing_after_retirement_arms_nothing(
                 hass.config_entries.async_reload(entry.entry_id), 10
             )
             assert entry.runtime_data is not coord
-        assert coord._dwell_timer is None  # shutdown cancelled the live one
+        assert not armed(coord, "dwell")  # shutdown cancelled the live one
 
         release.set()
         await asyncio.wait_for(refresh, 5)
@@ -707,13 +708,13 @@ async def test_a_refresh_finishing_after_retirement_arms_nothing(
         await _quiesce(hass, entry.runtime_data)  # the successor's own burst
 
     # The in-flight refresh has now run its re-sync on a retired coordinator.
-    assert coord._dwell_timer is None
+    assert not armed(coord, "dwell")
 
     calls = _record_calls(hass)
     _age_out_dwell(coord)
     with _count_refresh_requests(coord) as requests:
         await _fire_due(hass, coord.hysteresis + 5)
-    assert coord._dwell_timer is None
+    assert not armed(coord, "dwell")
     assert requests == []
     assert _head_calls(calls, head_a) == []
     assert _head_calls(calls, head_b) == []
@@ -730,22 +731,22 @@ async def test_a_wakeup_firing_after_retirement_asks_for_nothing(
     refuse it.
     """
     entry, head_a, _b = await _setup_dwell(hass)
-    armed: list[Any] = []
+    callbacks: list[Any] = []
     original_call_later = coordinator_module.async_call_later
 
     def capturing(hass_: HomeAssistant, delay: float, action: Any) -> Any:
         if "_arm_dwell_timer" in getattr(action, "__qualname__", ""):
-            armed.append(action)
+            callbacks.append(action)
         return original_call_later(hass_, delay, action)
 
     monkeypatch.setattr(coordinator_module, "async_call_later", capturing)
     coord = await _defer_a_heat_flip(hass, entry)
-    assert armed  # the deferred flip armed a wakeup...
-    fire = armed[-1]  # ...and the last one armed owns the live handle
+    assert callbacks  # the deferred flip armed a wakeup...
+    fire = callbacks[-1]  # ...and the last one armed owns the live handle
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    assert coord._dwell_timer is None
+    assert not armed(coord, "dwell")
 
     calls = _record_calls(hass)
     _age_out_dwell(coord)
@@ -754,6 +755,6 @@ async def test_a_wakeup_firing_after_retirement_asks_for_nothing(
         await hass.async_block_till_done()
         await _fire_due(hass, coord.hysteresis + 5)
     assert requests == []
-    assert coord._dwell_timer is None
+    assert not armed(coord, "dwell")
     assert _head_calls(calls, head_a) == []
     assert coord.current_shared_mode == MODE_COOL

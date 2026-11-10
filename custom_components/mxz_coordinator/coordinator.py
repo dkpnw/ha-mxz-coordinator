@@ -285,6 +285,20 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Seconds on a clock that only counts up: an NTP step or a clock set by hand
+# never moves it, so no hold or wait is cut short or stretched by one.
+Clock = Callable[[], float]
+
+
+def monotonic() -> float:
+    """MXZ's clock: ``time.monotonic``, looked up at each read.
+
+    A coordinator takes this as its ``clock`` when it is built; a test stands
+    its own in here before setup to make time pass.
+    """
+    return time.monotonic()
+
+
 # What MXZ remembers of its head writes (logic.HeadWriteMemory), by service field.
 _HEAD_WRITE_MODE = "hvac_mode"
 _HEAD_WRITE_FIELDS = (_HEAD_WRITE_MODE, "temperature", "target_temp_low", "target_temp_high")
@@ -736,8 +750,8 @@ async def async_remove_last_mode_change(hass: HomeAssistant, entry_id: str) -> N
     hass.data.get(f"{DOMAIN}_mode_change_stores", {}).pop(entry_id, None)
 
 
-def mode_change_stamp(stored: float | None) -> float | None:
-    """The monotonic-clock stamp for a stored wall-clock change time.
+def mode_change_stamp(stored: float | None, now: float) -> float | None:
+    """The stamp on MXZ's clock, read as ``now``, for a stored wall-clock change time.
 
     The gate itself runs on the monotonic clock (an NTP step inside one run
     must not move it), so the stored time becomes "this many seconds ago" on
@@ -748,7 +762,7 @@ def mode_change_stamp(stored: float | None) -> float | None:
     if stored is None:
         return None
     ago = max(0.0, dt_util.utcnow().timestamp() - stored)
-    return time.monotonic() - ago
+    return now - ago
 
 
 # ---------------------------------------------------------------------------
@@ -952,6 +966,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=None,  # all updates are event/heartbeat-driven, not polled
             config_entry=entry,
         )
+        # The one clock every hold, wait, time limit and rate limit reads.
+        self.clock: Clock = monotonic
         conf: dict[str, Any] = {**entry.data, **entry.options}
 
         # Operate in the HA system temperature unit. The °F profile reproduces
@@ -981,7 +997,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # person's change. One wakeup serves them all (see _sync_cloud_timer).
         self._cloud: dict[str, CloudHead] = {}
         self._cloud_timer: Any | None = None
-        cloud_started = time.monotonic()
+        cloud_started = self.clock()
         for zone in self.zones:
             self._resolve_head_type(zone, cloud_started)
         self.dual_min_gap: float = self._profile["dual_min_gap"]
@@ -1237,7 +1253,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # a reload a head is unknown until it is seen, timed from that start.
         # One wakeup for the nearest expiry (see _sync_lost_timer), and one
         # for the nearest end of a settle window (see _sync_settle_timer).
-        started = time.monotonic()
+        started = self.clock()
         started_wall = dt_util.utcnow().timestamp()
         self._sight: dict[str, HeadSight] = {
             zone.climate_id: HeadSight(started, started_wall, ACTION_VOTE_SETTLE)
@@ -1269,7 +1285,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # no time since a change (never an invented one; #6 was a ~56,000-year
         # dwell read off a 0.0 stand-in).
         record = record or ModeRecord()
-        self._last_mode_change_ts: float | None = mode_change_stamp(record.changed_at)
+        self._last_mode_change_ts: float | None = mode_change_stamp(
+            record.changed_at, self.clock()
+        )
         # The same change on the wall clock, written back with every record.
         self._last_mode_change_at: float | None = record.changed_at
         self._mode_change_store = _mode_change_store(hass, entry.entry_id)
@@ -1786,7 +1804,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
         now = dt_util.utcnow().timestamp()
         # The lost-vote clock (see logic.HeadSight); `now` above is wall-clock.
-        clock = time.monotonic()
+        clock = self.clock()
         plan: dict[str, Any] = {}
         demands: list[str] = []
         engages: list[str] = []
@@ -2668,7 +2686,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Seconds since the last real mode change; None when none is on record."""
         if self._last_mode_change_ts is None:
             return None
-        return time.monotonic() - self._last_mode_change_ts
+        return self.clock() - self._last_mode_change_ts
 
     def mode_hold_remaining(self) -> float:
         """Seconds the gate still holds a cool/heat change back (0 when it does not).
@@ -2698,7 +2716,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         The caller writes the record (``_record_mode``) once the shared mode
         and the select show the change.
         """
-        self._last_mode_change_ts = time.monotonic()
+        self._last_mode_change_ts = self.clock()
         self._last_mode_change_at = dt_util.utcnow().timestamp()
         if self._retired:
             return
@@ -2946,7 +2964,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # Dry wets the coil as cooling does: whenever the head
                     # leaves dry, the coil-dry run is owed from then. (A Dry
                     # picked on the thermostat and not reported yet hasn't.)
-                    self._last_active[zone.climate_id] = (MODE_COOL, time.monotonic())
+                    self._last_active[zone.climate_id] = (MODE_COOL, self.clock())
                 if dry == "held":
                     # A person's dry: no mode, setpoint, fan or vane write.
                     self._cancel_dry_timer(zone.climate_id)
@@ -3165,7 +3183,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._floor_accepted(climate_id, active)
             return
         if act in (MODE_COOL, MODE_HEAT):
-            self._last_active[climate_id] = (act, time.monotonic())
+            self._last_active[climate_id] = (act, self.clock())
         if act != MODE_FAN_ONLY:
             self._cancel_dry_timer(climate_id)
         cur = self.hass.states.get(climate_id)
@@ -3406,7 +3424,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             rec = self._seed_last_active(climate_id)
         if rec is None or rec[0] != MODE_COOL:
             return MODE_OFF  # heat leaves no wet coil; never-ran owes no dwell
-        remaining = self.coil_dry_seconds - (time.monotonic() - rec[1])
+        remaining = self.coil_dry_seconds - (self.clock() - rec[1])
         if remaining <= 0:
             return MODE_OFF
         self._arm_dry_timer(climate_id, remaining)
@@ -3424,7 +3442,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         state = self.hass.states.get(climate_id)
         mode = state.state if state is not None else None
         if mode in (MODE_COOL, MODE_FAN_ONLY):
-            rec = (MODE_COOL, time.monotonic())
+            rec = (MODE_COOL, self.clock())
             self._last_active[climate_id] = rec
             return rec
         return None
@@ -3913,7 +3931,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         cloud = self._cloud.get(climate_id)
         return cloud is not None and cloud.stale(
-            time.monotonic(), mode=mode, fan=fan, setpoint=setpoint,
+            self.clock(), mode=mode, fan=fan, setpoint=setpoint,
             same=partial(self._head_already_at, climate_id),
         )
 
@@ -3926,7 +3944,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cloud = self._cloud.get(zone.climate_id)
         if cloud is None:
             return {}
-        clock = time.monotonic()
+        clock = self.clock()
         left = cloud.window_until - clock
         status = cloud.status(clock)
         return {
@@ -3963,7 +3981,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         confirmed.
         """
         cloud = self._cloud[climate_id]
-        clock = time.monotonic()
+        clock = self.clock()
         state = self.hass.states.get(climate_id)
         if cloud.unresponsive or state is None or state.state in UNAVAILABLE_STATES:
             return
@@ -4046,7 +4064,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     return
                 await self.async_head_service(climate_id, service, payload)
         except HomeAssistantError:
-            now = time.monotonic()
+            now = self.clock()
             cloud.refused(now)
             # Nothing waits on a refused batch, so nothing else may wake the
             # plan for the next: wake it when the write interval lets that one
@@ -4139,7 +4157,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cancel_cloud_timer()
         if self._retired or not self._cloud:
             return
-        clock = time.monotonic()
+        clock = self.clock()
         wall = dt_util.utcnow().timestamp()
         waits: list[float] = []
         for climate_id, cloud in self._cloud.items():
@@ -5078,7 +5096,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if sight is not None and mode in (None, STATE_UNAVAILABLE):
             # Lost sight of it: what it showed just before is its last-known
             # vote, even if no compute ran in between.
-            clock = time.monotonic()
+            clock = self.clock()
             if old_state is not None and old_state.state != STATE_UNAVAILABLE:
                 sight.observe(
                     old_state.state, old_state.attributes.get(ATTR_HVAC_ACTION), clock
@@ -5150,7 +5168,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             # not that run stopping, so it starts no hold.
                             sight.observe(
                                 mode, cast("State", new_state).attributes.get(ATTR_HVAC_ACTION),
-                                time.monotonic(),
+                                self.clock(),
                             )
         # A person changing a hands-off head during a floor run takes it back
         # (decision 8b): a real mode change, between two available states, to
@@ -5211,7 +5229,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # run from this moment.
             refresh_needed = True
             if old_mode == MODE_DRY and not stale and mode not in (None, *UNAVAILABLE_STATES):
-                self._last_active[entity_id] = (MODE_COOL, time.monotonic())
+                self._last_active[entity_id] = (MODE_COOL, self.clock())
         if mode not in (None, *UNAVAILABLE_STATES, MODE_DRY) and not stale:
             # One notice per park: a head seen in another mode has left dry
             # (straight from dry, or back from out of sight), so a later dry
@@ -5606,7 +5624,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         zone = self._zone_of(entity_id)
         room = zone.name if zone is not None else entity_id
-        now = time.monotonic()
+        now = self.clock()
         last = self._heal_notice_at.get(entity_id)
         held = bool(self.notify_service) and last is not None and now - last < HEAL_NOTICE_SECONDS
         _LOGGER.warning(
@@ -5815,7 +5833,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cancel_lost_timer()
         if self._lost_retired:
             return
-        clock = time.monotonic()
+        clock = self.clock()
         waits = [
             wait
             for sight in self._sight.values()
@@ -5867,7 +5885,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cancel_settle_timer()
         if self._retired:
             return
-        clock = time.monotonic()
+        clock = self.clock()
         waits = [
             wait
             for zone in self.zones
@@ -6169,7 +6187,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not zone.opening_notify:
             return
         if kind == "pause":
-            clock = time.monotonic()
+            clock = self.clock()
             last = self._opening_notice_at.get(zone.slug)
             if (
                 not zone.enable or not self.coordinator_enable
@@ -6430,7 +6448,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
         if head.state != MODE_DRY:
             return zone.slug in self._dry_picks
-        return cloud is None or not cloud.stale(time.monotonic(), mode=MODE_DRY)
+        return cloud is None or not cloud.stale(self.clock(), mode=MODE_DRY)
 
     def dry_pick_refusal(self, zone: Zone) -> str | None:
         """Why Dry can't be picked on this room's thermostat now, as a translation key."""
@@ -6637,7 +6655,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Driven time is counted on the monotonic clock, so a wall-clock step
         # cannot stall a run early or hold one back. ``now`` (wall clock)
         # stays for the yield, which is stored and shown as a time.
-        clock = time.monotonic()
+        clock = self.clock()
         driven_for = (
             clock - self._floor_eval_ts[slug]
             if self._floor_driving.get(slug) and slug in self._floor_eval_ts
@@ -7051,7 +7069,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         P11), one per room and kind, so a repeat replaces the last.
         """
         slug = zone.slug
-        now = time.monotonic()
+        now = self.clock()
         last = self._floor_notice_at.get(slug)
         if last is not None and now - last < FLOOR_NOTICE_SECONDS:
             held = self._floor_held_back.setdefault(slug, set())

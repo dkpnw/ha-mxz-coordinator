@@ -84,13 +84,16 @@ and state writes:
 - a room sensor: `hass.states.async_set("sensor.room_a_temp", ...)`;
 - a head: going unavailable or reporting a mode through its own entity, as
   its integration would (`tests/test_lost_vote.py` `_lose`/`_back`);
-- Home Assistant: a restart, in process (`journeys/mxz_journey.py`
-  `restart`: restore data dumped, entry unloaded, storage re-read on setup).
+- Home Assistant: a restart, in process (`tests/restart.py` `restart`, the
+  suite's own: restore data dumped, pending store writes flushed, entry
+  unloaded, every MXZ `hass.data` key dropped, then set up and started
+  again, reading each store and the restore data anew).
 
 Time passes with the suite's own clock helpers, never by writing a decision
-into the coordinator: `tests/dwell.py` `expire_dwell`, `tests/clocks.py`
-`jump_wall_clock`/`age_lost_vote`, `tests/test_antiflip_persist.py`
-`_let_time_pass`, `freezer` for sensor freshness, and
+into the coordinator: `tests/clocks.py` `pass_time` (the coordinator's clock,
+which every hold, wait and limit reads) and `jump_wall_clock`, `tests/dwell.py`
+`expire_dwell` (the rest of the mode-change hold passes, and every other wait
+moves with it), `tests/test_antiflip_persist.py` `_let_time_pass` (both), `freezer` for sensor freshness, and
 `async_fire_time_changed` (through `tests/test_dwell_wakeup.py` `_fire_due`)
 so Home Assistant's own timers fire.
 
@@ -137,9 +140,10 @@ evidence yourself when you no longer need it.
   status 0 only when both clocks pass.
 - `journeys/mxz_journey.py`: `Transcript` (the evidence), `entity(hass,
   entry, key)` (an MXZ entity_id by its unique_id key, such as
-  `"primary_thermostat"`), and `restart(hass, entry)`.
-- `journeys/conftest.py`: the suite's `tests/conftest.py` hook and fixture,
-  and the `journal` fixture.
+  `"primary_thermostat"`). A restart is the suite's `tests/restart.py`
+  `restart(hass, entry)`.
+- `journeys/conftest.py`: the suite's `tests/conftest.py` hook and fixtures
+  (the coordinator's clock among them), and the `journal` fixture.
 
 Keep the feature map honest as the integration changes with
 `/maintain-verification-skill`.

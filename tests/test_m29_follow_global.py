@@ -35,6 +35,7 @@ from custom_components.mxz_coordinator.const import (
     DOMAIN,
     ZONE_ENTITY_SUFFIXES,
 )
+from tests.restart import restart
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -47,7 +48,6 @@ from tests.test_drive import (
 from tests.test_dwell_wakeup import _quiesce, _setup_dwell
 from tests.test_idle_action import _settle_requested_refreshes
 from tests.test_issue18_drift import _set_drift, _zone0
-from tests.test_registry_lifecycle import _restart
 from tests.test_room_rename_reorder import _reconfigure, _setup_rooms
 
 # The primary room's two drift entities, by unique_id suffix. The button's
@@ -545,7 +545,7 @@ async def test_disabled_drift_restore(
             await entity._async_press_action()
         assert entry.runtime_data.zones[0].drift == 4
 
-    await _restart(hass, entry)
+    await restart(hass, entry)
     assert hass.states.get(button).state == STATE_UNAVAILABLE
 
     registry.async_update_entity(drift, disabled_by=None)

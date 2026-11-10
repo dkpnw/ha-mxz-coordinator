@@ -243,16 +243,15 @@ def test_a_start_keeps_what_is_left_of_the_hold_and_never_more(monkeypatch) -> N
 
     monkeypatch.setattr(dt_util, "utcnow", lambda: NOW)
     now = NOW.timestamp()
-    assert mode_change_stamp(None) is None  # nothing on record, nothing to wait out
+    clock = time.monotonic()
+    assert mode_change_stamp(None, clock) is None  # nothing on record, nothing to wait out
     for ago in _offsets():
         stored = now - ago
-        before = time.monotonic()
-        stamp = mode_change_stamp(stored)
-        after = time.monotonic()
+        stamp = mode_change_stamp(stored, clock)
         waited = max(0.0, now - stored)  # what the record says has passed
-        slack = 1e-6 * max(1.0, abs(waited)) + (after - before)
-        assert stamp <= after, (ago, stamp, after)  # never longer than the window
-        assert waited - slack <= after - stamp <= waited + slack, (ago, stamp, after)
+        slack = 1e-6 * max(1.0, abs(waited))
+        assert stamp <= clock, (ago, stamp, clock)  # never longer than the window
+        assert waited - slack <= clock - stamp <= waited + slack, (ago, stamp, clock)
 
 
 # --- the record a start reads: async_load_last_mode_change ------------------

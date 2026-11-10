@@ -48,6 +48,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_SENSOR,
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+from tests.restart import restart, stopped
 from tests.test_drive import (
     EVENT_CALL_SERVICE,
     SENSOR_A,
@@ -58,7 +59,7 @@ from tests.test_drive import (
     _setup_mock_heads,
     _user_set_fan,
 )
-from tests.test_fan_hold_restore import _restart
+from tests.test_fan_hold_restore import _plant, _plant_stale_fan_auto
 
 
 async def _setup_idle(
@@ -592,8 +593,7 @@ async def test_restart_after_idle_off_seeds_clean(hass: HomeAssistant) -> None:
     assert a.state == "off"
     assert a.attributes["fan_mode"] == "auto"
 
-    coord = entry.runtime_data
-    _restart(coord, {head_a: False})
+    await restart(hass, entry)
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is False
@@ -612,8 +612,7 @@ async def test_restart_after_idle_off_preserves_real_hold(
     assert hass.states.get(head_a).state == "off"
     assert hass.states.get(head_a).attributes["fan_mode"] == "medium"
 
-    coord = entry.runtime_data
-    _restart(coord, {head_a: True})
+    await restart(hass, entry)
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is True
@@ -633,8 +632,8 @@ async def test_restart_residue_token_with_not_held_restore_is_dropped(
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "off"
 
-    coord = entry.runtime_data
-    _restart(coord, {head_a: False})  # switch says: was NOT held
+    async with stopped(hass, entry):
+        _plant(hass, _eid(hass, entry, "_primary_fan_auto"), "on")  # switch says: was NOT held
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is False
@@ -673,11 +672,9 @@ async def test_restart_after_idle_fan_only_self_parked_seeds_clean(
     assert a.state == "fan_only"
     assert a.attributes["fan_mode"] == "auto"  # never touched; nothing to restore from
 
-    hass.states.async_set(head_a, "fan_only", {**a.attributes, "fan_mode": "low"})
-
-    coord = entry.runtime_data
-    _restart(coord)  # no restore injection = stale/absent, same as S9
-    coord._restored_coordinator_on = True  # a real restart restores the kill switch ON
+    async with stopped(hass, entry):
+        hass.states.async_set(head_a, "fan_only", {**a.attributes, "fan_mode": "low"})
+        _plant_stale_fan_auto(hass, entry, "on")  # no usable restore data, same as S9
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is False
@@ -702,14 +699,19 @@ async def _restart_self_parked(
     await _recompute(hass, entry)
     await _set_temp(hass, SENSOR_A, temp)
     await _recompute(hass, entry)
-    coord = entry.runtime_data
-    _restart(coord)  # no restore data; wiped first so the token's first reader seeds
-    coord._restored_coordinator_on = restored_on
-    # Set on the mock entity itself so its later writes keep the head's own token.
-    head = hass.data["entity_components"]["climate"].get_entity(head_a)
-    head._attr_hvac_mode = HVACMode(head_state)
-    head._attr_fan_mode = token
-    head.async_write_ha_state()
+    async with stopped(hass, entry):  # the token's first reader is the seed
+        _plant_stale_fan_auto(hass, entry, "on")  # no usable restore data
+        if not restored_on:
+            _plant(hass, _eid(hass, entry, "_coordinator_enable"), "off")
+        # Set on the mock entity itself so its later writes keep the head's own token.
+        head = hass.data["entity_components"]["climate"].get_entity(head_a)
+        head._attr_hvac_mode = HVACMode(head_state)
+        head._attr_fan_mode = token
+        head.async_write_ha_state()
+    if not restored_on:  # turned on by hand after the start, not restored on
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": _eid(hass, entry, "_coordinator_enable")}, blocking=True,
+        )
     await _recompute(hass, entry)
     return hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][0]["fan_hold"]
 

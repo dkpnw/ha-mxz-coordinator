@@ -3,20 +3,18 @@
     tools/formal_tlc.py check      every config passes every rule it lists
     tools/formal_tlc.py cover      every reachability goal has a path (TLC must break it)
     tools/formal_tlc.py mutants    every broken copy of the spec breaks its named rule
-    tools/formal_tlc.py code       every broken copy of the code fails its named property
     tools/formal_tlc.py all        check, cover and mutants (what .github/workflows/tla.yml runs)
 
 Set TLA2TOOLS to a tla2tools.jar and, if `java` isn't on PATH, JAVA. A jar whose sha256
-isn't TLA2TOOLS_SHA256 is refused. `code` also needs MXZ_PYTHON, a lane venv's python with
-hypothesis in it. It breaks a scratch copy of the checkout, never the checkout. The exit
-status is 0 only if every case came out as stated. docs/formal/README.md explains the rules.
+isn't TLA2TOOLS_SHA256 is refused. The exit status is 0 only if every case came out as
+stated. docs/formal/README.md explains the rules. The broken copies of the code that are
+these rules' twins are in tools/code_mutants.py.
 """
 
 import argparse
 import hashlib
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -123,112 +121,6 @@ MUTANTS = {
            "Reload == WithReload /\\ Start(TRUE, FALSE, fanShown)", "ci-adopt", "StartWriteNeverAdopted"),
 }
 
-# id: (what breaks, file under custom_components/mxz_coordinator, exact text once, replacement,
-#      property test that must fail). Each is the code-side twin of a rule in the spec.
-CODE_MUTANTS = {
-    "C1": ("the hold is ignored", "coordinator.py", "allowed = elapsed is None or elapsed >= self.hysteresis\n        engaged",
-           "allowed = True\n        engaged", "tests/test_properties_mode.py::test_no_flip_inside_the_hold_and_no_wait_after_it"),
-    "C2": ("the hold runs long", "coordinator.py", "allowed = elapsed is None or elapsed >= self.hysteresis\n        engaged",
-           "allowed = elapsed is None or elapsed >= self.hysteresis * 2\n        engaged",
-           "tests/test_properties_mode.py::test_no_flip_inside_the_hold_and_no_wait_after_it"),
-    "C3": ("a flip isn't stamped", "coordinator.py", "if not plan.get(\"mode_by_hands_off\"):\n                self._stamp_mode_change()",
-           "if False:\n                self._stamp_mode_change()",
-           "tests/test_properties_mode.py::test_no_flip_inside_the_hold_and_no_wait_after_it"),
-    "C4": ("a start restarts the hold", "coordinator.py", "ago = max(0.0, dt_util.utcnow().timestamp() - stored)", "ago = 0.0",
-           "tests/test_properties_restart.py::test_a_start_changes_nothing_anyone_can_see"),
-    "C5": ("arbitrate ignores the gate", "logic.py", "if proposed != current and allowed and (standoff or not still):",
-           "if proposed != current and (standoff or not still):",
-           "tests/test_properties_mode.py::test_arbitrate_never_changes_the_mode_while_the_hold_holds"),
-    "C6": ("a start ignores the record", "coordinator.py", "mode, by_votes = record.mode, record.by_votes\n        else:",
-           "mode, by_votes = restored or MODE_COOL, False\n        else:",
-           "tests/test_properties_mode.py::test_a_start_resumes_the_recorded_mode"),
-    "C7": ("Resting mode doesn't wait", "logic.py", "if running:\n        resting = None", "if False:\n        resting = None",
-           "tests/test_properties_mode.py::test_a_run_in_the_shared_mode_keeps_it_from_resting_mode"),
-    "C8": ("a departure isn't a hold", "coordinator.py", "if not (seeding or departed):", "if not seeding:",
-           "tests/test_properties_fan.py::test_a_pick_is_never_written_over_until_it_is_handed_back"),
-    "C9": ("a hold doesn't stop the write", "coordinator.py", "if held:\n            return  # latched: leave the user's fan pick untouched",
-           "if False:\n            return  # latched: leave the user's fan pick untouched",
-           "tests/test_properties_fan.py::test_a_pick_is_never_written_over_until_it_is_handed_back"),
-    "C10": ("a restored hold isn't kept", "coordinator.py", "if held:\n            self._hold_at(climate_id, observed)\n            return True\n        last =",
-            "if False:\n            self._hold_at(climate_id, observed)\n            return True\n        last =",
-            "tests/test_properties_restart.py::test_a_start_changes_nothing_anyone_can_see"),
-    "C11": ("the echo rule widens to the whole ladder", "coordinator.py", "departed = not seeding and observed not in (\n            self._fan_cmd.get(climate_id),\n            self._fan_prev.get(climate_id),\n        )",
-            "departed = not seeding and observed not in FAN_LADDER",
-            "tests/test_properties_fan.py::test_the_exception_is_exactly_the_last_two"),
-    "C12": ("the echo exception is gone", "coordinator.py", "departed = not seeding and observed not in (\n            self._fan_cmd.get(climate_id),\n            self._fan_prev.get(climate_id),\n        )",
-            "departed = not seeding and observed != self._fan_cmd.get(climate_id)",
-            "tests/test_properties_fan.py::test_the_exception_can_lose_the_pick"),
-    "C13": ("a cloud head's hold doesn't stop the write", "coordinator.py", "if held:\n            return None\n        if fan_act in",
-            "if False:\n            return None\n        if fan_act in",
-            "tests/test_properties_fan.py::test_a_cloud_heads_pick_is_never_written_over"),
-    "C14": ("a paused head isn't sent off", "coordinator.py", "task = self._queue_delivery(zone.climate_id, MODE_OFF, 0.0, 0.0)\n                if task is not None:\n                    tasks.append(task)\n                continue",
-            "continue",
-            "tests/test_properties_window.py::test_a_pause_stops_the_head_and_a_takeover_holds_until_the_window_closes"),
-    "C15": ("a paused room still votes", "coordinator.py", "if paused:\n                demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED",
-            "if False:\n                demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED",
-            "tests/test_properties_window.py::test_a_paused_room_never_keeps_or_turns_the_shared_mode"),
-    "C16": ("a person's change isn't a takeover", "coordinator.py", "self._openings[zone.slug][\"override\"] = \"manual\"", "pass",
-            "tests/test_properties_window.py::test_a_pause_stops_the_head_and_a_takeover_holds_until_the_window_closes"),
-    "C17": ("a closed reading doesn't end an override", "coordinator.py", "if raw == CLOSED_READ and record[\"override\"] is not None:",
-            "if False:",
-            "tests/test_properties_window.py::test_a_pause_stops_the_head_and_a_takeover_holds_until_the_window_closes"),
-    "C18": ("a pause isn't stored", "coordinator.py", "self._openings_store.async_delay_save(lambda: data, 0)", "pass",
-            "tests/test_properties_restart.py::test_a_start_changes_nothing_anyone_can_see"),
-    "C19": ("opening_state pauses on no reading", "logic.py", "return OPENING_PAUSED if paused else OPENING_CLOSED",
-            "return OPENING_PAUSED",
-            "tests/test_properties_window.py::test_no_reading_never_starts_a_pause_and_never_ends_one"),
-    "C20": ("a target isn't converted on a unit switch", "cloud.py", "if set_in == UNIT_F and unit == UNIT_C:\n        return snap_to_step((value - 32) * 5 / 9, step)",
-            "if False:\n        return snap_to_step((value - 32) * 5 / 9, step)",
-            "tests/test_properties_restart.py::test_a_target_is_converted_on_a_unit_switch"),
-    "C22": ("only the last command is an echo", "coordinator.py", "departed = not seeding and observed not in (\n            self._fan_cmd.get(climate_id),\n            self._fan_prev.get(climate_id),\n        )",
-            "departed = not seeding and observed != self._fan_cmd.get(climate_id)",
-            "tests/test_properties_fan.py::test_a_slow_heads_own_echo_is_not_a_hold_one_write_behind"),
-    "C23": ("the echo exception is gone, on a cloud head", "coordinator.py", "departed = not seeding and observed not in (\n            self._fan_cmd.get(climate_id),\n            self._fan_prev.get(climate_id),\n        )",
-            "departed = not seeding and observed != self._fan_cmd.get(climate_id)",
-            "tests/test_properties_fan.py::test_the_exception_on_a_cloud_head"),
-    "C24": ("a start ignores the time since the change", "coordinator.py", "ago = max(0.0, dt_util.utcnow().timestamp() - stored)", "ago = 0.0",
-            "tests/test_properties_mode.py::test_a_start_keeps_what_is_left_of_the_hold_and_never_more"),
-    "C25": ("no change on record still holds", "coordinator.py", "if stored is None:\n        return None\n    ago", "if stored is None:\n        return time.monotonic()\n    ago",
-            "tests/test_properties_mode.py::test_no_stored_change_holds_nothing"),
-    "C26": ("an infinite stored time reads as a time", "coordinator.py", "return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)",
-            "return isinstance(value, (int, float)) and not isinstance(value, bool)",
-            "tests/test_properties_mode.py::test_any_stored_record_loads_as_a_readable_record"),
-    "C27": ("an override can be paused", "logic.py", "if raw == OPEN_READ or paused or prior == OPENING_OVERRIDDEN:\n            return OPENING_OVERRIDDEN",
-            "if raw == OPEN_READ or paused or prior == OPENING_OVERRIDDEN:\n            return OPENING_PAUSED",
-            "tests/test_properties_window.py::test_an_override_is_never_paused_and_a_closed_reading_ends_it"),
-    "C28": ("the open delay is ignored", "logic.py", "return OPENING_PAUSED if now - since >= open_delay else OPENING_OPENING", "return OPENING_PAUSED",
-            "tests/test_properties_window.py::test_the_delays_decide_a_pause_and_a_resume"),
-    "C29": ("a close delay has no wakeup", "logic.py", "if state == OPENING_CLOSING:\n        return since + close_delay\n    return None", "return None",
-            "tests/test_properties_window.py::test_only_a_running_delay_has_a_wakeup"),
-    "C30": ("unavailable reads as closed", "logic.py", "if state == STATE_OFF:\n        return CLOSED_READ", "if state in (STATE_OFF, STATE_UNAVAILABLE):\n        return CLOSED_READ",
-            "tests/test_properties_window.py::test_only_on_and_off_are_readings"),
-    "C21": ("a live unit switch doesn't reload", "coordinator.py", "self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)", "pass",
-            "tests/test_properties_restart.py::test_a_live_unit_switch_reloads_with_a_held_fan_and_the_hold_kept"),
-    "C31": ("a slow head's older write reads as a pick", "coordinator.py", "if departed and observed in self.fan_older_commands(climate_id):", "if False:",
-            "tests/test_properties_fan.py::test_no_person_no_hold_however_far_a_head_lags"),
-    "C32": ("older writes still count once the head has caught up", "coordinator.py", "memory = self._fan_older.get(climate_id)\n        if not memory or observed not in memory:", "memory = None\n        if not memory or observed not in memory:",
-            "tests/test_properties_fan.py::test_the_exception_is_exactly_the_last_two"),
-    "C33": ("the whole ladder reads as an older write", "coordinator.py", "if departed and observed in self.fan_older_commands(climate_id):", "if departed and observed in FAN_LADDER:",
-            "tests/test_properties_fan.py::test_a_lagging_heads_pick_of_a_speed_mxz_never_wrote_is_held"),
-    "C34": ("any report of the last write reads as caught up, a late one too", "coordinator.py", "        if observed == last or observed != self._fan_prev.get(climate_id):\n", "        if observed == last:\n            memory.clear()\n            memory.append(observed)\n        elif observed != self._fan_prev.get(climate_id):\n",
-            "tests/test_properties_fan.py::test_no_person_no_hold_when_a_head_reports_every_write_in_order"),
-    "C35": ("a start forgets where a repeated write came first", "switch.py", "if older := self.coordinator.fan_older_record(self._zone.climate_id):", "if older := self.coordinator.fan_older_commands(self._zone.climate_id):",
-            "tests/test_fan_lag_memory.py::test_a_start_keeps_where_a_repeated_write_came_first"),
-    "C36": ("a report drops nothing before it", "coordinator.py", "            while memory[0] != observed:\n                memory.popleft()\n", "",
-            "tests/test_fan_lag_memory.py::test_a_report_drops_the_writes_before_it_and_no_others"),
-    "C37": ("a report of the last write empties the memory, so the next write brings back a speed the head has passed", "coordinator.py", "        if changed:\n            self._publish_fan_state(climate_id)\n", "        if observed == last and len(memory) == 1:\n            del self._fan_older[climate_id]\n        if changed:\n            self._publish_fan_state(climate_id)\n",
-            "tests/test_fan_lag_memory.py::test_a_prompt_heads_passed_speed_holds_during_the_next_writes_window"),
-    "C39": ("a start's record loses a queued write of auto", "coordinator.py", "        while record and record[0] == FAN_AUTO:\n            del record[0]\n", "        record = [token for token in record if token != FAN_AUTO]\n",
-            "tests/test_properties_fan.py::test_no_person_no_hold_when_a_head_reports_every_write_in_order"),
-    "C38": ("a speed written twice is kept only once", "coordinator.py", "        memory.append(token)\n", "        if token not in memory:\n            memory.append(token)\n",
-            "tests/test_fan_lag_memory.py::test_a_later_write_of_a_speed_outlives_a_report_past_its_first"),
-    "C40": ("a write after a head has caught up brings back the speed before the last", "coordinator.py", "        if not memory:\n            memory.extend(", "        if len(memory) <= 1:\n            memory.clear()\n            memory.extend(",
-            "tests/test_properties_fan.py::test_the_exception_is_still_the_last_two_with_a_write_in_flight"),
-    "C41": ("the memory keeps only the latest write", "coordinator.py", "        memory.append(token)\n", "        memory.clear()\n        memory.append(token)\n",
-            "tests/test_properties_fan.py::test_no_person_no_hold_when_a_head_jumps_to_its_latest_write"),
-}
-
-
 def java() -> list[str]:
     return [os.environ.get("JAVA", "java"), "-XX:+UseParallelGC", "-Xmx4g"]
 
@@ -319,41 +211,10 @@ def run_mutants(out: Path, only: list[str]) -> bool:
     return good
 
 
-def run_code(out: Path, only: list[str]) -> bool:
-    python = os.environ.get("MXZ_PYTHON")
-    if not python:
-        sys.exit("set MXZ_PYTHON to a lane venv's python with hypothesis in it")
-    good = True
-    for name, (what, filename, old, new, test) in CODE_MUTANTS.items():
-        if only and name not in only:
-            continue
-        with tempfile.TemporaryDirectory() as folder:
-            copy = Path(folder) / "repo"
-            shutil.copytree(ROOT, copy, ignore=shutil.ignore_patterns(".git", "__pycache__", ".hypothesis"))
-            target = copy / "custom_components/mxz_coordinator" / filename
-            text = target.read_text()
-            if text.count(old) != 1:
-                print(f"FAIL code {name}: its text is not in {filename} exactly once")
-                good = False
-                continue
-            target.write_text(text.replace(old, new))
-            done = subprocess.run(
-                [python, "-m", "pytest", "-p", "no:cacheprovider", "-q", "--show-capture=no", "--tb=line", test],
-                cwd=copy, capture_output=True, text=True, check=False,
-                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-            )
-        (out / f"code-{name}.out").write_text(done.stdout + done.stderr)
-        tail = done.stdout.strip().splitlines()[-1] if done.stdout.strip() else ""
-        passed = done.returncode == 1 and "failed" in tail
-        good = good and passed
-        print(f"{'OK  ' if passed else 'FAIL'} code {name} ({what}): exit {done.returncode}, {tail}", flush=True)
-    return good
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("what", choices=("check", "cover", "mutants", "code", "all"))
-    parser.add_argument("only", nargs="*", help="mutant ids, for mutants or code")
+    parser.add_argument("what", choices=("check", "cover", "mutants", "all"))
+    parser.add_argument("only", nargs="*", help="mutant ids, for mutants")
     parser.add_argument("--out", type=Path, help="where each run's TLC output is kept (default: a temp folder)")
     args = parser.parse_args()
     out = args.out or Path(tempfile.mkdtemp(prefix="mxz-formal-"))
@@ -366,8 +227,6 @@ def main() -> int:
         good = run_cover(out) and good
     if args.what in ("mutants", "all"):
         good = run_mutants(out, args.only) and good
-    if args.what == "code":
-        good = run_code(out, args.only) and good
     print("FORMAL_OK" if good else "FORMAL_FAILED", flush=True)
     return 0 if good else 1
 

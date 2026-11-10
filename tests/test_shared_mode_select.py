@@ -37,7 +37,6 @@ from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     MockModule,
     MockPlatform,
-    async_mock_restore_state_shutdown_restart,
     mock_integration,
     mock_platform,
     mock_restore_cache,
@@ -52,8 +51,10 @@ from custom_components.mxz_coordinator.const import (
     DOMAIN,
 )
 from custom_components.mxz_coordinator.logic import shared_mode
-from tests.dwell import expire_dwell
+from tests.clocks import pass_time
+from tests.dwell import RESTAMP_TOLERANCE, assert_not_restamped, expire_dwell
 from tests.head_entity import HeadEntity
+from tests.restart import restart
 
 SENSOR_A = "sensor.room_a_temp"
 SENSOR_B = "sensor.room_b_temp"
@@ -263,10 +264,7 @@ async def test_manual_choice_survives_a_storage_backed_restart(
     entry, _head_a, _head_b, sel = await _base(hass)
     await _select(hass, sel, "heat")
 
-    await async_mock_restore_state_shutdown_restart(hass)
-    await hass.config_entries.async_unload(entry.entry_id)
-    await hass.async_block_till_done()
-    await _start(hass, entry)
+    await restart(hass, entry)
 
     sel = _eid(hass, entry, "_shared_mode")
     assert hass.states.get(sel).state == "heat"
@@ -334,12 +332,12 @@ async def test_no_time_based_release_of_a_selection_is_introduced(
     await _select(hass, sel, "heat")
     await _recompute(hass, entry)
     assert hass.states.get(_eid(hass, entry, "_plan")).state == "heat"
-    stamped = coord._last_mode_change_ts
+    pass_time(coord, RESTAMP_TOLERANCE)
 
     # No renewal: re-picking the direction already showing buys no clock.
     await _select(hass, sel, "heat")
     await _recompute(hass, entry)
-    assert coord._last_mode_change_ts == stamped
+    await assert_not_restamped(hass, entry)
     assert hass.states.get(sel).state == "heat"
 
     # Dwell elapsed: the answer is arbitration's own, on the same demands.

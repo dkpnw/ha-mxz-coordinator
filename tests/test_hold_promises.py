@@ -28,7 +28,6 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 from homeassistant.core import HomeAssistant, State
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
-    async_mock_restore_state_shutdown_restart,
     mock_restore_cache,
 )
 
@@ -40,7 +39,8 @@ from custom_components.mxz_coordinator.const import (
 )
 from custom_components.mxz_coordinator.logic import arbitrate
 from tests.clocks import jump_wall_clock
-from tests.dwell import assert_restamped, expire_dwell
+from tests.dwell import assert_not_restamped, assert_restamped, expire_dwell
+from tests.restart import restart
 from tests.test_drive import SENSOR_A, SENSOR_B, _eid, _recompute, _set_temp
 from tests.test_dwell_wakeup import _setup_dwell
 from tests.test_hands_off import _plan, _remote, _s, _setup
@@ -51,16 +51,6 @@ STORE_KEY = "mxz_coordinator.{}.mode_change"
 
 def _record(hass_storage: dict, entry) -> dict:
     return hass_storage[STORE_KEY.format(entry.entry_id)]["data"]
-
-
-async def _restart(hass: HomeAssistant, entry) -> None:
-    """A clean stop and start: restore data written at the stop, the record read anew."""
-    await async_mock_restore_state_shutdown_restart(hass)
-    assert await hass.config_entries.async_unload(entry.entry_id)
-    await hass.async_block_till_done()
-    hass.data.pop(f"{DOMAIN}_mode_change_stores")
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
 
 
 # --- F1: Resting mode waits for a room still running --------------------------
@@ -177,10 +167,9 @@ async def test_a_restart_keeps_that_votes_chose_the_mode(
     starts the hold, so its cool call moments later waits."""
     entry, head_a, head_b = await _vote_chooses_heat(hass, monkeypatch)
     for _ in range(restarts):
-        await _restart(hass, entry)
+        await restart(hass, entry)
     coord = entry.runtime_data
     assert coord.current_shared_mode == MODE_HEAT
-    stamp = coord._last_mode_change_ts
     assert _plan(hass, entry).attributes["mode_change_allowed"] is True  # nothing held yet
     await _set_temp(hass, SENSOR_A, 64)  # the Primary calls heat
     await _recompute(hass, entry)
@@ -193,7 +182,7 @@ async def test_a_restart_keeps_that_votes_chose_the_mode(
         plan.state, plan.attributes["mode_change_allowed"], _s(hass, head_a),
     )
     assert _s(hass, head_a) != MODE_COOL
-    assert_restamped(coord, stamp)  # the run in the voted mode started the hold
+    await assert_restamped(hass, entry)  # the run in the voted mode started the hold
 
 
 async def test_a_vote_change_records_the_mode_and_no_new_change_time(
@@ -226,16 +215,14 @@ async def test_a_reload_starts_no_fresh_hold_for_a_mode_a_room_chose(
     jump_wall_clock(monkeypatch, 3600)
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
-    coord = entry.runtime_data
-    stamp = coord._last_mode_change_ts
     await _recompute(hass, entry)  # the Primary still runs heat
     assert _s(hass, head_a) == MODE_HEAT
-    assert coord._last_mode_change_ts == stamp  # not stamped again
+    await assert_not_restamped(hass, entry)  # not stamped again
     await _set_temp(hass, SENSOR_A, 76)
     await _recompute(hass, entry)
     assert _plan(hass, entry).state == MODE_COOL  # at once, no hold
     assert _s(hass, head_a) == MODE_COOL
-    assert_restamped(coord, stamp)  # and that change is a real one
+    await assert_restamped(hass, entry)  # and that change is a real one
 
 
 # --- F3: the record carries the mode, and a start reads it --------------------

@@ -120,7 +120,7 @@ export MXZ_PYTHON=/root/mxz-work/lanes/py314-ha2026.10.4/bin/python
 export JAVA=/root/mxz-work/tools/jdk-21.0.13+9/bin/java
 export TLA2TOOLS=/root/mxz-work/tools/tla2tools-1.7.4/tla2tools.jar
 verification/run            # about 3 minutes
-verification/run mutants    # about 1.5 minutes; or name some: verification/run mutants C3 M5
+verification/run mutants    # about 1.5 minutes; or name some: verification/run mutants H3 M5
 ```
 
 `verification/run` checks, and ends `VERIFY_OK` or `VERIFY_FAILED`:
@@ -136,15 +136,18 @@ verification/run mutants    # about 1.5 minutes; or name some: verification/run 
 
 `verification/run mutants` copies the checkout to a scratch directory, breaks
 one thing there (never the checkout), and requires the named check to catch
-it: C1–C17 break the real code, M1–M10 the model (each run with only its rule).
-C12–C17 and M8–M10 undo the F1 to F3 fixes one piece at a time.
-It ends `MUTANTS_ALL_CAUGHT` or `MUTANTS_MISSED`. The list, with each break in
-words, is `MUTANTS` in `verification/verify.py`. If a mutant reports that its
-text is not in the file exactly once, the code moved: re-anchor it to the
-same logic.
+it: M1–M14 break the model (each run with only its rule), H1–H24 the real code.
+H12–H17 and M8–M10 undo the F1 to F3 fixes one piece at a time.
+It ends `MUTANTS_ALL_CAUGHT` or `MUTANTS_MISSED`. The lists, with each break in
+words, are `MODEL_MUTANTS` in `verification/verify.py` and the H entries of
+`MUTANTS` in `tools/code_mutants.py`. A code mutant names a function, not a
+file, and follows it to any module; if one reports that its text is not in one
+place, the text itself changed: re-anchor it to the same logic.
+`tests/test_formal_contract.py` checks every anchor on each run of the suite.
 
 Output, kept: `$MXZ_FORMAL_OUT`, default `~/verify-mxz-formal/<UTC stamp>/`
-(each TLC run's `tlc-<config>.out`, the pytest logs, `mutant-<id>.log`).
+(each TLC run's `tlc-<config>.out`, the pytest logs, `mutant-<id>.log`,
+`code-<id>.out`).
 
 CI's `pytest tests/` runs `tests/test_modehold_properties.py`, the replays
 in `tests/test_modehold_findings.py` and `tests/test_hold_promises.py`, on

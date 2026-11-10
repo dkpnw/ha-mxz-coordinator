@@ -61,4 +61,21 @@ def auto_enable_custom_integrations(request):
     """Enable the custom component, but only for tests that use ``hass``."""
     if "hass" in request.fixturenames:
         request.getfixturevalue("enable_custom_integrations")
+        request.getfixturevalue("mxz_clock")
     yield
+
+
+@pytest.fixture
+def mxz_clock(monkeypatch: pytest.MonkeyPatch):
+    """The clock every coordinator set up in this test reads (``coord.clock``).
+
+    It reads the production clock, ``coordinator.monotonic``, plus whatever
+    time the test makes pass on it, so a test that never does sees exactly
+    the clock a real coordinator reads.
+    """
+    from custom_components.mxz_coordinator import coordinator
+    from tests.clocks import Clock
+
+    clock = Clock(coordinator.monotonic)
+    monkeypatch.setattr(coordinator, "monotonic", clock)
+    return clock

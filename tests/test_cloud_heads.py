@@ -5,9 +5,10 @@ as comfort_HA presents it and a MELCloud head. Each fake's ``device`` is the
 oracle of what landed, and the service calls MXZ made are recorded from the
 event bus, independently of MXZ's own bookkeeping.
 
-Waits run on the monotonic clock, so a test ages a head's record
-(``age_cloud``) instead of sleeping; the 15-minute silence limit is on the
-wall clock and states' own report times, so a test steps that clock.
+Waits run on the coordinator's clock, so a test makes time pass on it
+(``pass_time``, ``past_window``) instead of sleeping; the 15-minute silence
+limit is on the wall clock and states' own report times, so a test steps that
+clock.
 """
 
 from __future__ import annotations
@@ -40,13 +41,13 @@ from custom_components.mxz_coordinator.const import (
     ZONE_HEAD_TYPE,
     ZONE_WRITE_INTERVAL,
 )
+from tests.clocks import pass_time
 from tests.cloud_heads import (
     COMFORT,
     MELCLOUD,
     SENSORS,
     ComfortHead,
     MelcloudHead,
-    age_cloud,
     past_startup,
     past_window,
     recompute,
@@ -57,6 +58,7 @@ from tests.cloud_heads import (
     setup_rooms,
     writes,
 )
+from tests.peek import cloud_record
 from tests.test_drive import _eid
 
 CLOUD = {ZONE_HEAD_TYPE: HEAD_TYPE_CLOUD}
@@ -393,7 +395,7 @@ async def test_newer_intent_waits_for_the_write_interval_and_only_the_latest_goe
     past_window(entry, a.entity_id, 59)
     await recompute(hass, entry)
     assert writes(calls, a.entity_id) == []
-    assert entry.runtime_data._cloud[a.entity_id].release_at is not None
+    assert cloud_record(entry.runtime_data, a.entity_id).release_at is not None
     past_window(entry, a.entity_id, 1)
     await recompute(hass, entry)
     assert writes(calls, a.entity_id) == [("set_temperature", {"temperature": 76.0})]
@@ -550,7 +552,7 @@ async def test_a_fan_step_held_by_the_write_interval_does_not_climb_on(
         past_window(entry, a.entity_id, 5)
         await recompute(hass, entry)
     assert fans() == []
-    assert entry.runtime_data._cloud[a.entity_id].release_at is not None
+    assert cloud_record(entry.runtime_data, a.entity_id).release_at is not None
     past_window(entry, a.entity_id, 5)  # the interval is over
     await recompute(hass, entry)
     assert fans() == ["low"]
@@ -601,7 +603,7 @@ async def test_a_fan_step_due_inside_a_setpoint_only_wait_goes_out_then(
     both limits still hold: no step before five minutes since the last, and
     no write inside the write interval."""
     a, entry, sent = await _setpoint_only_wait(hass)
-    cloud = entry.runtime_data._cloud[a.entity_id]
+    cloud = cloud_record(entry.runtime_data, a.entity_id)
     assert cloud.older_fans == set()
     past_window(entry, a.entity_id, 30)  # 20 s before the step: not yet
     await recompute(hass, entry)
@@ -981,7 +983,7 @@ async def test_the_latch_skips_only_an_older_fan_inside_the_wait(hass: HomeAssis
     a, _b, entry = await _comfort_pair(hass)
     await past_startup(hass, entry)
     coordinator = entry.runtime_data
-    cloud = coordinator._cloud[a.entity_id]
+    cloud = cloud_record(coordinator, a.entity_id)
     clock = cloud.window_until  # any clock; the record is set relative to it
     cloud.sent(clock, ("heat", 72.0, "high"), "heat", "low")
     coordinator._fan_cmd[a.entity_id], coordinator._fan_prev[a.entity_id] = "high", "medium"
@@ -1215,8 +1217,7 @@ async def test_a_batch_refused_after_its_compute_has_ended_still_wakes_the_plan(
     ))
     while not entered.is_set():
         await asyncio.sleep(0)
-    for head, cloud in coordinator._cloud.items():
-        age_cloud(coordinator, head, cloud.confirm_wait)
+    pass_time(coordinator, cloud_record(coordinator, a.entity_id).confirm_wait)
     _refuses(a, monkeypatch, 1)
     times = _attempts(a, monkeypatch, freezer)
     refresh = hass.async_create_task(coordinator.async_refresh())

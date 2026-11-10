@@ -28,7 +28,6 @@ from typing import Any
 
 import pytest
 from homeassistant.components.climate import HVACAction, HVACMode
-from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.helpers import entity_registry as er
@@ -37,7 +36,6 @@ from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
-    async_mock_restore_state_shutdown_restart,
     async_mock_service,
 )
 
@@ -82,6 +80,7 @@ from tests.flow_pages import (
     submit,
     suggested,
 )
+from tests.restart import restart
 from tests.test_drive import MockHead, _eid, _set_target, _set_temp
 from tests.test_dry_mode import DryHead
 from tests.test_startup_continuity import _head
@@ -239,25 +238,6 @@ async def _setup(
     await rig.recompute()
     rig.forget()
     return rig
-
-
-async def _restart(rig: Rig) -> None:
-    """A clean stop and start: restore data written at the stop, every store read anew.
-
-    A stop's final write flushes any store write still pending, as Home
-    Assistant's own stop does (the test clock is frozen, so a write delayed
-    by 0 s has not run on its own yet).
-    """
-    hass, entry = rig.hass, rig.entry
-    hass.bus.async_fire(EVENT_HOMEASSISTANT_FINAL_WRITE)
-    await hass.async_block_till_done()
-    await async_mock_restore_state_shutdown_restart(hass)
-    assert await hass.config_entries.async_unload(entry.entry_id)
-    await hass.async_block_till_done()
-    hass.data.pop(f"{DOMAIN}_mode_change_stores", None)
-    hass.data.pop(f"{DOMAIN}_openings_stores", None)
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
 
 
 # ---------------------------------------------------------------------------
@@ -720,7 +700,7 @@ async def test_a_pause_outlives_a_restart(hass: HomeAssistant, freezer) -> None:
     rig = await _setup(hass, freezer, study={**WINDOW_ON, ZONE_OPENING_NOTIFY: True})
     await rig.open_and_pause()
     rig.forget()
-    await _restart(rig)
+    await restart(rig.hass, rig.entry)
     await rig.recompute()
     assert rig.head() == "off"
     assert rig.sent() == []  # already off: nothing re-sent
@@ -742,7 +722,7 @@ async def test_closed_during_a_restart_waits_the_full_close_delay(
     await rig.open_and_pause()
     await rig.window("off")
     await rig.later(CLOSE - 10)  # nearly done when HA stops
-    await _restart(rig)
+    await restart(rig.hass, rig.entry)
     await rig.recompute()
     assert rig.opening()["opening_state"] == "closing"
     await rig.later(CLOSE - 1)  # timed from the start, not from the close
@@ -788,7 +768,7 @@ async def test_a_restart_restarts_the_open_delay(hass: HomeAssistant, freezer) -
     rig = await _setup(hass, freezer)
     await rig.window("on")
     await rig.later(OPEN - 10)
-    await _restart(rig)
+    await restart(rig.hass, rig.entry)
     await rig.recompute()
     await rig.later(OPEN - 1)
     assert rig.head() == MODE_COOL  # a restart only ever lengthens a delay

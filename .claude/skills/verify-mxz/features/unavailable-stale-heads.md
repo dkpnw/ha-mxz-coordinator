@@ -42,9 +42,9 @@ Preconditions:
 - **Head lost.** Room 1's head goes unavailable (`_lose`), then a compute.
   Room 1's row is `stale` with demand `cool` and a `lost_since`; the plan
   stays `cool`; Room 2's head stays `fan_only`.
-- **Just short of the limit.** The loss is aged to 29 min 58 s
-  (`age_lost_vote`) and the wait aged out. Still `stale`, still `cool`.
-- **At the limit.** Aged 2 s more. Room 1 is `expired` (its demand `cool`
+- **Just short of the limit.** 29 min 58 s pass on the coordinator's clock
+  (`pass_time`). Still `stale`, still `cool`.
+- **At the limit.** 2 s more, with no mode-change wait left. Room 1 is `expired` (its demand `cool`
   still shown); the plan is `heat` and Room 2's head is `heat`.
 - **Head back.** `_back`. Room 1 is `live`, `lost_since` is `null`, and the
   standoff is back.
@@ -57,12 +57,13 @@ Preconditions:
 
 ## Gotchas
 
-- `_standoff` runs the default 600 s mode-change wait; age it with
-  `expire_dwell` before expecting the sibling's flip, or the wait, not the
-  lost head, is what holds the mode.
+- `_standoff` runs the default 600 s mode-change wait. The journey lets it
+  run out (`expire_dwell`) before the head is lost: after the loss it would
+  age the loss too, by up to 600 s, since every wait reads the one clock.
 - The lost-vote limit is half-open: `expired` AT the limit, not after it.
 - Freshness runs on the wall clock against the sensor's `last_reported`, so
   the sensor journey moves a frozen clock (`freezer`) and fires timers;
-  the dwell and lost-vote clocks are monotonic and are aged instead.
+  the mode-change wait and the lost-vote limit run on the coordinator's
+  clock, so time passes on it (`pass_time`) instead.
 - Home Assistant drops calls to an unavailable entity, so what MXZ sends a
   lost head is not evidence of what reached it.

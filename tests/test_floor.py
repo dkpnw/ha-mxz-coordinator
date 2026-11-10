@@ -10,7 +10,6 @@ device. The pure math is in ``test_floor_logic.py``.
 from __future__ import annotations
 
 import asyncio
-import time
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -57,7 +56,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_SENSOR,
 )
 from custom_components.mxz_coordinator.sensor import _ATTRS
-from tests.clocks import age_floor_clock, age_floor_notice, jump_wall_clock
+from tests.clocks import jump_wall_clock, pass_time
 from tests.dwell import (
     RESTAMP_TOLERANCE,
     assert_restamped,
@@ -65,6 +64,7 @@ from tests.dwell import (
     record_mode_change,
 )
 from tests.flow_pages import open_options_page, prefilled, submit, suggested
+from tests.peek import armed, debug_view
 from tests.restore_store import replace_stored_state, stored_state
 from tests.test_drive import (
     SENSOR_A,
@@ -221,6 +221,11 @@ async def _tick(hass: HomeAssistant, freezer, delta: timedelta) -> None:
     freezer.tick(delta)
     async_fire_time_changed(hass, dt_util.utcnow())
     await hass.async_block_till_done()
+
+
+async def _mode_by_votes(f: Floor) -> bool:
+    """Whether votes alone chose the shared mode, as diagnostics shows it."""
+    return (await debug_view(f.hass, f.entry))["coordinator"]["anti_flip"]["mode_by_votes"]
 
 
 def _reversals(states: list[str], start: str) -> int:
@@ -393,7 +398,10 @@ async def test_d3_fixed_holds_stop_the_floor(hass: HomeAssistant, action: str, p
     await f.temp(SENSOR_B, 45)
     assert _s(hass, f.b) == parked
     assert f.floor(1) == ("held", "A standby hold parks every head.")
-    assert f.coord._floor_driving["secondary"] is False
+    pass_time(f.coord, HOUR.total_seconds())
+    await f.compute()
+    assert f.floor(1) == ("held", "A standby hold parks every head.")
+    assert _run_of(f)["driven"] == 0  # an hour held is not charged
     hass.states.async_set(INHIBIT, "off")
     await hass.async_block_till_done()
     await f.compute()
@@ -520,7 +528,7 @@ async def test_d5_hands_off_floor_takes_the_head_and_hands_back_off(hass: HomeAs
     sent = _mode_commands(hass, f.b)
     await f.temp(SENSOR_B, 45)
     assert sent == ["heat"]
-    assert "secondary" not in f.coord._hands_off_released
+    assert (await debug_view(hass, f.entry))["rooms"]["secondary"]["holds"]["hands_off_released"] is False
     assert (f.zone(1)["hands_off"], f.zone(1)["hands_off_vote"]) == ("floor", None)
     assert f.plan.attributes["mode_by_hands_off"] is False
     await f.compute()
@@ -611,7 +619,7 @@ async def test_p3_a_run_mxz_started_from_another_mode_still_hands_back_off(
     assert _s(hass, f.b) == "heat"
     await f.temp(SENSOR_B, 53)
     assert (_s(hass, f.b), sent) == ("off", ["heat", "off"])
-    assert "secondary" not in f.coord._floor_prior
+    assert _theirs(f) is None
 
 
 async def test_p3_the_persons_run_survives_a_restart_mid_run(hass: HomeAssistant) -> None:
@@ -862,7 +870,7 @@ async def test_p10_a_run_mxz_started_from_off_still_runs_at_the_clear_line(
     assert (f.zone(1)["hands_off"], _run(hass, f.b)) == ("released", ("off", 70, 72))
     await f.temp(SENSOR_B, 45)
     assert _run(hass, f.b) == ("heat", 59, 61)
-    assert "secondary" not in f.coord._floor_prior
+    assert _theirs(f) is None
     await f.temp(SENSOR_B, 53)
     assert _s(hass, f.b) == "off"
 
@@ -965,8 +973,15 @@ def _setpoint_commands(hass: HomeAssistant, entity_id: str) -> list[tuple]:
 
 
 def _theirs(f: Floor) -> tuple[str, float, float] | None:
-    """The person's setting MXZ will give back at the end of the run."""
-    return f.coord._floor_prior.get("secondary")
+    """The person's setting MXZ will give back at the end of the run, as the
+    enable switch persists it."""
+    prior = f.coord.floor_record("secondary").get("floor_prior")
+    return None if prior is None else (prior["mode"], prior["low"], prior["high"])
+
+
+def _run_of(f: Floor, slug: str = "secondary") -> dict[str, Any] | None:
+    """The room's floor run as the enable switch persists it; None without one."""
+    return f.coord.floor_record(slug).get("floor_run")
 
 
 @pytest.mark.parametrize(
@@ -1140,12 +1155,12 @@ async def test_p15_a_report_while_mxz_command_is_in_flight_is_not_a_person(
     # queued delivery forever.)
     hass.states.async_set(SENSOR_B, 46, {"unit_of_measurement": hass.config.units.temperature_unit})
     await f.coord.async_refresh()
-    assert f.b in f.coord._deliveries
+    assert f.coord.command_attributes(f.b)["command_deferred"] is True
     head = _head(hass, f.b)
     head._attr_native_target_temperature_low, head._attr_native_target_temperature_high = 64, 66
     head.async_write_ha_state()
     await f.coord.async_refresh()
-    assert (f.b in f.coord._deliveries, _theirs(f)) == (True, ("heat", 56, 58))
+    assert (f.coord.command_attributes(f.b)["command_deferred"], _theirs(f)) == (True, ("heat", 56, 58))
     lock.release()
     await hass.async_block_till_done()
     await f.compute()
@@ -1547,7 +1562,7 @@ async def test_a_rejected_floor_run_is_held_not_heat_while_the_head_refuses(
     await _tick(hass, freezer, HOUR)
     await f.compute()  # retried, rejected again
     assert (_s(hass, f.b), f.floor(1)) == ("off", held)
-    assert f.coord._floor_runs["secondary"].driven == pytest.approx(3600, abs=1)
+    assert _run_of(f)["driven"] == pytest.approx(3600, abs=1)
     head.async_set_temperature = real
     await f.compute()
     assert (_s(hass, f.b), f.floor(1)) == ("heat", ("heat", None))
@@ -1794,18 +1809,15 @@ async def test_p5_a_wall_clock_step_neither_lifts_nor_extends_the_notice_limit(
     f = await _setup(hass)
     await f.temp(SENSOR_B, 45)
     assert len(f.notes) == 1 and "freeze floor" in f.notes[0]
-    stamp = f.coord._floor_notice_at["secondary"]
-    now = time.monotonic()
-    assert now - RESTAMP_TOLERANCE < stamp <= now, (stamp, now)
     jump_wall_clock(monkeypatch, step * (FLOOR_NOTICE_SECONDS + 3600))
     await _flap(f, ("unavailable",))
     assert f.floor(1)[0] == "blind"
     assert len(f.notes) == 1, "held back: the step lifted nothing"
 
-    age_floor_notice(f.coord, "secondary", FLOOR_NOTICE_SECONDS - 60)
+    pass_time(f.coord, FLOOR_NOTICE_SECONDS - 60)
     await f.compute()
     assert len(f.notes) == 1
-    age_floor_notice(f.coord, "secondary", 60)
+    pass_time(f.coord, 60)
     await f.compute()
     assert len(f.notes) == 2 and "blind" in f.notes[1], "and extended nothing"
 
@@ -2252,7 +2264,7 @@ async def test_p9_a_dip_long_before_the_stall_does_not_move_the_rearm_line(
     await _tick(hass, freezer, timedelta(hours=1, minutes=40, seconds=5))
     await f.compute()
     assert (f.floor(1)[0], _s(hass, f.b)) == ("blind", "off")
-    assert f.coord._floor_runs["secondary"].worst == back
+    assert _run_of(f)["worst"] == back
     await f.temp(SENSOR_B, _past(back, toward, 0.5, step_))
     assert (f.floor(1)[0], _s(hass, f.b)) == ("blind", "off")
     await f.temp(SENSOR_B, _past(back, toward, 1, step_))
@@ -2280,7 +2292,7 @@ async def test_p9_a_dip_in_the_last_hour_before_the_stall_still_counts(
     await _tick(hass, freezer, timedelta(minutes=40, seconds=5))
     await f.compute()
     assert (f.floor(1)[0], _s(hass, f.b)) == ("blind", "off")
-    assert f.coord._floor_runs["secondary"].worst == dip
+    assert _run_of(f)["worst"] == dip
     for value in (_past(back, toward, 1, step_), _past(dip, toward, 0.5, step_)):
         await f.temp(SENSOR_B, value)
         assert (f.floor(1)[0], _s(hass, f.b)) == ("blind", "off"), value
@@ -2329,7 +2341,7 @@ async def test_p9_the_rearm_window_across_a_restart(
     await f.compute()
     assert (f.floor(1)[0], _s(hass, f.b)) == ("blind", "off")
     worst = 41.0 if record == "this_build" else 43.5
-    assert f.coord._floor_runs["secondary"].worst == worst
+    assert _run_of(f)["worst"] == worst
     await f.temp(SENSOR_B, worst - 0.5)
     assert f.floor(1)[0] == "blind"
     await f.temp(SENSOR_B, worst - 1)
@@ -2347,7 +2359,7 @@ async def test_d11_a_standoff_loser_is_not_stalled_by_waiting(hass: HomeAssistan
         await _tick(hass, freezer, timedelta(minutes=30))
         await f.temp(SENSOR_B, value)
     assert (f.floor(0)[0], f.floor(1)[0]) == ("held", "heat")
-    assert f.coord._floor_runs["primary"].driven == 0
+    assert _run_of(f, "primary")["driven"] == 0
     await f.temp(SENSOR_B, 53)
     assert (_s(hass, f.a), f.floor(0)[0]) == ("cool", "cool")
 
@@ -2359,7 +2371,7 @@ async def test_d11_coordinator_off_mid_run_charges_nothing(hass: HomeAssistant, 
     await f.temp(SENSOR_B, 45)
     await _tick(hass, freezer, HOUR)
     await f.compute()
-    assert f.coord._floor_runs["secondary"].driven == pytest.approx(3600, abs=1)
+    assert _run_of(f)["driven"] == pytest.approx(3600, abs=1)
     calls = _all_climate_calls(hass)
     await f.switch("_coordinator_enable", False)
     await _tick(hass, freezer, 3 * HOUR)
@@ -2367,7 +2379,7 @@ async def test_d11_coordinator_off_mid_run_charges_nothing(hass: HomeAssistant, 
     assert calls == []
     assert f.floor(1) == ("held", "Coordinator is off: MXZ sends nothing.")
     await f.switch("_coordinator_enable", True)
-    assert f.coord._floor_runs["secondary"].driven == pytest.approx(3600, abs=1)
+    assert _run_of(f)["driven"] == pytest.approx(3600, abs=1)
     assert (_s(hass, f.b), f.floor(1)[0]) == ("heat", "heat")
 
 
@@ -2386,19 +2398,19 @@ async def test_d11_a_wall_clock_step_neither_stalls_a_run_nor_holds_it_back(
     assert (f.plan.state, _s(hass, f.b)) == ("heat", "heat")
     jump_wall_clock(monkeypatch, step * (FLOOR_STALL_SECONDS + 3600))
     await f.compute()
-    run = f.coord._floor_runs["secondary"]
-    assert 0 <= run.driven < RESTAMP_TOLERANCE and not run.stalled, run
+    run = _run_of(f)
+    assert 0 <= run["driven"] < RESTAMP_TOLERANCE and not run["stalled"], run
     assert f.floor(1)[0] == "heat"
 
-    age_floor_clock(f.coord, "secondary", FLOOR_STALL_SECONDS - 60)
+    pass_time(f.coord, FLOOR_STALL_SECONDS - 60)
     jump_wall_clock(monkeypatch, step * (FLOOR_STALL_SECONDS + 3600))
     await f.compute()
-    run = f.coord._floor_runs["secondary"]
-    assert FLOOR_STALL_SECONDS - 60 <= run.driven < FLOOR_STALL_SECONDS - 60 + RESTAMP_TOLERANCE
-    assert not run.stalled and f.floor(1)[0] == "heat"
-    age_floor_clock(f.coord, "secondary", 60)
+    run = _run_of(f)
+    assert FLOOR_STALL_SECONDS - 60 <= run["driven"] < FLOOR_STALL_SECONDS - 60 + RESTAMP_TOLERANCE
+    assert not run["stalled"] and f.floor(1)[0] == "heat"
+    pass_time(f.coord, 60)
     await f.compute()
-    assert f.coord._floor_runs["secondary"].stalled
+    assert _run_of(f)["stalled"]
     state, reason = f.floor(1)
     assert state == "blind" and reason.startswith("Stalled")
     assert (f.plan.state, _s(hass, f.b)) == ("cool", "off")
@@ -2460,7 +2472,7 @@ async def test_a_waiting_floor_head_is_off_never_fan_only(hass: HomeAssistant, i
     assert (f.plan.state, f.floor(1)[0]) == ("cool", "held")
     assert "fan_only" not in sent and _s(hass, f.b) == "off"
     assert f.coord._planned_act_for(f.b) == "off"
-    assert f.coord._dwell_timer is not None  # the wait's end wakes the floor
+    assert armed(f.coord, "dwell")  # the wait's end wakes the floor
 
 
 async def test_scenario4_floor_beats_a_cooling_room_after_the_wait_then_hands_back(
@@ -2472,11 +2484,11 @@ async def test_scenario4_floor_beats_a_cooling_room_after_the_wait_then_hands_ba
     still demands cool."""
     f = await _setup(hass, hysteresis=None)
     await f.temp(SENSOR_A, 76)
-    long_ago = expire_dwell(f.coord)
+    expire_dwell(f.coord)
     await f.temp(SENSOR_B, 45)
     assert (f.plan.state, _s(hass, f.a), _s(hass, f.b)) == ("heat", "fan_only", "heat")
     assert f.plan.attributes["mode_by_hands_off"] is False
-    assert_restamped(f.coord, long_ago)  # the flip starts the wait
+    await assert_restamped(hass, f.entry)  # the flip starts the wait
     await f.temp(SENSOR_A, 72)  # inside its demand band, still engaged
     assert f.plan.attributes["primary_engage"] == "cool"
     await f.temp(SENSOR_B, 53)
@@ -2497,12 +2509,12 @@ async def test_a_floor_flip_clears_a_vote_carried_mode(hass: HomeAssistant) -> N
     await _remote(hass, f.b, "heat")  # the person's released head votes heat
     await f.compute()
     assert (f.plan.state, f.plan.attributes["mode_by_hands_off"]) == ("heat", True)
-    assert f.coord._mode_by_votes is True
-    long_ago = expire_dwell(f.coord)
+    assert await _mode_by_votes(f) is True
+    expire_dwell(f.coord)
     await f.temp(SENSOR_A, 88)
     assert (f.plan.state, f.plan.attributes["mode_by_hands_off"]) == ("cool", False)
-    assert f.coord._mode_by_votes is False
-    assert_restamped(f.coord, long_ago)
+    assert await _mode_by_votes(f) is False
+    await assert_restamped(hass, f.entry)
 
 
 async def test_flapping_sensor_reverses_the_compressor_at_most_once_per_wait(
@@ -2584,9 +2596,9 @@ async def test_restart_mid_run_held_off_continues_with_its_mark_and_clock(
     await _tick(hass, freezer, 5 * HOUR)
     await _startup(hass, f.entry)
     await f.compute()
-    run = f.coord._floor_runs["secondary"]
-    assert (run.direction, run.mark, run.stalled) == ("heat", 45.0, False)
-    assert run.driven == pytest.approx(3600, abs=1)
+    run = _run_of(f)
+    assert (run["direction"], run["mark"], run["stalled"]) == ("heat", 45.0, False)
+    assert run["driven"] == pytest.approx(3600, abs=1)
     assert (_s(hass, f.b), f.floor(1)[0]) == ("heat", "heat")
     assert len([n for n in f.notes if "freeze floor" in n and "MXZ is heating" in n]) == 1
     await _tick(hass, freezer, HOUR + timedelta(seconds=5))
@@ -2653,7 +2665,7 @@ async def test_restart_after_clear_or_with_the_floor_removed_does_not_resume(
     hass.config_entries.async_update_entry(f.entry, data={**f.entry.data, CONF_ZONES: zones})
     await _startup(hass, f.entry)
     await f.compute()
-    assert "secondary" not in f.coord._floor_runs
+    assert _run_of(f) is None
     assert (_s(hass, f.b), f.floor(1)[0]) == ("off", "armed")
 
 
@@ -2669,7 +2681,7 @@ async def test_restart_a_stalled_run_stays_stalled(hass: HomeAssistant, freezer)
     await _startup(hass, f.entry)
     await f.compute()
     assert (_s(hass, f.b), f.floor(1)[0]) == ("off", "blind")
-    assert f.coord._floor_runs["secondary"].stalled is True
+    assert _run_of(f)["stalled"] is True
 
 
 async def test_a_room_without_a_floor_persists_exactly_what_3_7_0_did(hass: HomeAssistant) -> None:

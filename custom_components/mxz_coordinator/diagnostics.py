@@ -18,7 +18,6 @@ from __future__ import annotations
 import ipaddress
 import math
 import re
-import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import fields, is_dataclass
 from datetime import date, datetime, timedelta
@@ -455,7 +454,7 @@ def _room(coordinator: Any, zone: Any, last_decision: Any, now: float) -> dict[s
 
 
 def _rooms(coordinator: Any) -> dict[str, Any]:
-    now = time.monotonic()
+    now = coordinator.clock()
     details = _guard(coordinator.room_details)
     rooms: dict[str, Any] = {}
     for index, zone in enumerate(coordinator.zones):

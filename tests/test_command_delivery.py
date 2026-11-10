@@ -12,6 +12,7 @@ import uuid
 from datetime import timedelta
 
 import pytest
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
@@ -34,6 +35,8 @@ from custom_components.mxz_coordinator.const import (
     DOMAIN,
     IDLE_ACTION_FAN_ONLY,
 )
+from tests.peek import armed
+from tests.test_climate_immediate import _plans
 from tests.test_drive import SENSOR_A, SENSOR_B, MockHead, _eid, _setup_mock_heads
 from tests.test_idle_action import _settle_requested_refreshes
 
@@ -146,6 +149,9 @@ class DeliveryRig:
                 and e.get("method") == method
                 and (high is None or e["payload"].get("target_temp_high") == high)]
 
+    def off_heal_armed(self):
+        return any(armed(self.coord, "heal", (head.entity_id, "off")) for head in self.heads.values())
+
     def release(self, gate):
         self.emit("release", barrier=gate["barrier"])
         gate["release"].set()
@@ -206,7 +212,7 @@ async def delivery(hass, request, monkeypatch):
             r.release(gate)
         if r.coord is not None:
             await r.settle()
-            if not r.coord._retired:
+            if r.entry.state is ConfigEntryState.LOADED:
                 assert await hass.config_entries.async_unload(r.entry.entry_id)
         for task in r.tasks:
             await task
@@ -252,7 +258,7 @@ async def test_held_head_does_not_block_peer(delivery, park):
     assert len(r.calls("b", kind="enter", method=method)) == 1
     assert "pending since" in json.dumps(r.zone()["control_reasons"])
     if park:
-        assert not r.coord._heal_timers
+        assert not armed(r.coord, "heal")
     r.release(gate)
     await r.settle()
     assert r.peak == {"a": 1, "b": 1}
@@ -342,7 +348,7 @@ async def test_resistant_return_retirement_and_new_incarnation(delivery, retire)
         unload = r.start(r.hass.config_entries.async_unload(r.entry.entry_id))
         await until(unload.done, 1.0)
         assert await unload
-        assert old._retired
+        assert r.entry.state is ConfigEntryState.NOT_LOADED
         if retire == "reload":
             setup = r.start(r.hass.config_entries.async_setup(r.entry.entry_id))
             await until(setup.done, 1.0)
@@ -399,7 +405,7 @@ async def test_pending_park_keeps_its_applicable_action_during_new_plan(delivery
     await until(lambda: bool(r.calls("a", high=68)), 1.0)
     await r.settle()
     assert arms and not any(arms), "our old OFF report must never arm wall-remote healing"
-    assert not any(kind == "off" for _, kind in r.coord._heal_timers)
+    assert not r.off_heal_armed()
     assert r.peak == {"a": 1, "b": 1}
 
 
@@ -441,7 +447,7 @@ async def test_later_standby_release_progresses_healthy_peer(delivery):
     assert r.active["a"] == 1
     r.release(gate)
     await until(lambda: bool(r.calls("a")), 1.0)
-    assert not any(kind == "off" for _, kind in r.coord._heal_timers)
+    assert not r.off_heal_armed()
     assert r.peak == {"a": 1, "b": 1}
 
 
@@ -597,7 +603,7 @@ async def test_queued_vane_has_no_own_wake_retirement_permission(hass, monkeypat
         assert coord.command_attributes(cid)["vane_retirement_cleanup"] == {}
     finally:
         lock.release()
-        if not coord._retired:
+        if entry.state is ConfigEntryState.LOADED:
             await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
 
@@ -666,22 +672,23 @@ async def test_deferred_delivery_releases_creating_service_and_transaction(
         await switch("turn_off", "_eco_idle")
         # Expire only the pre-existing request cooldown while disabled. The
         # enable below is the sole new input and must create a completed plan.
+        plans = _plans(entry)
         for _ in range(5):
-            generation = coord._refresh_generation
+            generation = plans.count
             async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=11))
             await asyncio.sleep(0.03)
             assert not coord.coordinator_enable and not coord._plan_lock.locked()
-            if coord._refresh_generation == generation:
+            if plans.count == generation:
                 break
         else:
             pytest.fail("disabled preparation never settled")
-        generation = coord._refresh_generation
+        generation = plans.count
         enable = asyncio.create_task(switch("turn_on", "_coordinator_enable"))
         await until(lambda: cid in coord._deliveries or calls != ["off"], 1.0)
         assert calls == ["off"], "ordinary work must wait for the actual wake and cleanup returns"
         await until(enable.done, 1.0)
         await enable
-        await until(lambda: coord._refresh_generation > generation and not coord._plan_lock.locked(), 1.0)
+        await until(lambda: plans.count > generation and not coord._plan_lock.locked(), 1.0)
         await until(lambda: peer_calls == ["fan_only"], 1.0)
         observed = hass.states.get(room_id).attributes
         assert observed["command_deferred"] is True

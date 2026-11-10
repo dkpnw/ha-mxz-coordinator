@@ -61,7 +61,6 @@ from custom_components.mxz_coordinator.logic import HeadWriteMemory
 from tests.cloud_heads import (
     COMFORT,
     ComfortHead,
-    age_cloud,
     past_startup,
     past_window,
     recompute,
@@ -71,6 +70,7 @@ from tests.cloud_heads import (
     writes,
 )
 from tests.flow_pages import open_options_page, prefilled, submit
+from tests.peek import cloud_record
 from tests.property_rig import (
     CLOSE_DELAY,
     HOLD,
@@ -1413,16 +1413,14 @@ async def test_a_cloud_head_with_no_offset_adopts_like_any_other(hass: HomeAssis
 async def test_a_cloud_heads_startup_reports_are_not_adopted(hass: HomeAssistant) -> None:
     """In a new coordinator's confirm wait any report may be a poll from before it."""
     head, entry = await _cloud(hass, offset=0.0)
-    coordinator = entry.runtime_data
-    cloud = coordinator._cloud[head.entity_id]
-    cloud.startup = True
-    cloud.window_until += 3600
+    assert await hass.config_entries.async_reload(entry.entry_id)  # a new coordinator's wait
+    await hass.async_block_till_done()
+    assert HELD < cloud_record(entry.runtime_data, head.entity_id).confirm_wait
     head.device["mode"] = HVACMode.OFF
     head.poll()
     await hass.async_block_till_done()
     await _elapse(hass, HELD)
     assert hass.states.get(_eid(hass, entry, "_primary_enable")).state == "on"
-    age_cloud(coordinator, head.entity_id, 7200)
 
 
 async def test_a_cloud_heads_older_mode_in_its_window_is_not_adopted(hass: HomeAssistant) -> None:
