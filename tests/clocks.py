@@ -4,10 +4,13 @@ Every hold, wait, time limit and rate limit in MXZ reads one clock,
 ``coord.clock``: monotonic seconds, from an arbitrary origin (on Linux, the
 boot). The suite stands a ``Clock`` in for it before each setup
 (``tests/conftest.py``), so a test makes time pass with ``pass_time`` and
-never writes a number into a stamp. Passing time moves every wait at once,
-as real time does. It does not fire Home Assistant's timers: a test that
-wants a wakeup to run fires it as well (``async_fire_time_changed``), or
-uses ``freezer``, which moves both, since this clock reads ``time.monotonic``.
+never writes a number into a stamp. The ``Clock`` reads the production clock
+it stands in for and adds the seconds passed, so what that clock reads is
+still under test: were it to follow the wall clock, the wall-clock step tests
+would fail. Passing time moves every wait at once, as real time does. It does
+not fire Home Assistant's timers: a test that wants a wakeup to run fires it
+as well (``async_fire_time_changed``), or uses ``freezer``, which moves both,
+since the production clock reads ``time.monotonic``.
 
 ``jump_wall_clock`` is the other half: an NTP step or a clock set by hand, as
 the coordinator sees it through ``dt_util.utcnow``. The coordinator's clock
@@ -17,7 +20,7 @@ stretched.
 
 from __future__ import annotations
 
-import time
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
@@ -26,13 +29,14 @@ from homeassistant.util import dt as dt_util
 
 
 class Clock:
-    """``time.monotonic`` plus the seconds a test has made pass."""
+    """The clock it stands in for, plus the seconds a test has made pass."""
 
-    def __init__(self) -> None:
+    def __init__(self, reads: Callable[[], float]) -> None:
+        self.reads = reads
         self.passed = 0.0
 
     def __call__(self) -> float:
-        return time.monotonic() + self.passed
+        return self.reads() + self.passed
 
     def advance(self, seconds: float) -> None:
         if seconds < 0:
