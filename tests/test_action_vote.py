@@ -32,13 +32,13 @@ heads do (off, idle, heating, cooling, fan):
   wins; MXZ never writes to the head;
 * the room page's selector, stored only when ``action``.
 
-Fake heads and sensors only. Clocks are aged on the coordinator's own
-monotonic stamps, as in ``tests/clocks.py``.
+Fake heads and sensors only. Time passes on the coordinator's clock
+(``tests/clocks.py``); what MXZ keeps of a head is read where diagnostics
+publishes it (``tests/peek.py``).
 """
 
 from __future__ import annotations
 
-import time
 from datetime import timedelta
 from typing import Any
 
@@ -63,6 +63,7 @@ from custom_components.mxz_coordinator.const import (
 from custom_components.mxz_coordinator.logic import HeadSight
 from tests.clocks import pass_time
 from tests.flow_pages import default, marker_of, open_options_page, prefilled, submit
+from tests.peek import armed, debug_view
 from tests.test_drive import SENSOR_A, SENSOR_B, _eid, _recompute, _set_temp
 from tests.test_dwell_wakeup import _count_refresh_requests, _fire_due, _quiesce
 from tests.test_hands_off import _plan, _remote, _s, _setup
@@ -111,20 +112,35 @@ async def _back(hass: HomeAssistant, head: str) -> None:
     assert hass.states.get(head).state != "unavailable"
 
 
-def _age_hold(coord: Any, head: str, seconds: float) -> None:
-    """Make the moment MXZ first saw ``head`` stopped ``seconds`` older."""
-    sight = coord._sight[head]
-    assert sight.stopped_at is not None, f"{head} is not in a hold"
-    sight.stopped_at -= seconds
+def _settled(coord: Any) -> None:
+    """A settle window passes. A real run starts 10 s or more after a mode
+    change, so a run reported from here on counts as soon as it is seen."""
+    pass_time(coord, SETTLE)
 
 
-def _settled(coord: Any, head: str) -> None:
-    """Make ``head``'s last mode change a settle window older. A real run
-    starts 10 s or more after a mode change, so a run reported from here on
-    counts as soon as it is seen."""
-    sight = coord._sight[head]
-    assert sight.changed_at is not None, f"{head} has not changed mode"
-    sight.changed_at -= SETTLE
+async def _seen(hass: HomeAssistant, entry, room: int = 1) -> dict[str, Any]:
+    """What MXZ keeps of the room's head now, as diagnostics publishes it."""
+    slug = ("primary", "secondary")[room]
+    return (await debug_view(hass, entry))["rooms"][slug]["votes"]
+
+
+async def _window_left(hass: HomeAssistant, entry) -> float | None:
+    """Seconds until the Secondary head's unconfirmed run counts, or None.
+
+    The documented rule, read off what diagnostics publishes: in sight, last
+    seen running a mode it is not counted as running, timed from its last
+    mode change; 0 once the window is over.
+    """
+    seen = await _seen(hass, entry)
+    running = {MODE_HEAT: "heating", MODE_COOL: "cooling"}.get(seen["seen_mode"])
+    if (
+        seen["status"] != "live"
+        or seen["seconds_since_mode_changed"] is None
+        or seen["seen_mode"] == seen["ran"]
+        or seen["seen_action"] != running
+    ):
+        return None
+    return max(0.0, SETTLE - seen["seconds_since_mode_changed"])
 
 
 def _climate_calls(hass: HomeAssistant, head: str) -> list[str]:
@@ -168,7 +184,7 @@ async def _vote_after(hass: HomeAssistant, entry, head: str, mode: str, action: 
 async def _run_after(hass: HomeAssistant, entry, head: str, mode: str, action: str):
     """The head reports running and still is when the settle window ends."""
     await _report(hass, head, mode, action)
-    _settled(entry.runtime_data, head)
+    _settled(entry.runtime_data)
     await _recompute(hass, entry)
     return _row(hass, entry, 1)["hands_off_vote"]
 
@@ -378,20 +394,14 @@ async def test_mode_basis_votes_while_idle_as_always(hass: HomeAssistant, stored
     assert _plan(hass, entry).state == MODE_HEAT
     row = _row(hass, entry, 1)
     assert "vote_basis" not in row and "vote_hold_until" not in row
-    assert coord._lost_timer is None
-    requested: list[str] = []
-    original = coord._async_request_ordinary_refresh
-
-    async def counting() -> None:
-        requested.append("request")
-        await original()
-
-    coord._async_request_ordinary_refresh = counting
-    computes = _computes(coord)  # nor an immediate one, past the request path
+    assert not armed(coord, "lost")
+    await _quiesce(hass, coord)
+    computes = _computes(coord)
     await _report(hass, head_b, "heat", "heating")
     await _report(hass, head_b, "heat", "idle")
-    assert requested == []
-    assert computes == []
+    assert computes == []  # none at once
+    await _fire_due(hass, 0)
+    assert computes == []  # and none asked for, once a request cooldown is over
 
 
 async def test_mode_and_action_rows_differ_only_by_the_new_keys(hass: HomeAssistant) -> None:
@@ -401,7 +411,7 @@ async def test_mode_and_action_rows_differ_only_by_the_new_keys(hass: HomeAssist
     coord = entry.runtime_data
     await _report(hass, head_b, "heat", "heating")
     await _recompute(hass, entry)  # by mode nothing computes on the report
-    _settled(coord, head_b)
+    _settled(coord)
 
     async def snapshot(basis: str) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
         coord.zones[1].vote_basis = basis
@@ -448,12 +458,12 @@ async def test_running_votes_idle_holds_then_drops(hass: HomeAssistant) -> None:
     assert abs((until - before).total_seconds() - HOLD) <= 2
     assert _plan(hass, entry).state == MODE_HEAT
 
-    _age_hold(coord, head_b, HOLD - 1)
+    pass_time(coord, HOLD - 1)
     await _recompute(hass, entry)
     assert (_row(hass, entry, 1)["hands_off_vote"], _plan(hass, entry).state) == (
         MODE_HEAT, MODE_HEAT,
     )
-    _age_hold(coord, head_b, 1)  # the hold is over AT ten minutes
+    pass_time(coord, 1)  # the hold is over AT ten minutes
     await _recompute(hass, entry)
     row = _row(hass, entry, 1)
     assert (row["hands_off_vote"], row["vote_hold_until"]) == (None, None)
@@ -474,7 +484,7 @@ async def test_cool_runs_and_holds_the_same_way(hass: HomeAssistant) -> None:
     assert await _run_after(hass, entry, head_b, "cool", "cooling") == MODE_COOL
     assert _plan(hass, entry).state == MODE_COOL
     assert await _vote_after(hass, entry, head_b, "cool", "idle") == MODE_COOL
-    _age_hold(coord, head_b, HOLD)
+    pass_time(coord, HOLD)
     await _recompute(hass, entry)
     assert _row(hass, entry, 1)["hands_off_vote"] is None
     assert _plan(hass, entry).state == MODE_HEAT
@@ -487,20 +497,19 @@ async def test_the_hold_end_wakes_a_recompute_by_itself(hass: HomeAssistant) -> 
     coord = entry.runtime_data
     coord.action_vote_hold = 60.0
     await _run_after(hass, entry, head_b, "heat", "heating")
-    assert coord._lost_timer is None  # running: nothing to time
+    assert not armed(coord, "lost")  # running: nothing to time
     await _vote_after(hass, entry, head_b, "heat", "idle")
     await _quiesce(hass, coord)
-    assert coord._lost_timer is not None
+    assert armed(coord, "lost")
     assert _row(hass, entry, 1)["hands_off_vote"] == MODE_HEAT
-    # HA's timers run on the faked time, the hold on the monotonic clock:
-    # move both a minute on.
-    _age_hold(coord, head_b, 60)
+    # HA's timers and the coordinator's clock: move both a minute on.
+    pass_time(coord, 60)
     with _count_refresh_requests(coord) as requests:
         await _fire_due(hass, 61)
     assert requests and requests[0] == "request"
     assert _row(hass, entry, 1)["hands_off_vote"] is None
     assert _plan(hass, entry).state == MODE_COOL
-    assert coord._lost_timer is None  # nothing left to time
+    assert not armed(coord, "lost")  # nothing left to time
 
 
 async def test_an_action_change_recomputes_without_any_other_event(
@@ -511,7 +520,7 @@ async def test_an_action_change_recomputes_without_any_other_event(
     await _vote_after(hass, entry, head_b, "heat", "idle")
     await _quiesce(hass, entry.runtime_data)
     assert _plan(hass, entry).state == MODE_COOL
-    _settled(entry.runtime_data, head_b)
+    _settled(entry.runtime_data)
     await _report(hass, head_b, "heat", "heating")  # no _recompute
     await _fire_due(hass, 0)
     assert _row(hass, entry, 1)["hands_off_vote"] == MODE_HEAT
@@ -519,15 +528,21 @@ async def test_an_action_change_recomputes_without_any_other_event(
 
 
 def _computes(coord: Any) -> list[str]:
-    """Every plan computed from here on, whatever asked for it."""
+    """Every plan computed from here on, whatever asked for it.
+
+    Each compute publishes a new plan to the coordinator's listeners; a
+    listener call that shows the same plan again is not a compute.
+    """
     seen: list[str] = []
-    original = coord._compute
+    shown = [coord.data]
 
-    def counting() -> dict[str, Any]:
-        seen.append("compute")
-        return original()
+    @callback
+    def listen() -> None:
+        if coord.data is not shown[0]:
+            shown[0] = coord.data
+            seen.append("compute")
 
-    coord._compute = counting
+    coord.async_add_listener(listen)
     return seen
 
 
@@ -558,7 +573,7 @@ async def test_an_action_change_recomputes_only_once_released(hass: HomeAssistan
     assert _row(hass, entry, 1)["hands_off"] == "released"
     await _report(hass, head_b, "heat", "idle")  # a person turns it on
     await _quiesce(hass, coord)
-    _settled(coord, head_b)
+    _settled(coord)
     computes.clear()
     await _report(hass, head_b, "heat", "heating")
     assert computes == ["compute"]  # at once: no time has passed
@@ -587,16 +602,18 @@ async def test_the_off_landing_ends_mxz_s_own_run(hass: HomeAssistant, wait: int
     await _recompute(hass, entry)
     assert _s(hass, head_b) == "heat"  # MXZ runs it for the enabled room
     await _report(hass, head_b, "heat", "heating")
-    _settled(coord, head_b)
+    _settled(coord)
     await _recompute(hass, entry)
-    assert coord._sight[head_b].ran == MODE_HEAT
+    assert (await _seen(hass, entry))["ran"] == MODE_HEAT
     await _quiesce(hass, coord)
 
     await _switch(hass, _eid(hass, entry, "_secondary_enable"), False)
     await hass.async_block_till_done()
     assert _s(hass, head_b) == "off"  # MXZ's off landed
-    assert coord._hands_off_phase(coord.zones[1]) == "released"
-    assert (coord._sight[head_b].ran, coord._sight[head_b].stopped_at) == (None, None)
+    view = await debug_view(hass, entry)
+    assert view["rooms"]["secondary"]["holds"]["hands_off_released"] is True
+    seen = view["rooms"]["secondary"]["votes"]
+    assert (seen["ran"], seen["seconds_since_stopped"]) == (None, None)
     if wait:
         await _fire_due(hass, wait)
     calls = _climate_calls(hass, head_b)
@@ -635,7 +652,7 @@ async def test_a_run_start_counts_on_its_own_report(
     await _report(hass, head_b, mode, "idle")  # the mode change: computed now
     assert computes == ["compute"]  # so the request cooldown is running
     assert (_row(hass, entry, 1)["hands_off_vote"], _plan(hass, entry).state) == (None, bias)
-    _settled(coord, head_b)
+    _settled(coord)
     await _report(hass, head_b, mode, action)  # inside that cooldown
     assert computes == ["compute", "compute"]
     assert (_row(hass, entry, 1)["hands_off_vote"], _plan(hass, entry).state) == (mode, mode)
@@ -657,7 +674,7 @@ async def _running_in_a_cooldown(hass: HomeAssistant):
     assert _row(hass, entry, 1)["hands_off"] == "released"
     coord = entry.runtime_data
     await _report(hass, head_b, MODE_COOL, "idle")
-    _settled(coord, head_b)
+    _settled(coord)
     await _report(hass, head_b, MODE_COOL, "cooling")
     await _quiesce(hass, coord)
     assert (_row(hass, entry, 1)["hands_off_vote"], _plan(hass, entry).state) == (
@@ -667,7 +684,8 @@ async def _running_in_a_cooldown(hass: HomeAssistant):
     computes = _computes(coord)
     await _set_temp(hass, SENSOR_B, 70.25)
     assert computes == ["compute"]
-    assert coord._debounced_refresh._timer_task is not None  # the cooldown runs
+    # Home Assistant's request cooldown runs; it publishes nothing to read.
+    assert coord._debounced_refresh._timer_task is not None
     computes.clear()
     return entry, head_b, calls, computes
 
@@ -693,14 +711,13 @@ async def test_a_run_ending_drops_the_vote_on_its_own_report(
     assert _plan(hass, entry).state == MODE_HEAT  # back to rest
     assert computes == ["compute"]
     coord = entry.runtime_data
-    assert not coord._debounced_refresh._execute_at_end_of_timer
     _head(hass, head_b)._attr_native_current_temperature = 71
     with _count_refresh_requests(coord) as requests:
         await _report(hass, head_b, mode, action)
     assert computes == ["compute"]
-    # No compute at once, no request, and none left waiting on a cooldown.
-    assert requests == []
-    assert not coord._debounced_refresh._execute_at_end_of_timer
+    assert requests == []  # no compute at once, no request
+    await _fire_due(hass, 0)
+    assert computes == ["compute"]  # and none was left waiting on the cooldown
     assert calls == []  # MXZ never wrote to it
 
 
@@ -719,7 +736,7 @@ async def test_a_run_stopping_starts_its_hold_on_its_own_report(hass: HomeAssist
     assert computes == ["compute"]
     until = dt_util.parse_datetime(row["vote_hold_until"])
     assert abs((until - before).total_seconds() - HOLD) <= 2
-    assert coord._lost_timer is not None
+    assert armed(coord, "lost")
     assert _plan(hass, entry).state == MODE_COOL  # held
     assert calls == []  # MXZ never wrote to it
 
@@ -803,15 +820,17 @@ async def _hw2(hass: HomeAssistant):
     await _recompute(hass, entry)
     assert _s(hass, head_b) == "heat"  # MXZ runs it for the enabled room
     await _report(hass, head_b, "heat", "heating")
-    _settled(coord, head_b)
+    _settled(coord)
     await _recompute(hass, entry)
-    assert coord._sight[head_b].ran == MODE_HEAT
+    assert (await _seen(hass, entry))["ran"] == MODE_HEAT
     await _quiesce(hass, coord)
     await _switch(hass, _eid(hass, entry, "_secondary_enable"), False)
     await hass.async_block_till_done()
     assert _s(hass, head_b) == "off"  # MXZ's off landed: released
-    assert coord._hands_off_phase(coord.zones[1]) == "released"
-    assert coord._sight[head_b].changed_at is not None  # that off is a change
+    view = await debug_view(hass, entry)
+    assert view["rooms"]["secondary"]["holds"]["hands_off_released"] is True
+    since = view["rooms"]["secondary"]["votes"]["seconds_since_mode_changed"]
+    assert since is not None and since < 1  # that off is a change
     await _quiesce(hass, coord)
     return entry, coord, head_b
 
@@ -836,27 +855,27 @@ async def test_hw2_stale_cooling_after_mxz_s_heat_run_votes_nothing(
     assert (row["hands_off_vote"], row["vote_hold_until"]) == (None, None)
     assert _plan(hass, entry).state == MODE_HEAT
     assert computes == ["compute"] * (2 if cool_off_first else 1)  # seen at once
-    assert coord._settle_timer is not None  # the window's end is armed
+    assert armed(coord, "settle")  # the window's end is armed
 
-    coord._sight[head_b].changed_at -= 5.3  # 5.3 s on, still inside the window
+    pass_time(coord, 5.3)  # 5.3 s on, still inside the window
     await _report(hass, head_b, MODE_COOL, "idle")
     row = _row(hass, entry, 1)
     assert (row["hands_off_vote"], row["vote_hold_until"]) == (None, None)
     assert _plan(hass, entry).state == MODE_HEAT
-    assert coord._lost_timer is None  # no hold to end
-    assert coord._settle_timer is None  # nothing left to confirm
+    assert not armed(coord, "lost")  # no hold to end
+    assert not armed(coord, "settle")  # nothing left to confirm
     computes.clear()
     await _fire_due(hass, SETTLE)  # the old window's end passes quietly
     assert computes == []
     assert _row(hass, entry, 1)["hands_off_vote"] is None
 
-    coord._sight[head_b].changed_at -= 100  # the real cooling, long after
+    pass_time(coord, 100)  # the real cooling, long after
     await _report(hass, head_b, MODE_COOL, "cooling")
     assert computes == ["compute"]  # on its own report, at once
     row = _row(hass, entry, 1)
     assert (row["hands_off_vote"], row["vote_hold_until"]) == (MODE_COOL, None)
     assert _plan(hass, entry).state == MODE_COOL
-    assert coord._settle_timer is None
+    assert not armed(coord, "settle")
     assert calls == []  # MXZ never wrote to it
 
 
@@ -869,7 +888,7 @@ async def _unconfirmed(hass: HomeAssistant):
     await _report(hass, head_b, "heat", "heating")
     assert _row(hass, entry, 1)["hands_off_vote"] is None
     assert _plan(hass, entry).state == MODE_COOL
-    assert coord._settle_timer is not None
+    assert armed(coord, "settle")
     await hass.async_block_till_done()
     return entry, coord, head_b
 
@@ -883,7 +902,7 @@ async def test_a_run_still_going_at_the_window_end_counts_from_the_wakeup(
     entry, coord, head_b = await _unconfirmed(hass)
     calls = _climate_calls(hass, head_b)
     computes = _computes(coord)
-    _settled(coord, head_b)  # the monotonic clock, a window on
+    _settled(coord)  # the coordinator's clock, a window on
     with _count_refresh_requests(coord) as requests:
         async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=SETTLE))
         await hass.async_block_till_done()
@@ -892,43 +911,42 @@ async def test_a_run_still_going_at_the_window_end_counts_from_the_wakeup(
     row = _row(hass, entry, 1)
     assert (row["hands_off_vote"], row["vote_hold_until"]) == (MODE_HEAT, None)
     assert _plan(hass, entry).state == MODE_HEAT
-    assert coord._settle_timer is None  # confirmed: nothing left to time
+    assert not armed(coord, "settle")  # confirmed: nothing left to time
     assert calls == []
 
 
 async def test_a_wakeup_short_of_the_window_rearms_for_the_rest(hass: HomeAssistant) -> None:
-    """The window is half-open on the monotonic clock: a wakeup whose compute
-    still sees it open counts nothing and re-arms for what is left."""
-    entry, coord, head_b = await _unconfirmed(hass)
-    coord._sight[head_b].changed_at -= SETTLE - 5  # 5 s left
+    """The window is half-open on the coordinator's clock: a wakeup whose
+    compute still sees it open counts nothing and re-arms for what is left."""
+    entry, coord, _head_b = await _unconfirmed(hass)
+    pass_time(coord, SETTLE - 5)  # 5 s left
     await _recompute(hass, entry)
     assert _row(hass, entry, 1)["hands_off_vote"] is None
-    assert coord._settle_timer is not None
-    assert coord._sight[head_b].settles_in(time.monotonic()) == pytest.approx(5, abs=1)
+    assert armed(coord, "settle")
+    assert await _window_left(hass, entry) == pytest.approx(5, abs=1)
 
 
 async def test_a_fired_wakeup_short_of_the_window_rearms_for_the_rest(
     hass: HomeAssistant,
 ) -> None:
     """The same, driven by HA's own timer: the armed wakeup fires while the
-    monotonic window still has 5 s left. Its compute counts nothing and
-    re-arms, and the re-armed wakeup counts the run once the window is over.
-    Neither goes through the request debouncer; MXZ sends the head nothing."""
+    window on the coordinator's clock still has 5 s left. Its compute counts
+    nothing and re-arms, and the re-armed wakeup counts the run once the
+    window is over. Neither goes through the request debouncer; MXZ sends the
+    head nothing."""
     entry, coord, head_b = await _unconfirmed(hass)
     calls = _climate_calls(hass, head_b)
     computes = _computes(coord)
-    coord._sight[head_b].changed_at -= SETTLE - 5  # 5 s left
-    first = coord._settle_timer
+    pass_time(coord, SETTLE - 5)  # 5 s left
     with _count_refresh_requests(coord) as requests:
         async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=SETTLE))
         await hass.async_block_till_done()
         assert computes == ["compute"]  # the wakeup fired and computed
         assert _row(hass, entry, 1)["hands_off_vote"] is None
-        assert coord._settle_timer is not None
-        assert coord._settle_timer is not first  # re-armed, not the old one
-        assert coord._sight[head_b].settles_in(time.monotonic()) == pytest.approx(5, abs=1)
+        assert armed(coord, "settle")  # re-armed for the rest
+        assert await _window_left(hass, entry) == pytest.approx(5, abs=1)
 
-        coord._sight[head_b].changed_at -= 5  # the rest of the window
+        pass_time(coord, 5)  # the rest of the window
         async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=SETTLE + 10))
         await hass.async_block_till_done()
     assert requests == []
@@ -936,7 +954,7 @@ async def test_a_fired_wakeup_short_of_the_window_rearms_for_the_rest(
     row = _row(hass, entry, 1)
     assert (row["hands_off_vote"], row["vote_hold_until"]) == (MODE_HEAT, None)
     assert _plan(hass, entry).state == MODE_HEAT
-    assert coord._settle_timer is None
+    assert not armed(coord, "settle")
     assert calls == []
 
 
@@ -959,8 +977,8 @@ async def test_a_parking_room_arms_no_settle_wakeup(hass: HomeAssistant) -> None
     await _report(hass, head_b, "heat", "heating")  # running at once
     await _recompute(hass, entry)
     assert _row(hass, entry, 1)["hands_off"] == "parking"
-    assert coord._sight[head_b].settles_in(time.monotonic()) is not None
-    assert coord._settle_timer is None
+    assert await _window_left(hass, entry) is not None
+    assert not armed(coord, "settle")
     computes = _computes(coord)
     await _fire_due(hass, SETTLE)
     assert computes == []
@@ -972,20 +990,17 @@ async def test_a_settle_wakeup_in_flight_at_unload_computes_nothing(
     """Cancelling cannot recall a wakeup HA has already picked to run. Here
     the coordinator is retired with its wakeup still armed, which is that
     case: the wakeup fires and asks for no recompute."""
-    _entry, coord, head_b = await _unconfirmed(hass)
-    assert coord._settle_timer is not None
-    asked: list[str] = []
-
-    async def refresh_now() -> None:
-        asked.append("refresh_now")
-
-    coord._async_refresh_now = refresh_now
-    coord._retired = True  # as the retire step sets it, before any cancel
-    _settled(coord, head_b)
+    _entry, coord, _head_b = await _unconfirmed(hass)
+    assert armed(coord, "settle")
+    computes = _computes(coord)
+    # The retire step sets this first, before any cancel; no public step
+    # stands between the two.
+    coord._retired = True
+    _settled(coord)
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=SETTLE))
     await hass.async_block_till_done()
-    assert coord._settle_timer is None  # it fired
-    assert asked == []
+    assert not armed(coord, "settle")  # it fired
+    assert computes == []
 
 
 async def test_a_stop_or_a_new_mode_change_cancels_or_moves_the_wakeup(
@@ -995,27 +1010,27 @@ async def test_a_stop_or_a_new_mode_change_cancels_or_moves_the_wakeup(
     computes = _computes(coord)
     await _report(hass, head_b, "heat", "idle")  # stopped inside the window
     assert computes == ["compute"]  # a stop is still seen at once
-    assert coord._settle_timer is None
+    assert not armed(coord, "settle")
     assert _row(hass, entry, 1)["vote_hold_until"] is None  # and holds nothing
     computes.clear()
     await _fire_due(hass, SETTLE)
     assert computes == []  # no wakeup left behind
 
-    coord._sight[head_b].changed_at -= 10
+    pass_time(coord, 10)
     await _report(hass, head_b, "cool", "cooling")  # another mode change
-    assert coord._settle_timer is not None
-    left = coord._sight[head_b].settles_in(time.monotonic())
+    assert armed(coord, "settle")
+    left = await _window_left(hass, entry)
     assert left == pytest.approx(SETTLE, abs=1)  # timed from the new change
     assert _row(hass, entry, 1)["hands_off_vote"] is None
 
 
 async def test_unload_cancels_the_settle_wakeup(hass: HomeAssistant) -> None:
-    entry, coord, head_b = await _unconfirmed(hass)
+    entry, coord, _head_b = await _unconfirmed(hass)
     computes = _computes(coord)
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    assert coord._settle_timer is None
-    _settled(coord, head_b)
+    assert not armed(coord, "settle")
+    _settled(coord)
     await _fire_due(hass, SETTLE)
     assert computes == []
 
@@ -1027,20 +1042,20 @@ async def test_a_same_mode_run_counts_on_its_own_report(hass: HomeAssistant) -> 
     entry, _a, head_b = await _released(hass)
     coord = entry.runtime_data
     await _report(hass, head_b, MODE_COOL, "idle")
-    _settled(coord, head_b)
+    _settled(coord)
     await _quiesce(hass, coord)
     computes = _computes(coord)
     await _report(hass, head_b, MODE_COOL, "cooling")
     assert computes == ["compute"]
     assert _row(hass, entry, 1)["hands_off_vote"] == MODE_COOL
-    assert coord._settle_timer is None
+    assert not armed(coord, "settle")
     await _report(hass, head_b, MODE_COOL, "idle")  # its hold starts
     assert _row(hass, entry, 1)["vote_hold_until"] is not None
     await _report(hass, head_b, MODE_COOL, "cooling")  # and runs again: at once
     row = _row(hass, entry, 1)
     assert (row["hands_off_vote"], row["vote_hold_until"]) == (MODE_COOL, None)
     assert computes == ["compute"] * 3
-    assert coord._settle_timer is None
+    assert not armed(coord, "settle")
 
 
 async def test_safety_priority_never_waits_on_the_window(hass: HomeAssistant) -> None:
@@ -1071,10 +1086,10 @@ async def test_mode_basis_never_waits_on_the_window(hass: HomeAssistant, stored:
     coord = entry.runtime_data
     assert await _vote_after(hass, entry, head_b, "heat", "heating") == MODE_HEAT
     assert _plan(hass, entry).state == MODE_HEAT
-    assert coord._sight[head_b].settles_in(time.monotonic()) is not None  # seen
-    assert coord._settle_timer is None
+    assert await _window_left(hass, entry) is not None  # seen
+    assert not armed(coord, "settle")
     assert await _vote_after(hass, entry, head_b, "cool", "cooling") == MODE_COOL
-    assert coord._settle_timer is None
+    assert not armed(coord, "settle")
 
 
 # --- the lag on real heads: a contradiction is never a run ---------------------
@@ -1092,7 +1107,7 @@ async def test_lagging_action_never_creates_a_vote(hass: HomeAssistant) -> None:
         assert await _vote_after(hass, entry, head_b, mode, action) is None, (mode, action)
         assert _plan(hass, entry).state == MODE_COOL
         assert _row(hass, entry, 1)["vote_hold_until"] is None
-        assert entry.runtime_data._lost_timer is None  # no hold to time
+        assert not armed(entry.runtime_data, "lost")  # no hold to time
     assert await _vote_after(hass, entry, head_b, "heat", "idle") is None
 
 
@@ -1123,13 +1138,14 @@ async def test_a_contradiction_does_not_extend_a_running_hold(hass: HomeAssistan
     coord = entry.runtime_data
     await _run_after(hass, entry, head_b, "heat", "heating")
     await _vote_after(hass, entry, head_b, "heat", "idle")
-    stopped = coord._sight[head_b].stopped_at
     until = _row(hass, entry, 1)["vote_hold_until"]
-    _age_hold(coord, head_b, HOLD - 60)
+    pass_time(coord, HOLD - 60)
     assert await _vote_after(hass, entry, head_b, "heat", "cooling") == MODE_HEAT
-    assert coord._sight[head_b].stopped_at == stopped - (HOLD - 60)
+    # Not refreshed: the hold still counts from the stop, 9 minutes back.
+    stopped = (await _seen(hass, entry))["seconds_since_stopped"]
+    assert stopped == pytest.approx(HOLD - 60, abs=1)
     assert _row(hass, entry, 1)["vote_hold_until"] != until  # 9 min nearer, not reset
-    _age_hold(coord, head_b, 60)
+    pass_time(coord, 60)
     assert await _vote_after(hass, entry, head_b, "heat", "cooling") is None
 
 
@@ -1147,7 +1163,7 @@ async def test_a_head_without_hvac_action_votes_by_mode(hass: HomeAssistant) -> 
     assert _plan(hass, entry).state == MODE_HEAT
     tile = hass.states.get(_eid(hass, entry, "_secondary_thermostat"))
     assert tile.attributes["hvac_action"] == HVACAction.HEATING  # derived, shown only
-    assert entry.runtime_data._sight[head_b].action is None
+    assert (await _seen(hass, entry))["seen_action"] is None
     # Once it reports an action, it is judged by it.
     assert await _vote_after(hass, entry, head_b, "heat", "idle") is None
     assert _row(hass, entry, 1)["vote_basis"] == "action"
@@ -1165,12 +1181,12 @@ async def test_a_dropped_action_report_is_not_a_mode_vote(hass: HomeAssistant) -
     row = _row(hass, entry, 1)
     assert (row["vote_basis"], row["vote_hold_until"]) == ("action", None)
     assert _plan(hass, entry).state == MODE_COOL
-    assert coord._lost_timer is None
+    assert not armed(coord, "lost")
 
     assert await _run_after(hass, entry, head_b, "heat", "heating") == MODE_HEAT
     assert await _vote_after(hass, entry, head_b, "heat", None) == MODE_HEAT  # held
     assert _row(hass, entry, 1)["vote_hold_until"] is not None
-    _age_hold(coord, head_b, HOLD)
+    pass_time(coord, HOLD)
     assert await _vote_after(hass, entry, head_b, "heat", None) is None
     assert _row(hass, entry, 1)["vote_basis"] == "action"
     assert _plan(hass, entry).state == MODE_COOL
@@ -1251,7 +1267,7 @@ async def test_lost_between_computes_keeps_what_it_showed_last(hass: HomeAssista
     its last state (from the change itself) is its vote, as on 3.11.0."""
     entry, _a, head_b = await _released(hass)
     await _vote_after(hass, entry, head_b, "heat", "idle")
-    _settled(entry.runtime_data, head_b)
+    _settled(entry.runtime_data)
     entity = _head(hass, head_b)
     entity._attr_hvac_action = "heating"
     entity.async_write_ha_state()
@@ -1303,13 +1319,13 @@ async def test_an_unavailable_blip_does_not_restart_a_hold(hass: HomeAssistant) 
     coord = entry.runtime_data
     await _run_after(hass, entry, head_b, "heat", "heating")
     await _vote_after(hass, entry, head_b, "heat", "idle")
-    _age_hold(coord, head_b, HOLD - 30)
+    pass_time(coord, HOLD - 30)
     await _lose(hass, head_b)
     await _recompute(hass, entry)
     await _back(hass, head_b)
     await _recompute(hass, entry)
     assert _row(hass, entry, 1)["hands_off_vote"] == MODE_HEAT
-    _age_hold(coord, head_b, 30)
+    pass_time(coord, 30)
     await _recompute(hass, entry)
     assert _row(hass, entry, 1)["hands_off_vote"] is None
 
@@ -1394,7 +1410,7 @@ async def test_an_idle_heat_head_no_longer_blocks_a_running_cool_one(
     await _report(hass, head_a, "heat", "idle")
     await _report(hass, head_b, "cool", "cooling")
     await _recompute(hass, entry)  # by mode nothing computes on the report
-    _settled(entry.runtime_data, head_b)
+    _settled(entry.runtime_data)
     for _ in range(2):
         await _recompute(hass, entry)
     plan = _plan(hass, entry)
