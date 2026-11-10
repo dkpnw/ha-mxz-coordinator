@@ -1,4 +1,4 @@
-"""What every journey shares: the evidence transcript and a real restart.
+"""What every journey shares: the evidence transcript.
 
 A transcript is one JSON file per journey. Each step records the action a
 person or a head took, then what Home Assistant shows after it: the plan
@@ -27,10 +27,7 @@ from homeassistant.const import EVENT_CALL_SERVICE
 from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_mock_restore_state_shutdown_restart,
-)
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 _STAMP = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 OUT = Path(
@@ -174,18 +171,3 @@ def _targets(call: dict[str, Any], head: str) -> bool:
     target = call["data"].get("entity_id")
     return head == target or (isinstance(target, list) and head in target)
 
-
-async def restart(hass: HomeAssistant, entry: MockConfigEntry) -> None:
-    """Stop Home Assistant and start it again, in process.
-
-    The restore data is dumped as at a real shutdown, the entry is unloaded,
-    and the per-entry store instances are dropped, as a new process starts
-    without them, so the next setup reads what was written to storage
-    (tests/test_antiflip_persist.py uses the same steps).
-    """
-    await async_mock_restore_state_shutdown_restart(hass)
-    assert await hass.config_entries.async_unload(entry.entry_id)
-    await hass.async_block_till_done()
-    hass.data.pop("mxz_coordinator_mode_change_stores", None)
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()

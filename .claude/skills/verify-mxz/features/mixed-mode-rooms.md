@@ -54,7 +54,7 @@ Preconditions:
 - A reversal inside the wait is held by design. A journey that expects a
   flip must age the wait first, with `tests/dwell.py`, never by writing the
   shared mode.
-- `expire_dwell` moves only the monotonic stamp; the wakeup is a Home
+- `expire_dwell` moves only the coordinator's clock; the wakeup is a Home
   Assistant timer, so it also needs `_fire_due` (time-changed events), or the
   change waits for the next compute.
 - Resting mode set to Cool or Heat changes where the mode settles when no

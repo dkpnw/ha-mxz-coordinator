@@ -18,7 +18,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
-from tests.clocks import age_lost_vote
+from tests.clocks import pass_time
 from tests.dwell import expire_dwell
 from tests.test_drive import SENSOR_A, _recompute
 from tests.test_lost_vote import DEFAULT_SECONDS, _back, _lose, _standoff
@@ -43,6 +43,9 @@ async def test_a_lost_head_holds_while_stale_then_lets_the_sibling_run(
     log = journal(hass, entry, FEATURE, heads=[head_a, head_b])
     shown = log.step("setup: Room 1 (76) calls cool and wins; Room 2 (64) calls heat")
     assert (shown["plan"]["state"], shown["plan"]["zones"][0]["vote_status"]) == ("cool", "live")
+    # The mode-change wait runs out before the loss, so it is not what holds
+    # the mode below, and no time passes on the loss but what each step says.
+    expire_dwell(coord)
 
     await _lose(hass, head_a)
     await _recompute(hass, entry)
@@ -54,15 +57,14 @@ async def test_a_lost_head_holds_while_stale_then_lets_the_sibling_run(
     assert shown["heads"][head_b]["state"] == "fan_only"
     assert shown["heads"][head_a]["state"] == "unavailable"
 
-    age_lost_vote(coord, head_a, DEFAULT_SECONDS - 2)  # 2 s short of 30 minutes
-    expire_dwell(coord)  # so the mode-change wait is not what holds the mode here
+    pass_time(coord, DEFAULT_SECONDS - 2)  # 2 s short of 30 minutes
     await _recompute(hass, entry)
     shown = log.step("time: 29 min 58 s without Room 1's head")
     assert shown["plan"]["zones"][0]["vote_status"] == "stale"
     assert shown["plan"]["state"] == "cool"
 
-    age_lost_vote(coord, head_a, 2)  # exactly the limit: half-open, so expired
-    expire_dwell(coord)  # the 600 s mode-change wait has long passed too
+    pass_time(coord, 2)  # exactly the limit: half-open, so expired
+    assert coord.mode_hold_remaining() == 0  # no wait: the limit alone lets go
     await _recompute(hass, entry)
     shown = log.step("time: 30 min without Room 1's head (the limit)")
     row = shown["plan"]["zones"][0]

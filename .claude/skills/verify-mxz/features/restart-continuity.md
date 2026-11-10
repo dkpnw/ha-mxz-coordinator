@@ -32,8 +32,9 @@ Preconditions:
   wait, both rooms enabled at 70) and `tests/test_antiflip_persist.py`
   `_flip_to_heat`.
 - Run: `tests/test_startup_continuity.py` `_setup` (no wait) and `_run_b`.
-- Restart: `journeys/mxz_journey.py` `restart` (restore data dumped, entry
-  unloaded, the per-entry store instances dropped, entry set up again).
+- Restart: `tests/restart.py` `restart`, the suite's (restore data dumped,
+  pending store writes flushed, entry unloaded, every MXZ `hass.data` key
+  dropped, entry set up and Home Assistant started again).
 - Journeys: `journeys/test_restart_continuity.py`
   `test_a_restart_mid_wait_keeps_only_what_is_left` and
   `test_a_run_in_progress_resumes_after_a_restart[cool|heat]`.
@@ -60,10 +61,10 @@ Preconditions:
   new Python process and not hardware. A power cut that loses an unwritten
   store is outside it.
 - Across the restart the wait is timed on the wall clock (the stored change
-  time); within a run it is the monotonic clock. To pass time inside a run,
+  time); within a run it is the coordinator's clock. To pass time inside a run,
   move both (`_let_time_pass`); `jump_wall_clock` alone does not shorten a
   running wait, by design.
 - The restored mode comes from the shared-mode select's restore data, which
   the restart helper dumps first, as a real shutdown does; the wait's start
-  comes from the entry's own store, which the helper drops from memory so the
-  setup reads it back from storage.
+  comes from the entry's own store, which the helper drops from memory with
+  everything else of MXZ's, so the setup reads it back from storage.

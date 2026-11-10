@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import pytest
 from homeassistant.core import HomeAssistant
-from mxz_journey import entity, restart
+from mxz_journey import entity
 
 from tests.clocks import jump_wall_clock
+from tests.restart import restart
 from tests.test_antiflip_persist import _flip_to_heat, _let_time_pass
 from tests.test_drive import SENSOR_A, SENSOR_B, _recompute, _set_temp
 from tests.test_dwell_wakeup import HOT, _fire_due, _setup_dwell

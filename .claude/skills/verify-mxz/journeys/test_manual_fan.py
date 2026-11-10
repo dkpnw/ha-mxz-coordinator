@@ -13,8 +13,9 @@ from __future__ import annotations
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from mxz_journey import entity, restart
+from mxz_journey import entity
 
+from tests.restart import restart
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
