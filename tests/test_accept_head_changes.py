@@ -44,6 +44,7 @@ from custom_components.mxz_coordinator.const import (
     INHIBIT_ACTION_FAN_ONLY,
     INHIBIT_ACTION_OFF,
     OFF_WHILE_ENABLED_DELAY,
+    STARTUP_RECOVER_DELAY,
     ZONE_CLIMATE,
     ZONE_DRIVE_OFFSET,
     ZONE_DUAL_SETPOINT,
@@ -965,6 +966,32 @@ async def test_the_memory_rides_a_reload_with_the_head_still_behind(hass: HomeAs
         assert not _armed(rig)
         await rig.later(HELD)
         assert _target(rig) == 74
+    await rig.close()
+
+
+async def test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_write_out(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """A restart starts with no memory, so only startup quiet keeps a late own write out.
+
+    After the window, the same late report moves the target: docs/STATE-MACHINES.md SM-1.
+    """
+    rig = await _cooling(hass, freezer)
+    head = rig.heads[0]
+    head.lags_commands = True
+    await _set_target(hass, rig.eid("_primary_target"), 72)
+    await rig.settle()
+    await _set_target(hass, rig.eid("_primary_target"), 74)
+    await rig.settle()
+    await rig.restart()
+    started = rig.now()
+    assert await rig.report_next_command()
+    assert _edges(rig)[1] == 72
+    await rig.later(HELD)
+    while await rig.report_next_command():
+        await rig.later(HELD)
+    assert _target(rig) == 74
+    assert rig.now() - started < STARTUP_RECOVER_DELAY
     await rig.close()
 
 

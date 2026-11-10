@@ -20,8 +20,12 @@ from datetime import timedelta
 from typing import Any, ClassVar
 
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
-from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
-from homeassistant.core import HomeAssistant
+from homeassistant.const import (
+    EVENT_HOMEASSISTANT_FINAL_WRITE,
+    EVENT_HOMEASSISTANT_START,
+    EVENT_HOMEASSISTANT_STARTED,
+)
+from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from hypothesis import HealthCheck, settings
@@ -303,8 +307,13 @@ class Rig:
         await self.settle()
 
     async def restart(self) -> None:
-        """A clean stop and start: restore data written at the stop, every store read anew.
+        """A clean stop and start of Home Assistant, as its bootstrap does it.
 
+        Restore data is written at the stop and every store is read anew.
+        Nothing MXZ kept in ``hass.data`` survives, since a new process starts
+        with none. The entry is set up before Home Assistant is running and
+        then it starts, so MXZ's startup quiet window is open after this and
+        ends ``STARTUP_RECOVER_DELAY`` seconds later, as after a real start.
         The final write stands in for Home Assistant's own stop. The clock is
         frozen, so a store write delayed by 0 s has not run on its own yet.
         """
@@ -314,9 +323,16 @@ class Rig:
         await async_mock_restore_state_shutdown_restart(hass)
         assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
-        hass.data.pop(f"{DOMAIN}_mode_change_stores", None)
-        hass.data.pop(f"{DOMAIN}_openings_stores", None)
+        for key in [key for key in hass.data if isinstance(key, str) and key.startswith(DOMAIN)]:
+            del hass.data[key]
+        hass.set_state(CoreState.not_running)
         assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        hass.set_state(CoreState.starting)
+        hass.bus.async_fire(EVENT_HOMEASSISTANT_START)
+        await hass.async_block_till_done()
+        hass.set_state(CoreState.running)
+        hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
         await hass.async_block_till_done()
         await self.settle()
 
