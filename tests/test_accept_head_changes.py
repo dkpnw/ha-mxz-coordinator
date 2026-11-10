@@ -459,6 +459,47 @@ async def test_each_press_starts_the_hold_over(hass: HomeAssistant, freezer: Any
     await rig.close()
 
 
+async def test_two_heads_pressed_inside_one_hold_are_each_adopted(hass: HomeAssistant, freezer: Any) -> None:
+    """The first head's adoption neither writes over the second head's hold nor ends it."""
+    rig = await open_rig(hass, freezer, temps=(HOT, HOT))
+    assert [head.mode for head in rig.heads] == ["cool", "cool"]
+    rig.heads[0].person_setpoint(low=64, high=66)
+    await rig.later(2)
+    rig.heads[1].person_setpoint(low=66, high=68)
+    await rig.later(ADOPT_DELAY - 1)  # the Study's hold is over, the Den's is not
+    assert _target(rig) == 66
+    assert float(hass.states.get(rig.eid("_secondary_target")).state) == TARGET
+    den = hass.states.get(rig.heads[1].entity_id)
+    assert (den.attributes["target_temp_low"], den.attributes["target_temp_high"]) == (66, 68)
+    await rig.later(2)
+    assert float(hass.states.get(rig.eid("_secondary_target")).state) == 68
+    assert _target(rig) == 66
+    await rig.close()
+
+
+async def test_a_room_enabled_at_its_head_inside_the_mode_wait_waits_for_it(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """Adopting cool at a disabled room's head takes its target, not the shared mode."""
+    rig = await open_rig(hass, freezer, temps=(COLD, TARGET))
+    study = rig.eid("_primary_thermostat")
+    assert hass.states.get(study).attributes["mode_change_hold_remaining"] == HOLD
+    await rig.switch("_secondary_enable", False)
+    await rig.temp(0, TARGET)
+    rig.heads[1].person_setpoint(mode="cool", low=64, high=66)
+    await rig.later(HELD)
+    assert hass.states.get(rig.eid("_secondary_enable")).state == "on"
+    assert float(hass.states.get(rig.eid("_secondary_target")).state) == 66
+    assert hass.states.get(rig.eid("_plan")).state == "heat"
+    assert hass.states.get(study).attributes["mode_change_hold_remaining"] > 0
+    assert rig.heads[1].mode != "cool"
+    await rig.later(HOLD)
+    assert hass.states.get(rig.eid("_plan")).state == "cool"
+    assert rig.heads[1].mode == "cool"
+    assert float(hass.states.get(rig.eid("_secondary_target")).state) == 66
+    await rig.close()
+
+
 async def test_a_change_undone_inside_the_hold_is_nothing(hass: HomeAssistant, freezer: Any) -> None:
     rig = await _cooling(hass, freezer)
     await _press(rig, low=64, high=66)

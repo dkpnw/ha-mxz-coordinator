@@ -48,6 +48,7 @@ from pytest_homeassistant_custom_component.common import (
 
 from custom_components.mxz_coordinator.capabilities import IDLE_ACTION_LABELS
 from custom_components.mxz_coordinator.const import (
+    ADOPT_DELAY,
     BAND_DRIFT_DELAY,
     CONF_IDLE_ACTION,
     CONF_INHIBIT_ACTION,
@@ -771,6 +772,21 @@ async def test_leaving_dry_starts_the_coil_dry_run(hass: HomeAssistant) -> None:
     age_coil_dry(rig.coord, rig.heads[1], rig.coord.coil_dry_seconds + 5)
     await rig.recompute()
     assert rig.state(1) == "off"
+
+
+async def test_turned_off_from_dry_at_the_head_skips_the_coil_dry_run(hass: HomeAssistant) -> None:
+    """The default: that off is adopted, the room is disabled, and its head stays off."""
+    rig = await _setup(hass, idle=IDLE_ACTION_OFF_AFTER_DRY)
+    await rig.person(1, "dry")
+    await rig.recompute()
+    age_coil_dry(rig.coord, rig.heads[1], rig.coord.coil_dry_seconds + 5)
+    rig.forget()
+    await rig.person(1, "off")
+    await rig.later(ADOPT_DELAY + 1)
+    await rig.recompute()
+    assert hass.states.get(rig.eid("_secondary_enable")).state == "off"
+    assert rig.state(1) == "off"
+    assert "fan_only" not in rig.modes_sent(1)
 
 
 async def test_option_off_dry_owes_no_coil_dry(hass: HomeAssistant) -> None:
