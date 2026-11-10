@@ -1,9 +1,11 @@
 """Static CI boundaries; live repository/token receipts are required separately."""
 
+import asyncio
 import io
 import logging
 import re
 import subprocess
+from contextlib import contextmanager
 from copy import deepcopy
 from hashlib import sha256
 from pathlib import Path
@@ -926,22 +928,79 @@ def test_actual_export_rejects_empty_or_unknown_ownership(suite_export, owned):
     assert not (root / "mxz-venv").exists()
 
 
-def test_suite_log_stream_keeps_warnings_while_tests_keep_info(caplog):
-    """CI runs ``-s``: Home Assistant's per-setup INFO stays out of suite.log, not out of tests."""
+@contextmanager
+def suite_stream():
+    """What CI's ``-s`` suite.log would get: the root stderr handlers, read into a buffer."""
     streams = [h for h in logging.getLogger().handlers if type(h) is logging.StreamHandler]
     assert streams, "pytest-homeassistant-custom-component's stderr handler is missing"
-    logger = logging.getLogger("homeassistant.setup")
     sink = io.StringIO()
     old = [h.setStream(sink) for h in streams]
     try:
-        logger.info("info for tests only")
-        logger.warning("warning for the log too")
+        yield sink
     finally:
         for handler, stream in zip(streams, old):
             handler.setStream(stream)
+
+
+def test_suite_log_stream_keeps_warnings_while_tests_keep_info(caplog):
+    """CI runs ``-s``: Home Assistant's per-setup INFO stays out of suite.log, not out of tests."""
+    logger = logging.getLogger("homeassistant.setup")
+    with suite_stream() as sink:
+        logger.info("info for tests only")
+        logger.warning("warning for the log too")
     assert "info for tests only" not in sink.getvalue()
     assert "warning for the log too" in sink.getvalue()
     assert [r.getMessage() for r in caplog.records] == ["info for tests only", "warning for the log too"]
+
+
+def test_suite_log_stream_drops_harness_noise_from_its_real_sources(caplog):
+    """The two per-test harness warnings, raised by asyncio and by Home Assistant's loader
+    with its own text, stay out of suite.log; caplog (and so a failure's "Captured log")
+    still has both."""
+    from homeassistant import loader
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.set_debug(True)  # as pytest-homeassistant-custom-component runs every test
+        loop.slow_callback_duration = 0  # every step is "slow", as under a moved clock
+        with suite_stream() as sink:
+            loop.run_until_complete(asyncio.sleep(0))
+            loader._LOGGER.warning(loader.CUSTOM_WARNING, "mxz_coordinator")
+    finally:
+        loop.close()
+    seen = [(r.name, r.getMessage()) for r in caplog.records]
+    assert any(name == "asyncio" and text.startswith("Executing <") for name, text in seen)
+    assert any(name == "homeassistant.loader" and text.startswith(
+        "We found a custom integration mxz_coordinator which has not been tested")
+        for name, text in seen)
+    assert sink.getvalue() == ""
+
+
+def test_suite_log_stream_still_shows_every_other_warning(caplog):
+    """Only those exact messages from those loggers go; product warnings, other asyncio or
+    loader warnings and the same words from any other logger reach suite.log."""
+    kept = [
+        ("custom_components.mxz_coordinator.coordinator", logging.WARNING,
+         "MXZ heal: room %s, head %s: off drift", ("Study", "climate.invented_head")),
+        ("custom_components.mxz_coordinator", logging.ERROR, "Executing %s took %.3f seconds",
+         ("invented", 1.0)),
+        ("asyncio", logging.ERROR, "Task was destroyed but it is pending!", ()),
+        ("asyncio", logging.WARNING, "Executing %s took %.3f seconds (invented variant)",
+         ("invented", 1.0)),
+        ("homeassistant.loader", logging.ERROR,
+         "The custom integration '%s' does not have a version key", ("invented",)),
+        ("homeassistant.setup", logging.WARNING,
+         ("We found a custom integration %s which has not been tested by Home Assistant. "
+          "This component might cause stability problems, be sure to disable it if you "
+          "experience issues with Home Assistant"), ("invented",)),
+    ]
+    with suite_stream() as sink:
+        for name, level, msg, args in kept:
+            logging.getLogger(name).log(level, msg, *args)
+    for name, _level, msg, args in kept:
+        assert f"{name}:{msg % args}\n" in sink.getvalue()
+    assert [(r.name, r.getMessage()) for r in caplog.records] == [
+        (name, msg % args) for name, _level, msg, args in kept]
 
 
 @pytest.mark.parametrize("exit_code", [0, 1])
