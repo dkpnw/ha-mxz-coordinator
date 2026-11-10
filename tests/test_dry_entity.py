@@ -54,7 +54,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_HANDS_OFF,
     ZONE_MAX_AGE,
 )
-from tests.clocks import age_coil_dry
+from tests.clocks import pass_time
 from tests.cloud_heads import record as record_calls
 from tests.cloud_heads import writes as head_writes
 from tests.flow_pages import open_options_page, prefilled, submit
@@ -397,7 +397,7 @@ async def test_heat_cool_from_dry_takes_the_head_back_and_dries_the_coil(
     assert rig.state(1) == "fan_only"  # the coil-dry run, owed from the dry
     assert tile(rig).state == "heat_cool"
     assert rig.coord._dry_released == set()  # the head reported out of dry
-    age_coil_dry(rig.coord, rig.heads[1], rig.coord.coil_dry_seconds + 5)
+    pass_time(rig.coord, rig.coord.coil_dry_seconds + 5)
     await rig.recompute()
     assert rig.state(1) == "off"
     await _set_temp(hass, SENSORS[1], 76)  # the room's goal is back

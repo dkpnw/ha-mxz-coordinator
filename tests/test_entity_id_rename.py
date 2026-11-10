@@ -101,6 +101,7 @@ from custom_components.mxz_coordinator.const import (
     SERVICE_RECOMPUTE,
 )
 from tests.dwell import expire_dwell
+from tests.restart import restart
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -113,7 +114,6 @@ from tests.test_drive import (
 from tests.test_dual_setpoint import _call, _setup, _start, _zone
 from tests.test_hands_off import _remote
 from tests.test_hands_off import _setup as _setup_hands_off
-from tests.test_registry_lifecycle import _restart
 from tests.test_startup_continuity import _switch
 
 HAS_HOOK = hasattr(Entity, "async_entity_id_changed")
@@ -553,7 +553,7 @@ async def test_renamed_values_survive_a_restart(
     await _call(hass, "select", "select_option",
                 {"entity_id": new["shared_mode"], "option": "heat"})
 
-    await _restart(hass, entry)
+    await restart(hass, entry)
 
     assert _ids(hass, entry) == new
     _assert_only_new_ids(hass, old, new)

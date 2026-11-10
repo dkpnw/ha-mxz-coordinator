@@ -47,8 +47,8 @@ from custom_components.mxz_coordinator.const import (
     MODE_HEAT,
 )
 from custom_components.mxz_coordinator.logic import HeadSight
-from tests.clocks import age_lost_vote, jump_wall_clock
-from tests.dwell import expire_dwell
+from tests.clocks import jump_wall_clock, pass_time
+from tests.dwell import assert_not_restamped, expire_dwell, record_mode_change
 from tests.flow_pages import (
     default,
     marker_of,
@@ -60,6 +60,7 @@ from tests.flow_pages import (
     submit,
     suggested,
 )
+from tests.peek import armed
 from tests.test_configure_menu import HEADS, SENSORS, _entry, _setup_review
 from tests.test_configure_menu import _head as _flow_head
 from tests.test_drive import SENSOR_A, SENSOR_B, _recompute, _set_temp
@@ -230,14 +231,14 @@ async def test_probe1_a_hands_off_heat_vote_goes_stale_then_expires(
     assert before <= _since(since) <= dt_util.utcnow()
 
     # Five seconds short of the default 30 minutes: still stale.
-    age_lost_vote(coord, head_b, DEFAULT_SECONDS - 5)
+    pass_time(coord, DEFAULT_SECONDS - 5)
     expire_dwell(coord)
     await _recompute(hass, entry)
     assert _plan(hass, entry).state == MODE_HEAT
     assert _vote(hass, entry, 1) == (MODE_HEAT, "stale", since)
 
     # The rest of it: expired, and the mode goes back to resting cool.
-    age_lost_vote(coord, head_b, 5)
+    pass_time(coord, 5)
     expire_dwell(coord)
     await _recompute(hass, entry)
     plan = _plan(hass, entry)
@@ -289,7 +290,7 @@ async def test_a_hands_off_head_seen_again_is_live_at_once(hass: HomeAssistant) 
     # And from expired, too.
     await _lose(hass, head_b)
     await _recompute(hass, entry)
-    age_lost_vote(coord, head_b, DEFAULT_SECONDS)
+    pass_time(coord, DEFAULT_SECONDS)
     expire_dwell(coord)
     await _recompute(hass, entry)
     assert _vote(hass, entry, 1)[:2] == (None, "expired")
@@ -311,7 +312,7 @@ async def test_a_missing_head_is_lost_like_an_unavailable_one(hass: HomeAssistan
     assert hass.states.get(head_b) is None
     assert _vote(hass, entry, 1)[:2] == (MODE_HEAT, "stale")
     assert _plan(hass, entry).state == MODE_HEAT
-    age_lost_vote(coord, head_b, DEFAULT_SECONDS)
+    pass_time(coord, DEFAULT_SECONDS)
     expire_dwell(coord)
     await _recompute(hass, entry)
     assert _vote(hass, entry, 1)[:2] == (None, "expired")
@@ -358,7 +359,7 @@ async def test_probe2_an_enabled_room_with_a_long_lost_head_lets_its_sibling_run
     assert plan.attributes["standoff"] is True
     since = row["lost_since"]
 
-    age_lost_vote(coord, head_a, 3 * 3600)  # three hours, as in the probe
+    pass_time(coord, 3 * 3600)  # three hours, as in the probe
     expire_dwell(coord)
     await _recompute(hass, entry)
     plan = _plan(hass, entry)
@@ -396,12 +397,12 @@ async def test_an_enabled_room_holds_until_exactly_the_time_limit(
     coord = entry.runtime_data
     await _lose(hass, head_a)
     await _recompute(hass, entry)
-    age_lost_vote(coord, head_a, DEFAULT_SECONDS - 2)
+    pass_time(coord, DEFAULT_SECONDS - 2)
     expire_dwell(coord)
     await _recompute(hass, entry)
     assert _plan(hass, entry).state == MODE_COOL
     assert _row(hass, entry, 0)["vote_status"] == "stale"
-    age_lost_vote(coord, head_a, 2)
+    pass_time(coord, 2)
     expire_dwell(coord)
     await _recompute(hass, entry)
     assert _plan(hass, entry).state == MODE_HEAT
@@ -438,8 +439,8 @@ async def test_an_expired_room_no_longer_holds_its_run_against_a_vote(
     assert _row(hass, entry, 0)["vote_status"] == "stale"
     assert _plan(hass, entry).state == MODE_HEAT  # stale: the run still holds
 
-    age_lost_vote(coord, head_a, DEFAULT_SECONDS)
-    stamp = expire_dwell(coord)
+    pass_time(coord, DEFAULT_SECONDS)
+    expire_dwell(coord)
     await _recompute(hass, entry)
     plan = _plan(hass, entry)
     row = _row(hass, entry, 0)
@@ -447,24 +448,30 @@ async def test_an_expired_room_no_longer_holds_its_run_against_a_vote(
     assert row["engage"] == MODE_HEAT  # its own latch, untouched
     assert plan.state == MODE_COOL
     assert plan.attributes["mode_by_hands_off"] is True
-    assert coord._last_mode_change_ts == stamp  # a vote's flip starts no dwell
+    await assert_not_restamped(hass, entry)  # a vote's flip starts no dwell
 
 
 async def test_the_dwell_wakeup_sees_the_expiry(hass: HomeAssistant) -> None:
     """With the dwell holding the flip back, the wakeup is armed for it: the
-    replay counts an expired room exactly as the compute did."""
-    entry, head_a, _head_b = await _standoff(hass)
+    replay counts an expired room exactly as the compute did. The hold is
+    longer than the lost-vote time limit, and its change was just made."""
+    entry, head_a, _head_b = await _standoff(hass, hysteresis=2 * DEFAULT_SECONDS)
+    await record_mode_change(hass, entry.entry_id)
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
     coord = entry.runtime_data
+    await _recompute(hass, entry)
+    assert _plan(hass, entry).attributes["mode_change_allowed"] is False
     await _lose(hass, head_a)
     await _recompute(hass, entry)
-    assert coord._dwell_timer is None  # stale: cool holds, nothing to wait for
-    age_lost_vote(coord, head_a, DEFAULT_SECONDS)
+    assert not armed(coord, "dwell")  # stale: cool holds, nothing to wait for
+    pass_time(coord, DEFAULT_SECONDS)
     await _recompute(hass, entry)
     plan = _plan(hass, entry)
     assert _row(hass, entry, 0)["vote_status"] == "expired"
     assert plan.state == MODE_COOL  # deferred by the dwell...
     assert plan.attributes["mode_change_allowed"] is False
-    assert coord._dwell_timer is not None  # ...and woken when it runs out
+    assert armed(coord, "dwell")  # ...and woken when it runs out
 
 
 async def test_a_wall_clock_step_neither_shortens_nor_stretches_the_limit(
@@ -479,7 +486,7 @@ async def test_a_wall_clock_step_neither_shortens_nor_stretches_the_limit(
     await _recompute(hass, entry)
     assert _row(hass, entry, 0)["vote_status"] == "stale"
     jump_wall_clock(monkeypatch, -6 * 3600)
-    age_lost_vote(coord, head_a, DEFAULT_SECONDS)
+    pass_time(coord, DEFAULT_SECONDS)
     expire_dwell(coord)
     await _recompute(hass, entry)
     assert _row(hass, entry, 0)["vote_status"] == "expired"
@@ -528,7 +535,7 @@ async def test_the_expiry_wakes_a_recompute_by_itself(
     await _quiesce(hass, coord)
     assert coord._lost_timer is not None
     assert fired == []
-    age_lost_vote(coord, head_a, 60)
+    pass_time(coord, 60)
     assert _row(hass, entry, 0)["vote_status"] == "stale"  # nothing recomputed
     with _count_refresh_requests(coord) as requests:
         await _fire_due(hass, 61)
@@ -583,7 +590,7 @@ async def test_reload_retires_the_old_wakeup_and_starts_unknown(
     assert _plan(hass, entry).attributes["standoff"] is True
     assert _plan(hass, entry).state == MODE_COOL
     assert coord._lost_timer is not None
-    age_lost_vote(coord, head_a, DEFAULT_SECONDS)
+    pass_time(coord, DEFAULT_SECONDS)
     await _recompute(hass, entry)
     assert _row(hass, entry, 0)["vote_status"] == "expired"
     assert _plan(hass, entry).state == MODE_HEAT
@@ -689,7 +696,7 @@ async def test_unknown_then_unavailable_recomputes_and_arms_the_wakeup(
     assert (plan.state, plan.attributes["standoff"]) == (MODE_COOL, True)
 
     # The wakeup it armed ends the hold at the limit, by itself.
-    age_lost_vote(coord, head_a, 60)
+    pass_time(coord, 60)
     await _fire_due(hass, 61)
     assert _row(hass, entry, 0)["vote_status"] == "expired"
     assert _plan(hass, entry).state == MODE_HEAT
@@ -759,7 +766,7 @@ async def test_a_safety_priority_room_keeps_holding_after_expiry(
     coord = entry.runtime_data
     await _lose(hass, head_a)
     await _recompute(hass, entry)
-    age_lost_vote(coord, head_a, 3 * 3600)
+    pass_time(coord, 3 * 3600)
     expire_dwell(coord)
     await _recompute(hass, entry)
     plan = _plan(hass, entry)
@@ -795,7 +802,7 @@ async def test_a_hands_off_safety_vote_is_stale_then_expires(hass: HomeAssistant
     await _recompute(hass, entry)
     assert _vote(hass, entry, 1)[:2] == (MODE_HEAT, "stale")
     assert _plan(hass, entry).state == MODE_HEAT
-    age_lost_vote(coord, head_b, DEFAULT_SECONDS)
+    pass_time(coord, DEFAULT_SECONDS)
     expire_dwell(coord)
     await _recompute(hass, entry)
     assert _vote(hass, entry, 1)[:2] == (None, "expired")
@@ -822,7 +829,7 @@ async def test_a_floor_or_ceiling_is_untouched_by_another_rooms_expiry(
     expire_dwell(coord)
     await f.compute()
     stale = (f.plan.state, f.zone(1)["floor_want"], f.plan.attributes["mode_by_floor"])
-    age_lost_vote(coord, f.a, DEFAULT_SECONDS)
+    pass_time(coord, DEFAULT_SECONDS)
     expire_dwell(coord)
     await f.compute()
     assert f.zone(0)["vote_status"] == "expired"
@@ -947,11 +954,11 @@ async def test_the_custom_value_is_the_limit_the_coordinator_uses(
     coord = entry.runtime_data
     await _lose(hass, head_a)
     await _recompute(hass, entry)
-    age_lost_vote(coord, head_a, DEFAULT_SECONDS + 60)  # past the default
+    pass_time(coord, DEFAULT_SECONDS + 60)  # past the default
     expire_dwell(coord)
     await _recompute(hass, entry)
     assert _row(hass, entry, 0)["vote_status"] == "stale"
-    age_lost_vote(coord, head_a, 14 * 60)  # 45 minutes in all
+    pass_time(coord, 14 * 60)  # 45 minutes in all
     expire_dwell(coord)
     await _recompute(hass, entry)
     assert _row(hass, entry, 0)["vote_status"] == "expired"

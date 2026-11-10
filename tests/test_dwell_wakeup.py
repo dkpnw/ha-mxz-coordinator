@@ -505,7 +505,7 @@ async def test_manual_shared_mode_choice_restarts_the_dwell(
     coord = await _defer_a_heat_flip(hass, entry)
     # Run the startup dwell out first, so whatever holds the mode from here on
     # is the stamp the choice itself writes.
-    long_ago = expire_dwell(coord)
+    expire_dwell(coord)
 
     await hass.services.async_call(
         "select",
@@ -513,7 +513,7 @@ async def test_manual_shared_mode_choice_restarts_the_dwell(
         {"entity_id": _eid(hass, entry, "_shared_mode"), "option": MODE_HEAT},
         blocking=True,
     )
-    assert_restamped(coord, long_ago)
+    await assert_restamped(hass, entry)
     await _recompute(hass, entry)
     assert coord.current_shared_mode == MODE_HEAT
 

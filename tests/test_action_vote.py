@@ -61,7 +61,7 @@ from custom_components.mxz_coordinator.const import (
     MODE_HEAT,
 )
 from custom_components.mxz_coordinator.logic import HeadSight
-from tests.clocks import age_lost_vote
+from tests.clocks import pass_time
 from tests.flow_pages import default, marker_of, open_options_page, prefilled, submit
 from tests.test_drive import SENSOR_A, SENSOR_B, _eid, _recompute, _set_temp
 from tests.test_dwell_wakeup import _count_refresh_requests, _fire_due, _quiesce
@@ -1203,10 +1203,10 @@ async def test_a_running_head_lost_keeps_its_vote_stale_then_expires(
     row = _row(hass, entry, 1)
     assert (row["hands_off_vote"], row["vote_status"]) == (MODE_HEAT, "stale")
     assert _plan(hass, entry).state == MODE_HEAT
-    age_lost_vote(coord, head_b, TTL - 1)
+    pass_time(coord, TTL - 1)
     await _recompute(hass, entry)
     assert _row(hass, entry, 1)["hands_off_vote"] == MODE_HEAT
-    age_lost_vote(coord, head_b, 1)
+    pass_time(coord, 1)
     await _recompute(hass, entry)
     row = _row(hass, entry, 1)
     assert (row["hands_off_vote"], row["vote_status"]) == (None, "expired")
@@ -1220,20 +1220,18 @@ async def test_a_held_head_lost_keeps_its_vote_past_the_hold(hass: HomeAssistant
     coord = entry.runtime_data
     await _run_after(hass, entry, head_b, "heat", "heating")
     await _vote_after(hass, entry, head_b, "heat", "idle")
-    _age_hold(coord, head_b, HOLD - 60)
+    pass_time(coord, HOLD - 60)
     await _lose(hass, head_b)
     await _recompute(hass, entry)
     row = _row(hass, entry, 1)
     assert (row["hands_off_vote"], row["vote_status"], row["vote_hold_until"]) == (
         MODE_HEAT, "stale", None,
     )
-    # Time passes for both stamps, long past where the hold would have ended.
-    _age_hold(coord, head_b, TTL - 1)
-    age_lost_vote(coord, head_b, TTL - 1)
+    # Long past where the hold would have ended.
+    pass_time(coord, TTL - 1)
     await _recompute(hass, entry)
     assert _row(hass, entry, 1)["hands_off_vote"] == MODE_HEAT
-    _age_hold(coord, head_b, 1)
-    age_lost_vote(coord, head_b, 1)
+    pass_time(coord, 1)
     await _recompute(hass, entry)
     assert _row(hass, entry, 1)["hands_off_vote"] is None
 

@@ -217,7 +217,7 @@ async def _switch(hass: HomeAssistant, entry: MockConfigEntry, key: str, on: boo
 
 
 async def _compute(hass: HomeAssistant, entry: MockConfigEntry) -> None:
-    """One deterministic compute and apply, with the mode-flip dwell expired."""
+    """One deterministic compute and apply, with any mode-change hold run out."""
     expire_dwell(entry.runtime_data)
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
@@ -485,11 +485,10 @@ def climate_units(recorded: dict[str, Any], unit: str) -> dict[str, Any]:
 #
 # The plan's seconds_since_mode_change is taken out too. 3.9.0 counted it from
 # startup; a fresh install now has no mode change on record and shows None
-# until the first one. In this scenario that is the steps recorded before its
-# first compute (_compute stamps the clock it ages); after them the pinned
-# "<seconds>" stands.
+# until the first one. In this scenario that is every step before the first
+# flip, to heat; after them the pinned "<seconds>" stands.
 HOLD_KEYS = ("mode_change_hold_remaining", "mode_change_hold_until")
-BEFORE_ANY_MODE_CHANGE = ("boot", "room_pages")
+BEFORE_ANY_MODE_CHANGE = ("boot", "room_pages", "coordinator_on")
 
 
 def take_mode_hold(step: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], Any]:

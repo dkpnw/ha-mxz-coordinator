@@ -54,6 +54,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_NAME,
     ZONE_SENSOR,
 )
+from tests.restart import restart, stopped
 from tests.restore_store import set_stored_states
 from tests.test_drive import (
     SENSOR_A,
@@ -128,26 +129,19 @@ def _assert_records_intact(
 
 
 async def _restart(
-    hass: HomeAssistant, entry: MockConfigEntry, *, head: str | None = None
+    hass: HomeAssistant, entry: MockConfigEntry, *, head: str
 ) -> None:
-    """Shut down through the restore store, then start the entry again.
+    """A restart with ``head`` out of the state machine at the stop, back for the start.
 
-    ``head`` names a head to take out of the state machine before the dump and
-    put back after it, which is what a head integration that is unloaded (or
-    still loading) at shutdown looks like to us.
+    That is what a head integration that is unloaded (or still loading) at
+    shutdown looks like to us.
     """
-    kept = hass.states.get(head) if head else None
-    if head:
-        hass.states.async_remove(head)
-        await hass.async_block_till_done()
-    await async_mock_restore_state_shutdown_restart(hass)
-    assert await hass.config_entries.async_unload(entry.entry_id)
+    kept = hass.states.get(head)
+    hass.states.async_remove(head)
     await hass.async_block_till_done()
-    if kept is not None:
+    async with stopped(hass, entry):
         hass.states.async_set(head, kept.state, dict(kept.attributes))
         await hass.async_block_till_done()
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
 
 
 def _fan_hold(hass: HomeAssistant, entry: MockConfigEntry) -> bool:
@@ -232,7 +226,7 @@ async def test_restart_keeps_records_hold_and_values(hass: HomeAssistant) -> Non
     before = await _customize(hass, entry)
 
     removed = _removals(hass)
-    await _restart(hass, entry)
+    await restart(hass, entry)
 
     assert removed == [], f"a retained room's records were removed: {removed}"
     _assert_records_intact(hass, entry, before, "after restart")
@@ -248,7 +242,7 @@ async def test_restart_keeps_the_records_on_disk(
     """The customized records are still in the written registry JSON."""
     _head_a, entry = await _held_room(hass)
     before = await _customize(hass, entry)
-    await _restart(hass, entry)
+    await restart(hass, entry)
 
     reg = er.async_get(hass)
     reg.async_schedule_save()
@@ -288,7 +282,13 @@ async def test_hold_survives_a_head_absent_at_shutdown(hass: HomeAssistant) -> N
 async def test_a_head_still_absent_after_restart_stays_unavailable(
     hass: HomeAssistant,
 ) -> None:
-    """Negative: restoring the bool must not fake availability."""
+    """Negative: restoring the bool must not fake availability.
+
+    The entry is set up again while Home Assistant runs, not by
+    ``tests/restart.py``: a real start writes Home Assistant's restored
+    placeholder for a registered head that is not loaded, with its fan modes,
+    so the head is not absent there.
+    """
     head_a, entry = await _held_room(hass)
     hass.states.async_remove(head_a)
     await hass.async_block_till_done()

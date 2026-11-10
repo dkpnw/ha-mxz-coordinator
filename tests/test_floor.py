@@ -57,7 +57,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_SENSOR,
 )
 from custom_components.mxz_coordinator.sensor import _ATTRS
-from tests.clocks import age_floor_clock, age_floor_notice, jump_wall_clock
+from tests.clocks import jump_wall_clock, pass_time
 from tests.dwell import (
     RESTAMP_TOLERANCE,
     assert_restamped,
@@ -1802,10 +1802,10 @@ async def test_p5_a_wall_clock_step_neither_lifts_nor_extends_the_notice_limit(
     assert f.floor(1)[0] == "blind"
     assert len(f.notes) == 1, "held back: the step lifted nothing"
 
-    age_floor_notice(f.coord, "secondary", FLOOR_NOTICE_SECONDS - 60)
+    pass_time(f.coord, FLOOR_NOTICE_SECONDS - 60)
     await f.compute()
     assert len(f.notes) == 1
-    age_floor_notice(f.coord, "secondary", 60)
+    pass_time(f.coord, 60)
     await f.compute()
     assert len(f.notes) == 2 and "blind" in f.notes[1], "and extended nothing"
 
@@ -2390,13 +2390,13 @@ async def test_d11_a_wall_clock_step_neither_stalls_a_run_nor_holds_it_back(
     assert 0 <= run.driven < RESTAMP_TOLERANCE and not run.stalled, run
     assert f.floor(1)[0] == "heat"
 
-    age_floor_clock(f.coord, "secondary", FLOOR_STALL_SECONDS - 60)
+    pass_time(f.coord, FLOOR_STALL_SECONDS - 60)
     jump_wall_clock(monkeypatch, step * (FLOOR_STALL_SECONDS + 3600))
     await f.compute()
     run = f.coord._floor_runs["secondary"]
     assert FLOOR_STALL_SECONDS - 60 <= run.driven < FLOOR_STALL_SECONDS - 60 + RESTAMP_TOLERANCE
     assert not run.stalled and f.floor(1)[0] == "heat"
-    age_floor_clock(f.coord, "secondary", 60)
+    pass_time(f.coord, 60)
     await f.compute()
     assert f.coord._floor_runs["secondary"].stalled
     state, reason = f.floor(1)
@@ -2472,11 +2472,11 @@ async def test_scenario4_floor_beats_a_cooling_room_after_the_wait_then_hands_ba
     still demands cool."""
     f = await _setup(hass, hysteresis=None)
     await f.temp(SENSOR_A, 76)
-    long_ago = expire_dwell(f.coord)
+    expire_dwell(f.coord)
     await f.temp(SENSOR_B, 45)
     assert (f.plan.state, _s(hass, f.a), _s(hass, f.b)) == ("heat", "fan_only", "heat")
     assert f.plan.attributes["mode_by_hands_off"] is False
-    assert_restamped(f.coord, long_ago)  # the flip starts the wait
+    await assert_restamped(hass, f.entry)  # the flip starts the wait
     await f.temp(SENSOR_A, 72)  # inside its demand band, still engaged
     assert f.plan.attributes["primary_engage"] == "cool"
     await f.temp(SENSOR_B, 53)
@@ -2498,11 +2498,11 @@ async def test_a_floor_flip_clears_a_vote_carried_mode(hass: HomeAssistant) -> N
     await f.compute()
     assert (f.plan.state, f.plan.attributes["mode_by_hands_off"]) == ("heat", True)
     assert f.coord._mode_by_votes is True
-    long_ago = expire_dwell(f.coord)
+    expire_dwell(f.coord)
     await f.temp(SENSOR_A, 88)
     assert (f.plan.state, f.plan.attributes["mode_by_hands_off"]) == ("cool", False)
     assert f.coord._mode_by_votes is False
-    assert_restamped(f.coord, long_ago)
+    await assert_restamped(hass, f.entry)
 
 
 async def test_flapping_sensor_reverses_the_compressor_at_most_once_per_wait(

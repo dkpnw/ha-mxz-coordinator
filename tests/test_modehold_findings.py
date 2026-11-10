@@ -21,13 +21,11 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import restore_state as rs
-from pytest_homeassistant_custom_component.common import (
-    async_mock_load_restore_state_from_storage,
-)
 
 from custom_components.mxz_coordinator.const import CONF_RESTING_MODE_BIAS
 from tests.clocks import jump_wall_clock
 from tests.dwell import assert_restamped, expire_dwell
+from tests.restart import restart
 from tests.test_drive import SENSOR_A, SENSOR_B, _recompute, _set_temp
 from tests.test_dwell_wakeup import COLD, HOT, _setup_dwell
 from tests.test_hands_off import _plan, _remote, _s, _setup
@@ -92,8 +90,6 @@ async def test_f2_a_reload_forgets_that_a_room_now_runs_in_the_voted_mode(
     if reload:
         assert await hass.config_entries.async_reload(entry.entry_id)  # model: Reload
         await hass.async_block_till_done()
-    coord = entry.runtime_data
-    reloaded = coord._last_mode_change_ts  # the stamp the reload read from the record
     await _set_temp(hass, SENSOR_A, 64)  # model: Reading (room 1 calls heat)
     await _recompute(hass, entry)  # model: Decide (room 1 runs heat in the voted mode)
     assert _s(hass, head_a) == "heat"
@@ -104,7 +100,7 @@ async def test_f2_a_reload_forgets_that_a_room_now_runs_in_the_voted_mode(
     assert (plan.state, plan.attributes["mode_change_allowed"]) == ("heat", False), (
         plan.state, plan.attributes["mode_change_allowed"], _s(hass, head_a),
     )
-    assert_restamped(coord, reloaded)  # the run owned the mode: it was stamped
+    await assert_restamped(hass, entry)  # the run owned the mode: it was stamped
 
 
 @pytest.mark.parametrize("crash", [True, False], ids=["finding", "control_clean_stop"])
@@ -132,14 +128,7 @@ async def test_f3_a_crash_soon_after_a_change_restores_the_old_mode_inside_the_h
     # model: Crash. No stop: the restore data a new process reads is the dump
     # above. The Store record of the change is on disk. (Control: model
     # Restart, which writes restore data at the stop.)
-    if not crash:
-        await rs.async_get(hass).async_dump_states()
-    assert await hass.config_entries.async_unload(entry.entry_id)
-    await hass.async_block_till_done()
-    hass.data.pop("mxz_coordinator_mode_change_stores")
-    await async_mock_load_restore_state_from_storage(hass)
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()  # model: Decide (the first plan)
+    await restart(hass, entry, crash=crash)  # model: Decide (the first plan)
     plan = _plan(hass, entry)
     assert plan.attributes["mode_change_allowed"] is False  # the wait it just began
     assert (plan.state, _s(hass, head_b)) == ("heat", "fan_only"), (

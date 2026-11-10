@@ -33,7 +33,7 @@ from custom_components.mxz_coordinator.const import (
     CONF_NOTIFY_SERVICE,
     OFF_WHILE_ENABLED_DELAY,
 )
-from tests.clocks import age_heal_notice
+from tests.clocks import pass_time
 from tests.cloud_heads import past_window, recompute, record, writes
 from tests.property_rig import TARGET, Rig, open_rig
 from tests.test_accept_head_changes import (
@@ -317,7 +317,7 @@ async def test_a_heal_is_logged_every_time_and_notified_once_per_head_per_hour(
     assert all("not sent: one heal notice per head per hour" in line for line in lines[1:])
     assert len(_heals(calls)) == 1
     # The hour runs on the coordinator's own clock. A heal 5 s short of it is held back...
-    age_heal_notice(rig.coord, HEAD, _until_hour(rig) - (BAND_DRIFT_DELAY + 5))
+    pass_time(rig.coord, _until_hour(rig) - (BAND_DRIFT_DELAY + 5))
     rig.heads[0].person_mode("dry")
     await _quietly(rig, BAND_DRIFT_DELAY + 1)
     assert rig.heads[0].mode == "cool"

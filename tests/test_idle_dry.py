@@ -27,7 +27,7 @@ from custom_components.mxz_coordinator.const import (
     IDLE_ACTION_OFF_AFTER_DRY,
     MODE_COOL,
 )
-from tests.clocks import age_coil_dry, jump_wall_clock
+from tests.clocks import jump_wall_clock, pass_time
 from tests.dwell import RESTAMP_TOLERANCE
 from tests.test_drive import (
     SENSOR_A,
@@ -55,7 +55,7 @@ async def test_dwell_after_cooling_then_off(hass: HomeAssistant) -> None:
     assert hass.states.get(head_a).state == "fan_only"  # dwelling, coil drying
     assert head_a in coord._dry_timers  # nudge armed
 
-    age_coil_dry(coord, head_a, coord.coil_dry_seconds + 5)
+    pass_time(coord, coord.coil_dry_seconds + 5)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "off"
     assert head_a not in coord._dry_timers  # nudge cancelled with the park
@@ -112,7 +112,7 @@ async def test_nudge_timer_flips_the_head_without_another_trigger(
     assert hass.states.get(head_a).state == "fan_only"
 
     # Age the stamp past the dwell, then let the scheduled nudge fire.
-    age_coil_dry(coord, head_a, coord.coil_dry_seconds + 5)
+    pass_time(coord, coord.coil_dry_seconds + 5)
     async_fire_time_changed(
         hass, dt_util.utcnow() + timedelta(seconds=coord.coil_dry_seconds + 60)
     )
@@ -157,7 +157,7 @@ async def test_restart_seed_observed_fan_only_restarts_dwell(
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "fan_only"  # dwell running again
 
-    age_coil_dry(coord, head_a, coord.coil_dry_seconds + 5)
+    pass_time(coord, coord.coil_dry_seconds + 5)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "off"  # ...and it ends
 
@@ -170,7 +170,7 @@ async def test_restart_seed_observed_off_stays_off(hass: HomeAssistant) -> None:
     await _recompute(hass, entry)
     await _set_temp(hass, SENSOR_A, 70)
     await _recompute(hass, entry)
-    age_coil_dry(coord, head_a, coord.coil_dry_seconds + 5)
+    pass_time(coord, coord.coil_dry_seconds + 5)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "off"
 
@@ -233,13 +233,13 @@ async def test_the_coil_dry_wait_counts_on_the_monotonic_clock(hass: HomeAssista
     now = time.monotonic()
     assert now - RESTAMP_TOLERANCE < stamp <= now, (stamp, now)
 
-    age_coil_dry(coord, head_a, coord.coil_dry_seconds - 60)
+    pass_time(coord, coord.coil_dry_seconds - 60)
     coord._cancel_dry_timer(head_a)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "fan_only"
     assert 61 - RESTAMP_TOLERANCE < _nudge_in(hass, coord, head_a) <= 61
 
-    age_coil_dry(coord, head_a, 60)
+    pass_time(coord, 60)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "off"
     assert head_a not in coord._dry_timers
@@ -262,9 +262,9 @@ async def test_a_wall_clock_step_neither_cuts_nor_stretches_the_coil_dry_wait(
     left = _nudge_in(hass, coord, head_a)
     assert coord.coil_dry_seconds + 1 - RESTAMP_TOLERANCE < left <= coord.coil_dry_seconds + 1
 
-    age_coil_dry(coord, head_a, coord.coil_dry_seconds - 60)
+    pass_time(coord, coord.coil_dry_seconds - 60)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "fan_only"
-    age_coil_dry(coord, head_a, 60)
+    pass_time(coord, 60)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "off", "and did not stretch it"

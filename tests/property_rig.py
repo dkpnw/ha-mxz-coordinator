@@ -20,19 +20,13 @@ from datetime import timedelta
 from typing import Any, ClassVar
 
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
-from homeassistant.const import (
-    EVENT_HOMEASSISTANT_FINAL_WRITE,
-    EVENT_HOMEASSISTANT_START,
-    EVENT_HOMEASSISTANT_STARTED,
-)
-from homeassistant.core import CoreState, HomeAssistant
+from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from hypothesis import HealthCheck, settings
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
-    async_mock_restore_state_shutdown_restart,
 )
 
 from custom_components.mxz_coordinator.const import (
@@ -52,6 +46,7 @@ from custom_components.mxz_coordinator.const import (
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
 from tests.cloud_heads import register
 from tests.head_entity import HeadEntity
+from tests.restart import restart
 from tests.restore_store import set_stored_states
 from tests.test_drive import _eid, _set_target, _set_temp
 
@@ -306,34 +301,9 @@ class Rig:
         await self.hass.async_block_till_done()
         await self.settle()
 
-    async def restart(self) -> None:
-        """A clean stop and start of Home Assistant, as its bootstrap does it.
-
-        Restore data is written at the stop and every store is read anew.
-        Nothing MXZ kept in ``hass.data`` survives, since a new process starts
-        with none. The entry is set up before Home Assistant is running and
-        then it starts, so MXZ's startup quiet window is open after this and
-        ends ``STARTUP_RECOVER_DELAY`` seconds later, as after a real start.
-        The final write stands in for Home Assistant's own stop. The clock is
-        frozen, so a store write delayed by 0 s has not run on its own yet.
-        """
-        hass, entry = self.hass, self.entry
-        hass.bus.async_fire(EVENT_HOMEASSISTANT_FINAL_WRITE)
-        await hass.async_block_till_done()
-        await async_mock_restore_state_shutdown_restart(hass)
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
-        for key in [key for key in hass.data if isinstance(key, str) and key.startswith(DOMAIN)]:
-            del hass.data[key]
-        hass.set_state(CoreState.not_running)
-        assert await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-        hass.set_state(CoreState.starting)
-        hass.bus.async_fire(EVENT_HOMEASSISTANT_START)
-        await hass.async_block_till_done()
-        hass.set_state(CoreState.running)
-        hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
-        await hass.async_block_till_done()
+    async def restart(self, *, crash: bool = False) -> None:
+        """Stop and start Home Assistant (``tests/restart.py``), then settle."""
+        await restart(self.hass, self.entry, crash=crash)
         await self.settle()
 
     async def close(self) -> None:

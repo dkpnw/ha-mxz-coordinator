@@ -53,6 +53,7 @@ from tests.flow_pages import (
     submit,
     suggested,
 )
+from tests.restart import restart
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -64,7 +65,6 @@ from tests.test_drive import (
 )
 from tests.test_issue18_drift import _set_drift
 from tests.test_m29_follow_global import _press_follow_global
-from tests.test_registry_lifecycle import _restart
 from tests.test_room_rename_reorder import _reconfigure, _setup_rooms
 
 # Written out independently of const.py and config_flow.py.
@@ -534,7 +534,7 @@ async def test_blank_room_sides_reproduce_main(
 
 
 async def _restart_and_settle(hass: HomeAssistant, entry) -> None:
-    await _restart(hass, entry)
+    await restart(hass, entry)
     await _recompute(hass, entry)
 
 

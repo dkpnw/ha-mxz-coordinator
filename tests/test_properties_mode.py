@@ -195,18 +195,17 @@ async def test_no_flip_inside_the_hold_and_no_wait_after_it(
 def test_a_start_keeps_what_is_left_of_the_hold_and_never_more(ago: float) -> None:
     """The stamp reads as ``ago`` seconds back; a stored time in the future reads as now."""
     stored = dt_util.utcnow().timestamp() - ago
-    before = time.monotonic()
-    stamp = mode_change_stamp(stored)
-    after = time.monotonic()
+    now = time.monotonic()
+    stamp = mode_change_stamp(stored, now)
     assert stamp is not None
     # Rounding in the epoch-seconds round trip, plus a slow runner's pause.
     slack = 1.0
-    assert before - max(0.0, ago) - slack <= stamp <= after - max(0.0, ago) + slack
-    assert stamp <= after
+    assert now - max(0.0, ago) - slack <= stamp <= now - max(0.0, ago) + slack
+    assert stamp <= now
 
 
 def test_no_stored_change_holds_nothing() -> None:
-    assert mode_change_stamp(None) is None
+    assert mode_change_stamp(None, time.monotonic()) is None
 
 
 _finite = st.floats(allow_nan=False, allow_infinity=False, min_value=0, max_value=4e9)
