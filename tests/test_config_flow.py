@@ -301,10 +301,7 @@ def test_sensor_field_copy_uses_floor_supported_room_description_placeholders() 
         for index in range(1, 9):
             field = f"sensor_{index}"
             assert step["data"][field] == f"Room {index} temperature sensor"
-            assert step["data_description"][field].startswith(
-                f"For **{{room_{index}}}**: The thermometer"
-            )
-            assert step["data_description"][field].count("{room_") == 1
+            assert step["data_description"][field] == f"For **{{room_{index}}}**."
 
 
 async def test_rejected_sensor_submit_keeps_matching_room_label_placeholders(
@@ -2307,8 +2304,8 @@ async def test_reconfigure_review_discloses_effective_freshness_profiles(
 async def test_options_freshness_error_has_english_copy() -> None:
     """F4: the one emitted profile error resolves in both English files.
 
-    The duration rules live in the room page's freshness section, and the
-    unit is minutes: shown in each duration box, so no label needs to say it.
+    The empty-maximum-age rule lives in Maximum age's own help, and the unit
+    is minutes: shown in each duration box, so no label needs to say it.
     """
     import json
     from pathlib import Path
@@ -2321,10 +2318,10 @@ async def test_options_freshness_error_has_english_copy() -> None:
         data = json.loads(path.read_text())
         message = data["options"]["error"]["freshness_profile_invalid"]
         assert "finite positive minutes" in message
-        assert "Nothing was saved" in message
+        assert "Nothing was saved" not in message
         freshness = data["options"]["step"]["room"]["sections"]["freshness"]
-        assert "three missed reports" in freshness["description"]
-        assert "explicit maximum age overrides" in freshness["description"]
+        assert "three missed reports" not in freshness["description"]
+        assert "empty means three report intervals" in freshness["data_description"]["max_age"]
         durations = ("report_interval", "max_age", "startup_grace")
         assert all(freshness["data"][key] for key in durations)
         assert not [

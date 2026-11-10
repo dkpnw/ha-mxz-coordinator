@@ -934,7 +934,8 @@ def test_room_page_copy_is_translated() -> None:
     assert label == "Allow Dry mode"
     assert description.startswith("Off (the default): if this head is put in Dry, MXZ puts it back")
     assert "doesn't turn Dry back on" in description
-    assert "Shown only for a head that offers Dry." in description
+    assert "Shown only for a head that offers Dry." not in description
+    assert "Apple Home may show a Cool choice for this room." in description
 
 
 # ---------------------------------------------------------------------------
