@@ -28,6 +28,12 @@ def config_rules(name: str) -> list[str]:
     return re.search(r"^INVARIANTS (.+)$", text, re.MULTILINE).group(1).split()
 
 
+def all_rules() -> set[str]:
+    """Every rule some config checks, and every open finding's rule. TypeOK is a sanity check."""
+    rules = {rule for config in formal_tlc.CONFIGS for rule in config_rules(config)}
+    return (rules | set(formal_tlc.FINDINGS)) - {"TypeOK"}
+
+
 def code_anchors(text: str) -> list[tuple[str, str]]:
     return re.findall(r"`(\w+\.py)` `(\w+)`", text)
 
@@ -121,8 +127,14 @@ def test_each_spec_mutant_and_code_mutant_still_finds_its_text() -> None:
 def test_every_rule_has_a_broken_copy_that_breaks_it() -> None:
     """A rule with no negative test proves nothing. TypeOK is a sanity check, not a rule."""
     broken = {rule for *_rest, rule in formal_tlc.MUTANTS.values()}
-    rules = set(config_rules("ci-fan")) - {"TypeOK"}
+    rules = all_rules() - set(formal_tlc.FINDINGS)
     assert rules <= broken, rules - broken
+
+
+def test_an_open_finding_is_checked_nowhere_it_breaks() -> None:
+    """A finding's rule breaks in its own config, so no config may list it as passing there."""
+    for rule, config in formal_tlc.FINDINGS.items():
+        assert rule not in config_rules(config), rule
 
 
 def _property_tests() -> list[str]:
@@ -139,7 +151,7 @@ def test_every_property_has_a_broken_copy_of_the_code_that_fails_it() -> None:
 
 def test_the_readme_names_each_rule_and_each_property() -> None:
     readme = (FORMAL / "README.md").read_text()
-    for rule in set(config_rules("ci-fan")) - {"TypeOK"}:
+    for rule in all_rules():
         assert f"`{rule}`" in readme, rule
     tests = _property_tests()
     assert tests

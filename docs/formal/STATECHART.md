@@ -1,18 +1,20 @@
 # Statechart of the coordinator
 
 This is the machine [`tla/MXZCoordinator.tla`](tla/MXZCoordinator.tla) checks, as a chart. It
-was read from `custom_components/mxz_coordinator/`. It runs as five parallel regions: the
-shared mode, each room's run, a room's door/window, a head's fan, and the coordinator's
-lifecycle. [README.md](README.md) says what is and isn't modeled, and which rules are
+was read from `custom_components/mxz_coordinator/`. It runs as six parallel regions: the
+shared mode, each room's run, a room's door/window, a head's fan, an apply's commands, and the
+coordinator's lifecycle, with changes made at a head beside them. [README.md](README.md) says what is and isn't modeled, and which rules are
 checked on it.
 
 Everything in the key is a `file` and a `function` under `custom_components/mxz_coordinator/`.
 `tests/test_formal_contract.py` fails if a name here stops existing.
 
 One compute and apply is one step of the machine. `MXZCoordinator._compute` decides and
-commands nothing. `MXZCoordinator._apply` sends the heads their commands and then writes
-the mode change. Every region below advances inside that step, except where the key
-says a report or a gesture moves it at once.
+commands no head (it does save the door/window store and send notices).
+`MXZCoordinator._apply` queues each head's command, records the mode change before any of
+them runs, then waits for them. Every region below advances inside that step, except where
+the key says a report or a gesture moves it at once, and the
+[apply's commands](#an-applys-commands), which are steps of their own in `ci-apply`.
 
 ## Shared mode and the hold
 
@@ -40,17 +42,18 @@ stateDiagram-v2
 
 | Id | What happens | Code |
 | --- | --- | --- |
-| M1 | With the gate open, the first calling room in rank order decides. With nothing calling, Resting mode decides, once no room still runs in the shared mode. The new mode is stamped and stored. | `coordinator.py` `_compute`, `logic.py` `arbitrate`, `logic.py` `shared_mode`, `coordinator.py` `_apply`, `coordinator.py` `_stamp_mode_change`, `coordinator.py` `_record_mode` |
+| M1 | With the gate open, the first calling room in rank order decides. With nothing calling, Resting mode decides, once no room still runs in the shared mode. The new mode is stamped and stored before any head is sent it. | `coordinator.py` `_compute`, `logic.py` `arbitrate`, `logic.py` `shared_mode`, `coordinator.py` `_apply`, `coordinator.py` `_write_back_mode`, `coordinator.py` `_stamp_mode_change`, `coordinator.py` `_record_mode` |
 | M2 | The gate reads `elapsed >= hysteresis` on the monotonic clock. A timer re-renders the entities at the hold's end and decides nothing; another wakes the plan for a flip the hold deferred. | `coordinator.py` `_mode_change_elapsed`, `coordinator.py` `_arm_hold_end_timer`, `coordinator.py` `_sync_dwell_timer` |
-| M3 | A person's pick is never gated. A changed direction stamps the hold at once, and an apply already running can't write its older direction back. | `select.py` `async_select_option`, `coordinator.py` `async_select_shared_mode` |
+| M3 | A person's pick is never gated. A changed direction stamps the hold at once. An apply already running recorded its direction before it sent any head, so the pick is the newer record. | `select.py` `async_select_option`, `coordinator.py` `async_select_shared_mode` |
 | M4 | With the gate shut, the mode stays, whatever is asked, at any rank. A head wanting the other mode parks at its idle action. | `logic.py` `shared_mode`, `logic.py` `head_action` |
 | M5 | A change only hands-off votes made starts no hold. Not in this spec: `verification/modehold/MXZModeHold.tla` covers it. | `logic.py` `arbitrate`, `coordinator.py` `_apply` |
-| M6 | Once a coordinated room runs in a mode votes chose, the mode is MXZ's and the hold starts. Also in `MXZModeHold.tla`. | `coordinator.py` `_apply` |
+| M6 | Once a coordinated room runs in a mode votes chose, the mode is MXZ's and the hold starts. Also in `MXZModeHold.tla`. | `coordinator.py` `_write_back_mode` |
 
 ## Changes made at a head
 
-Not in the spec ([why](README.md#what-is-modeled-and-what-isnt)). A second writer of a room's
-target and enable, kept apart from MXZ's writes to the head. On by default; with **Accept changes
+In the spec for room 1's setpoint (`WithAdopt`; the enable is not:
+[README](README.md#what-is-modeled-and-what-isnt)). A second writer of a room's target and
+enable, kept apart from MXZ's writes to the head. On by default; with **Accept changes
 made at the head** off the machine stays in `Watching`, and a change at a head is written over.
 
 ```mermaid
@@ -67,7 +70,7 @@ stateDiagram-v2
 | Id | What happens | Code |
 | --- | --- | --- |
 | A1 | Every report passes MXZ's older writes, then is read against what is left. A write is remembered as it goes out. | `coordinator.py` `_on_head_change`, `coordinator.py` `_watch_head_change`, `coordinator.py` `_call_head_service`, `coordinator.py` `_remember_head_write`, `coordinator.py` `_head_writes_caught_up`, `logic.py` `wrote`, `logic.py` `caught_up` |
-| A2 | While the hold runs, `_apply` writes nothing to that head. | `coordinator.py` `_head_change_settling`, `coordinator.py` `_apply`, `coordinator.py` `_arm_or_cancel` |
+| A2 | While the hold runs, `_apply` writes nothing to that head, and a command of MXZ's still waiting for the head is disowned. | `coordinator.py` `_head_change_settling`, `coordinator.py` `_apply`, `coordinator.py` `_arm_or_cancel`, `coordinator.py` `_disown_waiting_command` |
 | A3 | Eco, a standby hold, Coordinator off, a start, a pause, a floor run, a hands-off room's disablement or a stale cloud report: the change counts for nothing. | `coordinator.py` `_head_adoption`, `coordinator.py` `drop_head_change` |
 | A4 | The room's own number and switch take the change, held to the room's bounds. What the head shows then replaces what it last showed in the memory. | `coordinator.py` `_on_heal_timer`, `coordinator.py` `_async_adopt_head_change`, `coordinator.py` `_head_change_seen`, `logic.py` `seen` |
 | A5 | The next compute and apply. The head's heat or cool never reaches the shared mode. | `coordinator.py` `_apply` |
@@ -155,6 +158,27 @@ stateDiagram-v2
 | F7, F8 | Fan auto on adopts the showing speed and hands it back. Fan auto off holds it. At `auto`, off does nothing. | `coordinator.py` `async_set_fan_auto`, `coordinator.py` `_adopt_fan_speed` |
 | F9 | The switch restores the held or not-held truth and, if not held, the remembered speeds with any older writes, limited to what boost could write. | `switch.py` `async_added_to_hass`, `coordinator.py` `restore_fan_hold` |
 | F10, F11 | The first speed read settles it. Held stays held at that speed. Not held: a speed boost could never write holds; one in memory, or any in-ceiling rung with no memory or in a fan_only idle, is ours; otherwise it conservatively holds. | `coordinator.py` `_reconcile_restored_hold` |
+
+## An apply's commands
+
+One per head, in `ci-apply` (`WithSplit`). The mode is already recorded when the first runs.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Queued : D1 the apply wants an action for this head
+    Queued --> Queued : D2 another plan, a gesture or a change at the head supersedes it
+    Queued --> Done : D3 the head takes it, or refuses it
+    Queued --> Done : D4 the coordinator retires, or Coordinator turns off
+    Done --> [*]
+```
+
+| Id | What happens | Code |
+| --- | --- | --- |
+| D1 | One task per head, which waits for the head's lock. The apply records the mode, then waits until every head is done or a new input comes in. | `coordinator.py` `_queue_delivery`, `coordinator.py` `_write_back_mode`, `coordinator.py` `_wait_deliveries` |
+| D2 | A superseded command issues nothing more. A change at the head that will be adopted disowns it. | `coordinator.py` `_delivery_owned`, `coordinator.py` `_disown_waiting_command` |
+| D3 | Whatever a head's handler raises is that room's: its row reads rejected and the next update tries again. Only a fault in MXZ's own steps fails the plan. | `coordinator.py` `_deliver_head`, `coordinator.py` `_call_head_service`, `coordinator.py` `_finish_delivery` |
+| D4 | A retired coordinator's command sends nothing more; what it sent stays sent. | `coordinator.py` `_retire_deliveries` |
 
 ## Lifecycle
 

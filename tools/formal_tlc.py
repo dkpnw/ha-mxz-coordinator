@@ -33,6 +33,7 @@ TLA2TOOLS_SHA256 = "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e05
 CONFIGS = (
     "ci-fan", "ci-fan-crash", "ci-fan-lag", "ci-window", "ci-window-fan",
     "ci-arbitration", "ci-arbitration-rest-heat", "ci-arbitration-window",
+    "ci-apply", "ci-adopt", "ci-adopt-restart",
 )
 
 # Each goal must break in its config: a path to the behavior exists.
@@ -46,11 +47,18 @@ COVERS = {
     "NeverPauseRestored": "ci-window",
     "NeverLagEcho": "ci-fan-lag",
     "NeverTwoBehindEcho": "ci-fan-lag",
+    "NeverRefused": "ci-apply",
+    "NeverCutShort": "ci-apply",
+    "NeverAdopts": "ci-adopt",
+    "NeverLateOwnWriteInQuiet": "ci-adopt-restart",
 }
 
 # An open finding's rule, which must keep breaking until the finding is fixed and the
-# rule moves into its config's INVARIANTS (docs/formal/PARKED-FINDINGS.md). None is open.
-FINDINGS: dict[str, str] = {}
+# rule moves into its config's INVARIANTS (docs/formal/PARKED-FINDINGS.md).
+FINDINGS: dict[str, str] = {
+    "StartWriteNeverAdopted": "ci-adopt-restart",
+    "QueuedWriteNeverAdopted": "ci-adopt",
+}
 
 # id: (what breaks, exact text once in the spec, its replacement, config, rule that must break).
 MUTANTS = {
@@ -102,6 +110,17 @@ MUTANTS = {
            "THEN Paused", "ci-window", "OverrideHolds"),
     "W7": ("a takeover ends with the window still open", "override0 == IF winRead = \"closed\" THEN None ELSE winOverride",
            "override0 == IF winRead # \"open\" THEN None ELSE winOverride", "ci-window", "OverrideHolds"),
+    "P1": ("the mode isn't recorded before the heads are sent it",
+           "/\\ storedMode' = IF changed THEN state ELSE storedMode",
+           "/\\ storedMode' = IF changed /\\ ~WithSplit THEN state ELSE storedMode", "ci-apply", "RecordLeadsHeads"),
+    "P2": ("an apply an input overtook counts as a decision", "/\\ decided' = (left' = {} /\\ fresh)",
+           "/\\ decided' = (left' = {})", "ci-apply", "HeadsFollowMode"),
+    "A1": ("a setpoint write isn't remembered", "/\\ spMem' = Wrote(spMem, target, spShown)", "/\\ spMem' = spMem",
+           "ci-adopt", "OwnWriteNeverAdopted"),
+    "A2": ("a hold doesn't stop the write", "/\\ WithAdopt /\\ ~holding /\\ spShown # target",
+           "/\\ WithAdopt /\\ spShown # target", "ci-adopt", "HoldBlocksWrite"),
+    "A3": ("a reload loses the memory, as a process start does", "Reload == WithReload /\\ Start(FALSE, FALSE, fanShown)",
+           "Reload == WithReload /\\ Start(TRUE, FALSE, fanShown)", "ci-adopt", "StartWriteNeverAdopted"),
 }
 
 # id: (what breaks, file under custom_components/mxz_coordinator, exact text once, replacement,
