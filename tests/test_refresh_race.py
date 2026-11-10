@@ -24,6 +24,9 @@ from pytest_homeassistant_custom_component.common import async_fire_time_changed
 from custom_components.mxz_coordinator import coordinator as coordinator_module
 from custom_components.mxz_coordinator.const import MODE_COOL
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+from tests.clocks import pass_time
+from tests.dwell import RESTAMP_TOLERANCE, assert_not_restamped
+from tests.peek import armed
 from tests.test_drive import SENSOR_A, SENSOR_B, MockHead, _eid, _set_temp
 from tests.test_dwell_wakeup import _quiesce, _setup_dwell
 from tests.test_idle_action import _settle_requested_refreshes
@@ -104,8 +107,7 @@ async def test_band_change_during_service_delivery_publishes_newer_plan_last(
     refresh = hass.async_create_task(start())
     try:
         await asyncio.wait_for(entered.wait(), 3)
-        assert coord._applying_plan is not None
-        assert coord._applying_plan["zones"][0]["drift"] == wide
+        assert coord.data["zones"][0]["drift"] == wide  # the plan in flight
         await _set_band(hass, entry, action, narrow)
     finally:
         release.set()
@@ -217,7 +219,7 @@ async def test_no_mid_refresh_request_means_no_followup(
     await asyncio.wait_for(refresh, 3)
     await hass.async_block_till_done()
     assert computes == 1
-    assert coord._refresh_followup_timer is None
+    assert not armed(coord, "refresh_followup")
 
 
 async def test_many_mid_refresh_requests_coalesce_into_one_followup(
@@ -252,7 +254,7 @@ async def test_many_mid_refresh_requests_coalesce_into_one_followup(
         )
         await hass.async_block_till_done()
     assert computes == 2
-    assert coord._refresh_followup_timer is None
+    assert not armed(coord, "refresh_followup")
 
 
 async def test_coalesced_followup_preserves_dwell_and_coast_latch(
@@ -267,6 +269,8 @@ async def test_coalesced_followup_preserves_dwell_and_coast_latch(
     assert _zone0(hass, entry)["engage"] == MODE_COOL
     assert hass.states.get(head_a).state == MODE_COOL
 
+    # The cool run's own change is a few seconds old when the race starts.
+    pass_time(coord, RESTAMP_TOLERANCE)
     # A target move makes the old cool plan issue a setpoint command. Hold it
     # while the reading crosses all the way to a heat call.
     coord.zones[0].target += coord.target_step
@@ -286,7 +290,6 @@ async def test_coalesced_followup_preserves_dwell_and_coast_latch(
     monkeypatch.setattr(MockHead, "async_set_temperature", hold_primary)
     refresh = hass.async_create_task(coord.async_refresh())
     await asyncio.wait_for(entered.wait(), 3)
-    dwell_stamp = coord._last_mode_change_ts
     hass.states.async_set(
         SENSOR_A,
         str(coord.zones[0].target - 5),
@@ -309,9 +312,9 @@ async def test_coalesced_followup_preserves_dwell_and_coast_latch(
     assert zone["demand"] == "heat"
     assert zone["engage"] == "satisfied"  # coast; never same-compute whiplash
     assert coord.data["state"] == MODE_COOL  # the original dwell still holds
-    assert coord._last_mode_change_ts == dwell_stamp
-    assert coord._dwell_timer is not None
-    assert coord._coast_timer is not None
+    await assert_not_restamped(hass, entry)
+    assert armed(coord, "dwell")
+    assert armed(coord, "coast")
     assert hass.states.get(head_a).state == "fan_only"
 
 
@@ -448,7 +451,7 @@ async def test_ready_request_after_application_publishes_current_inputs(
         await original_request()
 
     monkeypatch.setattr(coord, "async_request_refresh", request)
-    armed = True
+    hold_once = True
 
     def launch_change():
         tasks.append(
@@ -456,10 +459,10 @@ async def test_ready_request_after_application_publishes_current_inputs(
         )
 
     async def apply(plan):
-        nonlocal armed
+        nonlocal hold_once
         await original_apply(plan)
-        if armed:
-            armed = False
+        if hold_once:
+            hold_once = False
             entered.set()
             await release.wait()
             hass.loop.call_soon(launch_change)
@@ -518,7 +521,7 @@ async def test_direct_refresh_consumes_redundant_followup(
     await asyncio.wait_for(asyncio.gather(first, second), 3)
     await _drain_refreshes(hass, coord)
     assert snapshots == [wide, narrow]
-    assert coord._refresh_followup_timer is None
+    assert not armed(coord, "refresh_followup")
     assert not coord._refresh_pending
     assert hass.states.get(head_a).state == MODE_COOL
 
@@ -567,7 +570,7 @@ async def test_interrupted_active_refresh_keeps_requested_followup(
     assert coord.data["zones"][0]["drift"] == narrow
     assert coord._applying_plan is None
     assert not coord._refresh_lock.locked()
-    assert coord._refresh_followup_timer is None
+    assert not armed(coord, "refresh_followup")
     assert not coord._refresh_pending
     assert hass.states.get(head_a).state == MODE_COOL
 
@@ -668,7 +671,7 @@ async def test_retirement_cancels_completion_followup(
     await hass.async_block_till_done()
     assert coord._retired
     assert not coord._refresh_pending
-    assert coord._refresh_followup_timer is None
+    assert not armed(coord, "refresh_followup")
     assert all(record["cancelled"] for record in captured)
     assert snapshots == [wide]
 
@@ -737,7 +740,7 @@ async def test_two_active_windows_each_coalesce_once(
     assert snapshots == [wide, narrow, 2.0]
     assert coord.data["zones"][0]["drift"] == 2.0
     assert not coord._refresh_pending
-    assert coord._refresh_followup_timer is None
+    assert not armed(coord, "refresh_followup")
 
 
 @pytest.mark.parametrize("origin", ["direct", "debounced"])

@@ -61,6 +61,7 @@ from custom_components.mxz_coordinator.const import (
     MODE_HEAT,
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+from tests.peek import armed, debug_view
 from tests.test_drive import (
     INHIBIT,
     SENSOR_A,
@@ -204,6 +205,23 @@ def _fan_tokens(hass: HomeAssistant, head: str) -> list[str | None]:
     return tokens
 
 
+async def _latch(hass: HomeAssistant, entry: MockConfigEntry, slug: str) -> str:
+    """The room's engage latch, as diagnostics publishes it."""
+    view = await debug_view(hass, entry)
+    return view["rooms"][slug]["anti_flip"]["engage_latch"]
+
+
+async def _settle(hass: HomeAssistant, seconds: float) -> None:
+    """Run every HA timer due within ``seconds``, then the refresh it asked for."""
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=seconds))
+    await hass.async_block_till_done()
+    async_fire_time_changed(
+        hass,
+        dt_util.utcnow() + timedelta(seconds=REQUEST_REFRESH_DEFAULT_COOLDOWN + 1),
+    )
+    await hass.async_block_till_done()
+
+
 def _count_coast_fires(coord: MXZCoordinator) -> list[Any]:
     """Count every ACTUAL firing of the coast wakeup's callback.
 
@@ -232,17 +250,6 @@ def _count_coast_fires(coord: MXZCoordinator) -> list[Any]:
     return fires
 
 
-async def _settle(hass: HomeAssistant, seconds: float) -> None:
-    """Run every HA timer due within ``seconds``, then the refresh it asked for."""
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=seconds))
-    await hass.async_block_till_done()
-    async_fire_time_changed(
-        hass,
-        dt_util.utcnow() + timedelta(seconds=REQUEST_REFRESH_DEFAULT_COOLDOWN + 1),
-    )
-    await hass.async_block_till_done()
-
-
 async def _engage_then_flip(
     hass: HomeAssistant,
     entry: MockConfigEntry,
@@ -259,7 +266,7 @@ async def _engage_then_flip(
     await _quiesce(hass, coord)
 
     await _set_temp(hass, SENSOR_B, HOT[celsius])  # secondary runs cool
-    assert coord._engage_latch["secondary"] == MODE_COOL
+    assert await _latch(hass, entry, "secondary") == MODE_COOL
     assert hass.states.get(head_b).state == MODE_COOL
     await _drain(hass, coord)
 
@@ -267,7 +274,7 @@ async def _engage_then_flip(
     plan = _plan(hass, entry)
     assert plan.attributes["secondary_demand"] == MODE_HEAT  # the room wants heat
     assert plan.attributes["secondary_engage"] == ENGAGE_SATISFIED  # ...but coasts
-    assert coord._engage_latch["secondary"] == ""  # the latch let go
+    assert await _latch(hass, entry, "secondary") == ""  # the latch let go
     assert hass.states.get(head_b).state == MODE_FAN_ONLY  # parked at the idle action
     return coord
 
@@ -288,7 +295,7 @@ async def test_a_no_echo_head_is_recommanded_after_the_coast(
         hass, cls=NoFanHeadC if celsius else NoFanHead, celsius=celsius
     )
     coord = await _engage_then_flip(hass, entry, head_b, celsius=celsius)
-    assert coord._coast_timer is not None  # the coast armed its own follow-up
+    assert armed(coord, "coast")  # the coast armed its own follow-up
 
     sensor_stamp = hass.states.get(SENSOR_B).last_updated
     await _settle(hass, coordinator_module.COAST_FOLLOWUP_DELAY + 1)
@@ -303,8 +310,8 @@ async def test_a_no_echo_head_is_recommanded_after_the_coast(
     low, high = HEAT_EDGES[celsius]
     assert head.attributes["target_temp_low"] == low  # normal clamped edges
     assert head.attributes["target_temp_high"] == high
-    assert coord._engage_latch["secondary"] == MODE_HEAT
-    assert coord._coast_timer is None  # nothing left to wait for
+    assert await _latch(hass, entry, "secondary") == MODE_HEAT
+    assert not armed(coord, "coast")  # nothing left to wait for
 
 
 async def test_the_coast_itself_never_engages_the_other_direction(
@@ -328,7 +335,7 @@ async def test_the_coast_itself_never_engages_the_other_direction(
     # The flip's own compute wrote fan_only and nothing else to this head.
     assert [c for _s, c in _head_calls(calls, head_b)] == [MODE_FAN_ONLY]
     assert hass.states.get(head_b).state == MODE_FAN_ONLY
-    assert coord._coast_timer is not None
+    assert armed(coord, "coast")
 
 
 # --- an echo-emitting head is unchanged ----------------------------------------
@@ -429,11 +436,11 @@ async def test_nothing_is_armed_while_no_room_coasts(hass: HomeAssistant) -> Non
     entry, _a, head_b = await _setup_coast(hass)
     coord = entry.runtime_data
     await _quiesce(hass, coord)
-    assert coord._coast_timer is None
+    assert not armed(coord, "coast")
 
     await _set_temp(hass, SENSOR_B, HOT[False])
     assert hass.states.get(head_b).state == MODE_COOL
-    assert coord._coast_timer is None
+    assert not armed(coord, "coast")
 
 
 async def test_a_second_coast_replaces_the_pending_followup(
@@ -452,7 +459,7 @@ async def test_a_second_coast_replaces_the_pending_followup(
     coord = entry.runtime_data
     await _quiesce(hass, coord)
 
-    armed: list[Any] = []
+    callbacks: list[Any] = []
     cancelled: list[Any] = []
     original_call_later = coordinator_module.async_call_later
 
@@ -460,7 +467,7 @@ async def test_a_second_coast_replaces_the_pending_followup(
         cancel = original_call_later(hass_, delay, action)
         if "_arm_coast_timer" not in getattr(action, "__qualname__", ""):
             return cancel
-        armed.append(action)
+        callbacks.append(action)
 
         def cancel_and_record() -> None:
             cancelled.append(action)
@@ -472,25 +479,24 @@ async def test_a_second_coast_replaces_the_pending_followup(
         await _set_temp(hass, SENSOR_A, HOT[False])
         await _set_temp(hass, SENSOR_B, HOT[False])
         await _drain(hass, coord)
-        assert coord._engage_latch["primary"] == MODE_COOL
-        assert coord._engage_latch["secondary"] == MODE_COOL
-        assert coord._coast_timer is None
+        assert await _latch(hass, entry, "primary") == MODE_COOL
+        assert await _latch(hass, entry, "secondary") == MODE_COOL
+        assert not armed(coord, "coast")
 
         await _set_temp(hass, SENSOR_B, COLD[False])  # the flip: coast one
-        assert coord._engage_latch["secondary"] == ""
-        first = coord._coast_timer
-        assert first is not None
-        assert len(armed) == 1
+        assert await _latch(hass, entry, "secondary") == ""
+        assert armed(coord, "coast")
+        assert len(callbacks) == 1
         assert cancelled == []
 
         await _set_temp(hass, SENSOR_A, NEUTRAL[False])  # primary satisfied...
         await _recompute(hass, entry)  # ...coast two, first follow-up still pending
-        assert coord._engage_latch["primary"] == ""
+        assert await _latch(hass, entry, "primary") == ""
         assert hass.states.get(head_a).state == MODE_FAN_ONLY
 
-    assert len(armed) == 2  # the second coast armed its own...
-    assert cancelled == [armed[0]]  # ...and cancelled the first
-    assert coord._coast_timer is not first
+    assert len(callbacks) == 2  # the second coast armed its own...
+    assert cancelled == [callbacks[0]]  # ...and cancelled the first
+    assert armed(coord, "coast")  # the second coast's own
 
     with _count_refresh_requests(coord) as requests:
         await _settle(hass, coordinator_module.COAST_FOLLOWUP_DELAY + 4)
@@ -519,8 +525,8 @@ async def test_an_input_event_before_the_followup_resolves_it(
     assert requests == []  # the replaced follow-up never fired
     assert hass.states.get(head_b).state == MODE_FAN_ONLY
     assert [e for _s, e in _head_calls(calls, head_b) if e == MODE_HEAT] == []
-    assert coord._engage_latch["secondary"] == ""
-    assert coord._coast_timer is None
+    assert await _latch(hass, entry, "secondary") == ""
+    assert not armed(coord, "coast")
 
 
 # --- cancellation: kill switch, standby, unload, reload -------------------------
@@ -530,7 +536,7 @@ async def test_kill_switch_cancels_the_followup(hass: HomeAssistant) -> None:
     """Disabled coordination arms nothing — a recompute could command nothing."""
     entry, _a, head_b = await _setup_coast(hass)
     coord = await _engage_then_flip(hass, entry, head_b)
-    assert coord._coast_timer is not None
+    assert armed(coord, "coast")
 
     await hass.services.async_call(
         "switch",
@@ -540,7 +546,7 @@ async def test_kill_switch_cancels_the_followup(hass: HomeAssistant) -> None:
     )
     await _recompute(hass, entry)
     assert coord.coordinator_enable is False
-    assert coord._coast_timer is None
+    assert not armed(coord, "coast")
 
 
 async def test_standby_hold_cancels_the_followup(hass: HomeAssistant) -> None:
@@ -552,23 +558,23 @@ async def test_standby_hold_cancels_the_followup(hass: HomeAssistant) -> None:
         **{CONF_INHIBIT_ENTITY: INHIBIT, CONF_INHIBIT_ACTION: INHIBIT_ACTION_OFF},
     )
     coord = await _engage_then_flip(hass, entry, head_b)
-    assert coord._coast_timer is not None
+    assert armed(coord, "coast")
 
     await _set_hold(hass, "on")
     await _recompute(hass, entry)
     assert coord.inhibited is True
-    assert coord._coast_timer is None
+    assert not armed(coord, "coast")
 
 
 async def test_unload_cancels_the_followup(hass: HomeAssistant) -> None:
     """Unload leaves no handle, no post-retirement recompute and no head write."""
     entry, _a, head_b = await _setup_coast(hass)
     coord = await _engage_then_flip(hass, entry, head_b)
-    assert coord._coast_timer is not None
+    assert armed(coord, "coast")
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    assert coord._coast_timer is None
+    assert not armed(coord, "coast")
 
     calls = _record_calls(hass)
     with _count_refresh_requests(coord) as requests:
@@ -582,12 +588,12 @@ async def test_reload_cancels_the_old_followup(hass: HomeAssistant) -> None:
     """Reload retires the old coordinator's follow-up with it."""
     entry, _a, head_b = await _setup_coast(hass)
     old = await _engage_then_flip(hass, entry, head_b)
-    assert old._coast_timer is not None
+    assert armed(old, "coast")
 
     await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.runtime_data is not old
-    assert old._coast_timer is None
+    assert not armed(old, "coast")
 
     with _count_refresh_requests(old) as requests:
         await _settle(hass, coordinator_module.COAST_FOLLOWUP_DELAY + 1)
@@ -599,22 +605,22 @@ async def test_a_followup_firing_after_retirement_asks_for_nothing(
 ) -> None:
     """Cancelling a handle cannot recall a callback the loop already picked up."""
     entry, _a, head_b = await _setup_coast(hass)
-    armed: list[Any] = []
+    callbacks: list[Any] = []
     original_call_later = coordinator_module.async_call_later
 
     def capturing(hass_: HomeAssistant, delay: float, action: Any) -> Any:
         if "_arm_coast_timer" in getattr(action, "__qualname__", ""):
-            armed.append(action)
+            callbacks.append(action)
         return original_call_later(hass_, delay, action)
 
     monkeypatch.setattr(coordinator_module, "async_call_later", capturing)
     coord = await _engage_then_flip(hass, entry, head_b)
-    assert armed  # the coast armed a follow-up...
-    fire = armed[-1]  # ...and the last one armed owns the live handle
+    assert callbacks  # the coast armed a follow-up...
+    fire = callbacks[-1]  # ...and the last one armed owns the live handle
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    assert coord._coast_timer is None
+    assert not armed(coord, "coast")
 
     calls = _record_calls(hass)
     with _count_refresh_requests(coord) as requests:
@@ -622,5 +628,5 @@ async def test_a_followup_firing_after_retirement_asks_for_nothing(
         await hass.async_block_till_done()
         await _settle(hass, coordinator_module.COAST_FOLLOWUP_DELAY + 1)
     assert requests == []
-    assert coord._coast_timer is None
+    assert not armed(coord, "coast")
     assert _head_calls(calls, head_b) == []
