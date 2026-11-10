@@ -62,6 +62,7 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 from .capabilities import head_has_fan_auto, head_lists_dry, state_lists_dry
 from .cloud import (
     CLOUD_NOT_CONTROLLABLE,
+    CLOUD_PENDING,
     CloudHead,
     clamp,
     drive_setpoint,
@@ -3927,13 +3928,14 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {}
         clock = time.monotonic()
         left = cloud.window_until - clock
+        status = cloud.status(clock)
         return {
             "head_type": zone.head_type,
             # pending / confirmed / unconfirmed / not_controllable
-            "cloud_status": cloud.status(clock),
+            "cloud_status": status,
             "cloud_pending_until": (
                 dt_util.utc_from_timestamp(round(dt_util.utcnow().timestamp() + left)).isoformat()
-                if left > 0 else None
+                if status == CLOUD_PENDING else None
             ),
             "cloud_confirmed_at": cloud.confirmed_at,
             "drive_offset": zone.drive_offset,
@@ -4038,10 +4040,14 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._publish_fan_state(climate_id)
         _LOGGER.debug("MXZ: cloud head %s batch %s", climate_id, calls)
         self._publish_delivery()
-        for service, payload in calls:
-            if not self._delivery_owned(active):
-                return
-            await self.async_head_service(climate_id, service, payload)
+        try:
+            for service, payload in calls:
+                if not self._delivery_owned(active):
+                    return
+                await self.async_head_service(climate_id, service, payload)
+        except HomeAssistantError:
+            cloud.refused()
+            raise
         self._floor_accepted(climate_id, active)
 
     def _cloud_fan(

@@ -20,6 +20,7 @@ pytest.importorskip("homeassistant")
 pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 
 from custom_components.mxz_coordinator.const import (
@@ -30,6 +31,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_CONFIRM_WAIT,
     ZONE_DRIVE_OFFSET,
     ZONE_DRIVE_OFFSET_UNIT,
+    ZONE_FLOOR_LOW,
     ZONE_HEAD_TYPE,
     ZONE_WRITE_INTERVAL,
 )
@@ -1041,3 +1043,69 @@ async def test_a_cloud_re_pick_of_the_speed_just_written_is_overwritten(hass: Ho
     assert row(hass, entry, 0)["fan_hold"] is False
     assert _fans(head)[-1] == "medium"
     assert head.device["fan"] == "medium"
+
+
+def _refuses(head: ComfortHead, monkeypatch: pytest.MonkeyPatch, times: int | None) -> None:
+    """The cloud refuses ``head``'s mode changes ``times`` times (None: always), then takes them."""
+    accept = type(head).async_set_hvac_mode
+    left = [times]
+
+    async def refuse(hvac_mode: Any) -> None:
+        if left[0] is None or left[0] > 0:
+            if left[0] is not None:
+                left[0] -= 1
+            head.received.append(("set_hvac_mode", {"hvac_mode": hvac_mode}))
+            raise HomeAssistantError("invented cloud outage")
+        await accept(head, hvac_mode)
+
+    monkeypatch.setattr(head, "async_set_hvac_mode", refuse)
+
+
+async def test_a_refused_batch_is_tried_again_once_the_write_interval_allows(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A batch the cloud refused was not sent: nothing waits on it, and the write interval still holds."""
+    a, _b, entry = await _comfort_pair(hass)
+    await past_startup(hass, entry)
+    _refuses(a, monkeypatch, 1)
+    calls = record(hass)
+    await _driven(hass, entry, SENSORS[0], 65)
+    assert writes(calls, a.entity_id) == [("set_hvac_mode", {"hvac_mode": "heat"})]
+    view = row(hass, entry, 0)
+    assert (view["command_status"], view["cloud_status"]) == ("rejected", "unconfirmed")
+    past_window(entry, a.entity_id, 59)
+    await recompute(hass, entry)
+    assert len(writes(calls, a.entity_id)) == 1
+    past_window(entry, a.entity_id, 1)
+    await recompute(hass, entry)
+    assert writes(calls, a.entity_id)[1:] == [
+        ("set_hvac_mode", {"hvac_mode": "heat"}),
+        ("set_temperature", {"temperature": 72.0}),
+    ]
+    assert a.device["mode"] == "heat"
+    assert row(hass, entry, 0)["command_status"] == "returned"
+
+
+async def test_a_floor_on_a_cloud_head_reads_held_while_its_command_is_refused(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    a, b = ComfortHead("a", mode="fan_only"), ComfortHead("b", mode="fan_only")
+    await register(hass, {COMFORT: [a, b]})
+    entry = await setup_rooms(
+        hass, [(a, {**CLOUD, ZONE_FLOOR_LOW: 50}), (b, CLOUD)], enable=False,
+    )
+    for suffix in ("_secondary_enable", "_coordinator_enable"):
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": _eid(hass, entry, suffix)}, blocking=True
+        )
+    await past_startup(hass, entry)
+    past_window(entry, a.entity_id)
+    _refuses(a, monkeypatch, None)
+    await _driven(hass, entry, SENSORS[0], 45)
+    assert a.received[-1] == ("set_hvac_mode", {"hvac_mode": "heat"})
+    assert row(hass, entry, 0)["floor_state"] == "held"
+    await recompute(hass, entry)
+    assert row(hass, entry, 0)["floor_state"] == "held"
+    assert a.device["mode"] == "off"
+    await entry.runtime_data.async_shutdown_listeners()

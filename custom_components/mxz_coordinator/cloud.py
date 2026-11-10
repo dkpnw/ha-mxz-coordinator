@@ -158,6 +158,15 @@ class CloudHead:
         self.release_at = None
         self.confirmed = False
 
+    def refused(self) -> None:
+        """The last batch raised, so it is not one to wait on.
+
+        The next batch goes out as soon as the write interval allows, which
+        still counts from the refused one: that is the rate the user set. The
+        window stays open, so a late report of an older state is still stale.
+        """
+        self.intent = None
+
     def wait_for_slot(self, clock: float) -> float:
         """Seconds until the write interval lets the next batch out (0 = now)."""
         if self.last_batch is None:
@@ -168,7 +177,7 @@ class CloudHead:
         """The plan's word for this head now."""
         if self.unresponsive:
             return CLOUD_NOT_CONTROLLABLE
-        if self.pending(clock):
+        if self.pending(clock) and (self.startup or self.intent is not None):
             return CLOUD_PENDING
         return CLOUD_CONFIRMED if self.confirmed else CLOUD_UNCONFIRMED
 

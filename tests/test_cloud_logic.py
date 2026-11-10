@@ -211,3 +211,16 @@ def test_offset_in_unit_round_trips() -> None:
     for value in (0.5, 1.0, 2.5, 3.5, 4.0, 5.5, 6.0):
         there = offset_in_unit(value, "°F", True)
         assert abs(offset_in_unit(there, "°C", False) - value) <= 0.01 + 1e-9
+
+
+def test_a_refused_batch_leaves_nothing_to_wait_on_and_keeps_the_rate() -> None:
+    head = CloudHead(write_interval=60, confirm_wait=90, window_until=0, startup=False)
+    head.sent(100, ("heat", 72.0, None), "fan_only", "auto", 70.0)
+    assert head.status(101) == CLOUD_PENDING
+    head.refused()
+    assert head.status(101) == CLOUD_UNCONFIRMED
+    assert head.wait_for_slot(101) == 59
+    assert head.stale(101, mode="fan_only")
+    assert not head.stale(101, mode="heat")
+    head.sent(160, ("heat", 72.0, None), "fan_only", "auto", 70.0)
+    assert head.status(161) == CLOUD_PENDING
