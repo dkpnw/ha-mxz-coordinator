@@ -248,7 +248,8 @@ floor or overheat ceiling run, and on a cloud or generic head with a drive offse
 only). So is heat instead of cool, or cool instead of heat: MXZ picks the shared mode.
 
 A head switched to `auto`, `heat_cool`, or `dry` is put back after about 20 seconds. If you set
-up drift alerts, you get one. With **Accept changes made at the head** off in Configure →
+up drift alerts, you get one naming the room and head, at most one per head per hour; every
+heal is logged as `MXZ heal:` in the Home Assistant log. With **Accept changes made at the head** off in Configure →
 Comfort, MXZ is the only writer: a head turned off while the plan wants it running is also put
 back, after about 30 seconds, and a setpoint is corrected on a later update.
 

@@ -161,6 +161,7 @@ from .const import (
     HEAD_TYPE_GENERIC,
     HEAD_TYPE_LOCAL,
     HEAD_WRITES_REMEMBERED,
+    HEAL_NOTICE_SECONDS,
     HEALTH_AWAITING,
     HEALTH_ELIGIBLE,
     HEALTH_HEALTHY,
@@ -1342,6 +1343,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._arm_freshness(self._started_ts)
         self._unsubs: list[Any] = []
         self._heal_timers: dict[tuple[str, str], Any] = {}
+        # When each head's last heal notice went out (monotonic), for the hourly limit.
+        self._heal_notice_at: dict[str, float] = {}
         # State callbacks may run inside a service call or one loop turn later.
         # Keep the current decision, while each delivery slot separately owns
         # its head's applicable action until those pending reports are dispatched.
@@ -3901,14 +3904,19 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return reported.timestamp(), CLOUD_SILENT_SECONDS
 
     def _cloud_stale_report(
-        self, climate_id: str, *, mode: str | None = None, fan: str | None = None
+        self, climate_id: str, *, mode: str | None = None, fan: str | None = None,
+        setpoint: float | None = None,
     ) -> bool:
         """Whether this report of a cloud head can be an older state, not a person.
 
-        Always False for a local head, so no local check changes.
+        Always False for a local head, so no local check changes. A setpoint
+        compares on the head's grid, as its writes do.
         """
         cloud = self._cloud.get(climate_id)
-        return cloud is not None and cloud.stale(time.monotonic(), mode=mode, fan=fan)
+        return cloud is not None and cloud.stale(
+            time.monotonic(), mode=mode, fan=fan, setpoint=setpoint,
+            same=partial(self._head_already_at, climate_id),
+        )
 
     def _cloud_attributes(self, zone: Zone) -> dict[str, Any]:
         """A cloud room's head type, write state and settings; nothing for a local one.
@@ -4018,6 +4026,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cloud.sent(
             clock, (act, setpoint, fan), cur_mode,
             shown_fan if isinstance(shown_fan, str) else None,
+            _as_float(state.attributes.get("temperature")),
         )
         if fan is not None:
             if act in (MODE_COOL, MODE_HEAT):
@@ -5219,14 +5228,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # and never heal a head the PLAN itself parked off (idle_action) — but
         # a wall-remote off during an active call or a coil-dry dwell is still
         # drift (the plan wants that head awake).
-        off_drift = (
-            mode == MODE_OFF
-            and self._enable_for(entity_id)
-            and not self.eco_idle
-            and not self.inhibited
-            and self._planned_act_for(entity_id) != MODE_OFF
-            and not stale
-        )
+        off_drift = self._off_while_enabled(entity_id, mode) and not self.inhibited and not stale
         self._arm_or_cancel(entity_id, "off", off_drift, OFF_WHILE_ENABLED_DELAY)
         self._watch_head_change(entity_id, old_state, new_state)
         if (cloud := self._cloud.get(entity_id)) is not None and cloud.unresponsive:
@@ -5299,15 +5301,19 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 and not self._dry_allowed(entity_id, mode)
             )
         else:
-            still = (
-                mode == MODE_OFF
-                and self._enable_for(entity_id)
-                and not self.eco_idle
-                and self._planned_act_for(entity_id) != MODE_OFF
-            )
+            still = self._off_while_enabled(entity_id, mode)
         still = still and not self._cloud_stale_report(entity_id, mode=mode)
         if still and self.coordinator_enable and not self.inhibited:
-            self.hass.async_create_task(self._heal_and_notify())
+            self.hass.async_create_task(self._heal_and_notify(entity_id, kind, mode))
+
+    def _off_while_enabled(self, entity_id: str, mode: str | None) -> bool:
+        """Off while its room is enabled and the plan wants it on: the off heal's drift."""
+        return (
+            mode == MODE_OFF
+            and self._enable_for(entity_id)
+            and not self.eco_idle
+            and self._planned_act_for(entity_id) != MODE_OFF
+        )
 
     # -- accept changes made at the head ---------------------------------------
     # From @BHSPitMonkey's fork (Discussion #103), rebuilt on MXZ's write memory: a
@@ -5426,6 +5432,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         setpoint_press = (
             "setpoint" in moved and shown is not None
             and not self._head_write_is_own(climate_id, name, shown)
+            # A cloud head's poll from before MXZ's last batch, as for its mode.
+            and not self._cloud_stale_report(climate_id, setpoint=shown)
         )
         if not mode_press and not setpoint_press:
             return None
@@ -5451,7 +5459,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         A report from or to unavailable is the head (re)loading, never a person,
         and a fan or vane report moves nothing here. Each report that moves the
-        mode or the setpoint starts the hold over.
+        mode or the setpoint starts the hold over. A change with nothing to adopt
+        (a heat/cool flip alone) holds nothing: the head goes back on the plan at
+        the next compute, as with the option off.
         """
         if (
             not self.accept_head_changes or old_state is None or new_state is None
@@ -5465,17 +5475,20 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not moved:
             return
         moved |= self._adopt_moved.get(climate_id, set())
-        if self._head_adoption(climate_id, moved) is None:
+        if not self._head_adoption(climate_id, moved):
             self.drop_head_change(climate_id)
             return
         self._adopt_moved[climate_id] = moved
         self._arm_or_cancel(climate_id, "adopt", True, ADOPT_DELAY)
 
     def _head_change_settling(self, climate_id: str) -> bool:
-        """Whether a person's change at this head is still holding, and would still count."""
-        return (climate_id, "adopt") in self._heal_timers and self._head_adoption(
-            climate_id, self._adopt_moved.get(climate_id, set())
-        ) is not None
+        """Whether a person's change at this head is still holding, and would still count.
+
+        Only a change with a target or an enable in it: an empty one protects nothing.
+        """
+        return (climate_id, "adopt") in self._heal_timers and bool(
+            self._head_adoption(climate_id, self._adopt_moved.get(climate_id, set()))
+        )
 
     @callback
     def drop_head_change(self, climate_id: str) -> None:
@@ -5539,18 +5552,48 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "switch", "turn_on" if change["enable"] else "turn_off",
                     {"entity_id": eid}, blocking=True,
                 )
+            # The off heal, rechecked against the room as it is now: an off
+            # adopted as "disable the room" is the room's, not drift, and a
+            # later re-enable is read from the head's next report, not from
+            # this timer. A refused adopt leaves it running, as with the option off.
+            head = self.hass.states.get(climate_id)
+            if (climate_id, "off") in self._heal_timers and not self._off_while_enabled(
+                climate_id, head.state if head is not None else None
+            ):
+                self._arm_or_cancel(climate_id, "off", False, OFF_WHILE_ENABLED_DELAY)
         except HomeAssistantError as err:
             _LOGGER.warning("MXZ: couldn't adopt a change made at %s: %s", climate_id, err)
         finally:
             if not self._retired:
                 await self.async_request_refresh()
 
-    async def _heal_and_notify(self) -> None:
-        await self.async_request_refresh()
-        await self._notify(
-            "A head was off its coordinated mode (drift or just re-enabled) - "
-            "re-applied via the coordinator."
+    async def _heal_and_notify(self, entity_id: str, kind: str, mode: str | None) -> None:
+        """Re-apply the plan to a head that drifted; log it, and tell someone once an hour.
+
+        Every heal is logged. The notice names the room and head, and goes out
+        at most once per head per HEAL_NOTICE_SECONDS, as floor notices are
+        limited per room, so a head that keeps drifting can't flood anyone.
+        """
+        zone = self._zone_of(entity_id)
+        room = zone.name if zone is not None else entity_id
+        now = time.monotonic()
+        last = self._heal_notice_at.get(entity_id)
+        held = bool(self.notify_service) and last is not None and now - last < HEAL_NOTICE_SECONDS
+        _LOGGER.warning(
+            "MXZ heal: room %s, head %s: %s drift, reported %s; re-applying the plan%s",
+            room, entity_id, kind, mode,
+            " (notice not sent: one heal notice per head per hour)" if held else "",
         )
+        if not held:
+            self._heal_notice_at[entity_id] = now
+        await self.async_request_refresh()
+        if held:
+            return
+        if kind == "off":
+            what = "was off while its room is enabled"
+        else:
+            what = f"was in {mode}, off its coordinated mode"
+        await self._notify(f"{room}: {entity_id} {what} - re-applied via the coordinator.")
 
     async def _notify(self, message: str, target: str | None = None) -> None:
         target = target or self.notify_service

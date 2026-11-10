@@ -349,7 +349,8 @@ async def test_a_flip_alone_doesnt_read_a_setpoint_mxz_has_forgotten(hass: HomeA
     rig.coord._head_writes.clear()
     rig.heads[0].lags_commands = False
     await _press(rig, mode="heat")
-    assert _armed(rig) is True
+    assert rig.coord._head_adoption(rig.heads[0].entity_id, {"mode"}) == {}  # a person's, nothing in it
+    assert not _armed(rig)  # so nothing held (Discussion #103)
     await rig.later(HELD)
     assert _target(rig) == 72
     await rig.close()
@@ -398,12 +399,18 @@ async def test_the_heat_cool_choice_is_not_adopted(hass: HomeAssistant, freezer:
 
 
 async def test_a_flip_alone_moves_nothing_and_goes_back_by_itself(hass: HomeAssistant, freezer: Any) -> None:
-    """No new setpoint, so no new target, and the end of the hold puts the head back."""
+    """No new setpoint, so no new target, and no hold: the next compute puts the head back.
+
+    Before Discussion #103 an empty hold armed here, and its end computed; now nothing
+    holds the head off the plan, as with the option off.
+    """
     rig = await _cooling(hass, freezer)
     await _time_passes(rig)  # nothing left over from the setup to compute for it
     await _press(rig, mode="heat")
-    assert _armed(rig) is True
+    assert not _armed(rig)  # nothing to adopt, so nothing held
+    assert rig.coord._head_change_settling(rig.heads[0].entity_id) is False
     await _time_passes(rig)
+    await rig.settle()
     assert rig.heads[0].mode == "cool"
     assert _target(rig) == TARGET
     assert rig.coord.current_shared_mode == "cool"

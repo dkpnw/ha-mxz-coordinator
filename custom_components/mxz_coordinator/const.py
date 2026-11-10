@@ -651,6 +651,8 @@ HEARTBEAT_MINUTES = 15
 # Self-heal debounce windows (YAML `for:` durations)
 BAND_DRIFT_DELAY = 20  # head in heat_cool/auto/dry this long -> re-apply
 OFF_WHILE_ENABLED_DELAY = 30  # head off while enabled this long -> re-apply
+# At most one heal notice per head in this long; every heal is still logged.
+HEAL_NOTICE_SECONDS = 3600
 ADOPT_DELAY = 5  # a change made at a head holds this long (s) -> adopted
 STARTUP_RECOVER_DELAY = 40  # after HA start, wait this long then recompute
 

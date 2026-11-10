@@ -375,10 +375,10 @@ async def test_wall_off_timer_callback_reengages_active_head(
     heals = 0
     original = coord._heal_and_notify
 
-    async def record_heal():
+    async def record_heal(*args: Any):
         nonlocal heals
         heals += 1
-        await original()
+        await original(*args)
 
     monkeypatch.setattr(coord, "_heal_and_notify", record_heal)
     await hass.services.async_call(

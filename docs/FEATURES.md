@@ -135,7 +135,9 @@ switched to `auto`, `heat_cool`, or `dry` is put back after about 20 seconds (`d
 stays in a room with [Allow Dry mode](#allow-dry-mode) on). With that option off, MXZ is the
 only writer, and a head turned off while the plan wants it running is also put back, after
 about 30 seconds. A head the plan parked off is not treated as drift. If you set a
-**Notify on drift** service, you get an alert when a head is put back.
+**Notify on drift** service, you get an alert when a head is put back, naming the room and
+head, at most once per head per hour. Every one is logged (`MXZ heal:` in the Home Assistant
+log), alerted or not.
 
 **Presets and manual refresh.** Example presets:
 [day/night/away](../examples/presets.yaml). The `mxz_coordinator.recompute` service
@@ -370,7 +372,7 @@ head** in Configure → Comfort. A change at a head is then written over, as it 
 | A new setpoint | The room's target follows it: the high edge in cool, the low edge in heat, or the one setpoint of a single-setpoint head. In a [dual setpoint](#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint) room, Cool to in cool and Heat to in heat, pushing the other at the minimum gap. |
 | Off | The room is disabled, and stays off. A room with [Let its own remote run it](#run-one-room-from-its-own-remote) on is then its remote's, as when it is disabled anywhere else. |
 | On, to heat or cool | The room is enabled, with the new setpoint if it has one. |
-| Heat instead of cool, or cool instead of heat | Never adopted. MXZ still picks the shared mode, so the head goes back on the plan's mode, with the new target if the change came with a setpoint. |
+| Heat instead of cool, or cool instead of heat | Never adopted. MXZ still picks the shared mode, so the head goes back on the plan's mode: at the next update, or with the new target once it is adopted if the change came with a setpoint. |
 | `heat_cool`, `auto`, or `dry` | Never adopted. Put back after about 20 seconds, unless [Allow Dry mode](#allow-dry-mode) leaves `dry` alone. |
 | `fan_only` | Never adopted. Put back at the next update. |
 

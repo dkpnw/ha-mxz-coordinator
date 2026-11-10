@@ -1,9 +1,9 @@
 """Step the wall clock, and age the coordinator's in-memory timers on their own clock.
 
 The coil-dry wait (``_last_active``), the floor's driven-time clock
-(``_floor_eval_ts``), the floor notice limit (``_floor_notice_at``) and a lost
-head's vote time limit (``_sight[head].lost_at``) run on
-``time.monotonic()``, like the mode-flip dwell (#32, see ``tests/dwell.py``).
+(``_floor_eval_ts``), the floor and heal notice limits (``_floor_notice_at``,
+``_heal_notice_at``) and a lost head's vote time limit (``_sight[head].lost_at``)
+run on ``time.monotonic()``, like the mode-flip dwell (#32, see ``tests/dwell.py``).
 Monotonic seconds count from an arbitrary origin, on Linux the boot, so a test
 never writes a number into these stamps: it moves a stamp back by the seconds
 it wants to have passed, on the clock the coordinator reads.
@@ -43,6 +43,11 @@ def age_floor_clock(coord: Any, slug: str, seconds: float) -> None:
 def age_floor_notice(coord: Any, slug: str, seconds: float) -> None:
     """Make the room's last floor notice ``seconds`` older."""
     coord._floor_notice_at[slug] -= seconds
+
+
+def age_heal_notice(coord: Any, head: str, seconds: float) -> None:
+    """Make the head's last heal notice ``seconds`` older."""
+    coord._heal_notice_at[head] -= seconds
 
 
 def age_lost_vote(coord: Any, head: str, seconds: float) -> None:
