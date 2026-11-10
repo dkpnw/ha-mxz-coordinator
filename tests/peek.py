@@ -4,6 +4,9 @@
 holds, waits, votes and fan memory, by room. A test that needs one of those
 reads it there, so the reading survives any move of the field behind it.
 
+``cloud_record`` is a cloud head's record, read in place where a test
+cannot wait for the download.
+
 ``armed`` is the one thing diagnostics does not publish: whether a wakeup is
 waiting. Its names are the coordinator's private timer fields, and this is
 the only module that reads them. A test asserts a wakeup only where firing
@@ -44,6 +47,15 @@ _WAKEUP_MAPS = {
 async def debug_view(hass: HomeAssistant, entry: Any) -> dict[str, Any]:
     """The entry's diagnostics: ``coordinator`` and ``rooms`` by slug, as downloaded."""
     return await async_get_config_entry_diagnostics(hass, entry)
+
+
+def cloud_record(coord: Any, head: str) -> Any:
+    """A cloud head's record, the one diagnostics shows as the room's ``cloud``; None for a local head.
+
+    Read in place, for its settings (``confirm_wait``, ``write_interval``) and
+    its status; a test never writes it.
+    """
+    return coord._cloud.get(head)
 
 
 async def since_mode_change(hass: HomeAssistant, entry: Any) -> float | None:

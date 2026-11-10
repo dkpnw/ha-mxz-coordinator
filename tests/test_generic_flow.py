@@ -61,6 +61,7 @@ from tests.generic_heads import (
     PlainHead,
     RichHead,
 )
+from tests.peek import cloud_record
 
 GEN = {ZONE_HEAD_TYPE: HEAD_TYPE_GENERIC}
 TIMING = {ZONE_DRIVE_OFFSET, ZONE_WRITE_INTERVAL, ZONE_CONFIRM_WAIT}
@@ -124,7 +125,7 @@ async def test_one_generic_head_is_an_entry_of_its_own(hass: HomeAssistant) -> N
     assert entry.unique_id == head.entity_id
     await hass.async_block_till_done()
     coordinator = entry.runtime_data
-    assert coordinator._cloud[head.entity_id].generic is True
+    assert cloud_record(coordinator, head.entity_id).generic is True
     assert (coordinator.zones[0].write_interval, coordinator.zones[0].confirm_wait) == (30, 30)
 
 
@@ -276,7 +277,7 @@ async def test_switching_a_cloud_room_to_generic_stores_no_cloud_timings(hass: H
     zone = entry.data["zones"][0]
     assert zone[ZONE_HEAD_TYPE] == HEAD_TYPE_GENERIC
     assert not TIMING & set(zone)
-    assert entry.runtime_data._cloud[a.entity_id].generic is True
+    assert cloud_record(entry.runtime_data, a.entity_id).generic is True
     assert (entry.runtime_data.zones[0].write_interval, entry.runtime_data.zones[0].confirm_wait) == (30, 30)
 
 

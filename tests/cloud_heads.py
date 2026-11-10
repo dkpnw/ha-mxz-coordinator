@@ -47,7 +47,9 @@ from custom_components.mxz_coordinator.const import (
     ZONE_NAME,
     ZONE_SENSOR,
 )
+from tests.clocks import pass_time
 from tests.head_entity import HeadEntity
+from tests.peek import cloud_record
 from tests.test_drive import EVENT_CALL_SERVICE, _eid
 
 COMFORT = "kumo_cloud"
@@ -278,19 +280,6 @@ def writes(calls: list[dict[str, Any]], head: str) -> list[tuple[str, dict[str, 
     ]
 
 
-def age_cloud(coordinator: Any, head: str, seconds: float) -> None:
-    """Make everything a cloud head's record timed ``seconds`` older.
-
-    The record runs on ``time.monotonic()``, like every MXZ wait, so a test
-    moves its stamps back rather than writing a time (see tests/clocks.py).
-    """
-    cloud = coordinator._cloud[head]
-    cloud.window_until -= seconds
-    for name in ("last_batch", "fan_at", "release_at"):
-        if (stamp := getattr(cloud, name)) is not None:
-            setattr(cloud, name, stamp - seconds)
-
-
 async def recompute(hass: HomeAssistant, entry: MockConfigEntry) -> None:
     """One deterministic compute and apply (production is debounced)."""
     await entry.runtime_data.async_refresh()
@@ -303,18 +292,18 @@ def row(hass: HomeAssistant, entry: MockConfigEntry, index: int) -> dict[str, An
 
 
 async def past_startup(hass: HomeAssistant, entry: MockConfigEntry) -> None:
-    """End every cloud head's startup confirm wait, then recompute once.
+    """Let every cloud head's startup confirm wait pass, then recompute once.
 
     A new coordinator holds its cloud heads for one confirm wait (a batch a
     moment before a reload may still be pending at the head).
     """
     coordinator = entry.runtime_data
-    for head, cloud in coordinator._cloud.items():
-        age_cloud(coordinator, head, cloud.confirm_wait)
+    waits = [cloud_record(coordinator, zone.climate_id) for zone in coordinator.zones]
+    pass_time(coordinator, max((cloud.confirm_wait for cloud in waits if cloud), default=0.0))
     await recompute(hass, entry)
 
 
 def past_window(entry: MockConfigEntry, head: str, seconds: float | None = None) -> None:
-    """Age one cloud head's record past its confirm wait (or by ``seconds``)."""
+    """Let one cloud head's confirm wait pass (or ``seconds``), and every other wait with it."""
     coordinator = entry.runtime_data
-    age_cloud(coordinator, head, coordinator._cloud[head].confirm_wait if seconds is None else seconds)
+    pass_time(coordinator, cloud_record(coordinator, head).confirm_wait if seconds is None else seconds)

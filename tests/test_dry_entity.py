@@ -58,6 +58,7 @@ from tests.clocks import pass_time
 from tests.cloud_heads import record as record_calls
 from tests.cloud_heads import writes as head_writes
 from tests.flow_pages import open_options_page, prefilled, submit
+from tests.peek import cloud_record
 from tests.test_drive import MockHead, _eid, _set_temp
 from tests.test_dry_mode import (
     INHIBIT,
@@ -556,7 +557,7 @@ async def test_a_cloud_dry_pick_waits_out_the_confirm_wait(hass: HomeAssistant) 
     )
     await hass.async_block_till_done()
     assert b.device["mode"] == "dry" and hass.states.get(b.entity_id).state != "dry"
-    assert coord._cloud[b.entity_id].confirm_wait > DRY_PICK_WAIT
+    assert cloud_record(coord, b.entity_id).confirm_wait > DRY_PICK_WAIT
     await coord.async_refresh()
     await hass.async_block_till_done()
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=DRY_PICK_WAIT + 5))

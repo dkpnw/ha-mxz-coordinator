@@ -14,7 +14,6 @@ its remote does.
 from __future__ import annotations
 
 import logging
-import time
 from datetime import timedelta
 from typing import Any
 
@@ -35,6 +34,7 @@ from custom_components.mxz_coordinator.const import (
 )
 from tests.clocks import pass_time
 from tests.cloud_heads import past_window, recompute, record, writes
+from tests.peek import cloud_record
 from tests.property_rig import TARGET, Rig, open_rig
 from tests.test_accept_head_changes import (
     HELD,
@@ -87,7 +87,7 @@ async def _quietly(rig: Rig, seconds: int) -> None:
 
 def _until_hour(rig: Rig) -> float:
     """Seconds left before this head's last heal notice is an hour old."""
-    return HOUR - (time.monotonic() - rig.coord._heal_notice_at[HEAD])
+    return HOUR - (rig.coord.clock() - rig.coord._heal_notice_at[HEAD])
 
 
 def _off_timer(rig: Rig) -> bool:
@@ -394,7 +394,7 @@ async def _cloud_moved_to(hass: HomeAssistant, offset: float | None) -> tuple[An
     after = head.device["temperature"]
     assert after != before
     assert hass.states.get(head.entity_id).attributes["temperature"] == after
-    assert entry.runtime_data._cloud[head.entity_id].pending(time.monotonic())
+    assert cloud_record(entry.runtime_data, head.entity_id).pending(entry.runtime_data.clock())
     return head, entry, before, after
 
 

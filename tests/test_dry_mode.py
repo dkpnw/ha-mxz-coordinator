@@ -860,8 +860,8 @@ async def test_cloud_dry_is_left_alone_then_parked_for_heat(hass: HomeAssistant)
     row = hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][1]
     assert (row["dry"], row["dry_vote"], row["demand"]) == ("held", "cool", "neutral")
     assert head_writes(calls, b.entity_id) == []
-    await _set_temp(hass, SENSORS[0], 65)
     past_window(entry, a.entity_id)
+    await _set_temp(hass, SENSORS[0], 65)
     await coord.async_refresh()
     await hass.async_block_till_done()
     assert b.device["mode"] == "fan_only"
