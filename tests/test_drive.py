@@ -60,6 +60,9 @@ from custom_components.mxz_coordinator.const import (
 )
 from tests.dwell import expire_dwell
 from tests.head_entity import HeadEntity
+from tests.peek import armed, debug_view
+from tests.restart import stopped
+from tests.restore_store import find_stored_state, set_stored_states
 
 SENSOR_A = "sensor.room_a_temp"
 SENSOR_B = "sensor.room_b_temp"
@@ -394,6 +397,24 @@ async def _setup_fan_boost(
     return entry
 
 
+async def _restart_without_fan_memory(hass: HomeAssistant, entry: MockConfigEntry) -> None:
+    """Restart with no Fan auto record in the restore data, every other record kept.
+
+    MXZ then has no memory of its fan writes and no hold to restore, so the
+    first compute seeds each head's hold from what the head shows: a start
+    after restore data without that record (lost, or never written).
+    """
+    fan_auto = {_eid(hass, entry, f"_{room}_fan_auto") for room in ("primary", "secondary")}
+    async with stopped(hass, entry):
+        kept = {
+            item.entity_id: stored
+            for item in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+            if item.entity_id not in fan_auto
+            and (stored := find_stored_state(hass, item.entity_id)) is not None
+        }
+        set_stored_states(hass, kept)
+
+
 async def _user_set_fan(hass: HomeAssistant, climate_id: str, token: str) -> None:
     """Simulate the user reaching in and picking a fan speed on a head."""
     await hass.services.async_call(
@@ -553,21 +574,16 @@ async def test_manual_fan_latch_seeds_from_head_on_restart(
     await _set_temp(hass, SENSOR_A, 70)
     await _set_temp(hass, SENSOR_B, 70)
     entry = await _setup_fan_boost(hass, head_a, head_b)
-    coord = entry.runtime_data
 
-    # Simulate a restart mid-manual-pick: head sitting at "medium", no _fan_cmd.
+    # A restart mid-manual-pick: head sitting at "medium", no fan memory.
     await _user_set_fan(hass, head_a, "medium")
-    coord._fan_cmd.clear()
-    coord._fan_prev.clear()
-    coord._fan_latched.clear()
+    await _restart_without_fan_memory(hass, entry)
 
     await _set_temp(hass, SENSOR_A, 67)  # a delta that WOULD boost to "high"
     await _recompute(hass, entry)
     assert hass.states.get(head_a).attributes["fan_mode"] == "medium"  # seeded latched
 
     # Head b was at "auto" across the same restart -> seeds free, boost applies.
-    coord._fan_cmd.pop(head_b, None)
-    coord._fan_latched.pop(head_b, None)
     await _set_target(hass, _eid(hass, entry, "_secondary_target"), 62)
     await _set_temp(hass, SENSOR_B, 67)
     await _recompute(hass, entry)
@@ -873,14 +889,11 @@ async def test_fan_auto_switch_seeds_from_head_on_restart(
     await _set_temp(hass, SENSOR_A, 70)
     await _set_temp(hass, SENSOR_B, 70)
     entry = await _setup_fan_boost(hass, head_a, head_b)
-    coord = entry.runtime_data
     sw = _eid(hass, entry, "_primary_fan_auto")
 
-    # Restart mid-manual-pick: head at "medium", coordinator memory wiped.
+    # Restart mid-manual-pick: head at "medium", no fan memory.
     await _user_set_fan(hass, head_a, "medium")
-    coord._fan_cmd.clear()
-    coord._fan_prev.clear()
-    coord._fan_latched.clear()
+    await _restart_without_fan_memory(hass, entry)
 
     await _set_temp(hass, SENSOR_A, 67)  # a delta that WOULD boost to "high"
     await _recompute(hass, entry)
@@ -990,7 +1003,6 @@ async def test_restart_adopts_a_rung_held_by_hysteresis(hass: HomeAssistant) -> 
     await _set_temp(hass, SENSOR_A, 70)
     await _set_temp(hass, SENSOR_B, 70)
     entry = await _setup_fan_boost(hass, head_a, head_b)
-    coord = entry.runtime_data
 
     # Ramp up at delta 3, then close to delta 1.5: DOWN_AT holds "medium" — one
     # rung above the cold read ("low").
@@ -1001,10 +1013,7 @@ async def test_restart_adopts_a_rung_held_by_hysteresis(hass: HomeAssistant) -> 
     assert hass.states.get(head_a).attributes["fan_mode"] == "medium"
 
     # Restart: decision memory gone, head still at the hysteresis-held rung.
-    coord._fan_cmd.clear()
-    coord._fan_prev.clear()
-    coord._fan_latched.clear()
-    coord._fan_idx.clear()
+    await _restart_without_fan_memory(hass, entry)
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is False  # adopted, not held
@@ -1020,10 +1029,7 @@ async def test_restart_adopts_a_rung_held_by_hysteresis(hass: HomeAssistant) -> 
     await _recompute(hass, entry)
     await _user_set_fan(hass, head_a, "high")  # delta 1.5: high is past the band
     await _recompute(hass, entry)
-    coord._fan_cmd.clear()
-    coord._fan_prev.clear()
-    coord._fan_latched.clear()
-    coord._fan_idx.clear()
+    await _restart_without_fan_memory(hass, entry)
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is True  # genuine hold kept
@@ -1047,7 +1053,6 @@ async def test_restart_mid_boost_keeps_boost_driving(hass: HomeAssistant) -> Non
     await _set_temp(hass, SENSOR_A, 70)
     await _set_temp(hass, SENSOR_B, 70)
     entry = await _setup_fan_boost(hass, head_a, head_b)
-    coord = entry.runtime_data
 
     # Mid-ladder delta (temp 65, target 62): boost drives a NON-top token.
     await _set_temp(hass, SENSOR_A, 65)
@@ -1055,10 +1060,7 @@ async def test_restart_mid_boost_keeps_boost_driving(hass: HomeAssistant) -> Non
     assert hass.states.get(head_a).attributes["fan_mode"] == "middle"  # not the top
 
     # Restart: decision memory gone, head still sitting at the boost speed.
-    coord._fan_cmd.clear()
-    coord._fan_prev.clear()
-    coord._fan_latched.clear()
-    coord._fan_idx.clear()
+    await _restart_without_fan_memory(hass, entry)
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is False  # adopted, not held
@@ -1085,7 +1087,6 @@ async def test_hold_seeded_by_a_restart_survives_drift(hass: HomeAssistant) -> N
     await _set_temp(hass, SENSOR_A, 70)
     await _set_temp(hass, SENSOR_B, 70)
     entry = await _setup_fan_boost(hass, head_a, head_b)
-    coord = entry.runtime_data
 
     # Near target, so picking "high" is a genuine request for more air -> holds.
     await _set_temp(hass, SENSOR_A, 63)
@@ -1096,10 +1097,7 @@ async def test_hold_seeded_by_a_restart_survives_drift(hass: HomeAssistant) -> N
     assert plan.attributes["zones"][0]["fan_hold"] is True
 
     # Restart: decision memory gone, head still sitting at "high" -> seeds held.
-    coord._fan_cmd.clear()
-    coord._fan_prev.clear()
-    coord._fan_latched.clear()
-    coord._fan_idx.clear()
+    await _restart_without_fan_memory(hass, entry)
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is True
@@ -1129,16 +1127,12 @@ async def test_seed_at_max_adopts_on_restart(hass: HomeAssistant) -> None:
     await _set_temp(hass, SENSOR_A, 70)
     await _set_temp(hass, SENSOR_B, 70)
     entry = await _setup_fan_boost(hass, head_a, head_b)
-    coord = entry.runtime_data
 
-    # Boost to "high", then wipe the memory to simulate a restart.
+    # Boost to "high", then restart with no fan memory.
     await _set_temp(hass, SENSOR_A, 67)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).attributes["fan_mode"] == "high"
-    coord._fan_cmd.clear()
-    coord._fan_prev.clear()
-    coord._fan_latched.clear()
-    coord._fan_idx.clear()
+    await _restart_without_fan_memory(hass, entry)
 
     # First compute post-restart: delta still demands max -> adopt, not latch.
     await _recompute(hass, entry)
@@ -1247,7 +1241,6 @@ async def test_seed_adopt_never_false_positives_on_a_partial_ladder(
     await _set_temp(hass, SENSOR_A, 70)
     await _set_temp(hass, SENSOR_B, 70)
     entry = await _setup_fan_boost(hass, head_a, head_b)
-    coord = entry.runtime_data
 
     # Delta 2 -> "medium", which this head has.
     await _set_temp(hass, SENSOR_A, 64)
@@ -1261,10 +1254,7 @@ async def test_seed_adopt_never_false_positives_on_a_partial_ladder(
     assert hass.states.get(head_a).attributes["fan_mode"] == "medium"
 
     # Restart here: the ladder says "middle", the head says "medium" -> no match.
-    coord._fan_cmd.clear()
-    coord._fan_prev.clear()
-    coord._fan_latched.clear()
-    coord._fan_idx.clear()
+    await _restart_without_fan_memory(hass, entry)
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is True  # latched, not falsely adopted
@@ -1982,7 +1972,7 @@ async def test_inhibit_stands_down_off_heal(hass: HomeAssistant) -> None:
     a head the hold parked is not drift. The head is actively cooling first so
     the park is a real running->off transition (the drift listener's trigger)."""
     hass.config.units = US_CUSTOMARY_SYSTEM
-    entry, head_a, _b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
+    entry, head_a, head_b = await _setup_inhibit(hass, INHIBIT_ACTION_OFF)
     await _set_temp(hass, SENSOR_A, 76)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "cool"  # running pre-hold
@@ -1991,7 +1981,8 @@ async def test_inhibit_stands_down_off_heal(hass: HomeAssistant) -> None:
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "off"  # parked: cool->off observed
     coord = entry.runtime_data
-    assert not any(kind == "off" for (_, kind) in coord._heal_timers)
+    assert not armed(coord, "heal", (head_a, "off"))
+    assert not armed(coord, "heal", (head_b, "off"))
 
 
 async def test_inhibit_active_at_startup_parks_immediately(hass: HomeAssistant) -> None:
@@ -2038,7 +2029,8 @@ async def test_inhibit_suppresses_vane_kick(hass: HomeAssistant) -> None:
     coord = entry.runtime_data
     await coord.async_apply_vane(head_a, "select.dummy_vane", "SWING")
     await hass.async_block_till_done()
-    assert head_a not in coord._vane_kicks  # no kick scheduled
+    view = await debug_view(hass, entry)
+    assert view["rooms"]["primary"]["holds"]["vane_kick_running"] is False  # no kick scheduled
     assert hass.states.get(head_a).state == "off"  # not woken to fan_only
     assert any(c["domain"] == "select" for c in calls)  # best-effort write sent
     assert not any(  # and the head itself was never touched (no fan_only kick)
