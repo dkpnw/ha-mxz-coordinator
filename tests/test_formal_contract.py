@@ -219,16 +219,40 @@ def test_an_open_finding_is_checked_nowhere_it_breaks() -> None:
         assert rule not in config_rules(config), rule
 
 
-def _property_tests() -> list[str]:
+def _property_nodes() -> list[str]:
+    """Every property test, as ``path::function`` from the repository root."""
     return [
-        match for path in sorted((ROOT / "tests").glob("test_properties_*.py"))
+        f"{path.relative_to(ROOT).as_posix()}::{match}"
+        for path in sorted((ROOT / "tests").glob("test_properties_*.py"))
         for match in re.findall(r"^(?:async )?def (test_\w+)", path.read_text(), re.MULTILINE)
     ]
 
 
+def _property_tests() -> list[str]:
+    return [node.split("::")[1] for node in _property_nodes()]
+
+
+def uncaught_properties(mutants, nodes: list[str]) -> set[str]:
+    """The property tests no mutant names, matched on file and function: the
+    same function name in another file is another test."""
+    caught = {mutant.test.split("[", 1)[0] for mutant in mutants}
+    return set(nodes) - caught
+
+
 def test_every_property_has_a_broken_copy_of_the_code_that_fails_it() -> None:
-    caught = {mutant.test.split("::")[1] for mutant in code_mutants.MUTANTS.values()}
-    assert set(_property_tests()) <= caught, set(_property_tests()) - caught
+    nodes = _property_nodes()
+    assert nodes
+    assert uncaught_properties(code_mutants.MUTANTS.values(), nodes) == set()
+
+
+def test_a_property_is_not_caught_by_a_namesake_in_another_file() -> None:
+    """C24 is the one broken copy for its mode property; H7 names a test of the
+    same name in test_modehold_properties.py, which does not stand in for it."""
+    c24, h7 = code_mutants.MUTANTS["C24"], code_mutants.MUTANTS["H7"]
+    assert c24.test.split("::")[1] == h7.test.split("::")[1]
+    assert c24.test.split("::")[0] != h7.test.split("::")[0]
+    without = [m for key, m in code_mutants.MUTANTS.items() if key != "C24"]
+    assert uncaught_properties(without, _property_nodes()) == {c24.test}
 
 
 def test_the_readme_names_each_rule_and_each_property() -> None:
