@@ -684,22 +684,24 @@ async def test_missing_speed_at_restart_keeps_truth_pending(
 async def test_memory_rides_the_unavailable_record(
     hass: HomeAssistant, hass_storage: dict
 ) -> None:
-    """The switches are unavailable at shutdown (a head command fails, so the
-    refresh fails as a whole — the issue-25 harness's own schedule-02 shape):
-    HA persists ``unavailable`` with no attributes, so the memory travels in
-    extra restore data and the late token is still read as the coordinator's
-    own."""
+    """The switches are unavailable at shutdown (MXZ's own step fails while
+    commanding a head, so the refresh fails as a whole; a head's own error
+    no longer does, see tests/test_head_fault.py): HA persists
+    ``unavailable`` with no attributes, so the memory travels in extra
+    restore data and the late token is still read as the coordinator's own."""
     entry, head_a, head_b = await _setup(hass, **{CONF_FAN_BOOST_ENABLE: True})
     reinstate = await _idle_on_residue(hass, entry, head_a)
     switch_a = _eid(hass, entry, "_primary_fan_auto")
-    b = _head(hass, head_b)
-    real_set_temperature = b.async_set_temperature
+    coordinator = entry.runtime_data
+    real_apply_head = coordinator._apply_head
 
-    async def _fail(**kwargs):
-        raise RuntimeError("invented dependency failure")
+    async def _fail(climate_id, *args):
+        if climate_id == head_b:
+            raise RuntimeError("invented fault in MXZ's own step")
+        await real_apply_head(climate_id, *args)
 
-    b.async_set_temperature = _fail
-    await _set_temp(hass, SENSOR_B, 75)  # B is called; its head fails the command
+    coordinator._apply_head = _fail
+    await _set_temp(hass, SENSOR_B, 75)  # B is called; MXZ's step for it fails
     await _recompute(hass, entry)
     assert hass.states.get(switch_a).state == "unavailable"
     assert hass.states.get(head_a).attributes["fan_mode"] == "high"  # residue kept
@@ -710,7 +712,7 @@ async def test_memory_rides_the_unavailable_record(
     assert record["extra_data"] == {
         "held": False, ATTR_LAST_FAN_COMMAND: "auto", ATTR_PRIOR_FAN_COMMAND: "high",
     }
-    b.async_set_temperature = real_set_temperature
+    coordinator._apply_head = real_apply_head
     reinstate()
     await _report(hass, head_a, "auto")  # provisional
     await _startup(hass, entry)
