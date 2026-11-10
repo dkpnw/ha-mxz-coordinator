@@ -179,6 +179,6 @@ For a wider search with fresh random draws, and to prove each one can fail:
 
 ```sh
 MXZ_PROPERTY_EXAMPLES=400 MXZ_PROPERTY_RANDOM=1 python -m pytest tests/test_properties_fan.py -q -p no:cacheprovider
-MXZ_PYTHON="$(command -v python)" python3 tools/formal_tlc.py code   # every broken copy of the code fails its named property
+MXZ_PYTHON="$(command -v python)" python3 tools/code_mutants.py      # every broken copy of the code fails its named property
 python -m pytest verification/findings -q -p no:cacheprovider        # each finding's replay: F1's now passes
 ```

@@ -1,5 +1,7 @@
 """The formal docs, the spec, its runner and its workflow stay in step with the code."""
 
+import ast
+import importlib.util
 import json
 import re
 from pathlib import Path
@@ -7,12 +9,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tools import formal_tlc
+from tools import code_mutants, formal_tlc
 
 ROOT = Path(__file__).parents[1]
 FORMAL = ROOT / "docs/formal"
 TLA = FORMAL / "tla"
 CODE = ROOT / "custom_components/mxz_coordinator"
+MODEHOLD = ROOT / "verification/modehold"
 PINNED_ACTION = re.compile(r"[\w./-]+@[0-9a-f]{40}")
 LOCKS = sorted((ROOT / "requirements").glob("constraints-*.txt"))
 # What a property needs from PyPI, the same on every lane.
@@ -34,15 +37,45 @@ def all_rules() -> set[str]:
     return (rules | set(formal_tlc.FINDINGS)) - {"TypeOK"}
 
 
-def code_anchors(text: str) -> list[tuple[str, str]]:
-    return re.findall(r"`(\w+\.py)` `(\w+)`", text)
+def code_anchors(text: str) -> list[str]:
+    """Every name in the Code column of the statechart's keys."""
+    anchors, in_key = [], False
+    for line in text.splitlines():
+        if line.startswith("| Id | What happens | Code |"):
+            in_key = True
+        elif not line.startswith("|"):
+            in_key = False
+        elif in_key and not line.startswith("| ---"):
+            anchors += re.findall(r"`([\w.]+)`", line.rstrip(" |").rsplit("|", 1)[1])
+    return anchors
 
 
-def missing_anchors(text: str) -> list[tuple[str, str]]:
-    return [
-        (name, symbol) for name, symbol in code_anchors(text)
-        if not re.search(rf"\bdef {symbol}\b", (CODE / name).read_text())
-    ]
+def _defined(root: Path) -> set[str]:
+    """Every function's name under ``root``, and ``Class.method`` for each method."""
+    names = set()
+    for path in root.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                names.add(node.name)
+            elif isinstance(node, ast.ClassDef):
+                names |= {
+                    f"{node.name}.{item.name}" for item in node.body
+                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                }
+    return names
+
+
+def missing_anchors(text: str, root: Path = CODE) -> list[str]:
+    defined = _defined(root)
+    return [name for name in code_anchors(text) if name not in defined]
+
+
+def _verify() -> object:
+    """verification/verify.py, which is a script, loaded from its path."""
+    spec = importlib.util.spec_from_file_location("verify", ROOT / "verification/verify.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def workflow_violations(flow: dict) -> list[str]:
@@ -114,14 +147,63 @@ def test_every_config_is_run_and_every_rule_exists() -> None:
         assert rule in names and config in formal_tlc.CONFIGS
 
 
-def test_each_spec_mutant_and_code_mutant_still_finds_its_text() -> None:
+def test_each_spec_mutant_still_finds_its_text() -> None:
     spec = (TLA / "MXZCoordinator.tla").read_text()
     for name, (_what, old, *_rest) in formal_tlc.MUTANTS.items():
         assert spec.count(old) == 1, name
-    for name, (_what, filename, old, _new, test) in formal_tlc.CODE_MUTANTS.items():
-        assert (CODE / filename).read_text().count(old) == 1, name
-        path, function = test.split("::")
-        assert f"def {function}(" in (ROOT / path).read_text(), name
+
+
+def _test_exists(node: str) -> bool:
+    path, function = node.split("::")
+    return f"def {function.split('[')[0]}(" in (ROOT / path).read_text()
+
+
+def test_each_code_mutant_finds_its_text_in_one_function_and_names_a_real_test() -> None:
+    for name, mutant in code_mutants.MUTANTS.items():
+        assert len(code_mutants.locate(ROOT, mutant)) == 1, name
+        assert _test_exists(mutant.test), name
+
+
+def test_each_mode_hold_mutant_finds_its_text_and_breaks_a_real_rule() -> None:
+    """The mode-hold model's broken copies, as the code's: each still applies, and its rule exists."""
+    verify = _verify()
+    spec = (MODEHOLD / "MXZModeHold.tla").read_text()
+    names = set(re.findall(r"^(\w+)(?:\([^)]*\))? ==", spec, re.MULTILINE))
+    assert verify.MODEL_MUTANTS
+    for mid, _what, old, _new, config, rule in verify.MODEL_MUTANTS:
+        assert spec.count(old) == 1, mid
+        assert config in verify.CONFIGS and rule in names, mid
+    assert verify.CODE_MUTANTS == [name for name in code_mutants.MUTANTS if name.startswith("H")]
+    assert verify.CODE_MUTANTS
+
+
+def _package(tmp_path: Path, files: dict[str, str]) -> Path:
+    package = tmp_path / code_mutants.PACKAGE
+    package.mkdir(parents=True)
+    for name, text in files.items():
+        (package / name).write_text(text)
+    return tmp_path
+
+
+def test_a_code_mutant_follows_its_function_to_another_module(tmp_path) -> None:
+    root = _package(tmp_path, {"moved.py": "def gate(x):\n    return x >= 1\n"})
+    mutant = code_mutants.Mutant("gate open", "gate", "x >= 1", "True", "tests/x.py::test_x")
+    assert code_mutants.apply(root, mutant).name == "moved.py"
+    assert "return True" in (root / code_mutants.PACKAGE / "moved.py").read_text()
+
+
+@pytest.mark.parametrize(("files", "places"), [
+    ({"a.py": "def gate(x):\n    return x\n"}, 0),  # the text is gone
+    ({"a.py": "def other(x):\n    return x >= 1\n"}, 0),  # in another function only
+    ({"a.py": "def gate(x):\n    return x >= 1\n", "b.py": "def gate(x):\n    return x >= 1\n"}, 2),
+    ({"a.py": "def gate(x):\n    return x >= 1 or x >= 1\n"}, 2),
+], ids=["gone", "elsewhere", "two_functions", "twice"])
+def test_a_code_mutant_that_is_not_in_one_place_is_refused(tmp_path, files, places) -> None:
+    root = _package(tmp_path, files)
+    mutant = code_mutants.Mutant("gate open", "gate", "x >= 1", "True", "tests/x.py::test_x")
+    assert len(code_mutants.locate(root, mutant)) == places
+    with pytest.raises(ValueError, match=f"in {places} places"):
+        code_mutants.apply(root, mutant)
 
 
 def test_every_rule_has_a_broken_copy_that_breaks_it() -> None:
@@ -145,7 +227,7 @@ def _property_tests() -> list[str]:
 
 
 def test_every_property_has_a_broken_copy_of_the_code_that_fails_it() -> None:
-    caught = {test.split("::")[1] for *_rest, test in formal_tlc.CODE_MUTANTS.values()}
+    caught = {mutant.test.split("::")[1] for mutant in code_mutants.MUTANTS.values()}
     assert set(_property_tests()) <= caught, set(_property_tests()) - caught
 
 
@@ -166,7 +248,15 @@ def test_the_statechart_points_at_real_code() -> None:
 
 
 def test_a_statechart_anchor_to_nothing_is_refused() -> None:
-    assert missing_anchors("`coordinator.py` `_invented_function`") == [("coordinator.py", "_invented_function")]
+    key = "| Id | What happens | Code |\n| --- | --- | --- |\n| X1 | Text with `_compute`. | `_compute`, `_invented_function`, `MXZCoordinator._apply`, `MXZCoordinator._invented` |\n"
+    assert code_anchors(key) == ["_compute", "_invented_function", "MXZCoordinator._apply", "MXZCoordinator._invented"]
+    assert missing_anchors(key) == ["_invented_function", "MXZCoordinator._invented"]
+
+
+def test_a_statechart_anchor_follows_its_function_to_another_module(tmp_path) -> None:
+    key = "| Id | What happens | Code |\n| --- | --- | --- |\n| X1 | Text. | `gate` |\n"
+    root = _package(tmp_path, {"moved.py": "def gate(x):\n    return x\n"})
+    assert missing_anchors(key, root / code_mutants.PACKAGE) == []
 
 
 @pytest.mark.parametrize("lock", LOCKS, ids=lambda path: path.stem)
