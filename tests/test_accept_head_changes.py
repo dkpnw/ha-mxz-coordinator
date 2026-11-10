@@ -990,8 +990,10 @@ async def test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_writ
     assert await rig.report_next_command()
     assert _edges(rig)[1] == 72
     await rig.later(HELD)
+    assert _target(rig) == 74
     while await rig.report_next_command():
-        await rig.later(HELD)
+        pass
+    await rig.later(HELD)
     assert _target(rig) == 74
     assert rig.now() - started < STARTUP_RECOVER_DELAY
     await rig.close()
