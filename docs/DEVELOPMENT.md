@@ -72,6 +72,23 @@ plugin loading, replace failed phases with collection, or infer hardware results
 mock entities.
 
 
+## How the coordinator is split
+
+`coordinator.py` still runs most of the control loop. Concerns are moving out of it one at
+a time. Each moves into a module that owns its state, its wakeups and its stored record:
+
+| Module | What it owns |
+| --- | --- |
+| `logic.py` | The decision math: room calls, arbitration, door/window states, floors, setpoints. No Home Assistant. |
+| `cloud.py` | A cloud or generic head's write record and its setpoint math. No Home Assistant. |
+| `openings.py` | The door/window pause: each room's record and its store, the delay wakeups, the notices, and the vanes a resume owes. |
+
+A module that moved out reaches the coordinator only through a `Protocol` it declares, which
+names each coordinator member it uses (`OpeningHost`). The coordinator calls it at fixed
+points and keeps no copy of its state. Code mutants (`tools/code_mutants.py`) and the
+statechart's Code column name functions, not files. A move therefore breaks an anchor only
+where a function is renamed.
+
 ## Restore, flow schemas, and abort text
 
 Restore uses normal `RestoreEntity` state/extra data; flow schemas use Voluptuous. MXZ

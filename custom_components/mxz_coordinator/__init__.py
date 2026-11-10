@@ -51,11 +51,10 @@ from .coordinator import (
     MXZCoordinator,
     async_keep_saved_temps_in_unit,
     async_load_mode_record,
-    async_load_openings,
     async_remove_last_mode_change,
-    async_remove_openings,
 )
 from .issues import async_clear_entry_issues, async_start_repair_monitor
+from .openings import async_load_openings, async_remove_openings
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -495,12 +495,12 @@ class MXZWindowOverrideSwitch(MXZEntity, CoordinatorEntity[MXZCoordinator], Swit
 
     @property
     def is_on(self) -> bool:
-        return self.coordinator.window_override(self._zone.slug)
+        return self.coordinator.openings.override_on(self._zone.slug)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_window_override(self._zone, True)
+        await self.coordinator.openings.async_set_override(self._zone, True)
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_window_override(self._zone, False)
+        await self.coordinator.openings.async_set_override(self._zone, False)
         self.async_write_ha_state()

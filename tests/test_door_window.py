@@ -65,6 +65,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_VANE_VERTICAL,
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+from tests.clocks import pass_time
 from tests.cloud_heads import record as record_calls
 from tests.cloud_heads import register
 from tests.cloud_heads import writes as head_writes
@@ -80,7 +81,7 @@ from tests.flow_pages import (
     submit,
     suggested,
 )
-from tests.restart import restart
+from tests.restart import restart, stopped
 from tests.test_drive import MockHead, _eid, _set_target, _set_temp
 from tests.test_dry_mode import DryHead
 from tests.test_startup_continuity import _head
@@ -476,7 +477,7 @@ async def test_the_rooms_mode_is_never_rewritten_and_off_stays_off(
     )
     await hass.async_block_till_done()
     assert rig.opening()["window_override"] is False
-    assert rig.coord.opening_state_of("primary") == "paused"
+    assert rig.coord.openings.state_of("primary") == "paused"
     await rig.window("off")
     await rig.later(CLOSE + 1)
     await rig.recompute()
@@ -494,7 +495,7 @@ async def test_a_disabled_rooms_freeze_floor_still_runs_with_the_window_open(
     await rig.open_and_pause()
     await rig.recompute()
     assert rig.head() == MODE_HEAT  # the floor heats it, window or not
-    assert rig.coord.opening_state_of("primary") == "paused"  # the window's own state
+    assert rig.coord.openings.state_of("primary") == "paused"  # the window's own state
     assert rig.opening()["paused_reason"] is None  # not off for the window
     assert rig.hass.states.get(rig.eid("_primary_paused_open")).state == "off"
 
@@ -715,6 +716,85 @@ async def test_a_pause_outlives_a_restart(hass: HomeAssistant, freezer) -> None:
     assert rig.notices() == [PAUSE_NOTICE, RESUME_NOTICE]
 
 
+async def test_a_pause_is_stored_as_the_record_a_start_reads(
+    hass: HomeAssistant, freezer, hass_storage
+) -> None:
+    """The store holds each room's state, override, pause start, snapshot and
+    notice flag, by head, and nothing else."""
+    rig = await _setup(hass, freezer, study={**WINDOW_ON, ZONE_OPENING_NOTIFY: True})
+    before = dt_util.utcnow().timestamp()
+    await rig.open_and_pause()
+    after = dt_util.utcnow().timestamp()
+    async with stopped(rig.hass, rig.entry):
+        stored = hass_storage[f"{DOMAIN}.{rig.entry.entry_id}.openings"]
+        assert stored["version"] == 1
+        assert list(stored["data"]) == ["rooms"]
+        assert list(stored["data"]["rooms"]) == [rig.heads[0]]
+        room = stored["data"]["rooms"][rig.heads[0]]
+        assert set(room) == {"state", "override", "paused_at", "snapshot", "notified"}
+        assert (room["state"], room["override"], room["notified"]) == ("paused", None, True)
+        assert before <= room["paused_at"] <= after
+        assert set(room["snapshot"]) == {"hvac_mode", "fan_mode", "fan_held", "vanes", "dry"}
+        assert (room["snapshot"]["hvac_mode"], room["snapshot"]["dry"]) == (MODE_COOL, False)
+
+
+async def test_a_stored_pause_written_by_hand_resumes_as_written(
+    hass: HomeAssistant, freezer, hass_storage
+) -> None:
+    """A record in the stored shape, written while Home Assistant is down (as an
+    earlier release wrote it), is the room's pause from the first plan on, and
+    its resume puts back the vane the record holds."""
+    rig = await _setup(
+        hass, freezer, study={**WINDOW_ON, ZONE_OPENING_NOTIFY: True, ZONE_VANE_VERTICAL: VANE},
+    )
+    assert rig.head() == MODE_COOL
+    selects = async_mock_service(hass, "select", "select_option")
+    paused_at = float(int(dt_util.utcnow().timestamp()) - 600)
+    key = f"{DOMAIN}.{rig.entry.entry_id}.openings"
+    async with stopped(rig.hass, rig.entry):
+        await rig.window("on")
+        hass.states.async_set(VANE, "auto", {"options": VANE_OPTIONS})
+        hass_storage[key] = {
+            "version": 1, "minor_version": 1, "key": key,
+            "data": {"rooms": {rig.heads[0]: {
+                "state": "paused", "override": None, "paused_at": paused_at,
+                "snapshot": {
+                    "hvac_mode": MODE_COOL, "fan_mode": "auto", "fan_held": False,
+                    "vanes": {VANE: "2"}, "dry": False,
+                },
+                "notified": True,
+            }}},
+        }
+    await rig.recompute()
+    assert rig.opening()["opening_state"] == "paused"
+    assert rig.head() == "off"
+    assert rig.thermostat().attributes["paused_since"] == (
+        dt_util.utc_from_timestamp(paused_at).isoformat(timespec="seconds")
+    )
+    await rig.window("off")
+    await rig.later(CLOSE + 1)
+    assert rig.head() == MODE_COOL
+    assert rig.notices() == [RESUME_NOTICE]  # the stored flag says its pause notice went out
+    assert [c.data for c in selects] == [{"entity_id": VANE, "option": "2"}]
+
+
+async def test_vanes_moved_while_paused_are_put_back_after_a_restart(
+    hass: HomeAssistant, freezer
+) -> None:
+    """The snapshot a pause took outlives a restart: the resume after it still
+    puts back the vane the head had when the pause began."""
+    rig = await _setup(hass, freezer, study={**WINDOW_ON, ZONE_VANE_VERTICAL: VANE})
+    hass.states.async_set(VANE, "2", {"options": VANE_OPTIONS})
+    selects = async_mock_service(hass, "select", "select_option")
+    await rig.open_and_pause()
+    await restart(rig.hass, rig.entry)
+    hass.states.async_set(VANE, "auto", {"options": VANE_OPTIONS})  # the head reset it
+    await rig.window("off")
+    await rig.later(CLOSE + 1)
+    assert rig.head() == MODE_COOL
+    assert [c.data for c in selects] == [{"entity_id": VANE, "option": "2"}]
+
+
 async def test_closed_during_a_restart_waits_the_full_close_delay(
     hass: HomeAssistant, freezer
 ) -> None:
@@ -815,6 +895,34 @@ async def test_nothing_resumes_while_the_close_delay_runs(hass: HomeAssistant, f
     assert rig.thermostat().attributes["paused_since"] is None
 
 
+@pytest.mark.parametrize(
+    ("open_delay", "close_delay", "open_for", "closed_for"),
+    [
+        (0, 90, "0 s", "90 s"),
+        (45, 3540, "45 s", "59 min"),
+        (1800, 3600, "30 min", "1 h"),
+    ],
+)
+async def test_notices_say_each_delay_in_seconds_minutes_or_hours(
+    hass: HomeAssistant, freezer, open_delay, close_delay, open_for, closed_for
+) -> None:
+    rig = await _setup(
+        hass, freezer,
+        study={
+            **WINDOW_ON, ZONE_OPENING_NOTIFY: True,
+            ZONE_OPENING_OPEN_DELAY: open_delay, ZONE_OPENING_CLOSE_DELAY: close_delay,
+        },
+    )
+    await rig.window("on")
+    await rig.later(open_delay + 1)
+    await rig.window("off")
+    await rig.later(close_delay + 1)
+    assert rig.notices() == [
+        f"Study paused: Study window open for {open_for}. Heat/cool off in this room.",
+        f"Study resumed: closed for {closed_for}.",
+    ]
+
+
 async def test_notices_are_rate_limited(hass: HomeAssistant, freezer) -> None:
     rig = await _setup(hass, freezer, study={**WINDOW_ON, ZONE_OPENING_NOTIFY: True})
     for _ in range(2):  # a door that flaps: one pair in ten minutes
@@ -822,7 +930,7 @@ async def test_notices_are_rate_limited(hass: HomeAssistant, freezer) -> None:
         await rig.window("off")
         await rig.later(CLOSE + 1)
     assert rig.notices() == [PAUSE_NOTICE, RESUME_NOTICE]
-    rig.coord._opening_notice_at["primary"] -= OPENING_NOTIFY_SECONDS
+    pass_time(rig.coord, OPENING_NOTIFY_SECONDS)
     await rig.open_and_pause()
     await rig.switch("_primary_window_override", True)
     assert rig.notices() == [PAUSE_NOTICE, RESUME_NOTICE, PAUSE_NOTICE, OVERRIDE_NOTICE]

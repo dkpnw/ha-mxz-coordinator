@@ -168,7 +168,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
             "control_reasons": self.coordinator._control_reasons(self._zone),
             **self.coordinator.start_points(self._zone),
             **self.coordinator.mode_hold_attributes(),
-            **self.coordinator.opening_attributes(self._zone),
+            **self.coordinator.openings.attributes(self._zone),
         }
 
     @property
@@ -307,7 +307,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
             return self._head_action()
         if not self.coordinator.coordinator_enable or not self._enabled:
             return HVACAction.OFF
-        if self.coordinator._opening_paused(self._zone):
+        if self.coordinator.openings.paused(self._zone):
             # Paused for its door/window: its head is off by plan. The mode
             # stays the room's own (heat_cool); only the action says off.
             return HVACAction.OFF

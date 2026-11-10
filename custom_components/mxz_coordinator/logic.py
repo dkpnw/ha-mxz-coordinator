@@ -350,6 +350,11 @@ def sample_evidence(
     return (marker, min(receipt, now))
 
 
+def finite_number(value: Any) -> bool:
+    """Whether a stored value is a finite number (a bool is not one)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
 def _positive(value: Any) -> float | None:
     """``value`` as a finite positive float, else None (unset or unusable)."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):

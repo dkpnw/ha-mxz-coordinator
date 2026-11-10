@@ -50,8 +50,8 @@ def _visible(rig: Rig) -> dict[str, Any]:
         "head_fans": [head.fan for head in rig.heads],
         "fan_held": [rig.fan_held(0), rig.fan_held(1)],
         "fan_auto": [rig.fan_auto_switch(0), rig.fan_auto_switch(1)],
-        "opening": coord.opening_state_of("primary"),
-        "override": coord.window_override("primary"),
+        "opening": coord.openings.state_of("primary"),
+        "override": coord.openings.override_on("primary"),
     }
 
 
