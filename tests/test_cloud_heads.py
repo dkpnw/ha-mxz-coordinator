@@ -1181,7 +1181,10 @@ async def test_a_refusal_that_outlasts_the_write_interval_is_sent_again_at_once(
     times = _attempts(a, monkeypatch, freezer, takes=61)
     await _quiet(hass, freezer, 600 + 30)
     assert len(times) == 2, times
-    assert times[1] - times[0] == 61
+    # At once: when the refusal returns (61 s), or on the next second where Home Assistant
+    # 2024.12's debouncer serves a request made during a running refresh. Without the
+    # immediate request there is no retry until the 600 s window ends.
+    assert 61 <= times[1] - times[0] <= 62
     assert a.device["mode"] == "heat"
 
 
