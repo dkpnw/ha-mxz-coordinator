@@ -217,10 +217,22 @@ def test_a_refused_batch_leaves_nothing_to_wait_on_and_keeps_the_rate() -> None:
     head = CloudHead(write_interval=60, confirm_wait=90, window_until=0, startup=False)
     head.sent(100, ("heat", 72.0, None), "fan_only", "auto", 70.0)
     assert head.status(101) == CLOUD_PENDING
-    head.refused()
+    head.refused(101)
     assert head.status(101) == CLOUD_UNCONFIRMED
     assert head.wait_for_slot(101) == 59
+    assert head.release_at == 160  # the plan's wakeup for the next batch
     assert head.stale(101, mode="fan_only")
     assert not head.stale(101, mode="heat")
     head.sent(160, ("heat", 72.0, None), "fan_only", "auto", 70.0)
     assert head.status(161) == CLOUD_PENDING
+    assert head.release_at is None
+
+
+def test_a_refusal_slower_than_the_write_interval_releases_the_next_batch_at_once() -> None:
+    head = CloudHead(write_interval=60, confirm_wait=600, window_until=0, startup=False)
+    head.sent(100, ("heat", 72.0, None), "fan_only", "auto", 70.0)
+    head.refused(175)
+    assert head.wait_for_slot(175) == 0
+    assert head.release_at == 175
+    assert head.pending(175)  # the window still reads a late older state as stale
+    assert head.status(175) == CLOUD_UNCONFIRMED

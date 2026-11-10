@@ -858,7 +858,7 @@ rounded to the head's step and kept inside its limits; at most one write per **W
 interval**; and a **Confirm wait** after each write, in which nothing is sent again and a
 report of an older state is read as late, not as someone's change. A write the head's
 integration refuses has nothing to wait for: it is sent again once the write interval allows,
-and the row reads `unconfirmed`, not `pending`. A generic head's write
+even if nothing else happens, and the row reads `unconfirmed`, not `pending`. A generic head's write
 interval and confirm wait default to 30 seconds (a cloud head's are 60 and 90), and both
 can be set in the room page's **Cloud or generic head (beta)** section. A value left at
 the default stores nothing, so it follows the head type. Switching a room to generic with

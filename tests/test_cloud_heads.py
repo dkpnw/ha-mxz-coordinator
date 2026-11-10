@@ -12,6 +12,9 @@ wall clock and states' own report times, so a test steps that clock.
 
 from __future__ import annotations
 
+import asyncio
+import itertools
+import time
 from typing import Any
 
 import pytest
@@ -21,7 +24,9 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.mxz_coordinator.const import (
     CONF_IDLE_ACTION,
@@ -41,6 +46,7 @@ from tests.cloud_heads import (
     SENSORS,
     ComfortHead,
     MelcloudHead,
+    age_cloud,
     past_startup,
     past_window,
     recompute,
@@ -1109,3 +1115,116 @@ async def test_a_floor_on_a_cloud_head_reads_held_while_its_command_is_refused(
     assert row(hass, entry, 0)["floor_state"] == "held"
     assert a.device["mode"] == "off"
     await entry.runtime_data.async_shutdown_listeners()
+
+
+def _attempts(
+    head: ComfortHead, monkeypatch: pytest.MonkeyPatch, freezer: Any, *, takes: float = 0.0,
+) -> list[float]:
+    """When each mode change reached ``head``, on the monotonic clock. Each call takes ``takes`` seconds."""
+    times: list[float] = []
+    call = head.async_set_hvac_mode
+
+    async def timed(hvac_mode: Any) -> None:
+        times.append(time.monotonic())
+        if takes:
+            freezer.tick(takes)
+        await call(hvac_mode)
+
+    monkeypatch.setattr(head, "async_set_hvac_mode", timed)
+    return times
+
+
+async def _quiet(hass: HomeAssistant, freezer: Any, seconds: int) -> None:
+    """Time passes one second at a time, and only Home Assistant's own timers run."""
+    for _ in range(seconds):
+        freezer.tick(1)
+        async_fire_time_changed(hass, dt_util.utcnow(), fire_all=False)
+        await hass.async_block_till_done()
+
+
+@pytest.mark.parametrize("confirm", [90, 600])
+@pytest.mark.parametrize("refusals", [1, None])
+async def test_a_refused_batch_goes_out_again_at_the_write_interval_with_nothing_else_happening(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, freezer: Any, confirm: int, refusals: int | None,
+) -> None:
+    """SM-3 on a quiet house: no compute is forced once the room needs heat, so MXZ must wake itself.
+
+    A confirm wait longer than the write interval would otherwise set the retry's pace.
+    """
+    a, _b, entry = await _comfort_pair(hass, extra={ZONE_CONFIRM_WAIT: confirm})
+    await set_room(hass, SENSORS[0], 65)
+    await recompute(hass, entry)  # inside the startup wait: nothing goes out yet
+    _refuses(a, monkeypatch, refusals)
+    times = _attempts(a, monkeypatch, freezer)
+    start = time.monotonic()
+    await _quiet(hass, freezer, confirm + 200)
+    assert times, "the startup wait ended and nothing was sent"
+    assert times[0] - start <= confirm + 1
+    gaps = [later - earlier for earlier, later in itertools.pairwise(times)]
+    if refusals == 1:
+        assert gaps == [60]  # one retry, taken, and nothing after it
+        assert a.device["mode"] == "heat"
+        assert row(hass, entry, 0)["command_status"] == "returned"
+    else:
+        assert gaps == [60, 60, 60]  # never faster than the write interval, never slower
+        assert row(hass, entry, 0)["cloud_status"] == "unconfirmed"
+
+
+async def test_a_refusal_that_outlasts_the_write_interval_is_sent_again_at_once(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, freezer: Any,
+) -> None:
+    """The cloud took 61 s to refuse: the write interval has already passed, so nothing more is waited."""
+    a, _b, entry = await _comfort_pair(hass, extra={ZONE_CONFIRM_WAIT: 600})
+    await set_room(hass, SENSORS[0], 65)
+    await recompute(hass, entry)
+    _refuses(a, monkeypatch, 1)
+    times = _attempts(a, monkeypatch, freezer, takes=61)
+    await _quiet(hass, freezer, 600 + 30)
+    assert len(times) == 2, times
+    assert times[1] - times[0] == 61
+    assert a.device["mode"] == "heat"
+
+
+async def test_a_batch_refused_after_its_compute_has_ended_still_wakes_the_plan(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, freezer: Any,
+) -> None:
+    """The batch waited behind a fan pick at the room's thermostat, so the compute that queued it
+    is over when the cloud refuses it: the refusal itself must set the wakeup."""
+    a, _b, entry = await _comfort_pair(hass, extra={ZONE_CONFIRM_WAIT: 600})
+    coordinator = entry.runtime_data
+    await set_room(hass, SENSORS[0], 65)
+    await recompute(hass, entry)  # inside the startup wait: nothing goes out yet
+    # Past the startup recompute and any refresh cooldown, so neither can wake MXZ by chance.
+    await _quiet(hass, freezer, 60)
+    entered, release = asyncio.Event(), asyncio.Event()
+    pick = a.async_set_fan_mode
+
+    async def slow(fan_mode: str) -> None:
+        entered.set()
+        await release.wait()
+        await pick(fan_mode)
+
+    monkeypatch.setattr(a, "async_set_fan_mode", slow)
+    gesture = hass.async_create_task(hass.services.async_call(
+        "climate", "set_fan_mode",
+        {"entity_id": _eid(hass, entry, "_primary_thermostat"), "fan_mode": a.device["fan"]},
+        blocking=True,
+    ))
+    while not entered.is_set():
+        await asyncio.sleep(0)
+    for head, cloud in coordinator._cloud.items():
+        age_cloud(coordinator, head, cloud.confirm_wait)
+    _refuses(a, monkeypatch, 1)
+    times = _attempts(a, monkeypatch, freezer)
+    refresh = hass.async_create_task(coordinator.async_refresh())
+    for _ in range(30):
+        await asyncio.sleep(0)
+    assert refresh.done(), "the compute waited on the head"
+    assert row(hass, entry, 0)["command_deferred"], "no batch is waiting for the head"
+    release.set()
+    await gesture
+    await hass.async_block_till_done()
+    assert len(times) == 1, "the batch never reached the head"
+    await _quiet(hass, freezer, 120)
+    assert [later - times[0] for later in times] == [0, 60]
+    assert a.device["mode"] == "heat"

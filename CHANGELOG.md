@@ -74,8 +74,8 @@ head**; MXZ is then the only writer, as before.
 - **A cloud or generic head's refused write is tried again sooner.** When the head's
   integration refused a write batch, MXZ still waited out the whole confirm wait (90 seconds by
   default, up to 600) before sending it again, and the room's row read `pending`. It is now sent
-  again once the write interval allows (60 seconds by default), and the row reads
-  `unconfirmed`. A freeze floor or overheat ceiling whose command such a head refuses now reads
+  again once the write interval allows (60 seconds by default), with or without anything else
+  happening in the house, and the row reads `unconfirmed`. A freeze floor or overheat ceiling whose command such a head refuses now reads
   held, as on a local head, instead of heat or cool.
 
 - **A change at the head is no longer written over by a command MXZ planned before it.** With

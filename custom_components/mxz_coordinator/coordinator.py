@@ -4046,7 +4046,15 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     return
                 await self.async_head_service(climate_id, service, payload)
         except HomeAssistantError:
-            cloud.refused()
+            now = time.monotonic()
+            cloud.refused(now)
+            # Nothing waits on a refused batch, so nothing else may wake the
+            # plan for the next: wake it when the write interval lets that one
+            # out, or now if the refusal itself took longer than the interval.
+            if cloud.wait_for_slot(now) > 0:
+                self._sync_cloud_timer()
+            elif not self._retired:
+                self.hass.async_create_task(self.async_request_refresh())
             raise
         self._floor_accepted(climate_id, active)
 
