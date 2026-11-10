@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from custom_components.mxz_coordinator.const import MODE_COOL, MODE_HEAT
@@ -221,6 +221,11 @@ _records = st.dictionaries(
 
 @PURE
 @given(data=st.one_of(_records, _junk))
+# Every non-finite time, always: what Hypothesis draws shifts with the code it has loaded.
+@example(data={"last_mode_change": math.inf})
+@example(data={"last_mode_change": -math.inf})
+@example(data={"last_mode_change": math.nan})
+@example(data={"last_mode_change": 1.0, "mode": MODES[0], "mode_at": math.inf, "mode_by_votes": False})
 async def test_any_stored_record_loads_as_a_readable_record(hass: HomeAssistant, data: Any) -> None:
     """Whatever the file holds, a start gets a usable record: a mode only with its
     time and flag, and a change time that is finite or none."""
