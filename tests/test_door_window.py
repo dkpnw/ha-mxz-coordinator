@@ -742,20 +742,25 @@ async def test_a_stored_pause_written_by_hand_resumes_as_written(
     hass: HomeAssistant, freezer, hass_storage
 ) -> None:
     """A record in the stored shape, written while Home Assistant is down (as an
-    earlier release wrote it), is the room's pause from the first plan on."""
-    rig = await _setup(hass, freezer, study={**WINDOW_ON, ZONE_OPENING_NOTIFY: True})
+    earlier release wrote it), is the room's pause from the first plan on, and
+    its resume puts back the vane the record holds."""
+    rig = await _setup(
+        hass, freezer, study={**WINDOW_ON, ZONE_OPENING_NOTIFY: True, ZONE_VANE_VERTICAL: VANE},
+    )
     assert rig.head() == MODE_COOL
+    selects = async_mock_service(hass, "select", "select_option")
     paused_at = float(int(dt_util.utcnow().timestamp()) - 600)
     key = f"{DOMAIN}.{rig.entry.entry_id}.openings"
     async with stopped(rig.hass, rig.entry):
         await rig.window("on")
+        hass.states.async_set(VANE, "auto", {"options": VANE_OPTIONS})
         hass_storage[key] = {
             "version": 1, "minor_version": 1, "key": key,
             "data": {"rooms": {rig.heads[0]: {
                 "state": "paused", "override": None, "paused_at": paused_at,
                 "snapshot": {
                     "hvac_mode": MODE_COOL, "fan_mode": "auto", "fan_held": False,
-                    "vanes": {}, "dry": False,
+                    "vanes": {VANE: "2"}, "dry": False,
                 },
                 "notified": True,
             }}},
@@ -770,6 +775,24 @@ async def test_a_stored_pause_written_by_hand_resumes_as_written(
     await rig.later(CLOSE + 1)
     assert rig.head() == MODE_COOL
     assert rig.notices() == [RESUME_NOTICE]  # the stored flag says its pause notice went out
+    assert [c.data for c in selects] == [{"entity_id": VANE, "option": "2"}]
+
+
+async def test_vanes_moved_while_paused_are_put_back_after_a_restart(
+    hass: HomeAssistant, freezer
+) -> None:
+    """The snapshot a pause took outlives a restart: the resume after it still
+    puts back the vane the head had when the pause began."""
+    rig = await _setup(hass, freezer, study={**WINDOW_ON, ZONE_VANE_VERTICAL: VANE})
+    hass.states.async_set(VANE, "2", {"options": VANE_OPTIONS})
+    selects = async_mock_service(hass, "select", "select_option")
+    await rig.open_and_pause()
+    await restart(rig.hass, rig.entry)
+    hass.states.async_set(VANE, "auto", {"options": VANE_OPTIONS})  # the head reset it
+    await rig.window("off")
+    await rig.later(CLOSE + 1)
+    assert rig.head() == MODE_COOL
+    assert [c.data for c in selects] == [{"entity_id": VANE, "option": "2"}]
 
 
 async def test_closed_during_a_restart_waits_the_full_close_delay(
