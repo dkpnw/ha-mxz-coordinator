@@ -879,6 +879,13 @@ async def test_hw2_stale_cooling_after_mxz_s_heat_run_votes_nothing(
     assert calls == []  # MXZ never wrote to it
 
 
+async def _fire_after(hass: HomeAssistant, seconds: float) -> None:
+    """Run every Home Assistant timer due within ``seconds`` from now, and
+    only those; the coordinator's clock does not move."""
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=seconds))
+    await hass.async_block_till_done()
+
+
 async def _unconfirmed(hass: HomeAssistant):
     """Released, then the head set to heat reports heating at once: inside
     the window, so no vote yet and the window's end armed."""
@@ -917,13 +924,24 @@ async def test_a_run_still_going_at_the_window_end_counts_from_the_wakeup(
 
 async def test_a_wakeup_short_of_the_window_rearms_for_the_rest(hass: HomeAssistant) -> None:
     """The window is half-open on the coordinator's clock: a wakeup whose
-    compute still sees it open counts nothing and re-arms for what is left."""
+    compute still sees it open counts nothing and re-arms for what is left,
+    so the re-armed wakeup runs no sooner and no later than the rest."""
     entry, coord, _head_b = await _unconfirmed(hass)
     pass_time(coord, SETTLE - 5)  # 5 s left
     await _recompute(hass, entry)
     assert _row(hass, entry, 1)["hands_off_vote"] is None
     assert armed(coord, "settle")
     assert await _window_left(hass, entry) == pytest.approx(5, abs=1)
+
+    computes = _computes(coord)
+    await _fire_after(hass, 4)  # 1 s short of the rest
+    assert computes == []
+    assert armed(coord, "settle")
+    pass_time(coord, 5)
+    await _fire_after(hass, 6)  # 1 s past it
+    assert computes == ["compute"]
+    assert _row(hass, entry, 1)["hands_off_vote"] == MODE_HEAT
+    assert not armed(coord, "settle")
 
 
 async def test_a_fired_wakeup_short_of_the_window_rearms_for_the_rest(
@@ -946,9 +964,11 @@ async def test_a_fired_wakeup_short_of_the_window_rearms_for_the_rest(
         assert armed(coord, "settle")  # re-armed for the rest
         assert await _window_left(hass, entry) == pytest.approx(5, abs=1)
 
+        await _fire_after(hass, 4)  # 1 s short of the rest: not yet
+        assert computes == ["compute"]
+        assert armed(coord, "settle")
         pass_time(coord, 5)  # the rest of the window
-        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=SETTLE + 10))
-        await hass.async_block_till_done()
+        await _fire_after(hass, 6)  # 1 s past it
     assert requests == []
     assert computes == ["compute", "compute"]
     row = _row(hass, entry, 1)
@@ -1022,6 +1042,15 @@ async def test_a_stop_or_a_new_mode_change_cancels_or_moves_the_wakeup(
     left = await _window_left(hass, entry)
     assert left == pytest.approx(SETTLE, abs=1)  # timed from the new change
     assert _row(hass, entry, 1)["hands_off_vote"] is None
+    computes.clear()
+    await _fire_after(hass, SETTLE - 1)  # the moved wakeup: not 1 s early
+    assert computes == []
+    assert armed(coord, "settle")
+    pass_time(coord, SETTLE)
+    await _fire_after(hass, SETTLE + 1)  # and not late
+    assert computes == ["compute"]
+    assert _row(hass, entry, 1)["hands_off_vote"] == MODE_COOL
+    assert not armed(coord, "settle")
 
 
 async def test_unload_cancels_the_settle_wakeup(hass: HomeAssistant) -> None:

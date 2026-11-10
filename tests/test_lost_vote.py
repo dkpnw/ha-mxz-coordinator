@@ -487,17 +487,22 @@ async def test_a_wall_clock_step_neither_shortens_nor_stretches_the_limit(
 ) -> None:
     entry, head_a, _head_b = await _standoff(hass)
     coord = entry.runtime_data
+    # The hold runs out before the loss: on the one clock, letting it run out
+    # later would age the loss too.
+    expire_dwell(coord)
     await _lose(hass, head_a)
     await _recompute(hass, entry)
     jump_wall_clock(monkeypatch, 3 * 3600)
-    expire_dwell(coord)
     await _recompute(hass, entry)
     assert _row(hass, entry, 0)["vote_status"] == "stale"
     jump_wall_clock(monkeypatch, -6 * 3600)
-    pass_time(coord, DEFAULT_SECONDS)
-    expire_dwell(coord)
+    pass_time(coord, DEFAULT_SECONDS - 2)
     await _recompute(hass, entry)
-    assert _row(hass, entry, 0)["vote_status"] == "expired"
+    assert _row(hass, entry, 0)["vote_status"] == "stale"  # not cut short
+    pass_time(coord, 2)
+    assert coord.mode_hold_remaining() == 0
+    await _recompute(hass, entry)
+    assert _row(hass, entry, 0)["vote_status"] == "expired"  # nor stretched
     assert _plan(hass, entry).state == MODE_HEAT
 
 
@@ -830,13 +835,17 @@ async def test_a_hands_off_safety_vote_is_stale_then_expires(hass: HomeAssistant
     await _remote(hass, head_b, "heat")
     await _recompute(hass, entry)
     assert _plan(hass, entry).state == MODE_HEAT  # the safety vote outranks it
+    expire_dwell(coord)  # before the loss, so the loss ages by the limit alone
     await _lose(hass, head_b)
-    expire_dwell(coord)
     await _recompute(hass, entry)
     assert _vote(hass, entry, 1)[:2] == (MODE_HEAT, "stale")
     assert _plan(hass, entry).state == MODE_HEAT
-    pass_time(coord, DEFAULT_SECONDS)
-    expire_dwell(coord)
+    pass_time(coord, DEFAULT_SECONDS - 2)
+    await _recompute(hass, entry)
+    assert _vote(hass, entry, 1)[:2] == (MODE_HEAT, "stale")
+    assert _plan(hass, entry).state == MODE_HEAT
+    pass_time(coord, 2)
+    assert coord.mode_hold_remaining() == 0
     await _recompute(hass, entry)
     assert _vote(hass, entry, 1)[:2] == (None, "expired")
     assert _plan(hass, entry).state == MODE_COOL
