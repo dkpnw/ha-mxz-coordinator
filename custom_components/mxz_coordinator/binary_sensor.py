@@ -49,8 +49,8 @@ class MXZPausedOpenSensor(MXZEntity, CoordinatorEntity[MXZCoordinator], BinarySe
 
     @property
     def is_on(self) -> bool:
-        return self.coordinator._opening_paused(self._zone)
+        return self.coordinator.openings.paused(self._zone)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return self.coordinator.opening_attributes(self._zone)
+        return self.coordinator.openings.attributes(self._zone)

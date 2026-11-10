@@ -65,6 +65,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_VANE_VERTICAL,
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+from tests.clocks import pass_time
 from tests.cloud_heads import record as record_calls
 from tests.cloud_heads import register
 from tests.cloud_heads import writes as head_writes
@@ -476,7 +477,7 @@ async def test_the_rooms_mode_is_never_rewritten_and_off_stays_off(
     )
     await hass.async_block_till_done()
     assert rig.opening()["window_override"] is False
-    assert rig.coord.opening_state_of("primary") == "paused"
+    assert rig.coord.openings.state_of("primary") == "paused"
     await rig.window("off")
     await rig.later(CLOSE + 1)
     await rig.recompute()
@@ -494,7 +495,7 @@ async def test_a_disabled_rooms_freeze_floor_still_runs_with_the_window_open(
     await rig.open_and_pause()
     await rig.recompute()
     assert rig.head() == MODE_HEAT  # the floor heats it, window or not
-    assert rig.coord.opening_state_of("primary") == "paused"  # the window's own state
+    assert rig.coord.openings.state_of("primary") == "paused"  # the window's own state
     assert rig.opening()["paused_reason"] is None  # not off for the window
     assert rig.hass.states.get(rig.eid("_primary_paused_open")).state == "off"
 
@@ -815,6 +816,34 @@ async def test_nothing_resumes_while_the_close_delay_runs(hass: HomeAssistant, f
     assert rig.thermostat().attributes["paused_since"] is None
 
 
+@pytest.mark.parametrize(
+    ("open_delay", "close_delay", "open_for", "closed_for"),
+    [
+        (0, 90, "0 s", "90 s"),
+        (45, 3540, "45 s", "59 min"),
+        (1800, 3600, "30 min", "1 h"),
+    ],
+)
+async def test_notices_say_each_delay_in_seconds_minutes_or_hours(
+    hass: HomeAssistant, freezer, open_delay, close_delay, open_for, closed_for
+) -> None:
+    rig = await _setup(
+        hass, freezer,
+        study={
+            **WINDOW_ON, ZONE_OPENING_NOTIFY: True,
+            ZONE_OPENING_OPEN_DELAY: open_delay, ZONE_OPENING_CLOSE_DELAY: close_delay,
+        },
+    )
+    await rig.window("on")
+    await rig.later(open_delay + 1)
+    await rig.window("off")
+    await rig.later(close_delay + 1)
+    assert rig.notices() == [
+        f"Study paused: Study window open for {open_for}. Heat/cool off in this room.",
+        f"Study resumed: closed for {closed_for}.",
+    ]
+
+
 async def test_notices_are_rate_limited(hass: HomeAssistant, freezer) -> None:
     rig = await _setup(hass, freezer, study={**WINDOW_ON, ZONE_OPENING_NOTIFY: True})
     for _ in range(2):  # a door that flaps: one pair in ten minutes
@@ -822,7 +851,7 @@ async def test_notices_are_rate_limited(hass: HomeAssistant, freezer) -> None:
         await rig.window("off")
         await rig.later(CLOSE + 1)
     assert rig.notices() == [PAUSE_NOTICE, RESUME_NOTICE]
-    rig.coord._opening_notice_at["primary"] -= OPENING_NOTIFY_SECONDS
+    pass_time(rig.coord, OPENING_NOTIFY_SECONDS)
     await rig.open_and_pause()
     await rig.switch("_primary_window_override", True)
     assert rig.notices() == [PAUSE_NOTICE, RESUME_NOTICE, PAUSE_NOTICE, OVERRIDE_NOTICE]

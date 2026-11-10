@@ -34,7 +34,7 @@
 (* WithVote adds one hands-off room after the coordinated ones: a person   *)
 (* runs its head, and its mode is an ordinary vote (PRIORITY_VOTE).        *)
 (*                                                                         *)
-(* WithOpenings adds the door/window pause (coordinator._opening_step):    *)
+(* WithOpenings adds the door/window pause (OpeningPause.step):            *)
 (* a room's window opens past its open delay (Open: paused), closes past   *)
 (* its close delay (Close: resumed), or a person takes the paused room     *)
 (* over (Override: its head, or its Window Override switch) until the      *)
@@ -97,7 +97,7 @@ VARIABLES
     steppedSinceStamp,  \* the wall clock was stepped since lastStamp
     holdBroken,         \* a change came sooner than the hold allows
     runBroken,          \* a running room lost the mode with no call against it
-    \* The door/window pause (coordinator._openings), kept across starts.
+    \* The door/window pause (openings.OpeningPause), kept across starts.
     paused,             \* each room: paused or closing (off, no vote)
     overridden,         \* each room: a person runs it with its window open
     enabled,            \* each room's own MXZ mode (its enable switch)
@@ -323,7 +323,7 @@ NewCoordinator(newBoot, selMode, selAt, newRestore, newRestoreAt) ==
                    steppedSince, voteOwned, picked, lastStamp,
                    steppedSinceStamp, holdBroken, runBroken>>
     \* The door/window record is stored at once on every change
-    \* (_save_openings) and read by the next start (async_load_openings).
+    \* (OpeningPause._save) and read by the next start (async_load_openings).
     /\ UNCHANGED openings
 
 \* __init__.async_reload: same process. The Store instance is shared
@@ -350,7 +350,7 @@ RestoreDump == WithCrash /\ <<restoreMode, restoreAt>> # <<mode, modeAt>>
     /\ UNCHANGED openings
 
 (***************************************************************************)
-(* The door/window pause (coordinator._opening_step, logic.opening_state). *)
+(* The door/window pause (OpeningPause.step, logic.opening_state).         *)
 (* None of these is a mode change: each leaves the mode, the hold and the  *)
 (* record alone (stampMoved watches that). The room's own mode, its enable *)
 (* switch, is never touched by any of them.                                *)

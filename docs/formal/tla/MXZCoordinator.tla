@@ -21,8 +21,8 @@
 (* with Allowed drift 1 and Mode switch threshold 3 as multiples of one    *)
 (* reading position (see Demand and Engage). Room 1 is the room with the   *)
 (* door/window and the fan under study: _fan_cmd, _fan_prev, _fan_older,   *)
-(* _fan_idx,                                                               *)
-(* _fan_latched and _openings are per head and never read another head's.  *)
+(* _fan_idx, _fan_latched and the door/window records (OpeningPause) are   *)
+(* per head and never read another head's.                                 *)
 (***************************************************************************)
 EXTENDS Integers, Sequences
 
@@ -105,7 +105,7 @@ VARIABLES
     fanLatched,         \* coordinator._fan_latched
     fanRestore,         \* coordinator._fan_restore: None, "held" or "free"
     saved,              \* the Fan auto switch's restore data; has = FALSE: none yet
-    \* Room 1's door/window (coordinator._openings).
+    \* Room 1's door/window (openings.OpeningPause).
     winRead,            \* "open", "closed" or None (unavailable)
     winChanged,         \* when that reading began
     winState,           \* record["state"]
@@ -358,10 +358,10 @@ Init ==
 (***************************************************************************)
 (* Decide: MXZCoordinator._compute then _apply.                            *)
 (*   _compute : each room's demand and engage (room_call,                  *)
-(*              engage_with_latch); _opening_step (a closed reading ends   *)
-(*              an override; logic.opening_state; saved at once); a paused *)
-(*              room has no demand, no engage and an empty latch; then     *)
-(*              logic.arbitrate with `allowed` and `running`.              *)
+(*              engage_with_latch); OpeningPause.step (a closed reading    *)
+(*              ends an override; logic.opening_state; saved at once); a   *)
+(*              paused room has no demand, no engage and an empty latch;   *)
+(*              then logic.arbitrate with `allowed` and `running`.         *)
 (*   _apply   : a paused head goes to off with its fan only read           *)
 (*              (_observe_paused_fan); any other head gets                 *)
 (*              logic.head_action, then _apply_fan; a changed mode is      *)
@@ -602,7 +602,7 @@ Dump ==
     /\ UNCHANGED <<lastChange, pick, pickKind, pickSeen, gesture, flipInDwell, flipLate,
                    fanOverwritten, exceptionLost, falseHold, twoBehind, falseHoldTwoBehind, restoreBroken, pauseBroken, overrideBroken>>
 
-\* The door/window reads something else (coordinator._on_opening_change's recompute
+\* The door/window reads something else (OpeningPause.on_change's recompute
 \* is a later Decide).
 WindowReads == WithWindow /\ \E x \in {"open", "closed", None} :
     /\ fresh' = IF phase = "applying" THEN FALSE ELSE fresh

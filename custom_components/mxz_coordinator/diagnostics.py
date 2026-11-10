@@ -404,8 +404,8 @@ def _manual_fan(coordinator: Any, zone: Any) -> dict[str, Any]:
 def _window_pause(coordinator: Any, zone: Any) -> dict[str, Any]:
     return {
         "active": zone.opening_active,
-        "record": coordinator._openings.get(zone.slug),
-        **coordinator.opening_attributes(zone),
+        "record": coordinator.openings.record(zone.slug),
+        **coordinator.openings.attributes(zone),
     }
 
 

@@ -146,13 +146,13 @@ class Pause:
     def check(self) -> None:
         rig, head = self.rig, self.rig.heads[0]
         age = rig.now() - self.since
-        state = rig.coord.opening_state_of("primary")
+        state = rig.coord.openings.state_of("primary")
         if self.overriding:
             assert state == OPENING_OVERRIDDEN
             assert rig.row(0)["window_override"] is True
             assert "off" not in head.mode_writes[self.mode_writes_at:], "an override was turned off"
             return
-        assert rig.coord.window_override("primary") is self.armed
+        assert rig.coord.openings.override_on("primary") is self.armed
         if self.reading == "on":
             self.paused = self.paused or age >= OPEN_DELAY
             assert state == (OPENING_PAUSED if self.paused else OPENING_OPENING)

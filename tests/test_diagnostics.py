@@ -260,7 +260,7 @@ async def test_a_paused_window_shows_in_its_own_room(hass: HomeAssistant, freeze
 
     pause = rooms["primary"]["window_pause"]
     assert pause["active"] is True
-    assert pause["opening_state"] == rig.coord.opening_state_of("primary")
+    assert pause["opening_state"] == rig.coord.openings.state_of("primary")
     assert pause["paused_reason"] is not None
     assert pause["paused_since"] is not None
     assert rooms["secondary"]["window_pause"] == {"active": False, "record": None}

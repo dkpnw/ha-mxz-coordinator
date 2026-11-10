@@ -188,16 +188,7 @@ from .const import (
     OFF_WHILE_ENABLED_DELAY,
     OFFSET_HEAD_TYPES,
     OPENING_CLOSE_DELAY_BOUNDS,
-    OPENING_CLOSED,
-    OPENING_CLOSING,
-    OPENING_NOTIFY_SECONDS,
     OPENING_OPEN_DELAY_BOUNDS,
-    OPENING_OPENING,
-    OPENING_OVERRIDDEN,
-    OPENING_PAUSED,
-    OPENING_PAUSED_STATES,
-    OPENING_REASON_OVERRIDDEN,
-    OPENING_REASON_PAUSED,
     STARTUP_RECOVER_DELAY,
     UNAVAILABLE_STATES,
     VANE_KICK_APPLY,
@@ -244,7 +235,6 @@ from .const import (
     zone_slug,
 )
 from .logic import (
-    CLOSED_READ,
     PRIORITY_DEMAND,
     PRIORITY_FLOOR_HEAT,
     PRIORITY_SAFETY,
@@ -262,13 +252,11 @@ from .logic import (
     engage_with_latch,
     evidence_contract,
     fan_for_delta,
+    finite_number,
     floor_call,
     floor_progress,
     freshness_window,
     head_action,
-    opening_due,
-    opening_reading,
-    opening_state,
     range_delta,
     room_call,
     sample_evidence,
@@ -278,6 +266,7 @@ from .logic import (
     shift_range,
     snapped_midpoint,
 )
+from .openings import OpeningPause
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -682,10 +671,6 @@ class ModeRecord:
     by_votes: bool = False
 
 
-def _finite_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
-
-
 def _mode_change_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
     """This entry's store, one instance per Home Assistant run.
 
@@ -720,14 +705,14 @@ async def async_load_mode_record(hass: HomeAssistant, entry_id: str) -> ModeReco
         data.get(MODE_KEY), data.get(MODE_AT_KEY), data.get(MODE_BY_VOTES_KEY)
     )
     has_mode = (
-        mode in (MODE_COOL, MODE_HEAT) and _finite_number(mode_at)
+        mode in (MODE_COOL, MODE_HEAT) and finite_number(mode_at)
         and isinstance(by_votes, bool)
     )
     shared: dict[str, Any] = (
         {"mode": mode, "mode_at": float(mode_at), "by_votes": by_votes} if has_mode else {}
     )
     value = data.get(MODE_CHANGE_KEY)
-    if _finite_number(value):
+    if finite_number(value):
         return ModeRecord(changed_at=float(value), **shared)
     if has_mode and MODE_CHANGE_KEY not in data:
         return ModeRecord(changed_at=None, **shared)
@@ -767,67 +752,6 @@ def mode_change_stamp(stored: float | None, now: float) -> float | None:
 
 # ---------------------------------------------------------------------------
 # Door/window pause, kept across reloads and restarts
-# ---------------------------------------------------------------------------
-# One small storage file per config entry, beside the mode-change record and
-# apart from it (the hold's record is never touched by a pause). Written at
-# once on every change of a room's door/window state, keyed by the room's
-# head (a reorder moves a room's slug, never its head). Each room: its state,
-# a person's override ("switch" or "manual", or None), when its pause began
-# (wall clock), the head as it was then (the snapshot a resume restores), and
-# whether its pause notice went out (its resume notice follows only then).
-OPENINGS_STORE_VERSION = 1
-OPENINGS_ROOMS_KEY = "rooms"
-_OPENING_STATES = (
-    OPENING_CLOSED, OPENING_OPENING, OPENING_PAUSED, OPENING_CLOSING, OPENING_OVERRIDDEN,
-)
-_OPENING_OVERRIDES = ("switch", "manual")
-
-
-def _openings_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
-    """This entry's door/window store, one instance per Home Assistant run."""
-    stores: dict[str, Store[dict[str, Any]]] = hass.data.setdefault(
-        f"{DOMAIN}_openings_stores", {}
-    )
-    if entry_id not in stores:
-        stores[entry_id] = Store(
-            hass, OPENINGS_STORE_VERSION, f"{DOMAIN}.{entry_id}.openings"
-        )
-    return stores[entry_id]
-
-
-async def async_load_openings(hass: HomeAssistant, entry_id: str) -> dict[str, Any]:
-    """Each room's stored door/window record, by head; {} when none is readable."""
-    stored = await _openings_store(hass, entry_id).async_load()
-    rooms = stored.get(OPENINGS_ROOMS_KEY) if isinstance(stored, dict) else None
-    if not isinstance(rooms, dict):
-        return {}
-    return {key: value for key, value in rooms.items() if isinstance(value, dict)}
-
-
-async def async_remove_openings(hass: HomeAssistant, entry_id: str) -> None:
-    """Delete a removed entry's door/window record."""
-    await _openings_store(hass, entry_id).async_remove()
-    hass.data.get(f"{DOMAIN}_openings_stores", {}).pop(entry_id, None)
-
-
-def _restored_opening(stored: Any) -> dict[str, Any]:
-    """A room's door/window record as a start reads it; anything unreadable is closed."""
-    data: Any = stored if isinstance(stored, dict) else {}
-    state = data.get("state")
-    override = data.get("override")
-    paused_at = data.get("paused_at")
-    snapshot = data.get("snapshot")
-    return {
-        "state": state if state in _OPENING_STATES else OPENING_CLOSED,
-        "override": override if override in _OPENING_OVERRIDES else None,
-        "paused_at": float(paused_at) if _finite_number(paused_at) else None,
-        "snapshot": snapshot if isinstance(snapshot, dict) else None,
-        "notified": data.get("notified") is True,
-        # In memory only: re-read from the opening entity at every evaluation.
-        "due": None,
-    }
-
-
 # What an entry saves in the system unit, by how it follows a °F/°C switch.
 _SAVED_TEMPERATURES = (
     CONF_CLAMP_MIN,
@@ -867,7 +791,7 @@ def _convert_saved_temps(
     floors = {ZONE_FLOOR_LOW: (low_min, low_max), ZONE_FLOOR_HIGH: (high_min, high_max)}
 
     def moved(value: Any) -> Any:
-        return target_in_unit(value, saved_in, unit, step) if _finite_number(value) else value
+        return target_in_unit(value, saved_in, unit, step) if finite_number(value) else value
 
     def scaled(value: float) -> float:
         return snap_to_step(offset_in_unit(value, saved_in, celsius), drift_min / 2)
@@ -875,7 +799,7 @@ def _convert_saved_temps(
     def field(key: str, value: Any) -> Any:
         if key in _SAVED_TEMPERATURES:
             return moved(value)
-        if not _finite_number(value):
+        if not finite_number(value):
             return value
         if key == CONF_DEMAND_THRESHOLD:
             return scaled(value)
@@ -888,10 +812,10 @@ def _convert_saved_temps(
             return zone
         out = dict(zone)
         for key, (low, high) in floors.items():
-            if _finite_number(out.get(key)):
+            if finite_number(out.get(key)):
                 out[key] = min(max(moved(out[key]), low), high)
         for key in _SAVED_ROOM_DRIFTS:
-            if _finite_number(out.get(key)):
+            if finite_number(out.get(key)):
                 out[key] = min(max(scaled(out[key]), drift_min), drift_max)
         return out
 
@@ -906,11 +830,11 @@ def _convert_saved_temps(
     if (
         CONF_SAVED_TEMP_UNIT not in conf
         and not any(
-            _finite_number(conf.get(key))
+            finite_number(conf.get(key))
             for key in (*_SAVED_TEMPERATURES, CONF_DEMAND_THRESHOLD, *_SAVED_DRIFTS)
         )
         and not any(
-            isinstance(zone, dict) and _finite_number(zone.get(key))
+            isinstance(zone, dict) and finite_number(zone.get(key))
             for zone in (zones if isinstance(zones, list) else ())
             for key in (*floors, *_SAVED_ROOM_DRIFTS)
         )
@@ -957,7 +881,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ``record`` is the entry's stored mode record (``async_load_mode_record``):
         the wall-clock time of the last real mode change, and the shared mode
         as last written. None is no record. ``openings`` is the entry's stored
-        door/window record (``async_load_openings``), by head.
+        door/window record (``openings.async_load_openings``), by head.
         """
         super().__init__(
             hass,
@@ -1205,28 +1129,6 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Inert until async_setup: the seed compute below runs before the
         # switches restore, with every room still reading disabled.
         self._floor_live = False
-        # Door/window pause: each room with the pause on, its record as last
-        # stored (see _restored_opening), so a pause outlives a reload or a
-        # restart. Evaluated from async_setup on; the seed compute only shows
-        # it. One wakeup per room for the end of its open or close delay; the
-        # monotonic time of each room's last pause notice (the rate limit, in
-        # memory only); and the vanes a resume still owes a room's head.
-        self._openings_store = _openings_store(hass, entry.entry_id)
-        self._openings: dict[str, dict[str, Any]] = {
-            zone.slug: _restored_opening((openings or {}).get(zone.climate_id))
-            for zone in self.zones
-            if zone.opening_active
-        }
-        # A stored room that no longer pauses (turned off, or removed) is
-        # dropped from the record at setup, so turning the pause back on later
-        # never brings back an old pause.
-        self._openings_stale = bool(
-            set(openings or {}) - {z.climate_id for z in self.zones if z.opening_active}
-        )
-        self._openings_live = False
-        self._opening_timers: dict[str, Any] = {}
-        self._opening_notice_at: dict[str, float] = {}
-        self._opening_vanes_due: dict[str, dict[str, str]] = {}
         # Whether a plan has been computed since async_setup, from restored
         # inputs. The seed is not one: its shared mode is only the default.
         self.plan_ready = False
@@ -1327,6 +1229,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # once, with no grace, as at any other time (the notice after the
         # first compute below reports what each room actually started as).
         self._started_ts: float = dt_util.utcnow().timestamp()
+        # Door/window pause, per room (see openings.OpeningPause).
+        self.openings = OpeningPause(self, entry.entry_id, self.zones, openings, self._started_ts)
         self._freshness: dict[str, tuple[float, float]] = {}  # slug -> (max age, grace) s
         # slug -> (basis, marker attribute, marker is a time); only the
         # enforcement-capable sensors are in here, and only they have a cutoff.
@@ -1486,9 +1390,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_setup(self) -> None:
         """Wire up listeners and run the first compute/apply."""
         self._floor_live = True  # the switches have restored by now
-        self._openings_live = True
-        if self._openings_stale:
-            self._save_openings()
+        self.openings.start()
         for zone in self.zones:
             if zone.dual and zone.target_low is None:
                 # An edge that never restored (its number disabled in the
@@ -1595,12 +1497,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
             )
         # A door/window reading pauses or resumes its room: react at once,
-        # then the delay wakeups (_sync_opening_timers) take it from there.
+        # then the delay wakeups (OpeningPause.sync_timers) take it from there.
         openings: list[Any] = [zone.opening_entity for zone in self.zones if zone.opening_active]
         if openings:
             self._unsubs.append(
                 async_track_state_change_event(
-                    self.hass, openings, self._on_opening_change
+                    self.hass, openings, self.openings.on_change
                 )
             )
         self._unsubs.append(async_at_start(self.hass, self._on_ha_start))
@@ -1742,7 +1644,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cancel_settle_timer()
         self._cancel_comfort_timer()
         self._cancel_cloud_timer()
-        self._cancel_opening_timers()
+        self.openings.cancel_timers()
         for zone in self.zones:
             if zone.climate_id in self._cloud:
                 # A stale head's issue is raised again by the next setup, if
@@ -1922,7 +1824,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # never votes, so it can neither keep nor turn the shared mode,
             # and it doesn't hold Resting mode off; its run starts afresh on
             # resume. (Evaluated before Dry: a resume can put a Dry back.)
-            paused = self._opening_step(zone, now)
+            paused = self.openings.step(zone, now)
             if paused:
                 demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED
                 if zone.slug in self._engage_latch:
@@ -2075,7 +1977,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         **self.command_attributes(zone.climate_id),
                         **self._cloud_attributes(zone),
                         **self._dry_attributes(zone, dry_votes[i]),
-                        **self.opening_attributes(zone),
+                        **self.openings.attributes(zone),
                     }
                     for i, zone in enumerate(self.zones)
                 ],
@@ -2094,11 +1996,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "idle_action": self.idle_action,
             }
         )
-        if self._openings:
+        if self.openings.any_room:
             # Only an entry with a door/window pause has this key, so every
             # other entry's plan is exactly what it was before the feature.
             plan["paused_rooms"] = [
-                zone.name for zone in self.zones if self._opening_paused(zone)
+                zone.name for zone in self.zones if self.openings.paused(zone)
             ]
         return plan
 
@@ -2541,7 +2443,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._sync_settle_timer()
             self._sync_comfort_timer()
             self._sync_cloud_timer()
-            self._sync_opening_timers()
+            self.openings.sync_timers()
             if self._refresh_pending or self._needs_legacy_refresh_guard:
                 self._sync_refresh_followup()
 
@@ -2898,7 +2800,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue  # mid vane-kick: leave the head alone until it finishes
             if self._head_change_settling(zone.climate_id):
                 continue  # a change made at the head is holding: don't undo it yet
-            if self._opening_paused(zone):
+            if self.openings.paused(zone):
                 # Door/window pause: straight to off (no coil-dry run, no fan,
                 # setpoint or vane write), and only to a head that is on. A
                 # person's fan pick on the off head is still read, so it is
@@ -3031,7 +2933,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._floor_expect_command(zone, state, low, high)
         self._write_back_mode(plan, engages)
         await self._wait_deliveries(tasks)
-        await self._restore_opening_vanes()
+        await self.openings.async_restore_vanes()
 
     def _write_back_mode(self, plan: dict[str, Any], engages: list[str]) -> None:
         """The plan's mode becomes the shared mode, stamped and recorded.
@@ -3477,7 +3379,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if active := self._deliveries.get(entity_id):
             return cast("str | None", active["act"])
         if any(
-            zone.climate_id == entity_id and self._opening_paused(zone) for zone in self.zones
+            zone.climate_id == entity_id and self.openings.paused(zone) for zone in self.zones
         ):
             return MODE_OFF  # a paused room's head is off by plan, never drift
         data = self._applying_plan if self._applying_plan is not None else self.data or {}
@@ -4827,16 +4729,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         zone = self._zone_of(climate_id)
         if (
-            zone is not None and self._opening_paused(zone)
+            zone is not None and self.openings.paused(zone)
             and self.coordinator_enable and not self.inhibited
         ):
             # Door/window pause: no kick (it would run the head with the
             # window open). The pick is kept for the resume, which sends it.
-            record = self._openings[zone.slug]
-            snapshot = record["snapshot"] if isinstance(record["snapshot"], dict) else {}
-            vanes: Any = snapshot.get("vanes") if isinstance(snapshot.get("vanes"), dict) else {}
-            record["snapshot"] = {**snapshot, "vanes": {**vanes, vane_id: option}}
-            self._save_openings()
+            self.openings.keep_vane(zone, vane_id, option)
             self._redraw_rooms()
             return
         state = self.hass.states.get(climate_id)
@@ -5205,11 +5103,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for zone in self.zones:
                 if (
                     zone.climate_id == entity_id
-                    and self._opening_paused(zone)
+                    and self.openings.paused(zone)
                     and mode != self._planned_act_for(entity_id)
                 ):
-                    self._openings[zone.slug]["override"] = "manual"
-                    self._save_openings()
+                    self.openings.take_over(zone)
                     refresh_needed = True
         # A cloud head's report of an older state inside its confirm wait is
         # not drift either (never true for a local head).
@@ -5441,7 +5338,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # floor run's is MXZ's until it ends; a paused room's has its own rule.
             or self._hands_off_phase(zone) is not None
             or self.floor_tripped(zone.slug)
-            or self._opening_paused(zone)
+            or self.openings.paused(zone)
             or self._cloud_stale_report(climate_id, mode=state.state)
         ):
             return None
@@ -6042,183 +5939,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Whether this room's park landed (what the enable switch persists)."""
         return slug in self._hands_off_released
 
-    # -- door/window pause (opt-in, per room) ----------------------------------
-    # Idea from @mikepell007's MIT blueprint mxz_coordinator_blueprint.
-    def _opening_paused(self, zone: Zone) -> bool:
-        """Whether this room is paused for its door/window now (and so off, no vote).
-
-        Only an enabled room: a disabled room's head is off anyway, and its
-        freeze floor / overheat ceiling (a safety run) is never paused.
-        """
-        record = self._openings.get(zone.slug)
-        return (
-            record is not None and zone.enable
-            and record["state"] in OPENING_PAUSED_STATES
-        )
-
-    def _opening_step(self, zone: Zone, now: float) -> bool:
-        """Evaluate this room's door/window state; return whether it is paused.
-
-        Part of the compute (it commands nothing): it advances the room's
-        state (logic.opening_state) and, on a change, snapshots the head for
-        a pause or restores it on a resume, sends the notice, and saves the
-        record at once. A reading held since before this coordinator started
-        counts from the start, so a reload or restart can only lengthen a
-        delay, never shorten it. The seed compute in __init__ only shows the
-        stored state.
-        """
-        record = self._openings.get(zone.slug)
-        if record is None:
-            return False
-        if self._openings_live and not self._retired:
-            sensor = self.hass.states.get(cast("str", zone.opening_entity))
-            raw = opening_reading(sensor.state if sensor is not None else None)
-            since = max(
-                sensor.last_changed.timestamp() if sensor is not None else now,
-                self._started_ts,
-            )
-            changed = False
-            if raw == CLOSED_READ and record["override"] is not None:
-                # A closed reading ends an override: the next opening pauses.
-                record["override"] = None
-                changed = True
-            old = record["state"]
-            new = opening_state(
-                raw=raw, since=since, now=now,
-                open_delay=zone.opening_open_delay,
-                close_delay=zone.opening_close_delay,
-                prior=old, override=record["override"] is not None,
-            )
-            record["due"] = opening_due(
-                state=new, since=since,
-                open_delay=zone.opening_open_delay,
-                close_delay=zone.opening_close_delay,
-            )
-            if new != old:
-                record["state"] = new
-                self._opening_transition(zone, record, old, new, now)
-                changed = True
-            if changed:
-                self._save_openings()
-        return self._opening_paused(zone)
-
-    def _opening_transition(
-        self, zone: Zone, record: dict[str, Any], old: str, new: str, now: float
-    ) -> None:
-        """One change of a room's door/window state: snapshot, restore, notice."""
-        was_paused = old in OPENING_PAUSED_STATES
-        is_paused = new in OPENING_PAUSED_STATES
-        _LOGGER.info("MXZ: %s door/window %s -> %s", zone.name, old, new)
-        if is_paused and not was_paused:
-            record["paused_at"] = now
-            record["snapshot"] = self._opening_snapshot(zone)
-            sensor = self.hass.states.get(cast("str", zone.opening_entity))
-            what = sensor.name if sensor is not None else zone.opening_entity
-            self._opening_notice(
-                zone, record, "pause",
-                f"{zone.name} paused: {what} open for "
-                f"{_delay_text(zone.opening_open_delay)}. Heat/cool off in this room.",
-            )
-            return
-        if was_paused == is_paused:
-            # paused <-> closing (still paused: the close delay is counting),
-            # or opening <-> closed, or an override before any pause.
-            return
-        snapshot = record["snapshot"] or {}
-        manual = record["override"] == "manual"
-        record["paused_at"] = None
-        record["snapshot"] = None
-        if new == OPENING_OVERRIDDEN:
-            self._opening_notice(
-                zone, record, "override",
-                f"{zone.name}: {OPENING_REASON_OVERRIDDEN}.",
-            )
-        else:
-            self._opening_notice(
-                zone, record, "resume",
-                f"{zone.name} resumed: closed for {_delay_text(zone.opening_close_delay)}.",
-            )
-        if manual:
-            return  # a person's own change on the head stands
-        # Resume: the room is back in the vote, so the plan decides on/off
-        # and the direction (the shared mode now, not the old one). The fan
-        # needs nothing: MXZ wrote none while paused, so a hold (or a pick
-        # made while paused) is still the head's. Vanes and a Dry are sent.
-        vanes = snapshot.get("vanes")
-        if isinstance(vanes, dict) and vanes:
-            self._opening_vanes_due[zone.slug] = {
-                str(key): str(value) for key, value in vanes.items()
-            }
-        if (
-            snapshot.get("dry") is True and zone.enable
-            and self.dry_pick_refusal(zone) is None and self.start_dry_pick(zone)
-        ):
-            self.hass.async_create_task(self._opening_send_dry(zone))
-
-    def _opening_snapshot(self, zone: Zone) -> dict[str, Any]:
-        """The head as a pause found it: mode, fan, whether the fan was held,
-        its vanes, and whether it was in a Dry the room keeps."""
-        head = self.hass.states.get(zone.climate_id)
-        mode = head.state if head is not None else None
-        vanes = {}
-        for vane_id in (zone.vane_vertical_id, zone.vane_horizontal_id):
-            vane = self.hass.states.get(vane_id) if vane_id else None
-            if vane is not None and vane.state not in UNAVAILABLE_STATES:
-                vanes[vane_id] = vane.state
-        return {
-            "hvac_mode": None if mode in (None, *UNAVAILABLE_STATES) else mode,
-            "fan_mode": head.attributes.get("fan_mode") if head is not None else None,
-            "fan_held": not self.fan_auto_is_on(zone.climate_id),
-            "vanes": vanes,
-            "dry": self.in_dry(zone),
-        }
-
-    def _opening_notice(
-        self, zone: Zone, record: dict[str, Any], kind: str, message: str
-    ) -> None:
-        """Send one door/window notice, if the room asks for them, rate limited.
-
-        A pause notice goes out at most once per OPENING_NOTIFY_SECONDS per
-        room; its resume (or override) notice goes out only when the pause
-        notice did, so a door that flaps sends at most one pair in that time.
-        A pause of a room that is off, or of a coordinator that is off, sends
-        nothing: nothing in the room changed.
-        """
-        if not zone.opening_notify:
-            return
-        if kind == "pause":
-            clock = self.clock()
-            last = self._opening_notice_at.get(zone.slug)
-            if (
-                not zone.enable or not self.coordinator_enable
-                or (last is not None and clock - last < OPENING_NOTIFY_SECONDS)
-            ):
-                record["notified"] = False
-                return
-            self._opening_notice_at[zone.slug] = clock
-            record["notified"] = True
-        else:
-            if not record["notified"]:
-                return
-            record["notified"] = False
-        self.hass.async_create_task(
-            self._send_opening_notice(message, zone.opening_notify_service)
-        )
-
-    async def _send_opening_notice(self, message: str, target: str | None) -> None:
-        """A notice that fails is logged; it never holds up control."""
-        try:
-            await self._notify(message, target)
-        except Exception as err:  # noqa: BLE001 - any notify failure is only logged
-            _LOGGER.warning("MXZ: door/window notice not sent (%s): %s", message, err)
-
-    async def _opening_send_dry(self, zone: Zone) -> None:
-        """Put back the Dry a pause found, once; a refusal is logged."""
-        try:
-            await self.async_send_dry(zone)
-        except HomeAssistantError as err:
-            _LOGGER.warning("MXZ: %s Dry not put back after its pause: %s", zone.name, err)
-
+    # -- door/window pause: the fan read it leaves here (openings.py) ----------
     def _observe_paused_fan(self, climate_id: str) -> None:
         """Read a paused head's fan for the manual-fan hold, and write nothing.
 
@@ -6240,162 +5961,6 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         self._observe_fan_latch(climate_id, observed, MODE_OFF, 0.0)
         self._publish_fan_state(climate_id)
-
-    async def _restore_opening_vanes(self) -> None:
-        """After a resume's apply, send each vane the paused room kept for it.
-
-        The snapshot's position, or a pick made while paused. Only where the
-        vane reads otherwise now; a head the plan left off gets the usual
-        vane kick. A room paused again keeps them owed.
-        """
-        for zone in self.zones:
-            vanes = self._opening_vanes_due.get(zone.slug)
-            if not vanes or self._opening_paused(zone) or self._retired:
-                continue
-            self._opening_vanes_due.pop(zone.slug)
-            for vane_id, option in vanes.items():
-                vane = self.hass.states.get(vane_id)
-                if (
-                    vane is None or vane.state in UNAVAILABLE_STATES
-                    or vane.state == option
-                    or option not in (vane.attributes.get("options") or ())
-                ):
-                    continue
-                try:
-                    await self.async_apply_vane(zone.climate_id, vane_id, option)
-                except HomeAssistantError as err:
-                    _LOGGER.warning(
-                        "MXZ: %s vane %s not put back after its pause: %s",
-                        zone.name, vane_id, err,
-                    )
-
-    def _save_openings(self) -> None:
-        """Write every room's door/window record at once (never on a retired one)."""
-        if self._retired:
-            return
-        data = {
-            OPENINGS_ROOMS_KEY: {
-                zone.climate_id: {
-                    key: self._openings[zone.slug][key]
-                    for key in ("state", "override", "paused_at", "snapshot", "notified")
-                }
-                for zone in self.zones
-                if zone.slug in self._openings
-            }
-        }
-        self._openings_store.async_delay_save(lambda: data, 0)
-
-    @callback
-    def _on_opening_change(self, event: Event[EventStateChangedData]) -> None:
-        """A door/window entity changed -> recompute, and wake at its delay's end.
-
-        The recompute is the ordinary request, which can wait out the request
-        cooldown; the wakeup is armed from the reading itself, so a short
-        delay still ends on time. The compute that follows re-arms it from
-        the room's state (_sync_opening_timers).
-        """
-        new_state = event.data.get("new_state")
-        reading = opening_reading(new_state.state if new_state is not None else None)
-        for zone in self.zones:
-            if zone.slug not in self._openings or zone.opening_entity != event.data["entity_id"]:
-                continue
-            if reading is None:
-                continue
-            delay = (
-                zone.opening_open_delay if reading != CLOSED_READ else zone.opening_close_delay
-            )
-            self._arm_opening_timer(zone.slug, delay)
-        self.hass.async_create_task(self.async_request_refresh())
-
-    def _sync_opening_timers(self) -> None:
-        """One wakeup per room at the end of its open or close delay."""
-        self._cancel_opening_timers()
-        if self._retired:
-            return
-        now = dt_util.utcnow().timestamp()
-        for slug, record in self._openings.items():
-            if record["due"] is not None:
-                self._arm_opening_timer(slug, record["due"] - now)
-
-    def _arm_opening_timer(self, slug: str, delay: float) -> None:
-        """Replace this room's wakeup with one ``delay`` seconds from now."""
-        if (cancel := self._opening_timers.pop(slug, None)) is not None:
-            cancel()
-        if self._retired:
-            return
-
-        @callback
-        def _fire(_now: Any) -> None:
-            # At once, not after the request cooldown: the delay is the
-            # promise, so a pause or resume lands when it ends.
-            self._opening_timers.pop(slug, None)
-            if not self._retired:
-                self.hass.async_create_task(self._async_refresh_now())
-
-        self._opening_timers[slug] = async_call_later(self.hass, max(0.0, delay), _fire)
-
-    def _cancel_opening_timers(self) -> None:
-        for cancel in self._opening_timers.values():
-            cancel()
-        self._opening_timers.clear()
-
-    def opening_state_of(self, slug: str) -> str | None:
-        """This room's door/window state, or None for a room without the pause."""
-        record = self._openings.get(slug)
-        return None if record is None else record["state"]
-
-    def opening_attributes(self, zone: Zone) -> dict[str, Any]:
-        """A paused room says so, and when it resumes; nothing for a room without it.
-
-        ``opening_state`` is the door/window's own state. ``paused_reason``
-        names why the room is off, only while the pause holds it (a disabled
-        room is off anyway, and its floor may be running it), or why it runs
-        with its window open; ``resumes_at`` is set while the closed reading
-        counts down the close delay (an open window has no resume time yet).
-        """
-        record = self._openings.get(zone.slug)
-        if record is None:
-            return {}
-        state = record["state"]
-        reason = (
-            OPENING_REASON_PAUSED if self._opening_paused(zone)
-            else OPENING_REASON_OVERRIDDEN if state == OPENING_OVERRIDDEN
-            else None
-        )
-        return {
-            "opening_entity": zone.opening_entity,
-            "opening_state": state,
-            "paused_reason": reason,
-            "window_override": record["override"] is not None,
-            "paused_since": _iso(record["paused_at"]),
-            "resumes_at": _iso(record["due"]) if state == OPENING_CLOSING else None,
-        }
-
-    def window_override(self, slug: str) -> bool:
-        """Whether a person is running this room with its door/window open."""
-        record = self._openings.get(slug)
-        return record is not None and record["override"] is not None
-
-    async def async_set_window_override(self, zone: Zone, on: bool) -> None:
-        """The room's Window Override switch.
-
-        On: ignore the open door/window, so a paused room resumes at once by
-        the ordinary resume (the mode-change hold applies as always). A
-        closed reading ends it, so it does nothing while the opening reads
-        closed. Off: the opening counts again (an open one pauses the room).
-        """
-        record = self._openings.get(zone.slug)
-        if record is None:
-            return
-        sensor = self.hass.states.get(cast("str", zone.opening_entity))
-        closed = opening_reading(sensor.state if sensor is not None else None) == CLOSED_READ
-        override = "switch" if on and not closed else None
-        if override == record["override"] or (on and record["override"] is not None):
-            self._redraw_rooms()
-            return
-        record["override"] = override
-        self._save_openings()
-        await self.async_user_changed(at_once=True)
 
     # -- Allow Dry mode (opt-in, enabled rooms) --------------------------------
     def dry_offered(self, zone: Zone) -> bool:
@@ -7644,20 +7209,6 @@ def _span(seconds: float) -> str:
     if minutes >= 60 and minutes % 60 == 0:
         return f"{minutes / 60:g} h"
     return f"{minutes:g} min"
-
-
-def _delay_text(seconds: float) -> str:
-    """A door/window delay as a notice says it: minutes, else seconds."""
-    if seconds >= 60 and seconds % 60 == 0:
-        return _span(seconds)
-    return f"{seconds:g} s"
-
-
-def _iso(stamp: float | None) -> str | None:
-    """A wall-clock time as ISO 8601 to the second, or None."""
-    if stamp is None:
-        return None
-    return dt_util.utc_from_timestamp(stamp).isoformat(timespec="seconds")
 
 
 def _native_unit(entity: Any) -> Any:
