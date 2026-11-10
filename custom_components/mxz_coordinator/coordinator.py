@@ -5593,7 +5593,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             what = "was off while its room is enabled"
         else:
             what = f"was in {mode}, off its coordinated mode"
-        await self._notify(f"{room}: {entity_id} {what} - re-applied via the coordinator.")
+        await self._notify(f"{room}: {entity_id} {what} - re-applying via the coordinator.")
 
     async def _notify(self, message: str, target: str | None = None) -> None:
         target = target or self.notify_service

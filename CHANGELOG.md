@@ -52,6 +52,16 @@ head**; MXZ is then the only writer, as before.
   off a head turned off is still put back after about 30. The alert's text changed; an
   automation that matched the old text needs the new one.
 
+- **The docs and help text now match Accept changes made at the head.** The README,
+  [FEATURES.md](docs/FEATURES.md), [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md), the setup
+  review and the help for **Let its own remote run it while disabled** still said a head turned
+  off, or turned on in a disabled room, is put back. With the option on, the default for every
+  install, the room takes that change instead. Each now says so and says where to turn the
+  option off (Configure → Comfort). Help text in setup, Configure and repairs is shorter:
+  sentences that repeated a field's label or described older behavior are gone. The drift alert
+  now ends "re-applying via the coordinator." instead of "re-applied", because it can go out
+  before the head is written. An automation that matched the old text needs the new one.
+
 - CI only: the HA 2026.10 qualification now exports a suite or fresh-boot log over 5 MiB whole, gzipped into the job log, instead of failing.
 - CI and tests only: ruff moves to 0.17.4 in the CI tools and in each HA test-lane lock, ruff's target is now set to py312, and a new contract test checks that every test-requirement floor installs under each lane's lock. The pytest floors stay where the HA 2024.12.5 lock holds them.
 - CI and config only: Dependabot no longer proposes pytest, pytest-asyncio or pytest-homeassistant-custom-component bumps, which the HA 2024.12.5 test plugin's exact pins cannot install, and the pre-commit ruff hook moves from 0.16.0 to 0.17.4 to match CI. Contract tests hold both.

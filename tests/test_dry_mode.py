@@ -270,7 +270,7 @@ async def test_option_off_dry_is_still_healed(hass: HomeAssistant, stored: Any) 
     await rig.later(BAND_DRIFT_DELAY + 1)
     assert rig.state(1) == "fan_only"  # the plan's idle action, re-applied
     assert rig.notices() == [
-        f"Bedroom: {rig.heads[1]} was in dry, off its coordinated mode - re-applied via the coordinator."
+        f"Bedroom: {rig.heads[1]} was in dry, off its coordinated mode - re-applying via the coordinator."
     ]
     # A room that never opted in keeps exactly the row it had before.
     assert not {"allow_dry", "dry", "dry_vote"} & set(rig.row(1))
