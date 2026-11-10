@@ -221,14 +221,10 @@ def _async_prune_stale_entities(
     # belongs to a room this entry no longer has — a dropped room, or one
     # parked by the reorder move in the config flow.
     for zone in coordinator.zones:
-        # getattr: the prune needs only a zone's slug, and is also called with
-        # bare stand-ins that carry nothing else (tests/test_fan_auto.py).
-        dual = getattr(zone, "dual", False) is True
-        opening = getattr(zone, "opening_active", False) is True
         for suffix in (
             *ZONE_ENTITY_SUFFIXES,
-            *(DUAL_ZONE_ENTITY_SUFFIXES if dual else ()),
-            *(OPENING_ZONE_ENTITY_SUFFIXES if opening else ()),
+            *(DUAL_ZONE_ENTITY_SUFFIXES if zone.dual else ()),
+            *(OPENING_ZONE_ENTITY_SUFFIXES if zone.opening_active else ()),
         ):
             valid.add(f"{entry.entry_id}_{zone.slug}_{suffix}")
     registry = er.async_get(hass)
