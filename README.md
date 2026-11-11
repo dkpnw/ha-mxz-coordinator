@@ -47,7 +47,7 @@ it gets close. MXZ Coordinator gives a Mitsubishi multi-split the same Auto.
   in. Pick a speed yourself and MXZ holds it until you hand it back.
 - **A room that is done steps aside.** Its head stops, so the outdoor unit serves the
   room that still needs it.
-- **Nudge it at the wall** (3.22.0 beta). Change a room's setpoint with the head's own
+- **Nudge it at the wall.** Change a room's setpoint with the head's own
   remote, as you would turn the car's temperature dial, and the room keeps your number.
 - **It decides on the room sensor you choose,** not the thermistor in a head mounted up
   near the ceiling. The head's own loop still reads its thermistor unless you
@@ -160,7 +160,7 @@ switches the system to cool for that room and leaves the others alone.
 - **Change a temperature** on the room's thermostat, in Home Assistant, Apple Home, or
   Google Home. Leave the mode on Heat/Cool. Expose the room's MXZ thermostat to Apple or
   Google, not the head itself.
-- **Or use the head's own remote** (3.22.0 beta). A setpoint set at the head becomes the
+- **Or use the head's own remote.** A setpoint set at the head becomes the
   room's target after about 5 seconds. Off at the head turns the room off. MXZ still picks
   heat or cool. To make MXZ the only writer, turn off **Accept changes made at the head**
   in Configure → Comfort.
@@ -195,7 +195,7 @@ and [how a satisfied head idles](docs/FEATURES.md#how-a-satisfied-head-idles).
   direction at a time. On `sensor.*_plan`, check `standoff`, the room's `demand`, and
   `mode_change_allowed`. [More](docs/TROUBLESHOOTING.md#faq-waiting)
 - **I changed a head with its remote and it changed back?** A setpoint or off set at the
-  head is kept (3.22.0 beta), but heat instead of cool is not: MXZ picks the mode.
+  head is kept, but heat instead of cool is not: MXZ picks the mode.
   `auto`, `heat_cool`, and `dry` are put back. [More](docs/TROUBLESHOOTING.md#faq-changed-back)
 - **The fan is stuck on one speed?** A speed you pick is held until you turn **Fan auto**
   on. [More](docs/TROUBLESHOOTING.md#faq-fan-stuck)
@@ -245,31 +245,29 @@ still downloads.
   read without them. Open the file and replace any you'd rather not share. It's plain JSON.
 
 <!-- "whats-new" stays above the newest What's new section; the others are old links. -->
-<a id="whats-new"></a><a id="whats-new-in-3200"></a><a id="whats-new-in-3190"></a><a id="whats-new-in-3180"></a><a id="whats-new-in-3170"></a><a id="whats-new-in-3160"></a><a id="whats-new-in-3150"></a><a id="whats-new-in-3130"></a><a id="whats-new-in-3120"></a><a id="whats-new-in-3111"></a>
+<a id="whats-new"></a><a id="whats-new-in-3210"></a><a id="whats-new-in-3200"></a><a id="whats-new-in-3190"></a><a id="whats-new-in-3180"></a><a id="whats-new-in-3170"></a><a id="whats-new-in-3160"></a><a id="whats-new-in-3150"></a><a id="whats-new-in-3130"></a><a id="whats-new-in-3120"></a><a id="whats-new-in-3111"></a>
 
-## What's new in 3.21.0
+## What's new in 3.22.0
 
-**A °F/°C switch keeps what you saved.** Switch Home Assistant's temperature unit and MXZ
-reloads by itself, so its entities show the new unit at once. Room targets and the
-temperatures in Configure stay the same temperature (59 °F becomes 15 °C), and drift settings
-only scale. A manual fan speed, the shared mode and the mode-change wait carry over. See
-[Configuration](docs/CONFIGURATION.md) and [Migration](docs/MIGRATION.md).
+**Changes made at a head count.** A setpoint or off set at a head, with its remote or its own
+app, becomes the room's setting once it has held for about 5 seconds, instead of being written
+over. Off at the head turns the room off, and heat or cool at the head of a room that is off
+turns it on. MXZ still picks heat or cool for the whole system. This is on for every install,
+existing ones included. To make MXZ the only writer again, turn off **Accept changes made at the
+head** in Configure → Comfort. Thanks to [@BHSPitMonkey](https://github.com/BHSPitMonkey), who
+asked for it and built the first version on a fork. See
+[Migration](docs/MIGRATION.md#changes-made-at-a-head-are-accepted-3220).
 
-**A slow local head no longer reads as a manual fan pick.** MXZ remembers its older fan writes
-per head until the head's reports pass them, so a late report doesn't put the room on hold. A
-speed MXZ didn't recently write is still held at once. The
-[limits](docs/formal/PARKED-FINDINGS.md#f1-limits) are listed.
+**Fewer drift alerts.** A drift alert now names the room and head and goes out at most once per
+head per hour, and every heal is logged as `MXZ heal:`. The alert's text changed, so an
+automation that matched the old text needs the new one.
 
-**Diagnostics and repair issues.** [Download diagnostics](#download-diagnostics-for-a-bug-report)
-gives you a file for a bug report, with secrets removed. A [repair issue](#repair-issues)
-appears once a head, room sensor or configured entity has been a problem for 15 minutes, and
-clears when the fault does. Control and defaults are unchanged.
+**Fixes.** A head whose integration fails in an unexpected way no longer makes the room
+thermostats unavailable or leaves a mode change unrecorded. A press at a head is no longer
+written over by a command MXZ queued before it. A cloud or generic head's refused write is sent
+again once the write interval allows, instead of after the whole confirm wait.
 
-**Cloud and generic heads (beta).** A fan step no longer stalls behind a new setpoint when the
-last fan write wasn't confirmed yet.
-
-3.22.0 is in beta, with Accept changes made at the head; see the
-[changelog](CHANGELOG.md#unreleased). Earlier releases are in the [changelog](CHANGELOG.md).
+Earlier releases are in the [changelog](CHANGELOG.md).
 Upgrading from 3.3.0 or earlier? Read [Migration](docs/MIGRATION.md#upgrading-to-340) first.
 
 <a id="optional-extras"></a><a id="uneven-drift"></a><a id="per-room-uneven-drift"></a><a id="give-a-room-separate-heat-and-cool-setpoints-dual-setpoint"></a><a id="run-one-room-from-its-own-remote"></a><a id="safety-priority"></a><a id="when-a-head-goes-unavailable"></a><a id="freeze-floor-and-overheat-ceiling"></a><a id="dashboard-cards"></a>
@@ -282,7 +280,7 @@ Coordinator → Configure** for a menu of six pages. Each saves only what it sho
 
 | Page | What you set |
 | --- | --- |
-| **Comfort** | Allowed drift, Mode switch threshold, Resting mode, Accept changes made at the head (3.22.0 beta), and (under Advanced) the mode-switch wait, uneven drift, how long a lost head's vote counts, and the Comfort priority stale limit. |
+| **Comfort** | Allowed drift, Mode switch threshold, Resting mode, Accept changes made at the head, and (under Advanced) the mode-switch wait, uneven drift, how long a lost head's vote counts, and the Comfort priority stale limit. |
 | **Fan and idle** | Fan boost and its top speed, and what a room does when it reaches target. |
 | **Seasons** | A weather source and the heat and cool lockout temperatures, with safety overrides. |
 | **Away and setpoint limits** | The away band, and the lowest and highest setpoint a head may get. |
@@ -341,7 +339,7 @@ Heads keep their last commanded state; use their own controls if they stay parke
 
 MXZ Coordinator got this good because people ran it on their own systems, found the edges, and took the time to write them up. Some sent the fix too. Thank you all. [Credits](docs/CREDITS.md) has what each person did, with every issue and pull request.
 
-- [@BHSPitMonkey](https://github.com/BHSPitMonkey) (Stephen Eisenhauer): Accept changes made at the head, built first on a fork (3.22.0 beta).
+- [@BHSPitMonkey](https://github.com/BHSPitMonkey) (Stephen Eisenhauer): Accept changes made at the head, built first on a fork (3.22.0).
 - [@calvindomenico](https://github.com/calvindomenico): restart fixes, the °C setpoint rounding fix, a ducted unit's vane fix, and the standby hold.
 - [@amosyuen](https://github.com/amosyuen): the room tile's mode fix, per-room drift, and the Integrations listing fix.
 - [@andrewblane](https://github.com/andrewblane): 6-zone room names and the parked-room tile fix.
