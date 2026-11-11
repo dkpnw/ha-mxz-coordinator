@@ -1,4 +1,4 @@
-"""Opt-in per-room dual setpoint, end to end (DESIGN.md sections 3 to 5).
+"""Opt-in per-room dual setpoint, end to end.
 
 Rooms are switched on and off through the real options flow (Configure,
 Rooms, the room, Dual setpoint), written through HA's own number and climate

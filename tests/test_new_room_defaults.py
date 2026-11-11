@@ -1,4 +1,4 @@
-"""3.16.0: safer defaults for NEW rooms (DESIGN.md "Tests to add").
+"""3.16.0: safer defaults for NEW rooms.
 
 A room created by setup or Reconfigure stores a 45 °F (7 °C) freeze floor, a
 360 min maximum age and the ha_state_write evidence basis, as ordinary values.
@@ -80,7 +80,7 @@ NOTIFY = "notify.floor_test"
 SAFETY_A = "binary_sensor.primary_safety"
 SPARE = "climate.spare"
 SPARE_SENSOR = "sensor.spare_temp"
-# Independent oracles, written out: what DESIGN.md says a new room stores.
+# Independent oracles, written out: what a new room stores.
 FLOOR = {False: 45.0, True: 7.0}
 MAX_AGE = 360.0
 SIX_HOURS = timedelta(hours=6)

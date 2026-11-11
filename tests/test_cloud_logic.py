@@ -2,7 +2,7 @@
 
 The oracles are written out by hand: the drive offset from
 @mikepell007's blueprint (target + offset in heat, - offset in cool, 0 =
-bare), step rounding half up, and the window rules in DESIGN.md §3.
+bare), step rounding half up, and the cloud write-window rules.
 """
 
 from __future__ import annotations

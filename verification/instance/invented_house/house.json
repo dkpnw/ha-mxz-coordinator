@@ -1,0 +1,23 @@
+{
+  "site": {
+    "name": "Invented house",
+    "latitude": 0.0,
+    "longitude": 0.0,
+    "elevation": 0,
+    "time_zone": "UTC",
+    "country": "US",
+    "currency": "USD",
+    "unit_system": "us_customary"
+  },
+  "rooms": [
+    {"key": "studio", "name": "Studio", "temperature": 70},
+    {"key": "loft", "name": "Loft", "temperature": 70},
+    {"key": "den", "name": "Den", "temperature": 70}
+  ],
+  "head": {
+    "hvac_modes": ["off", "cool", "heat", "fan_only"],
+    "fan_modes": ["auto", "quiet", "low", "medium", "middle", "high"],
+    "min_temp": 59,
+    "max_temp": 88
+  }
+}

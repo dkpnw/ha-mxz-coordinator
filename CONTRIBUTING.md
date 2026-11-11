@@ -25,6 +25,13 @@ Out of the box, setting a temperature is all anyone has to do: the defaults shou
 - **New tuning options:** welcome. Open an issue first, keep the option off or blank by default, and show that leaving it unset changes nothing.
 - **Tests:** keep the full test suite passing, and add tests for new behavior. Please don't weaken an existing test. [Developer setup](docs/DEVELOPMENT.md) has the tested Home Assistant versions and how to run the suite locally.
 - **Checks:** run `pre-commit install` once, and ruff, yamllint, actionlint, and the basic file checks run on each commit. `pre-commit run --all-files` runs them across the repository.
+- **Rules a check enforces:** these mistakes were each made more than once, so a check now fails on them. When a reviewer corrects the same mistake twice, add a row and the check, not a reminder.
+
+  | Rule | Enforced by |
+  | --- | --- |
+  | Every tracked Python file passes CI's ruff | `ruff check .` in CI and the pre-commit hook; `tests/test_tooling_contract.py` keeps both repo-wide |
+  | Every relative Markdown link and anchor resolves | `tests/test_doc_links.py` |
+  | No household, operator or lab-host reference in a tracked file | `tests/test_private_references.py` |
 - **Hardware:** say in the PR whether you tested on real hardware.
 - **Writing:** MXZ docs, strings, and PR text use plain English and the Oxford comma.
 

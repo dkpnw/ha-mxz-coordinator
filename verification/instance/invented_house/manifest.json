@@ -1,0 +1,10 @@
+{
+  "domain": "invented_house",
+  "name": "Invented house (verify-mxz throwaway only)",
+  "codeowners": [],
+  "dependencies": [],
+  "documentation": "https://github.com/dkpnw/ha-mxz-coordinator/tree/main/verification/instance",
+  "iot_class": "local_push",
+  "requirements": [],
+  "version": "0.0.0"
+}

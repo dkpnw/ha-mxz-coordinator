@@ -392,7 +392,7 @@ where MXZ writes nothing:
   unchanged), or a disabled room with [Let its own remote run it](#run-one-room-from-its-own-remote)
   on: its head is its remote's, and turning it on doesn't enable the room.
 - During a [freeze floor or overheat ceiling](#freeze-floor-and-overheat-ceiling) run.
-- A setpoint on a [cloud](#cloud-heads-beta) or [generic](#generic-heads-beta) head with a drive
+- A setpoint on a [cloud](../README.md#cloud-heads-beta) or [generic](#generic-heads-beta) head with a drive
   offset. It runs past the room's target by that offset, so what it shows isn't the target. Its
   off and on are adopted; set the offset to 0 and its setpoint is too.
 

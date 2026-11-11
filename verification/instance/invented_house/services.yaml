@@ -1,0 +1,46 @@
+remote:
+  fields:
+    head:
+      required: true
+      selector:
+        text:
+    hvac_mode:
+      selector:
+        text:
+    target_temp_low:
+      selector:
+        number:
+          min: 40
+          max: 100
+    target_temp_high:
+      selector:
+        number:
+          min: 40
+          max: 100
+    fan_mode:
+      selector:
+        text:
+room:
+  fields:
+    room:
+      required: true
+      selector:
+        text:
+    temperature:
+      selector:
+        number:
+          min: 30
+          max: 110
+    window_open:
+      selector:
+        boolean:
+availability:
+  fields:
+    head:
+      required: true
+      selector:
+        text:
+    available:
+      required: true
+      selector:
+        boolean:

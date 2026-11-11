@@ -1,6 +1,7 @@
 """Static boundaries of the shared tooling: pinned tools, the coverage floor, strict mypy."""
 
 import re
+import subprocess
 import tomllib
 from copy import deepcopy
 from pathlib import Path
@@ -331,3 +332,47 @@ def test_a_drifted_ruff_hook_is_refused(old, new, expected):
     text = pre_commit_text()
     assert text.count(old) == 1
     assert hook_violations(text.replace(old, new), "0.17.4") == expected
+
+
+def ruff_paths(ci_text):
+    """The paths CI's ruff job checks."""
+    ruff = load_text(ci_text)["jobs"]["ruff"]
+    runs = [step["run"] for step in ruff["steps"] if step.get("run", "").startswith("ruff check")]
+    assert len(runs) == 1
+    return runs[0].split()[2:]
+
+
+def load_text(text):
+    return yaml.load(text, Loader=yaml.BaseLoader)
+
+
+def unlinted(paths, hook):
+    """Tracked Python files that CI's ruff or the pre-commit hook would skip.
+
+    Python outside the checked paths rotted twice: the verify-mxz journeys and the
+    parked finding replays failed at import while every lane stayed green.
+    """
+    tracked = subprocess.run(
+        ["git", "ls-files", "*.py"], cwd=ROOT, check=True, capture_output=True, text=True
+    ).stdout.split()
+    roots = [path.rstrip("/") for path in paths]
+    skipped = [f for f in tracked if not any(r == "." or f == r or f.startswith(r + "/") for r in roots)]
+    if "files" in hook or "exclude" in hook:
+        skipped.append(f"pre-commit ruff hook narrows to {hook.get('files') or hook.get('exclude')}")
+    return skipped
+
+
+def ruff_hook():
+    repos = load_text(pre_commit_text())["repos"]
+    return next(hook for repo in repos for hook in repo["hooks"] if hook["id"] == "ruff-check")
+
+
+def test_ci_and_the_hook_lint_every_tracked_python_file():
+    assert unlinted(ruff_paths((WORKFLOWS / "ci.yml").read_text()), ruff_hook()) == []
+
+
+def test_the_old_hand_kept_path_list_is_refused():
+    skipped = unlinted(["custom_components/", "tests/", "tools/"], {"files": "^(custom_components|tests|tools)/"})
+    assert "verification/verify.py" in skipped
+    assert ".claude/skills/verify-mxz/journeys/mxz_journey.py" in skipped
+    assert skipped[-1].startswith("pre-commit ruff hook narrows")

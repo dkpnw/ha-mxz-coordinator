@@ -562,10 +562,6 @@ DEFAULT_IDLE_ACTION = IDLE_ACTION_OFF_AFTER_DRY
 CONF_COIL_DRY_MINUTES = "coil_dry_minutes"
 DEFAULT_COIL_DRY_MINUTES = 10
 
-# Target setpoint number bounds (input_number hvac_*_target in the YAML)
-TARGET_MIN = 55
-TARGET_MAX = 85
-TARGET_STEP = 1
 TARGET_DEFAULT = 70
 
 # Eco setpoint edges when a head runs in eco (from the actuator script)
@@ -644,9 +640,6 @@ VANE_KICK_APPLY = 20  # s for the louvre to travel before switching back off
 # awaits another integration's climate/select service, and a handler that
 # defers cancellation must not hang Home Assistant's config-entry unload.
 VANE_KICK_RETIRE_TIMEOUT = 5  # s
-
-# Heartbeat / drift re-assert interval (time_pattern "/15" in the YAML)
-HEARTBEAT_MINUTES = 15
 
 # Self-heal debounce windows (YAML `for:` durations)
 BAND_DRIFT_DELAY = 20  # head in heat_cool/auto/dry this long -> re-apply
