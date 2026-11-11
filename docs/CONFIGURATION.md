@@ -40,7 +40,7 @@ nothing and leave today's behavior unchanged.
 | **Standby hold** | Hold signal | none | An external signal that holds enabled coordination. Missing, `unknown`, or `unavailable` input releases the hold. |
 | | Active state | `on` | The signal state that means "hold". Many grid sensors read `off` when the grid is down. |
 | | During a hold | `eco` | `eco`, `off`, or `fan_only`. |
-| **Rooms** (one page per room, in priority order, titled by the room's name) | Head type | Local | Local, Cloud (beta) for a head behind a cloud integration, or Generic (beta) for any other unit that offers heat and cool. Only setup suggests Cloud (beta), for a `melcloud`, `kumo_cloud` or `kumo` head; nothing ever suggests Generic (beta). This page shows Local until you choose another type here. An ESPHome head is always local. An entry with one head keeps it Generic (beta). See [Cloud heads (beta)](../README.md#cloud-heads-beta) and [Generic heads (beta)](../README.md#generic-heads-beta). |
+| **Rooms** (one page per room, in priority order, titled by the room's name) | Head type | Local | Local, Cloud (beta) for a head behind a cloud integration, or Generic (beta) for any other unit that offers heat and cool. Only setup suggests Cloud (beta), for a `melcloud`, `kumo_cloud` or `kumo` head; nothing ever suggests Generic (beta). This page shows Local until you choose another type here. An ESPHome head is always local. An entry with one head keeps it Generic (beta). See [Cloud heads (beta)](FEATURES.md#cloud-heads-beta) and [Generic heads (beta)](FEATURES.md#generic-heads-beta). |
 | | Airflow sensor, Vertical vane, Horizontal vane | detected at setup | Correct detection, select another entity, or clear a field to remove that optional wiring. |
 | | Safety priority sensor | none | See [Safety priority](FEATURES.md#safety-priority). |
 | | Comfort priority | none | An on/off entity (`binary_sensor`, `input_boolean`) or a number entity (`number`, `input_number`, numeric `sensor`). When rooms want opposite modes, a room whose entity is `on`, or has a higher number, goes ahead of rooms with less. Stored as `comfort_priority_entity` only when set; clearing it removes the key. See [Comfort priority](FEATURES.md#comfort-priority). |
@@ -104,20 +104,20 @@ The outdoor-unit name and **Notify on drift** service are set in setup and Recon
 
 <table>
 <tr>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-menu-dark.png" alt="Configure's Settings menu listing six pages, each with a subtitle: Comfort, Fan and idle, Seasons, Away and setpoint limits, Standby hold, and Rooms."></td>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-comfort-advanced.png" alt="Comfort page with Allowed drift 1 °F, Mode switch threshold 3 °F, and Resting mode Last used (default), and the Advanced section open: Minimum time between mode switches 600 s, Let it get cooler by and Let it get warmer by blank, and Keep a lost head's vote for blank (minutes), then Submit."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-menu-dark.png" alt="Configure's Settings menu listing six pages, each with a subtitle: Comfort, Fan and idle, Seasons, Away and setpoint limits, Standby hold, and Rooms."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-comfort-advanced.png" alt="Comfort page: Allowed drift 1 °F, Mode switch threshold 3 °F, Resting mode Last used (default), and Accept changes made at the head on, then the Advanced section open: Minimum time between mode switches 600 s, Let it get cooler by and Let it get warmer by blank, Keep a lost head's vote for blank (minutes), and Comfort priority stale limit blank (hours), then Submit."></td>
 </tr>
 <tr>
 <td>The menu: one page per group of settings.</td>
-<td>Comfort, with its <b>Advanced</b> section opened. <b>Keep a lost head's vote for</b> is blank, which means 30 minutes.</td>
+<td>Comfort, with its <b>Advanced</b> section opened. <b>Keep a lost head's vote for</b> is blank, which means 30 minutes, and <b>Comfort priority stale limit</b> is blank, which means 12 hours.</td>
 </tr>
 <tr>
 <td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-needs-attention.png" alt="Settings menu headed by Needs attention: the saved lowest setpoint is above the highest setpoint. Open Away and setpoint limits to fix it. The six pages follow."></td>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-room.png" alt="Room page titled Studio: empty Airflow sensor, Vertical vane, Horizontal vane, and Safety priority sensor pickers, Let its own remote run it while disabled off, and collapsed Uneven drift, Sensor freshness, Freeze floor and overheat ceiling, and Dual setpoint sections, then Submit."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-room.png" alt="Room page titled Studio: Head type Local with its description, empty Airflow sensor, Vertical vane, Horizontal vane, Safety priority sensor and Comfort priority pickers, Let its own remote run it while disabled off, While its own remote runs it, its vote counts set to Whenever it is set to heat or cool (default), and collapsed Uneven drift, Sensor freshness, Freeze floor and overheat ceiling, Dual setpoint, Cloud or generic head (beta), and Door/window pause sections, then Submit."></td>
 </tr>
 <tr>
 <td><b>Needs attention</b> names an older saved value and the page that fixes it.</td>
-<td>A room page, titled by the room's name, with its four sections collapsed.</td>
+<td>A room page, titled by the room's name, with its six sections collapsed.</td>
 </tr>
 </table>
 
@@ -126,7 +126,7 @@ The outdoor-unit name and **Notify on drift** service are set in setup and Recon
 
 <table>
 <tr>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-fan-idle.png" alt="Fan and idle page: Fan boost on, Fan boost top speed High, When a room reaches target Off after drying (default; renamed Dry the coil (fan only), then off in 3.15.0), and Coil drying time 10 min."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-fan-idle.png" alt="Fan and idle page: Fan boost on, Fan boost top speed High, When a room reaches target Dry the coil (fan only), then off (default), and Coil drying time 10 min."></td>
 <td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-seasons.png" alt="Seasons page: no weather source, Lock out heat when the high is at least 68 °F, Lock out cool when the high is at most 50 °F, and Safety overrides open with Heat anyway below 58 °F and Cool anyway above 80 °F."></td>
 </tr>
 <tr>
@@ -142,7 +142,7 @@ The outdoor-unit name and **Notify on drift** service are set in setup and Recon
 <td>Standby hold, with no hold signal.</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-rooms-menu.png" alt="Rooms menu: Pick a room. Rooms are listed in priority order. Studio (priority 1, climate.studio_head), Loft (priority 2, climate.loft_head), Den (priority 3, climate.den_head), then Back."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-rooms-menu.png" alt="Rooms menu: Studio (priority 1, climate.studio_head), Loft (priority 2, climate.loft_head), Den (priority 3, climate.den_head), then Back."></td>
 <td></td>
 </tr>
 <tr>
@@ -190,7 +190,7 @@ numbers: `nan` and `±inf` are rejected.
 <table>
 <tr>
 <td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-error-setpoint-range.png" alt="Away and setpoint limits page with Lowest setpoint 80 °F and Highest setpoint 70 °F, and the error The lowest setpoint can't be above the highest setpoint. shown above the open Head setpoint range section."></td>
-<td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-error-freshness.png" alt="Studio's room page with Sensor freshness open, Report interval 10 min and Maximum age 5 min, and an error at the top: these freshness settings don't fit together, ending Nothing was saved."></td>
+<td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-error-freshness.png" alt="Studio's room page with Sensor freshness open, Report interval 10 min and Maximum age 5 min, and an error at the top: these freshness settings don't fit together, and maximum age can't be shorter than the report interval."></td>
 <td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-saved.png" alt="Success dialog reading Options successfully saved. with a Finish button."></td>
 </tr>
 <tr>

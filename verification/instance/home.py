@@ -34,6 +34,30 @@ INTEGRATIONS = (
     "http", "api", "websocket_api", "auth", "onboarding", "config", "recorder",
     "history", "diagnostics", "system_log", "logger", "persistent_notification",
 )
+# What a browser needs besides the frontend wheel. The frontend lists every
+# service when it loads, and listing them imports these components
+# (homeassistant.helpers.service._base_components); with one missing
+# requirement the list fails and the page never leaves "Loading...".
+UI_COMPONENTS = ("frontend", "ai_task", "assist_satellite", "camera")
+
+
+def ui_requirements(components: Path, roots: tuple[str, ...] = UI_COMPONENTS) -> list[str]:
+    """The requirements of ``roots`` and of every component they depend on, in order."""
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def walk(name: str) -> None:
+        if name in seen:
+            return
+        seen.add(name)
+        manifest = json.loads((components / name / "manifest.json").read_text())
+        found.extend(r for r in manifest.get("requirements", []) if r not in found)
+        for dependency in manifest.get("dependencies", []):
+            walk(dependency)
+
+    for root in roots:
+        walk(root)
+    return found
 
 
 def home() -> Path:

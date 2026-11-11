@@ -206,7 +206,7 @@ exactly as before, and an ESPHome head is always local. A room's page shows Loca
 you choose Cloud (beta) there, so saving it for anything else changes nothing. On a
 rollback to 3.13.x the keys are ignored and a cloud room is driven as a local head
 again; that was checked by searching the older code for the keys (it reads none of
-them), not run. See [Cloud heads (beta)](../README.md#cloud-heads-beta).
+them), not run. See [Cloud heads (beta)](FEATURES.md#cloud-heads-beta).
 
 ## Count a room's vote only while its head runs (3.13.0)
 
@@ -703,7 +703,7 @@ zone (`climate.*_<zone>_thermostat`) — see "Single-target HomeKit/Google tile"
 1. **Note your current setup** — screenshot your target values, which rooms are
    enabled, and any automations that read/write the old helpers.
 2. **Stop the package's head-writing automations** before setup. Install the
-   integration via HACS (see the README's [Install](../README.md#install)) and select
+   integration via HACS (see the README's [Quick start](../README.md#quick-start)) and select
    2–8 heads and a sensor per room.
    Leave the new coordinator and rooms disabled while checking the mapping.
 3. **Remove the YAML package** (or comment out its `!include`) and reload/restart as

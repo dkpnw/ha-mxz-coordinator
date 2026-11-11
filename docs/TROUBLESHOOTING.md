@@ -316,7 +316,9 @@ priority](FEATURES.md#safety-priority).
 <summary><b>Keep a disabled room from freezing (or overheating)</b></summary>
 
 Fill in that room's **Freeze floor** (and, if you want, **Overheat ceiling**) in
-Configure → Rooms → (room). Both are empty by default. While the room is disabled, MXZ
+Configure → Rooms → (room). A room setup or Reconfigure creates from 3.16.0 on starts with a
+45 °F (7 °C) floor and no ceiling; an older room has neither until you set it. While the room
+is disabled, MXZ
 heats it when its sensor falls below the floor (cools it above the ceiling), runs it
 3 °F (1.5 °C) back inside, then turns the head off again. A freeze floor wins over every
 other room's want in any room order, a Safety priority room's cool included; an overheat

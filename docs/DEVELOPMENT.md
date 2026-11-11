@@ -30,8 +30,8 @@ on equipment.
   installing it by version alone does not reproduce the stable .10 environment.
 - Use the linked recipe on Linux x86-64 with glibc 2.41 or newer. Its local evidence
   does not establish genuine hosted qualification.
-- The form screenshots were captured on HA 2026.10.0 only; the floor's rendering of the
-  forms was not captured.
+- The 3.12 form screenshots were captured on HA 2026.10.0 and the retaken ones on
+  2026.9.4; the floor's rendering of the forms was not captured.
 - This source does not implement the separate HA 2026.11 restore changes, and no .11
   support claim follows from .10 results.
 

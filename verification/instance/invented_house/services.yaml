@@ -44,3 +44,9 @@ availability:
       required: true
       selector:
         boolean:
+model:
+  fields:
+    running:
+      required: true
+      selector:
+        boolean:

@@ -15,7 +15,7 @@ statement was corrected here. [README.md](README.md) is how to run it.
 | 5.5 Door/window pause | none yet | Not yet proven. |
 | 5.6 Manual fan | none yet | Not yet proven. |
 | 5.7 Restart continuity | none yet | Not yet proven. The device file that carries a head across a restart is tested in the suite. |
-| 6 Demo, stock versus coordinated | none yet | Not built: no outdoor-unit or room model yet. |
+| 6 Demo, stock versus coordinated | `demo-stock`, `demo-coordinated` | Both arms run and filmed for the README (readme1110), each beat checked, the stock arm's Studio-never-leaves-standby negative included. |
 
 This map says which product features a proof CLI should drive on a throwaway Home
 Assistant, and for each one the setup, the action, what to capture and what a pass is. It
@@ -531,60 +531,63 @@ prove.
 
 ## 6. The demo path: stock versus coordinated
 
-One story the README lane can film or capture: two rooms want opposite directions. Stock,
-one is left waiting. Coordinated, both are served, one after the other.
+One afternoon, shown twice for the README: the sun has warmed Studio to 76 °F while Loft
+and Den sit at their 70 °F targets after a morning of heating. Stock, Studio waits behind
+the others' heat. Coordinated, MXZ turns the system to cool for Studio alone.
 
-**What the equipment must model, and no more.** Each line is invented and is stated on
-the capture:
+**What the equipment models, and no more** (`invented_house/model.py`, off unless a demo
+journey turns it on). Each rule is invented and the capture says so:
 
 1. One outdoor unit runs one direction. A head set to the other direction waits in
-   standby until no head is in the running direction. This is the manual's rule as
+   standby until no head is set to the running direction. This is the manual's rule as
    `docs/HOW-IT-WORKS.md` cites it: "the unit selected last goes into standby mode."
-2. A head in the running direction conditions its room until the room reaches the head's
-   setpoint, then idles in its mode.
-3. A room being conditioned moves toward the setpoint at a fixed rate; otherwise it drifts
-   slowly toward a fixed ambient. No randomness.
+2. A head in the running direction moves its room to its setpoint (heat: the low one,
+   cool: the high one) at 1 °F a minute, then idles in its mode.
+3. A room no head is moving drifts toward 76 °F at 0.05 °F a minute. No randomness.
 
-Both arms use the same model, the same starting temperatures (Studio 76, Loft 64, Den 70)
-and the same time compression, which the capture states.
+Both arms start from the same temperatures (Studio 76, Loft 70, Den 70), use the same
+model, and are filmed for the same 450 seconds from their start step. Each runs on its
+own fresh instance.
 
-**Arm A, stock.** A fresh instance with no MXZ entry, as before an install.
+**Arm A, stock** (`demo-stock`). No MXZ entry.
 
-- **Action.** Person at the head: sets Studio to cool at 70. Ten seconds later, sets Loft
-  to heat at 70. Then nothing for the window.
-- **Pass (a control on the model, not a product claim).** Studio cools to 70 and stays in
-  `cool`. Loft's head shows standby for the whole window, and Loft's temperature never
-  moves toward 70. No call to any head came from anything but the person.
+- **Before the start.** Person at the heads: Loft and Den to heat at 70. The outdoor unit
+  runs heat; both heads idle.
+- **Action.** Studio reads 76, then the person sets Studio's head to cool at 70.
+- **Pass (a control on the model, not a product claim).** Studio's head shows cool and
+  waits in standby for the whole window, and never leaves it; Studio still reads 76 at the
+  end; the outdoor unit still runs heat; no climate call reached a head.
 
-**Arm B, coordinated.** The same instance after 5.1 has run, the equipment's state reset
-to the same start.
+**Arm B, coordinated** (`demo-coordinated`). After 5.1, every option at its default.
 
-- **Action.** Person in Home Assistant: sets Studio's and Loft's thermostats to 70. Then
-  nothing for the window. Every option is at its default.
-- **Pass.**
-  - The plan is `cool` with `standoff: true`; Studio's head cools and Loft's is parked.
-  - Studio's fan starts at `high` and steps down as the room closes in.
-  - When Studio reaches 70 it parks, the plan becomes `heat` by itself, and Loft heats to
-    70 with its fan stepping down the same way.
-  - Both rooms are within 1 °F of target before the window ends.
-  - Loft's head was never sent `cool`; check 1 of section 4 holds.
+- **Before the start.** Loft and Den read 66, MXZ heats them to 70 and turns their heads
+  off, and the 600-second wait since the turn to heat runs out on the real clock.
+- **Action.** Studio reads 76, Loft and Den 70. Nothing else.
+- **Pass.** The shared mode changes from heat to cool and Studio's head cools with the fan
+  on high; from high the fan steps down middle, medium, low, quiet as Studio closes in;
+  Studio reaches 70 and its head goes to fan only to dry the coil; Loft's and Den's heads
+  are never sent heat or cool and stay off; check 1 of section 4 holds.
+- **Run on readme1110 (HA 2026.9.4).** Mode to cool 10 s after the start; fan to middle at
+  170 s, medium 226 s, low 286 s, quiet 341 s; Studio at 70 and fan only at 371 s.
 
-**Capture, for the README lane.** Both arms' `events.jsonl` and `history.json`, and one
-`demo.json` with, per arm and room, the time to reach target or "not reached in the
-window". The same run can be filmed live through the instance's frontend. The setup flow of 5.1 runs
-between the arms, so the same session yields the install screenshots.
+**The turn-taking story this section used to describe is not the demo.** With Studio at
+76 and Loft at 64 it expected Studio to reach 70 before the plan turned to heat. By
+`logic.room_call` and `logic.shared_mode`, a room calls only while more than the Mode
+switch threshold off target, so the mode leaves Studio once it is back within 3 °F while
+Loft still calls (`docs/FEATURES.md` and `docs/HOW-IT-WORKS.md` step 4 say the same). That
+version was never run. Run it before trusting any number for it.
+
+**Capture.** `film.py` films each row from the instance's own frontend; `compose.py`
+stacks them on the journeys' start steps, sped up evenly. See [README.md](README.md#the-readme-demo).
 
 **Honesty limits.**
 
 - It is a simulation with invented heads, time-compressed. It is not a measurement of
-  Mitsubishi equipment, energy, comfort or noise, and the capture must say so.
+  Mitsubishi equipment, energy, comfort or noise, and the capture says so.
 - Arm A shows only the cited rule. It does not model stock AUTO, installer switches,
   kumo cloud changeover groups, or how long a real system leaves a head in standby. The
   capture must not claim "an hour"; that figure is a household observation in
   `docs/HOW-IT-WORKS.md`.
-- In arm B the first change on a fresh entry does not wait, so the 600-second wait does
-  not appear. If the story needs the wait, show it from 5.2 and say the setting was
-  shortened.
 - The live house is not used. Filming real heads needs the owner's approval for a
   specific short window, and is not part of this driver.
 
@@ -632,6 +635,5 @@ flow were not read line by line; pass criteria taken from the docs are cited to 
 
 1. Add 5.2 and 5.4 to 5.7 in the order written. Land each that runs clean; list any that
    does not as not yet proven, with the reason, in its Gotchas.
-2. Add the demo model and both arms of section 6. The README lane needs them before it
-   can capture the story.
+2. Done in readme1110: the demo model and both arms of section 6.
 3. Point the verify-mxz skill's `SKILL.md` and feature index at this driver.

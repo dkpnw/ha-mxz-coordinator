@@ -16,10 +16,12 @@ inside a network namespace that has only loopback. The heads are invented
 
 Needs root (for the namespace), `ip`, and a Python lane interpreter. Once per lane,
 build the instance's own environment: the lane's lock from `requirements/`, plus the
-`home-assistant-frontend` wheel its Home Assistant pins. Home Assistant's bootstrap
-always loads the frontend, and without it the HTTP server never starts and Home
-Assistant falls back to recovery mode, so no test lane can run an instance. No lane
-is changed.
+`home-assistant-frontend` wheel its Home Assistant pins and the requirements of the
+components the frontend's service list imports (`ai_task`, `assist_satellite`,
+`camera`, and what they depend on). Home Assistant's bootstrap always loads the
+frontend, and without it the HTTP server never starts and Home Assistant falls back to
+recovery mode, so no test lane can run an instance. Without the others a browser stays
+on "Loading...". No lane is changed. An environment built before this needs `env` again.
 
 ```sh
 export MXZ_INSTANCE_HOME=~/mxz-throwaway-ha   # the default; instances and environments live here
@@ -104,6 +106,41 @@ A transcript is written pass or fail; a crash is a failed journey with its error
 A journey that fails is a finding: report its step and the state seen. Never loosen
 a journey to make it pass.
 
+## The README demo
+
+One afternoon shown twice: Studio warmed to 76 °F while Loft and Den sit at 70 °F
+after a morning of heating. The equipment's outdoor unit and room model
+(`invented_house/model.py`) makes that a story. It is off until a demo journey turns
+it on, so the proof journeys see the equipment exactly as before. Three invented rules
+and no more: one outdoor unit runs one direction and a head set to the other waits in
+standby; a running head moves its room to its setpoint at 1 °F a minute; a room no head
+is moving drifts toward 76 °F at 0.05 °F a minute. While it runs, each head reports
+`hvac_action` and `standby`, and `sensor.outdoor_unit` shows the direction.
+
+The demo journeys run only by name, each while `film.py` films one row, and each arm on
+a fresh instance: a demo journey leaves the model running and the heads where the story
+left them, which the proof journeys do not expect.
+
+```sh
+mxz-instance up
+mxz-instance drive setup-and-enable
+mxz-instance exec -- python3 verification/instance/film.py mxz <frames>/mxz &
+mxz-instance drive demo-coordinated      # about 20 minutes: two 10-minute mode-switch waits come first
+mxz-instance down && mxz-instance reset && mxz-instance up
+mxz-instance exec -- python3 verification/instance/film.py stock <frames>/stock &
+mxz-instance drive demo-stock            # no MXZ entry
+python3 verification/instance/compose.py <stock run> <frames>/stock <mxz run> <frames>/mxz <out>
+```
+
+Stop `film.py` with SIGTERM once its journey ends.
+
+`film.py` needs a Python with Playwright and its Chromium, installed outside the
+namespace. It saves a one-card dashboard whose markdown Home Assistant renders from the
+live states, and screenshots it in a light and a dark browser every 5 seconds until it
+is stopped. `compose.py` (Pillow) starts each row's clock at its journey's start step,
+stacks the rows, and speeds both up evenly, 25 times. Each demo journey checks its own
+beats; one that does not happen is a finding, not a caption to change.
+
 ## Cleanup
 
 ```sh
@@ -123,7 +160,8 @@ an environment yourself when no checkout needs it.
 - `home.py`: the instance (directory, namespace, process, lock). Knows nothing
   about MXZ.
 - `invented_house/`: the equipment, three rooms (Studio, Loft, Den) from
-  `house.json`, each with a head, a temperature sensor and a window sensor. Its device
+  `house.json`, each with a head, a temperature sensor and a window sensor, and the
+  demo's outdoor unit. Its device
   state lives in `config/invented_house.json` and outlives the process. It is copied
   into the instance at `up` and never ships.
 - `client.py`: Home Assistant's REST and WebSocket API. Knows nothing about MXZ's

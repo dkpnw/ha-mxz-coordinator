@@ -19,6 +19,15 @@ indoor unit's room temperature and setpoint, and changes mode only after a susta
 difference. The manual does not recommend AUTO on an MXZ outdoor unit and warns that a
 unit may be unable to switch between COOL and HEAT and enter standby.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-stock-vs-mxz-end-dark.png">
+  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-stock-vs-mxz-end-light.png" width="440" alt="Last frame of the README's simulation, 7 minutes 30 seconds into the run. Stock: the outdoor unit runs heat, Studio reads 76 °F with its head set to cool at 70 °F and waiting, and Loft and Den read 70.4 °F with their heads idle in heat. MXZ Coordinator: shared mode cool, Studio reads 70.1 °F with its head on fan only, and Loft and Den read 70.4 °F with their heads off.">
+</picture>
+
+The README's simulation applies only that rule to invented heads: the room selected last,
+Studio, is still waiting at the end of the stock row. It says nothing about how long a real
+head waits.
+
 By default that is first come, first served, not one room governing the system. Some
 outdoor units can be set up otherwise. For the MXZ-4C36NAHZ to 8C60NA families in
 [OCH573E, PDF page 127](https://www.mitsubishitechinfo.ca/sites/default/files/SH_MXZ-%284%29%285%29%288%29C%2836%29%2842%29%2848%29%2860%29NA%28HZ%29_PAC-MKA%2830%29%2831%29%2850%29%2851%29BC_OCH573E_1.pdf),
@@ -57,6 +66,27 @@ supported hardware and setup apply. It is not tested for parity with this integr
 the system is not running. Under MXZ a waiting head is parked by command instead.
 
 ## How MXZ decides
+
+A Tesla Model Y's heat pump in Auto takes one temperature and picks heating or cooling for
+you. MXZ gives a Mitsubishi multi-split the same Auto, one outdoor unit at a time; the
+[README](../README.md#what-it-does) has the short version.
+
+Every core feature exists for a reason someone ran into:
+
+| MXZ does this | So that |
+| --- | --- |
+| **Picks one heat or cool mode for the whole system**, from every room's temperature and target. It never asks a head for hardware AUTO. | Coordinated rooms stop fighting over heat versus cool, and the shared direction follows the rooms that need it, not whichever head was set first. |
+| **Settles a standoff by your room order**, and by default waits 10 minutes between heat/cool switches (Minimum time between mode switches). | The room you rank first wins, and the mode won't flip back and forth. |
+| **Has a room that's done step aside.** On a new setup its head runs the fan to dry the coil after cooling, then turns off (**Dry the coil (fan only), then off**); Fan only and Off are also available. This isn't the heads' Dry (dehumidify) mode; see [Allow Dry mode](FEATURES.md#allow-dry-mode). | The rooms that still need conditioning get served, and the coil dries before the head closes up. |
+| **Lets a room coast** inside its drift (1 °F / 0.5 °C by default) before it runs again, then runs it all the way back to target. | A room that's close enough rests, and every run finishes where you asked. |
+| **Decides on the temperature sensor you pick** for each room. | Heat, cool, and when a room is done follow the room you sit in, not a thermistor up near the ceiling. The head's own loop still reads its thermistor unless you [give the firmware your room sensor too](#best-practice-give-the-firmware-your-room-sensor-too). |
+| **Boosts the fan** the further a room is from target, up to a top speed you choose, and eases it down as the room closes in. A speed you pick by hand is kept until you hand it back. | The fan works hard only while a room is far off. |
+| **Gives each room one thermostat** for Home Assistant dashboards, Apple Home, or Google Home, all set up in the UI with no YAML. | One clean control per room, instead of raw head controls that can fight the plan. |
+| **Puts a head back** if someone switches it to auto, `heat_cool`, or `dry` (unless the room allows Dry mode), and can notify you when that happens. From 3.22.0 (in beta), a setpoint or off set at the head isn't put back: the room takes it. That is on by default for every install, existing ones included. To have MXZ put those back too, turn off **Accept changes made at the head** in Configure → Comfort. | A stray remote press doesn't quietly break coordination. |
+| **Follows the season** from a weather forecast or outdoor sensor, with heat-anyway and cool-anyway safety limits. | No heating on a day forecast to be warm, or cooling on a cold one. |
+| **Holds an empty house between away limits** (the Eco idle switch), and can **pause on a standby signal** such as a utility load-shed. | Less running when nobody's home, and a clean response to a grid or utility hold. |
+| **Keeps a lost head's last vote for a while** (30 minutes by default), then lets it go. | A short Wi-Fi dropout doesn't swing the shared mode, and a long one doesn't hold it forever. |
+| **Shows its reasoning** on one plan sensor: each room's demand, start points, sensor health, and command status. | When a room waits, you can see why. |
 
 On every update (a room sensor or head report, a setting change, and a 15-minute check)
 MXZ works out one plan for the outdoor unit:
