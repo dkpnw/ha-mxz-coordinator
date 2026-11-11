@@ -1,7 +1,7 @@
 """Dual setpoint in the pure decision math (no Home Assistant required).
 
 A dual-setpoint room passes Heat to (L) and Cool to (H) as ``heat_target`` /
-``cool_target``. The oracle here is the design's table (DESIGN.md section 4),
+``cool_target``. The oracle here is the design's table,
 written out by hand rather than derived from the code: heat starts below
 ``L - heat_band``, cool starts above ``H + cool_band``, a heat run ends at L
 and a cool run at H, eco ignores L and H, and each lockout moves its own side

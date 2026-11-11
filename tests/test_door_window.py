@@ -1,7 +1,7 @@
 """Door/window pause, per room (opt-in, off by default).
 
 Idea from @mikepell007's MIT blueprint mxz_coordinator_blueprint (60 s open,
-120 s close). Decided by Drew, Nov 3 2026, each pinned by a test here:
+120 s close). Each decision is pinned by a test here:
 
 * Off by default; per room, one sensor or one group; open delay 60 s and
   close delay 120 s, both adjustable.

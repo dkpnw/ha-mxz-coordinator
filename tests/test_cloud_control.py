@@ -9,7 +9,7 @@ Silence gets longer because Home Assistant's own MELCloud integration polls
 every 15 minutes (since 2026.2). Those limits are wall-clock time read off the head's own state, so these
 tests move a frozen clock (``freezer``), as the sensor freshness tests do.
 
-Off for cloud heads in v1 (DESIGN.md §4): the remote_temperature feed (MXZ
+Off for cloud heads in v1: the remote_temperature feed (MXZ
 sends none to any head), vanes and the vane kick, dual setpoints, a hands-off
 vote by action, and airflow (stage) sensors.
 """

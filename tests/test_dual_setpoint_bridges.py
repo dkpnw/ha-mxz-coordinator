@@ -1,4 +1,4 @@
-"""A dual-setpoint room through HA's own bridge code (DESIGN.md section 6).
+"""A dual-setpoint room through HA's own bridge code.
 
 Each test drives the real code each bridge runs in the installed Home
 Assistant: Google's ``TemperatureSettingTrait``, Alexa's thermostat
@@ -8,7 +8,7 @@ re-implemented here.
 
 HomeKit is not tested: HA's HomeKit bridge needs HAP-python (``pyhap``),
 which no lane installs, so its behavior is reasoned from
-``homekit/type_thermostats.py`` in DONE.md instead.
+``homekit/type_thermostats.py`` instead.
 
 Workaround, declared: on HA 2025.x and later, ``google_assistant`` and
 ``alexa`` import ``camera``, whose ``img_util`` imports ``turbojpeg`` at module

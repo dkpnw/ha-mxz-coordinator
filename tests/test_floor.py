@@ -1,7 +1,7 @@
 """Freeze floor / overheat ceiling for disabled rooms: behaviour through a
 config entry, the plan sensor, head states and the service calls MXZ makes.
 
-Every test names the approved decision (1-11, DESIGN.md "APPROVED DECISIONS")
+Every test names the approved decision (1-11)
 or the design's test-plan item it covers. Entities and readings are invented.
 Head commands are observed as service calls; nothing here talks to a real
 device. The pure math is in ``test_floor_logic.py``.
