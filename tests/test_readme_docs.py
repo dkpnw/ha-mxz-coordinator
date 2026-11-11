@@ -8,6 +8,7 @@
   (``src/utils/theme.ts``). The tests can't fetch Mushroom, so the value is pinned
   here with its source.
 - The README has one What's new section, for the newest release.
+- Until its version is released, every README mention of a setting a beta added says so.
 - CHANGELOG 3.10.0 says CONTRIBUTING.md replaced "3.9.0's stance"; the 3.9.0 notes
   must state that stance.
 - Every issue form has what GitHub requires, and the generic head report asks for what
@@ -170,6 +171,61 @@ def test_whats_new_check_reports_a_wrong_section(sections: list[str], problems: 
 def test_a_patch_release_may_keep_its_minor_s_section() -> None:
     changelog = "## 2.1.1 (x)\n\n## 2.1.0 (x)\n"
     assert _whats_new_problems("## What's new in 2.1.0\n", changelog) == []
+
+
+# Settings a beta added: the version that ships them. The label is the Comfort page's own.
+BETA_SETTINGS = {"accept_head_changes": "3.22.0"}
+COMFORT_DATA = json.loads(
+    Path("custom_components/mxz_coordinator/strings.json").read_text()
+)["options"]["step"]["comfort"]["data"]
+
+
+def _markdown_blocks(text: str) -> list[str]:
+    """Paragraphs, list items and table rows, each joined onto one line."""
+    blocks: list[list[str]] = []
+    for line in text.splitlines():
+        if not line.strip():
+            blocks.append([])
+        elif line.startswith(("- ", "* ", "| ")) or not blocks:
+            blocks.append([line])
+        else:
+            blocks[-1].append(line)
+    return [" ".join(" ".join(block).split()) for block in blocks if block]
+
+
+def _unlabelled_beta_settings(readme: str, changelog: str) -> list[str]:
+    """README blocks that name a setting from an unreleased version without saying it's beta."""
+    released = re.findall(r"^## (\d+\.\d+\.\d+) \(", changelog, re.MULTILINE)
+    problems = []
+    for key, version in BETA_SETTINGS.items():
+        if version in released:
+            continue
+        label = COMFORT_DATA[key]
+        problems += [
+            block for block in _markdown_blocks(readme)
+            if label in block and f"{version} beta" not in block and f"{version} is in beta" not in block
+        ]
+    return problems
+
+
+def test_readme_labels_every_mention_of_a_beta_setting() -> None:
+    """Accept changes made at the head is not in 3.21.0 (STORY 1.4): each mention says 3.22.0 beta."""
+    readme = Path("README.md").read_text()
+    assert COMFORT_DATA["accept_head_changes"] in readme
+    assert _unlabelled_beta_settings(readme, Path("CHANGELOG.md").read_text()) == []
+
+
+def test_beta_label_check_reports_an_unlabelled_row_and_relaxes_on_release() -> None:
+    """Negative: a table row naming the setting bare is reported; a labelled one, a bullet
+    whose label is on its first line, or the same row once 3.22.0 is released, is not."""
+    label = COMFORT_DATA["accept_head_changes"]
+    bare = f"| **Comfort** | Resting mode, {label}, and more. |\n"
+    labelled = f"| **Comfort** | Resting mode, {label} (3.22.0 beta), and more. |\n"
+    bullet = f"- **Or use the head's own remote** (3.22.0 beta). To stop it,\n  turn off **{label}**.\n"
+    unreleased = "## Unreleased\n\n## 3.21.0 (x)\n"
+    assert _unlabelled_beta_settings(bare + "\n" + labelled, unreleased) == [" ".join(bare.split())]
+    assert _unlabelled_beta_settings(bullet + labelled, unreleased) == []
+    assert _unlabelled_beta_settings(bare, "## 3.22.0 (x)\n\n" + unreleased) == []
 
 
 def _diagnostics_section(readme: str) -> str:
