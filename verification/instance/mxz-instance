@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# verify-mxz's throwaway Home Assistant driver. Usage: mxz-instance --help
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+home=${MXZ_INSTANCE_HOME:-$HOME/mxz-throwaway-ha}
+lane=${MXZ_INSTANCE_LANE:-py314-ha2026.9.4}
+export PYTHONDONTWRITEBYTECODE=1
+if [ "${1:-}" = env ]; then
+  exec "${MXZ_PYTHON:?set MXZ_PYTHON to the lane interpreter that builds the environment}" -E -s "$here/cli.py" env --lane "$lane"
+fi
+python="$home/env/$lane/bin/python"
+if [ ! -x "$python" ]; then
+  echo "mxz-instance: no environment at $home/env/$lane; run: MXZ_PYTHON=<lane python> $0 env" >&2
+  exit 2
+fi
+exec "$python" -E -s "$here/cli.py" "$@"
