@@ -31,7 +31,6 @@ class Transcript:
         self.feature = feature
         self.journey = journey
         self.run = run
-        self.options: dict[str, Any] = {}
         self.notes: dict[str, Any] = {}
         self.steps: list[dict[str, Any]] = []
 
@@ -60,7 +59,6 @@ class Transcript:
             "error": error,
             "saved": time.time(),
             **self.run,
-            "options": self.options,
             "notes": self.notes,
             "steps": self.steps,
         }, indent=2, default=str) + "\n")

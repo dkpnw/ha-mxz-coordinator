@@ -82,7 +82,7 @@ wrong reason:
   to reach the combined-call branch (`coordinator.py`, `entry.platform == "esphome"`). That
   branch stays with the in-process driver, and the feature files say so (section 7).
 - No code under `custom_components/` other than the product. The invented equipment lives
-  with the skill and is copied into the instance's config directory at start. It must never
+  with the driver (`invented_house/`) and is copied into the instance's config directory at start. It must never
   be picked up by HACS, hassfest or the release zip.
 - No pip at run time. Start `hass` with `--skip-pip`, so a missing requirement fails the
   start instead of downloading into a lane.

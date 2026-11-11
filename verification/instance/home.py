@@ -220,9 +220,6 @@ class Instance:
     def stop(self) -> int | None:
         return self._end(signal.SIGTERM, 120)
 
-    def kill(self) -> int | None:
-        return self._end(signal.SIGKILL, 30)
-
     def reset(self) -> None:
         if self.pid() is not None:
             self.stop()
