@@ -89,6 +89,9 @@ points and keeps no copy of its state. Code mutants (`tools/code_mutants.py`) an
 statechart's Code column name functions, not files. A move therefore breaks an anchor only
 where a function is renamed.
 
+Which module may import which is checked in CI; a new module joins a layer in
+`tools/import_bounds.py`. See [ARCHITECTURE-RULES.md](ARCHITECTURE-RULES.md).
+
 ## Restore, flow schemas, and abort text
 
 Restore uses normal `RestoreEntity` state/extra data; flow schemas use Voluptuous. MXZ
