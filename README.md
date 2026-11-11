@@ -76,7 +76,7 @@ an hour while the other head sat satisfied
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-dashboard-dark.png">
-  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-dashboard-light.png" alt="Home Assistant dashboard with one MXZ thermostat per room. Studio reads 74 °F against its 70 °F target and shows Cooling. Loft reads 70 °F and Den 71 °F, both Idle at 70 °F. A Coordinator card shows Shared mode cool, Plan cool, Coordinator enable on, and Eco idle, Heat lockout, and Cool lockout off.">
+  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-dashboard-light.png" alt="Home Assistant dashboard with one MXZ thermostat per room. Studio reads 74 °F against its 70 °F target and shows Cooling. Loft and Den read 70 °F, both Idle at 70 °F. A Coordinator card shows Shared mode cool, Plan cool, Coordinator enable on, and Eco idle, Heat lockout, and Cool lockout off.">
 </picture>
 
 One target per room, one shared mode: Studio cools while Loft and Den, already at target,
@@ -283,7 +283,7 @@ Coordinator → Configure** for a menu of six pages. Each saves only what it sho
 
 | Page | What you set |
 | --- | --- |
-| **Comfort** | Allowed drift, Mode switch threshold, Resting mode, Accept changes made at the head, and (under Advanced) the mode-switch wait, uneven drift, how long a lost head's vote counts, and the Comfort priority stale limit. |
+| **Comfort** | Allowed drift, Mode switch threshold, Resting mode, Accept changes made at the head (3.22.0 beta), and (under Advanced) the mode-switch wait, uneven drift, how long a lost head's vote counts, and the Comfort priority stale limit. |
 | **Fan and idle** | Fan boost and its top speed, and what a room does when it reaches target. |
 | **Seasons** | A weather source and the heat and cool lockout temperatures, with safety overrides. |
 | **Away and setpoint limits** | The away band, and the lowest and highest setpoint a head may get. |
