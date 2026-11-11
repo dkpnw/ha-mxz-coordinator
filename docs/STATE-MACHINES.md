@@ -1046,6 +1046,19 @@ quiet. `tests/test_accept_head_changes.py` holds those.
 | The refresh debouncer and follow-up (3.2) | Home Assistant internals on two code paths (audit M2) | `tests/test_refresh_race.py` |
 | The crash rows of SM-9 other than the fan | Chunk 6 | — |
 
+### 6.4 One subsystem at a time, and the user flows drawn
+
+Added 2026-11-11. `tools/formal_area.py` runs one subsystem's part of `MXZCoordinator.tla`
+with its tests: 3.12 (`fan`), 3.13 (`window`), 3.11 (`adopt`), and 3.3 with 3.5's writeback
+(`apply`). Each has broken copies of the spec and of the code that its check must catch; C42
+to C48 in `tools/code_mutants.py` are the code's for `adopt` and `apply`, which had none. The
+pstack `/statechart` skill draws five user flows from the spec in
+[formal/STATECHART.md](formal/STATECHART.md#user-flows-drawn-from-the-model): the mode and its
+hold, the door/window pause, the fan hold, changes made at a head, and SM-1's path. They found
+nothing new. SM-10 replays on the real code on its chart path. The model's shortest SM-1 path
+does not replay, since the model lets a person act between a start and MXZ's first write after
+it; SM-1 still replays on its own path.
+
 `.github/workflows/tla.yml` runs on changes under `docs/formal/tla/**`, so it runs for this work. It
 still does not run on code-only changes (audit M12, chunk 2 or 4).
 

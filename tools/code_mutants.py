@@ -290,6 +290,51 @@ MUTANTS: dict[str, Mutant] = {
         '        memory.clear()\n        memory.append(token)\n',
         'tests/test_properties_fan.py::test_no_person_no_hold_when_a_head_jumps_to_its_latest_write',
     ),
+    # The mode's record and each head's command (RecordLeadsHeads, ci-apply).
+    'C42': Mutant(
+        'the heads are sent the mode before it is recorded', '_apply',
+        'self._write_back_mode(plan, engages)\n        await self._wait_deliveries(tasks)',
+        'await self._wait_deliveries(tasks)\n        self._write_back_mode(plan, engages)',
+        'tests/test_head_fault.py::test_a_head_is_sent_a_new_mode_only_once_it_is_the_recorded_mode',
+    ),
+    'C43': Mutant(
+        "a head's unexpected error fails the plan", '_call_head_service',
+        'if isinstance(err, HomeAssistantError):\n                raise',
+        'if True:\n                raise',
+        'tests/test_head_fault.py::test_a_head_that_raises_during_a_mode_change_doesnt_undo_the_change[RuntimeError]',
+    ),
+    # Changes made at a head and MXZ's memory of its own writes (OwnWriteNeverAdopted,
+    # HoldBlocksWrite, StartWriteNeverAdopted in ci-adopt).
+    'C44': Mutant(
+        "a write to a head isn't remembered", '_remember_head_write',
+        'if name in payload:',
+        'if False:',
+        'tests/test_accept_head_changes.py::test_a_head_two_writes_behind_is_not_adopted',
+    ),
+    'C45': Mutant(
+        "a change at the head doesn't stop MXZ's write", '_head_change_settling',
+        'return (climate_id, "adopt") in self._heal_timers and bool(',
+        'return False and bool(',
+        'tests/test_accept_head_changes.py::test_a_change_must_hold_and_isnt_overwritten_while_it_does',
+    ),
+    'C46': Mutant(
+        'a reload loses the memory, as a process start does', '__init__',
+        'hass.data.setdefault(\n            f"{DOMAIN}_head_writes", {}\n        )',
+        '{}',
+        'tests/test_accept_head_changes.py::test_the_memory_rides_a_reload_with_the_head_still_behind',
+    ),
+    'C47': Mutant(
+        "a report doesn't pass the writes before it", 'caught_up',
+        'while not same(reported, self._values[0]):\n                self._values.popleft()',
+        'pass',
+        'tests/test_accept_head_changes.py::test_a_report_of_the_last_write_ends_all_the_others',
+    ),
+    'C48': Mutant(
+        "a person's value replaces the writes still coming", 'seen',
+        'if self._values:\n            self._values.popleft()\n        self._values.appendleft(shown)',
+        'self._values.clear()\n        self._values.append(shown)',
+        'tests/test_accept_head_changes.py::test_a_person_replaces_what_the_head_last_showed_not_what_is_still_coming',
+    ),
     'H1': Mutant(
         'the hold no longer gates a change', 'shared_mode',
         'if proposed != current and allowed and (standoff or not still):',

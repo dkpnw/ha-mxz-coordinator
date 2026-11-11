@@ -27,6 +27,15 @@ the evidence and the options.
   the value it takes for the one shown. When that write lands after a person's later press, it is
   adopted over the press.
 
+Both were replayed again on the real code at `ca78324`, on invented heads, each with a control
+that passes: SM-10 on the path the `/statechart` chart draws, where the target ends at 72 over
+the person's 70, and SM-1 on its probe in [STATE-MACHINES.md](../STATE-MACHINES.md#sm-1-a-late-report-of-mxzs-own-pre-restart-write-is-adopted-as-a-persons-press) (target 72 then 74 at a
+lagging head, a restart, the reports after startup quiet), where it ends at 72 where the person
+left 74.
+The model's own shortest path to SM-1 does not happen on the real code: it has a person set the
+target between a start and MXZ's first write after it.
+[STATECHART.md](STATECHART.md#a-pre-restart-write-after-startup-quiet) has both paths.
+
 ## Accepted: a re-pick of the same speed on a cloud head
 
 On a cloud head, if a person picks the same fan speed MXZ just wrote, MXZ can't tell. It
