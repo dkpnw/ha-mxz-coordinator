@@ -72,9 +72,9 @@ async def run(drive: Drive) -> None:
         await drive.person(f"enable {drive.names[key]}", "switch", "turn_on", entity_id=ids[f"{slug}_enable"])
     studio, name, head = drive.rooms[0], drive.names[drive.rooms[0]], drive.heads[0]
     await drive.room(f"{name} reads 72, past its 1 °F drift", studio, temperature=72)
-    await drive.until(f"with Coordinator enable off, MXZ evaluates {name} at 72 and wants cool",
+    await drive.until(f"with Coordinator enable off, MXZ evaluates {name} at 72 and engages cool",
                       watching(ids["plan"])(lambda _: drive.row(name).get("temp") == 72
-                                            and drive.row(name).get("demand") == "cool"), EVALUATED)
+                                            and drive.row(name).get("engage") == "cool"), EVALUATED)
     await drive.quiet()
     sent = head_calls(drive.stream.since(created_at), drive.heads)
     drive.check("from entry creation until Coordinator enable is on, no head gets any call, "
