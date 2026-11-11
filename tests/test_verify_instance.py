@@ -186,26 +186,20 @@ def _state(entity_id: str, state: str) -> dict:
             "data": {"entity_id": entity_id, "new_state": {"state": state, "attributes": {}}}}
 
 
-def test_an_expectation_passes_when_the_state_arrives_in_time() -> None:
-    async def scenario() -> object:
-        stream = expect.Stream()
-        loop = asyncio.get_running_loop()
-        loop.call_later(0.05, stream.feed, _state("climate.studio_head", "cool"))
-        return await stream.until("cool", lambda s: s.get("climate.studio_head", {}).get("state") == "cool", 2)
-
-    assert asyncio.run(scenario()) is True
+async def test_an_expectation_passes_when_the_state_arrives_in_time() -> None:
+    stream = expect.Stream()
+    asyncio.get_running_loop().call_later(0.05, stream.feed, _state("climate.studio_head", "cool"))
+    arrived = await stream.until("cool", lambda s: s.get("climate.studio_head", {}).get("state") == "cool", 2)
+    assert arrived is True
 
 
-def test_a_missed_deadline_reports_the_last_state_seen() -> None:
-    async def scenario() -> None:
-        stream = expect.Stream()
-        stream.feed(_state("climate.studio_head", "fan_only"))
-        check = expect.watching("climate.studio_head")(
-            lambda s: s["climate.studio_head"]["state"] == "cool")
-        await stream.until("cool", check, 0.05)
-
+async def test_a_missed_deadline_reports_the_last_state_seen() -> None:
+    stream = expect.Stream()
+    stream.feed(_state("climate.studio_head", "fan_only"))
+    check = expect.watching("climate.studio_head")(
+        lambda s: s["climate.studio_head"]["state"] == "cool")
     with pytest.raises(expect.Missed) as missed:
-        asyncio.run(scenario())
+        await stream.until("cool", check, 0.05)
     assert missed.value.seen == {"climate.studio_head": {"state": "fan_only"}}
 
 
