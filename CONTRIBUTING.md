@@ -4,7 +4,7 @@ Thanks for helping. Bug reports, fixes, and ideas are all welcome. Please read t
 
 ## What MXZ is
 
-MXZ works like a Tesla's cabin climate in Auto. You set one temperature per room, and MXZ decides whether to heat or cool. You never pick a mode.
+MXZ works like a Tesla Model Y's heat pump in Auto. You set one temperature per room, and MXZ decides whether to heat or cool. You never pick a mode.
 
 Home thermostats usually ask for a heat setpoint and a cool setpoint. That confuses most people, and MXZ exists to get rid of it. Simplicity is the product.
 

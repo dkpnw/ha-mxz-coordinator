@@ -1,12 +1,13 @@
 """Doc contracts for README and CHANGELOG lines that drift from their sources.
 
-- The README's Configure table names each room page field and section by the label
+- Configuration's settings table names each room page field and section by the label
   the page shows (strings.json is the oracle).
-- The README states the Mushroom climate card's +/- wait as Mushroom v5.2.3 ships it:
+- The feature guide states the Mushroom climate card's +/- wait as Mushroom v5.2.3 ships it:
   ``DEFAULT_DEBOUCE_TIME = 2000`` (milliseconds) in ``src/shared/input-number.ts``,
   overridable by a theme through ``--mush-input-number-debounce``
   (``src/utils/theme.ts``). The tests can't fetch Mushroom, so the value is pinned
   here with its source.
+- The README has one What's new section, for the newest release.
 - CHANGELOG 3.10.0 says CONTRIBUTING.md replaced "3.9.0's stance"; the 3.9.0 notes
   must state that stance.
 - Every issue form has what GitHub requires, and the generic head report asks for what
@@ -26,43 +27,59 @@ ROOM_STEP = json.loads(
 )["options"]["step"]["room"]
 
 
-def _rooms_row(readme: str) -> str:
-    rows = [line for line in readme.splitlines() if line.startswith("| **Rooms** |")]
-    assert len(rows) == 1, rows
-    return rows[0]
+def _rooms_rows(configuration: str) -> str:
+    """The setting cells of the Rooms rows in Configuration's table: the **Rooms** row and those under it."""
+    lines = configuration.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith("| **Rooms**")]
+    assert len(starts) == 1, starts
+    cells = [lines[starts[0]].split("|")[2]]
+    for line in lines[starts[0] + 1 :]:
+        if not line.startswith("| |"):
+            break
+        cells.append(line.split("|")[2])
+    return "\n".join(cells)
 
 
-def _room_page_names() -> list[str]:
-    fields = list(ROOM_STEP["data"].values())
-    sections = [section["name"] for section in ROOM_STEP["sections"].values()]
-    return fields + sections
+def _room_page_fields() -> list[str]:
+    return list(ROOM_STEP["data"].values())
 
 
-def _missing_room_page_names(row: str) -> list[str]:
-    return [name for name in _room_page_names() if f"**{name}**" not in row]
+def _room_page_sections() -> list[str]:
+    return [section["name"] for section in ROOM_STEP["sections"].values()]
+
+
+def _missing_room_page_names(rows: str) -> list[str]:
+    """Fields named in a cell, and sections as the cell's italic `*Section:*` prefix."""
+    missing = [name for name in _room_page_fields() if name not in rows]
+    return missing + [name for name in _room_page_sections() if f"*{name}:*" not in rows]
 
 
 def test_room_page_names_come_from_the_page() -> None:
     """The oracle reads the real page: the hands-off switch and floor section are in it."""
-    names = _room_page_names()
+    names = _room_page_fields() + _room_page_sections()
     assert "Let its own remote run it while disabled" in names
     assert "Freeze floor and overheat ceiling" in names
     assert len(names) == len(set(names)) >= 10
 
 
-def test_rooms_row_names_every_room_page_field_and_section() -> None:
-    row = _rooms_row(Path("README.md").read_text())
-    assert _missing_room_page_names(row) == []
+def test_configuration_rooms_rows_name_every_room_page_field_and_section() -> None:
+    rows = _rooms_rows(Path("docs/CONFIGURATION.md").read_text())
+    assert _missing_room_page_names(rows) == []
 
 
-def test_rooms_row_check_reports_a_dropped_name() -> None:
-    """Negative: a row without the hands-off switch or the floor section is caught."""
-    row = _rooms_row(Path("README.md").read_text())
-    for name in (
-        "Let its own remote run it while disabled",
-        "Freeze floor and overheat ceiling",
-    ):
-        assert _missing_room_page_names(row.replace(f"**{name}**", name)) == [name]
+def test_rooms_rows_check_reports_a_dropped_name() -> None:
+    """Negative: rows without the hands-off switch or the floor section are caught."""
+    rows = _rooms_rows(Path("docs/CONFIGURATION.md").read_text())
+    dropped = rows.replace("Let its own remote run it while disabled", "Hands-off")
+    assert _missing_room_page_names(dropped) == ["Let its own remote run it while disabled"]
+    dropped = rows.replace("*Freeze floor and overheat ceiling:*", "*Floors:*")
+    assert _missing_room_page_names(dropped) == ["Freeze floor and overheat ceiling"]
+
+
+def test_rooms_rows_stop_at_the_next_page() -> None:
+    """Negative: a row of the next page doesn't count as a Rooms row."""
+    table = "| **Rooms** | Head type | x |\n| | Allow Dry mode | x |\n| **Other** | Mine | x |\n"
+    assert _rooms_rows(table).split("\n") == [" Head type ", " Allow Dry mode "]
 
 
 # lovelace-mushroom v5.2.3: src/shared/input-number.ts:20 and src/utils/theme.ts:78.
@@ -78,7 +95,7 @@ def _mushroom_wait_bullet(readme: str) -> str:
 
 
 def test_mushroom_wait_matches_mushroom_source() -> None:
-    bullet = _mushroom_wait_bullet(Path("README.md").read_text())
+    bullet = _mushroom_wait_bullet(Path("docs/FEATURES.md").read_text())
     seconds = MUSHROOM_DEFAULT_WAIT_MS // 1000
     assert f"{seconds} seconds by default" in bullet
     assert f"`{MUSHROOM_THEME_VARIABLE}`" in bullet
@@ -112,47 +129,47 @@ def test_changelog_section_finder_rejects_a_missing_version() -> None:
         _changelog_section("## 1.0.0\n\n- x\n\n## 0.9.0\n", "3.9.0")
 
 
-def _dropped_previous_section(readme: str, changelog: str) -> str | None:
-    """The x.y.0 release just below the newest What's new section, if its section is gone.
+def _whats_new_problems(readme: str, changelog: str) -> list[str]:
+    """What is wrong with the README's What's new: it has one section, for the newest release.
 
-    Only x.y.0 counts: patch releases usually have no section of their own.
+    The section is a released version (a beta waits, docs/RELEASING.md), and no
+    released x.y.0 is newer. A patch release may keep its x.y.0's section.
     """
-    sections = re.findall(r"^## What's new in (\d+\.\d+\.\d+)\b", readme, re.MULTILINE)
-    versions = re.findall(r"^## (\d+\.\d+\.\d+)\b", changelog, re.MULTILINE)
-    earlier = versions[versions.index(sections[0]) + 1 :]
-    previous = next(version for version in earlier if version.endswith(".0"))
-    return None if previous in sections else previous
+    sections = re.findall(r"^## What's new in (.+?)\s*$", readme, re.MULTILINE)
+    released = re.findall(r"^## (\d+\.\d+\.\d+) \(", changelog, re.MULTILINE)
+    if len(sections) != 1:
+        return [f"{len(sections)} What's new sections, not one"]
+    if sections[0] not in released:
+        return [f"What's new in {sections[0]}: not a released version"]
+    newer = released[: released.index(sections[0])]
+    return [f"{version} is newer" for version in newer if version.endswith(".0")]
 
 
-def test_readme_keeps_the_previous_release_section() -> None:
-    """A release pushes the previous What's new section down; it doesn't replace it."""
-    assert (
-        _dropped_previous_section(
-            Path("README.md").read_text(), Path("CHANGELOG.md").read_text()
-        )
-        is None
-    )
+def test_readme_has_one_whats_new_for_the_newest_release() -> None:
+    assert _whats_new_problems(Path("README.md").read_text(), Path("CHANGELOG.md").read_text()) == []
 
 
 @pytest.mark.parametrize(
-    ("sections", "dropped"),
+    ("sections", "problems"),
     [
-        (["2.1.0", "2.0.0", "1.9.0"], None),
-        (["2.1.0", "2.0.0"], None),
-        (["2.0.1", "2.0.0"], None),
-        (["2.1.0", "1.9.0"], "2.0.0"),
-        (["2.1.0"], "2.0.0"),
-        (["2.0.1", "1.9.0"], "2.0.0"),
-        (["2.1.0 (unreleased)", "1.9.0"], "2.0.0"),
+        (["2.1.0"], []),
+        (["2.0.0"], ["2.1.0 is newer"]),
+        (["2.1.0", "2.0.0"], ["2 What's new sections, not one"]),
+        ([], ["0 What's new sections, not one"]),
+        (["2.2.0"], ["What's new in 2.2.0: not a released version"]),
+        (["2.2.0b1"], ["What's new in 2.2.0b1: not a released version"]),
     ],
 )
-def test_previous_section_check_reports_a_dropped_section(
-    sections: list[str], dropped: str | None
-) -> None:
-    """Negative included: 2.0.1 has no section of its own, but 2.0.0 must keep its."""
-    changelog = "## 2.1.0 (x)\n\n## 2.0.1 (x)\n\n## 2.0.0 (x)\n\n## 1.9.0 (x)\n"
+def test_whats_new_check_reports_a_wrong_section(sections: list[str], problems: list[str]) -> None:
+    """Negative included: an old section, two sections, none, or an unreleased one."""
+    changelog = "## Unreleased\n\n## 2.1.0 (x)\n\n## 2.0.1 (x)\n\n## 2.0.0 (x)\n"
     readme = "\n".join(f"## What's new in {section}\n" for section in sections)
-    assert _dropped_previous_section(readme, changelog) == dropped
+    assert _whats_new_problems(readme, changelog) == problems
+
+
+def test_a_patch_release_may_keep_its_minor_s_section() -> None:
+    changelog = "## 2.1.1 (x)\n\n## 2.1.0 (x)\n"
+    assert _whats_new_problems("## What's new in 2.1.0\n", changelog) == []
 
 
 def _diagnostics_section(readme: str) -> str:
@@ -298,7 +315,7 @@ def test_tested_by_users_is_honest_and_generic_heads_stay_beta() -> None:
     assert f"template={GENERIC_REPORT.name}" in section
     assert "## Generic heads (beta)" in features
     readme = Path("README.md").read_text()
-    assert "## Generic heads (beta)" in readme
+    assert "\n### Generic heads (beta)\n" in readme
     assert f"template={GENERIC_REPORT.name}" in readme
     assert "docs/FEATURES.md#tested-by-users" in readme
 

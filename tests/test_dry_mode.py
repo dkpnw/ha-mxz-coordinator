@@ -967,12 +967,13 @@ def test_coil_dry_label_is_renamed_and_the_key_is_kept() -> None:
         strings = json.loads(text)
         assert strings["selector"]["idle_action"]["options"]["off_after_dry"] == f"{NOT_DRY} (default)"
         assert "Off after drying" not in text, path
-    readme = Path("README.md").read_text()
-    assert f"**{NOT_DRY}**" in readme
-    assert "This isn't the heads' Dry (dehumidify) mode; see [Allow Dry mode]" in readme
-    # The old name appears only where the README says it was renamed.
-    old = [line for line in readme.splitlines() if "Off after drying" in line]
-    assert old and all("used to read" in line for line in old), old
+    how = Path("docs/HOW-IT-WORKS.md").read_text()
+    assert f"**{NOT_DRY}**" in how
+    assert "This isn't the heads' Dry (dehumidify) mode; see [Allow Dry mode]" in how
+    # The old name is gone from the README; Migration says it was renamed.
+    assert "Off after drying" not in Path("README.md").read_text()
+    migration = " ".join(Path("docs/MIGRATION.md").read_text().split())
+    assert f"**Off after drying** is now called **{NOT_DRY}**" in migration
     # The current guides use the new name. (MIGRATION.md keeps each release's
     # own wording, and a 3.12 screenshot's alt text describes that screenshot.)
     for name in ("FEATURES.md", "SETUP.md", "TROUBLESHOOTING.md"):

@@ -2,7 +2,7 @@
 
 > **This page is for the legacy manual install** (the `packages/` YAML file). The
 > recommended install is now the **HACS integration**, which configures these entities
-> through a UI form — no find/replace. See the README's [Install](../README.md#install) section, and
+> through a UI form — no find/replace. See the README's [Quick start](../README.md#quick-start) section, and
 > [`MIGRATION.md`](MIGRATION.md) for the integration's entity IDs. Keep reading only if
 > you are using the YAML package directly.
 

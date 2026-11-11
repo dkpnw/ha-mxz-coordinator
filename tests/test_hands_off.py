@@ -1548,8 +1548,8 @@ def test_room_page_copy_is_translated() -> None:
 
 
 def test_docs_name_the_setting_by_its_label() -> None:
-    """README and MIGRATION.md use the field's label, never the retired one."""
-    for path in (Path("README.md"), Path("docs/MIGRATION.md")):
-        text = path.read_text()
-        assert f"**{_HANDS_OFF_LABEL}**" in text, path
-        assert "Hands-off when disabled" not in text, path
+    """Configuration and MIGRATION.md use the field's label; no doc uses the retired one."""
+    assert f"**{_HANDS_OFF_LABEL}**" in Path("docs/MIGRATION.md").read_text()
+    assert f"| {_HANDS_OFF_LABEL} |" in Path("docs/CONFIGURATION.md").read_text()
+    for path in (Path("README.md"), Path("docs/CONFIGURATION.md"), Path("docs/MIGRATION.md")):
+        assert "Hands-off when disabled" not in path.read_text(), path

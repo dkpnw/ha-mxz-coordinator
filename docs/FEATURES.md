@@ -8,16 +8,20 @@ named here live in Configure; see [Configuration](CONFIGURATION.md) for the menu
   [uneven drift](#uneven-drift), [start points](#start-points), and
   [per-room uneven drift](#per-room-uneven-drift)
 - [Give a room separate heat and cool setpoints (dual setpoint)](#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint)
+- [Accept changes made at the head](#accept-changes-made-at-the-head)
 - [Run one room from its own remote](#run-one-room-from-its-own-remote):
   [count its vote only while it runs](#count-its-vote-only-while-it-runs)
+- [Allow Dry mode](#allow-dry-mode)
 - [Safety priority](#safety-priority)
 - [Comfort priority](#comfort-priority)
 - [When a head goes unavailable](#when-a-head-goes-unavailable)
+- [Cloud heads (beta)](#cloud-heads-beta)
 - [Generic heads (beta)](#generic-heads-beta)
 - [Door/window pause](#doorwindow-pause)
 - [Freeze floor and overheat ceiling](#freeze-floor-and-overheat-ceiling)
 - [Who drives the fan](#who-drives-the-fan)
 - [How a satisfied head idles](#how-a-satisfied-head-idles)
+- [Dashboard cards](#dashboard-cards)
 
 ## Everyday control
 
@@ -269,7 +273,7 @@ plan sensor's `zones` row for the room gains `target_low` and `target_high`.
 
 <table>
 <tr>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-room-dual-setpoint.png" alt="Configure room page titled Den with the Dual setpoint section open, its description, and Use separate heat and cool setpoints switched on, before Submit."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-room-dual-setpoint.png" alt="Configure room page titled Den with the Dual setpoint section open, its description, and Use separate heat and cool setpoints switched on, with the Cloud or generic head (beta) and Door/window pause sections below, before Submit."></td>
 <td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-thermostat-dual-setpoint.png" alt="Den thermostat card showing a range of 68 °F and 74 °F, Idle, with the room at 69 °F and heat/cool selected; beside it a Den card with Den heat to 68 °F, Den cool to 74 °F, and Den target 71 °F."></td>
 </tr>
 <tr>
@@ -392,7 +396,7 @@ where MXZ writes nothing:
   unchanged), or a disabled room with [Let its own remote run it](#run-one-room-from-its-own-remote)
   on: its head is its remote's, and turning it on doesn't enable the room.
 - During a [freeze floor or overheat ceiling](#freeze-floor-and-overheat-ceiling) run.
-- A setpoint on a [cloud](../README.md#cloud-heads-beta) or [generic](#generic-heads-beta) head with a drive
+- A setpoint on a [cloud](#cloud-heads-beta) or [generic](#generic-heads-beta) head with a drive
   offset. It runs past the room's target by that offset, so what it shows isn't the target. Its
   off and on are adopted; set the offset to 0 and its setpoint is too.
 
@@ -818,6 +822,82 @@ head was gone.
 </tr>
 </table>
 
+## Cloud heads (beta)
+
+MXZ was built for heads on the
+[echavet/MitsubishiCN105ESPHome](https://github.com/echavet/MitsubishiCN105ESPHome)
+firmware. A head that reaches Home Assistant through a cloud integration instead, such as
+MELCloud or Kumo Cloud, can be coordinated too, as a beta. It's opt-in for each room.
+
+**Turn it on.** Setup asks about each head from Home Assistant's `melcloud`, the
+`kumo_cloud` integration ([comfort_HA](https://github.com/jjustinwilson/comfort_HA)), or
+the `kumo` integration ([hass-kumo](https://github.com/dlarrick/hass-kumo)), with
+**Cloud (beta)** filled in for you to confirm. For any other head, or later, use
+Configure → Rooms → (room) → **Head type**. An ESPHome head is always local. Upgrading
+changes nothing: every existing room stays local until you choose cloud on its page. A
+room's page shows **Head type** as Local until you choose Cloud (beta) there, so saving
+the page for anything else never makes a room cloud.
+Reconfigure doesn't ask about a head it adds, so set that head's type on its room page.
+
+**What MXZ does differently for a cloud head.** A cloud integration polls, so its head
+reports a command seconds to minutes late, may drop writes it gets too fast, and can't
+take your room sensor as its own. So for a cloud head MXZ:
+
+- sends the mode on its own call, then one setpoint (never a low/high pair);
+- sends a setpoint past your target while the room runs, by the room's **Setpoint drive
+  offset** (2 °F / 1 °C by default, 0 for the bare target), so the head's own sensor
+  doesn't stop it early. Your room sensor still decides when the room is done. The
+  setpoint is rounded to the head's own step (1 °F or 0.5 °C if it reports none) and kept
+  inside the head's limits;
+- writes each head at most once per **Write interval** (60 s by default, 30-300 s). A
+  newer change waits and replaces the older one;
+- waits a **Confirm wait** (90 s by default, up to 600 s) after each write. In that time it
+  sends nothing again and reads a report of an older state as late, not as someone's
+  change. A head still not showing the write after it is sent the write again;
+- steps fan boost one speed at a time, at most once every 5 minutes. Inside the confirm
+  wait of a heat or cool write that sent no fan (a new setpoint, say), the fan is still
+  decided: a step that comes due goes out on its own once the write interval allows, and
+  a speed you pick on the head is held from then on. After a write that sent a fan, a
+  speed you pick is noticed when that write's wait ends. The one accepted exception: **if
+  you pick the same speed MXZ just wrote, or the one before it, MXZ can't tell, and fan
+  boost's next step writes over it.** The head shows a speed MXZ expects either way. To keep
+  that speed, turn the room's **Fan auto** off, which holds whatever speed is showing;
+- holds a cloud head for one confirm wait after a restart or reload, so a write just
+  before it isn't sent twice and a late report isn't taken for someone's change. For that
+  wait an own-remote room whose cloud head is under its own remote has no vote;
+- stops writing a head that has been unavailable for 15 minutes, or available but
+  silent (no report at all) for 35 minutes, and stops counting its room's heat or cool
+  call (a room with its Safety priority sensor on still calls from its room sensor). A
+  repair issue says so until the head reports again. Silence gets longer because Home
+  Assistant's own MELCloud integration reports a quiet head only every 15 minutes.
+
+The three settings are in the room page's **Cloud or generic head (beta)** section.
+
+| Feature | On a cloud head |
+| --- | --- |
+| Shared heat/cool mode, room order, 10-minute switch wait, idle parking (fan only, off, dry the coil (fan only), then off), away (eco), standby hold, safety priority, freeze floor and overheat ceiling (from the room sensor), weather lockouts, restart memory, room thermostats, plan sensor | Works |
+| Fan boost | Slower: one speed every 5 minutes. Only speeds named like MXZ's ladder (quiet, low, medium, middle, high) that the head lists are used; a head whose speeds are named otherwise keeps its own fan. |
+| Own-remote rooms | Vote by mode only. |
+| Timing | Minutes, not seconds. |
+| Comfort accuracy | The head's own sensor plus the drive offset. |
+| A freeze floor over a person's own run (own-remote room) | MXZ runs it, then turns the head off; it doesn't give the person's run back. |
+| Room sensor fed to the head (`remote_temperature`), vanes and the vane kick, dual setpoint, vote only while running, airflow (stage) sensor | Off in this beta. MXZ itself sends `remote_temperature` to no head: on CN105 heads it's set up in the firmware. |
+
+On `sensor.*_plan`, a cloud room's row shows `head_type: cloud`, `cloud_status`
+(`pending`, `confirmed`, `unconfirmed`, or `not_controllable`), `cloud_pending_until`,
+`cloud_confirmed_at` (when MXZ last saw the head holding everything it sent), and the
+room's three settings. A row with no `head_type` is a local head.
+
+**Beta caveats.** Tested on invented heads that behave like comfort_HA and MELCloud, not
+yet on real cloud heads. Don't run MXZ and an automation such as the cloud-head blueprint
+on the same heads. If you try it, please
+[report how it went](https://github.com/dkpnw/ha-mxz-coordinator/issues/new?template=cloud_beta_report.yml),
+good or bad. The idea and the setpoint drive offset come from
+[@mikepell007](https://github.com/mikepell007)'s
+[mxz_coordinator_blueprint](https://github.com/mikepell007/mxz_coordinator_blueprint)
+(MIT), and the first report from **mw1029** on the
+[Home Assistant forum](https://community.home-assistant.io/t/1018382).
+
 ## Generic heads (beta)
 
 A generic head is any Home Assistant `climate` entity that offers both `heat` and `cool`
@@ -852,7 +932,7 @@ mode (`head_missing_idle_modes`). While a head lacks them, Configure opens on th
 refusal, and a room page saved then is refused with it. A cool-only window AC is refused. It also needs a target
 temperature, and its room needs a room sensor.
 
-**How MXZ drives it.** Exactly as a [cloud head](../README.md#cloud-heads-beta): the mode
+**How MXZ drives it.** Exactly as a [cloud head](#cloud-heads-beta): the mode
 on its own call, then one setpoint past the target by the **Setpoint drive offset**,
 rounded to the head's step and kept inside its limits; at most one write per **Write
 interval**; and a **Confirm wait** after each write, in which nothing is sent again and a
@@ -1324,3 +1404,34 @@ Facts to know before you switch:
   same configured action as a satisfied room.
 - **Eco and standby holds come first.** While eco/away is on, a satisfied room parks off
   at once, with no drying run.
+
+## Dashboard cards
+
+Each room's thermostat works with the
+[Mushroom climate card](https://github.com/piitaya/lovelace-mushroom). This one was
+tested with Mushroom v5.2.3:
+
+```yaml
+type: custom:mushroom-climate-card
+entity: climate.mxz_coordinator_den_thermostat
+hvac_modes: [heat_cool, dry, "off"]
+show_temperature_control: true
+collapsible_controls: false
+```
+
+- A room with a dual setpoint shows two controls, Heat to (low) and Cool to (high), in
+  place of the single target.
+- The thermostat offers Dry only while its room offers it (Allow Dry mode). The card
+  shows only the listed modes the thermostat offers, so a room without Allow Dry shows
+  Off and Heat/Cool and no Dry button.
+- The built-in tile card works with the `climate-hvac-modes` and `target-temperature`
+  features.
+- The thermostat has no preset modes, so a presets feature or control has nothing to
+  show.
+- A new mode (Dry included), target or Heat to and Cool to shows on the card at once.
+  MXZ acts on it at the heads when the plan that follows runs, as before.
+- The Mushroom climate card waits 2 seconds by default after a tap on its + or - button
+  before it sends the new setpoint, and each tap starts the wait again, so a setpoint
+  goes out 2 seconds after you stop tapping. That wait is the card's own, not MXZ's; a
+  theme can change it with Mushroom's `mush-input-number-debounce` variable, in
+  milliseconds.

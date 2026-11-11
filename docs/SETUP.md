@@ -1,6 +1,6 @@
 # Setup, Reconfigure, and removal
 
-The [README](../README.md#install) has the short install. This page has every step,
+The [README](../README.md#quick-start) has the quick start. This page has every step,
 screenshot, and error.
 
 - [Requirements](#requirements)
@@ -61,7 +61,9 @@ Setup has four steps. Only **Save and finish** creates the entry.
 1. **Heads.** Select every head on this outdoor unit once, in priority order. Position 1
    wins a heat-versus-cool standoff. Give the outdoor unit an optional name and choose an
    optional drift-alert notification service (**Notify on drift**). The outdoor-unit name
-   labels the entry; it does not form entity IDs.
+   labels the entry; it does not form entity IDs. Leave **Generic heads (beta)** off for
+   Mitsubishi heads; it is for other brands' units
+   ([Generic heads (beta)](FEATURES.md#generic-heads-beta)).
 2. **Rooms.** Check each pre-filled **Room N name**. Use distinct, non-empty names;
    comparison ignores case. These names label the room entities.
 3. **Room temperature sensors.** Pick one sensor per room. Check the room/head mapping
@@ -75,22 +77,22 @@ Setup has four steps. Only **Save and finish** creates the entry.
      **Back to summary**.
    - **Go back to heads and rooms** to correct the mapping.
 
-The summary's reporting age is information only: setup adds no sensor timeout. Heads,
+A sensor's reading and its age on the summary are information only. Heads,
 ownership, sensors, and the chosen idle action are checked again at the final save, so a
 change while the summary is open can send you back to correct it.
 
 <table>
 <tr>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-setup-heads.png" alt="Setup heads step with Studio, Loft, and Den heads in priority order, the outdoor unit named Upstairs outdoor unit, and an empty Notify on drift picker."></td>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-setup-rooms.png" alt="Rooms step listing the three heads by priority, with Room 1 to 3 names pre-filled as Studio head, Loft head, and Den head."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-heads.png" alt="Setup heads step with Studio, Loft, and Den heads in priority order, the outdoor unit named Upstairs outdoor unit, an empty Notify on drift picker, and Generic heads (beta) off."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-rooms.png" alt="Rooms step listing the three heads by priority, with Room 1 to 3 named Studio, Loft, and Den."></td>
 </tr>
 <tr>
 <td>1. Heads: three heads in priority order and an outdoor-unit name.</td>
-<td>2. Rooms: each name is pre-filled from its head's name and can be edited.</td>
+<td>2. Rooms: each name is pre-filled from its head's name; here they are edited to Studio, Loft, and Den.</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-setup-sensors.png" alt="Room temperature sensors step listing Studio, Loft, and Den with their heads, and Studio, Loft, and Den temperature picked."></td>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-setup-summary.png" alt="Check this before you save: the outdoor unit and drift alerts, then each room's priority, head, sensor with its reading and age, and unknown cadence; default comfort settings for °F with Idle off_after_dry; then Save and finish, Change advanced settings, and Go back to heads and rooms."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-sensors.png" alt="Room temperature sensors step listing Studio, Loft, and Den with their heads, and Studio, Loft, and Den temperature picked."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-summary.png" alt="Check this before you save: the outdoor unit and drift alerts, then each room's priority, head, sensor with its reading and age, a cadence of maximum age 360 min, and a 45 °F freeze floor; default comfort settings for °F with Idle off_after_dry; what turning it on does; then Save and finish, Change advanced settings, and Go back to heads and rooms."></td>
 </tr>
 <tr>
 <td>3. Sensors: each room with its head, and one temperature sensor picked per room, before submit.</td>
@@ -98,9 +100,8 @@ change while the summary is open can send you back to correct it.
 </tr>
 </table>
 
-Since 3.16.0 the summary shows each new room's 6-hour freshness limit and 45 °F (7 °C)
-freeze floor where this 3.12 screenshot shows an unknown cadence. Both can be changed or
-cleared later on the room's page in [Configure](CONFIGURATION.md).
+The summary shows each new room's 6-hour freshness limit and 45 °F (7 °C) freeze floor.
+Both can be changed or cleared later on the room's page in [Configure](CONFIGURATION.md).
 
 **Advanced settings are optional.**
 
@@ -113,14 +114,14 @@ cleared later on the room's page in [Configure](CONFIGURATION.md).
   both `fan_only` and `off`), **Save and finish** opens Fan and idle so you can choose a
   supported alternative. It does not silently replace that default.
 
-<img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-setup-advanced-menu.png" width="420" alt="Advanced settings menu headed All optional. You can change these later with Configure: Comfort, Fan and idle, Seasons, Away and setpoint limits, and Standby hold, each with a subtitle, then Back to summary.">
+<img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-advanced-menu.png" width="420" alt="Advanced settings menu headed All optional. You can change these later with Configure: Comfort, Fan and idle, Seasons, Away and setpoint limits, and Standby hold, each with a subtitle, then Back to summary.">
 
 The advanced settings menu: [Configure](CONFIGURATION.md)'s pages without Rooms, and
 **Back to summary** instead.
 
 After **Save and finish**, Home Assistant shows its own device **Name and assign** step.
 
-<img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-setup-complete.png" width="420" alt="Home Assistant's Name and assign step for the new device, Multi-zone mini-split coordinator with the MXZ dial icon: Device name MXZ Coordinator, an empty Area, and Skip and finish.">
+<img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-complete.png" width="420" alt="Home Assistant's Name and assign step for the new device, Multi-zone mini-split coordinator with the MXZ dial icon: Device name MXZ Coordinator, an empty Area, and Skip and finish.">
 
 **Then turn it on.** New room enables and Coordinator enable start off.
 
@@ -151,14 +152,14 @@ second raw-head control for the same room.
 <table>
 <tr>
 <td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-setup-error-capability.png" alt="Heads step with Studio head and Guest fan unit picked, and the error: climate.guest_fan_unit does not advertise both heat and cool."></td>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-setup-error-already-configured.png" alt="Heads step error: climate.nook_head, climate.loft_head, and climate.studio_head are already assigned to another MXZ Coordinator entry."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-error-already-configured.png" alt="Heads step with Studio head and Loft head picked for Downstairs outdoor unit, and the error: climate.studio_head and climate.loft_head are already assigned to another MXZ Coordinator entry."></td>
 </tr>
 <tr>
 <td>A fan-only guest unit is rejected because it lacks heat and cool.</td>
 <td>The heads belong to another entry. The error names them, and the heads step stays open.</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-setup-error-reserved.png" alt="Heads step with Nook head and Studio head picked, and the error: climate.studio_head is selected in another open MXZ Coordinator dialog; finish or cancel that dialog, or restart Home Assistant, then try again."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-error-reserved.png" alt="Heads step with Den head and Studio head picked, and the error: climate.den_head and climate.studio_head are selected in another open MXZ Coordinator dialog; finish or cancel that dialog, or restart Home Assistant, then try again."></td>
 <td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-setup-error-duplicate-room.png" alt="Rooms step with Room 1 and Room 2 both named Studio and Room 3 Den, and the error: two rooms have the same name, Studio."></td>
 </tr>
 <tr>

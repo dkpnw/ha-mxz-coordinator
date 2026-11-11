@@ -51,8 +51,9 @@ A release is cut by hand, in this order. Don't tag until every step above the ta
    matches shows up as `name <email>` too. Find out who wrote it before you credit
    them, and add their email to the map only once you know their login.
 
-   For every MISSING contributor, add them to the README's
-   [Credits & prior art](../README.md#credits--prior-art) section:
+   For every MISSING contributor, add a one-line entry with their handle to the README's
+   [Credits & prior art](../README.md#credits--prior-art) list, which the check reads, and
+   what they did to [CREDITS.md](CREDITS.md):
    - Every handle, issue, PR, and forum mention is a full link.
    - Note the release the contribution shipped in.
    - Credit work that hasn't shipped yet as "in progress".
