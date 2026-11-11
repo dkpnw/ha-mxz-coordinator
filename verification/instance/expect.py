@@ -115,7 +115,8 @@ def _targets(event: Event) -> list[str]:
     return [target] if isinstance(target, str) else list(target)
 
 
-def _mode(event: Event) -> str | None:
+def commanded_mode(event: Event) -> str | None:
+    """The mode a climate call puts a head in, or None for a call that sets no mode."""
     data = event["data"]
     if data["service"] in ("set_hvac_mode", "set_temperature"):
         return data.get("service_data", {}).get("hvac_mode")
@@ -129,7 +130,7 @@ def opposite_directions(events: Iterable[Event], heads: Iterable[str]) -> list[s
     latest: dict[str, str] = {}
     found = []
     for event in head_calls(events, heads, by_person=False):
-        mode = _mode(event)
+        mode = commanded_mode(event)
         if mode is None:
             continue
         for head in _targets(event):
@@ -145,7 +146,7 @@ def forbidden_modes(events: Iterable[Event], heads: Iterable[str], dry_allowed: 
     allowed = set(dry_allowed)
     found = []
     for event in head_calls(events, heads, by_person=False):
-        mode = _mode(event)
+        mode = commanded_mode(event)
         for head in _targets(event):
             if mode in NEVER_SENT or (mode == "dry" and head not in allowed):
                 found.append(f"{event['time_fired']}: MXZ sent {mode} to {head}")

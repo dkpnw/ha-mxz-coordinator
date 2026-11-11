@@ -16,6 +16,7 @@ from expect import (
     head_calls,
     log_errors,
     opposite_directions,
+    watching,
 )
 
 if TYPE_CHECKING:
@@ -33,6 +34,24 @@ ROW_KEYS = (
 PLAN_KEYS = ("standoff", "mode_change_allowed", "paused_rooms")
 TILE_KEYS = ("hvac_action", "mode_change_hold_remaining", "mode_change_hold_until")
 LOG_NAMES = ("mxz_coordinator", "invented_house")
+# Home Assistant's request-refresh cooldown: a room report is evaluated within one.
+COOLDOWN = 10
+
+
+def head_is(head: str, mode: str, low: float | None = None, high: float | None = None) -> Any:
+    """A check that ``head`` shows ``mode``, and the given setpoints if any."""
+
+    @watching(head)
+    def check(states: dict[str, Any]) -> bool:
+        state = states.get(head)
+        if state is None or state["state"] != mode:
+            return False
+        attributes = state["attributes"]
+        return (low is None or attributes.get("target_temp_low") == low) and (
+            high is None or attributes.get("target_temp_high") == high
+        )
+
+    return check
 
 
 class Drive:
@@ -67,6 +86,11 @@ class Drive:
 
     def mxz(self, key: str) -> str:
         return self._ids[key]
+
+    def row(self, name: str) -> dict[str, Any]:
+        """The plan's row for the room called ``name``, as MXZ last published it."""
+        zones = self.stream.states[self.mxz("plan")]["attributes"].get("zones", [])
+        return next(row for row in zones if row.get("name") == name)
 
     def shown(self) -> dict[str, Any]:
         states = self.stream.states

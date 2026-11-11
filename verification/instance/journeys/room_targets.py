@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from expect import head_calls, watching
+from expect import commanded_mode, head_calls, watching
+from journeys.drive import COOLDOWN, head_is
 
 if TYPE_CHECKING:
     from journeys.drive import Drive
@@ -15,27 +16,7 @@ JOURNEY = "studio-cooling-run"
 HEAD = "climate.studio_head"
 SETTLE = 30
 QUIET = 20
-
-
-def head_is(mode: str | tuple[str, ...], low: float | None = None, high: float | None = None) -> Any:
-    modes = (mode,) if isinstance(mode, str) else mode
-
-    @watching(HEAD)
-    def check(states: dict[str, Any]) -> bool:
-        head = states.get(HEAD)
-        if head is None or head["state"] not in modes:
-            return False
-        attributes = head["attributes"]
-        return (low is None or attributes.get("target_temp_low") == low) and (
-            high is None or attributes.get("target_temp_high") == high
-        )
-
-    return check
-
-
-def studio_row(drive: Drive) -> dict[str, Any]:
-    zones = drive.stream.states[drive.mxz("plan")]["attributes"].get("zones", [])
-    return next(row for row in zones if row.get("name") == "Studio")
+EVALUATED = COOLDOWN + 10
 
 
 async def run(drive: Drive) -> None:
@@ -46,24 +27,31 @@ async def run(drive: Drive) -> None:
     await drive.person("set Studio's target to 72", "number", "set_value", entity_id=target, value=72)
     await drive.room("Studio reads 72", "studio", temperature=72)
     await drive.until("Studio is satisfied at 72", watching(ids["plan"])(
-        lambda _: studio_row(drive).get("engage") == "satisfied"), SETTLE)
+        lambda _: drive.row("Studio").get("engage") == "satisfied"), SETTLE)
 
     await drive.person("set Studio's thermostat to 70", "climate", "set_temperature",
                        entity_id=thermostat, temperature=70)
     await drive.until("Studio's target number reads 70", watching(target)(
         lambda states: float(states[target]["state"]) == 70), SETTLE)
-    await drive.until("the head cools with 68 and 70 (target - 2 to target)", head_is("cool", 68, 70), SETTLE)
-    drive.check("Studio's row engages cool", studio_row(drive).get("engage") == "cool", studio_row(drive))
+    await drive.until("the head cools with 68 and 70 (target - 2 to target)", head_is(HEAD, "cool", 68, 70), SETTLE)
+    drive.check("Studio's row engages cool", drive.row("Studio").get("engage") == "cool", drive.row("Studio"))
 
+    running = drive.stream.mark()
     await drive.room("Studio reads 70.5", "studio", temperature=70.5)
-    await asyncio.sleep(5)
-    drive.record("Time", "5 s pass")
-    drive.check("still running: the head is cool", head_is("cool")(drive.stream.states),
+    await drive.until("MXZ evaluates Studio at 70.5", watching(ids["plan"])(
+        lambda _: drive.row("Studio").get("temp") == 70.5), EVALUATED)
+    drive.check("still running at 70.5: Studio's row engages cool", drive.row("Studio").get("engage") == "cool",
+                drive.row("Studio"))
+    await drive.quiet()
+    drive.check("still running at 70.5: the head is cool", head_is(HEAD, "cool")(drive.stream.states),
                 drive.stream.states[HEAD]["state"])
+    parked = [event["data"] for event in head_calls(drive.stream.since(running), [HEAD], by_person=False)
+              if commanded_mode(event) not in (None, "cool")]
+    drive.check("still running at 70.5: MXZ sends that head no park call", not parked, parked)
 
     await drive.room("Studio reads 70", "studio", temperature=70)
     await drive.until("Studio is satisfied and its head parked", watching(HEAD, ids["plan"])(
-        lambda states: studio_row(drive).get("engage") == "satisfied"
+        lambda states: drive.row("Studio").get("engage") == "satisfied"
         and states[HEAD]["state"] in ("fan_only", "off")), SETTLE)
 
     await drive.quiet()
@@ -71,6 +59,9 @@ async def run(drive: Drive) -> None:
     await drive.room("Studio reads 70.5", "studio", temperature=70.5)
     await asyncio.sleep(QUIET)
     drive.record("Time", f"{QUIET} s pass inside the drift")
+    drive.check("MXZ evaluated Studio at 70.5 inside that window and keeps it satisfied",
+                drive.row("Studio").get("temp") == 70.5 and drive.row("Studio").get("engage") == "satisfied",
+                drive.row("Studio"))
     sent = head_calls(drive.stream.since(mark), [HEAD], by_person=False)
     drive.check("inside the 1 °F drift: no run, and MXZ sends that head nothing", not sent,
                 [event["data"] for event in sent])
@@ -78,13 +69,13 @@ async def run(drive: Drive) -> None:
     await drive.person("set Studio's target number to 69", "number", "set_value", entity_id=target, value=69)
     await drive.until("the thermostat shows 69", watching(thermostat)(
         lambda states: states[thermostat]["attributes"].get("temperature") == 69), SETTLE)
-    await drive.until("a run starts: the head cools with 67 and 69", head_is("cool", 67, 69), SETTLE)
+    await drive.until("a run starts: the head cools with 67 and 69", head_is(HEAD, "cool", 67, 69), SETTLE)
 
     await drive.person("turn Studio's thermostat off", "climate", "set_hvac_mode",
                        entity_id=thermostat, hvac_mode="off")
     await drive.until("Studio's enable switch is off and its head is off", watching(enable, HEAD)(
         lambda states: states[enable]["state"] == "off" and states[HEAD]["state"] == "off"), SETTLE)
-    row = studio_row(drive)
+    row = drive.row("Studio")
     drive.check("Studio's row has no start points", row.get("heat_start") is None and row.get("cool_start") is None,
                 row)
 
@@ -102,4 +93,4 @@ async def run(drive: Drive) -> None:
     await drive.room("Studio reads 70", "studio", temperature=70)
     await drive.person("set Studio's target back to 70", "number", "set_value", entity_id=target, value=70)
     await drive.until("Studio is satisfied again", watching(ids["plan"])(
-        lambda _: studio_row(drive).get("engage") == "satisfied"), SETTLE)
+        lambda _: drive.row("Studio").get("engage") == "satisfied"), SETTLE)

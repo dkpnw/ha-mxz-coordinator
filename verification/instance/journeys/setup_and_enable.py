@@ -6,6 +6,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from expect import head_calls, watching
+from journeys.drive import COOLDOWN, head_is
 
 if TYPE_CHECKING:
     from journeys.drive import Drive
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
 FEATURE = "setup-and-enable"
 JOURNEY = "setup-flow-then-enable"
 QUIET = 60
+SETTLE = 30
+EVALUATED = COOLDOWN + 10
 
 
 async def run(drive: Drive) -> None:
@@ -60,25 +63,39 @@ async def run(drive: Drive) -> None:
         lambda states: [row.get("name") for row in states.get(ids["plan"], {}).get("attributes", {}).get("zones", [])]
         == [drive.names[key] for key in drive.rooms]), 30)
     drive.check("rooms in priority order", bool(rows))
+    plan = drive.stream.states[ids["plan"]]["state"]
+    drive.check("the plan reads cool, the fresh-install mode", plan == "cool", plan)
 
     for slug, key in zip(("primary", "secondary", "zone_3"), drive.rooms, strict=True):
         await drive.person(f"set {drive.names[key]}'s target to 70", "number", "set_value",
                            entity_id=ids[f"{slug}_target"], value=70)
         await drive.person(f"enable {drive.names[key]}", "switch", "turn_on", entity_id=ids[f"{slug}_enable"])
+    studio, name, head = drive.rooms[0], drive.names[drive.rooms[0]], drive.heads[0]
+    await drive.room(f"{name} reads 72, past its 1 °F drift", studio, temperature=72)
+    await drive.until(f"with Coordinator enable off, MXZ evaluates {name} at 72 and wants cool",
+                      watching(ids["plan"])(lambda _: drive.row(name).get("temp") == 72
+                                            and drive.row(name).get("demand") == "cool"), EVALUATED)
+    await drive.quiet()
     sent = head_calls(drive.stream.since(created_at), drive.heads)
-    drive.check("from entry creation until Coordinator enable is on, no head gets any call",
-                not sent, [e["data"] for e in sent])
+    drive.check("from entry creation until Coordinator enable is on, no head gets any call, "
+                f"though enabled {name} wants cool", not sent, [e["data"] for e in sent])
 
-    enabled_at = drive.stream.mark()
     await drive.person("turn on Coordinator enable", "switch", "turn_on", entity_id=ids["coordinator_enable"])
+    await drive.until(f"positive control: {name}'s head is sent cool with 68 and 70",
+                      head_is(head, "cool", 68, 70), SETTLE)
+
+    await drive.room(f"{name} reads 70", studio, temperature=70)
+    await drive.until(f"{name} is satisfied and its head parked", watching(head, ids["plan"])(
+        lambda states: drive.row(name).get("engage") == "satisfied"
+        and states[head]["state"] in ("fan_only", "off")), SETTLE)
+    await drive.quiet()
+    at_target = drive.stream.mark()
     await asyncio.sleep(QUIET)
     drive.record("Time", f"{QUIET} s pass with every room at target")
-    after = head_calls(drive.stream.since(enabled_at), drive.heads)
+    after = head_calls(drive.stream.since(at_target), drive.heads)
     directed = [e["data"] for e in after
                 if e["data"].get("service_data", {}).get("hvac_mode") in ("heat", "cool")]
     drive.check("with every room at target, no head is sent heat or cool", not directed, directed)
-    plan = drive.stream.states[ids["plan"]]["state"]
-    drive.check("the plan reads cool, the fresh-install mode", plan == "cool", plan)
     person_users = {e["context"]["user_id"] for e in drive.stream.events
                     if e["event_type"] == "call_service" and e["data"]["domain"] in ("number", "switch")}
     drive.transcript.notes["context_control"] = {
