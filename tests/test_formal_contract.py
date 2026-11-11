@@ -328,7 +328,7 @@ def skill_name(path: Path) -> str | None:
     return names[0] if len(names) == 1 else None
 
 
-def area_violations(area: formal_area.Area) -> list[str]:
+def area_violations(name: str, area: formal_area.Area) -> list[str]:
     """What keeps a subsystem's checks from running, or from being able to fail."""
     errors = []
     if not area.configs or not set(area.configs) <= set(formal_tlc.CONFIGS):
@@ -341,12 +341,17 @@ def area_violations(area: formal_area.Area) -> list[str]:
         errors.append("test file")
     if {code_mutants.MUTANTS[m].test.split("::")[0] for m in area.code if m in code_mutants.MUTANTS} - set(area.tests):
         errors.append("a code mutant's test isn't run by the check")
+    skill = SKILLS / area.skill / "SKILL.md"
+    if not skill.is_file() or skill_name(skill) != area.skill:
+        errors.append("skill")
+    elif f"tools/formal_area.py check {name}" not in skill.read_text():
+        errors.append("skill doesn't run its check")
     return errors
 
 
 @pytest.mark.parametrize("name", sorted(formal_area.AREAS))
-def test_each_subsystem_runs_real_checks_that_can_fail(name) -> None:
-    assert area_violations(formal_area.AREAS[name]) == []
+def test_each_subsystem_runs_real_checks_that_can_fail_from_its_own_skill(name) -> None:
+    assert area_violations(name, formal_area.AREAS[name]) == []
 
 
 @pytest.mark.parametrize(("change", "expected"), [
@@ -356,10 +361,13 @@ def test_each_subsystem_runs_real_checks_that_can_fail(name) -> None:
     ({"code": ("C999",)}, "code mutant"),
     ({"tests": ("tests/test_invented.py",)}, "test file"),
     ({"tests": ("tests/test_head_fault.py",)}, "a code mutant's test isn't run by the check"),
-], ids=["config", "no_spec_mutant", "no_code_mutant", "unknown_code_mutant", "test_file", "test_not_run"])
+    ({"skill": "verify-mxz-invented"}, "skill"),
+    ({"skill": "verify-mxz-formal"}, "skill doesn't run its check"),
+], ids=["config", "no_spec_mutant", "no_code_mutant", "unknown_code_mutant", "test_file", "test_not_run",
+        "no_skill", "skill_runs_other"])
 def test_a_subsystem_that_drifts_is_refused(change, expected) -> None:
     area = dataclasses.replace(formal_area.AREAS["adopt"], **change)
-    assert expected in area_violations(area)
+    assert expected in area_violations("adopt", area)
 
 
 def test_no_two_subsystems_share_a_config_or_a_broken_copy() -> None:

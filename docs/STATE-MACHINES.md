@@ -1050,7 +1050,9 @@ quiet. `tests/test_accept_head_changes.py` holds those.
 
 Added 2026-11-11. `tools/formal_area.py` runs one subsystem's part of `MXZCoordinator.tla`
 with its tests: 3.12 (`fan`), 3.13 (`window`), 3.11 (`adopt`), and 3.3 with 3.5's writeback
-(`apply`). Each has broken copies of the spec and of the code that its check must catch; C42
+(`apply`), and a skill under `.claude/skills/` that says when and how to run it
+(`verify-mxz-fan-hold`, `verify-mxz-door-window`, `verify-mxz-head-changes`,
+`verify-mxz-mode-record`). Each has broken copies of the spec and of the code that its check must catch; C42
 to C48 in `tools/code_mutants.py` are the code's for `adopt` and `apply`, which had none. The
 pstack `/statechart` skill draws five user flows from the spec in
 [formal/STATECHART.md](formal/STATECHART.md#user-flows-drawn-from-the-model): the mode and its

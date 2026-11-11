@@ -1,4 +1,4 @@
-"""One subsystem's formal checks, as one command. Standard library only.
+"""One subsystem's formal checks, as its skill under .claude/skills/ runs them. Standard library only.
 
     tools/formal_area.py list             each subsystem and what it runs
     tools/formal_area.py check AREA       its TLC configs pass every rule they list, its
@@ -33,6 +33,7 @@ from tools import code_mutants, formal_tlc
 
 @dataclass(frozen=True)
 class Area:
+    skill: str  # the skill under .claude/skills/ that runs it
     configs: tuple[str, ...]  # its configs in docs/formal/tla/; their goals, findings and spec mutants come along
     tests: tuple[str, ...]  # pytest paths: every test its code mutants name is in one of these
     code: tuple[str, ...]  # its broken copies of the code, by id in tools/code_mutants.py
@@ -40,6 +41,7 @@ class Area:
 
 AREAS: dict[str, Area] = {
     "fan": Area(
+        "verify-mxz-fan-hold",
         ("ci-fan", "ci-fan-crash", "ci-fan-lag"),
         ("tests/test_properties_fan.py", "tests/test_properties_restart.py", "tests/test_fan_lag_memory.py",
          "tests/test_fan_hold_restore.py"),
@@ -47,17 +49,20 @@ AREAS: dict[str, Area] = {
          "C36", "C37", "C38", "C39", "C40", "C41"),
     ),
     "window": Area(
+        "verify-mxz-door-window",
         ("ci-window", "ci-window-fan", "ci-arbitration-window"),
         ("tests/test_properties_window.py", "tests/test_properties_restart.py", "tests/test_door_window_logic.py",
          "tests/test_door_window.py"),
         ("C14", "C15", "C16", "C17", "C18", "C19", "C27", "C28", "C29", "C30"),
     ),
     "adopt": Area(
+        "verify-mxz-head-changes",
         ("ci-adopt", "ci-adopt-restart"),
         ("tests/test_accept_head_changes.py",),
         ("C44", "C45", "C46", "C47", "C48"),
     ),
     "apply": Area(
+        "verify-mxz-mode-record",
         ("ci-apply",),
         ("tests/test_head_fault.py",),
         ("C42", "C43"),
@@ -104,7 +109,7 @@ def main() -> int:
     args = parser.parse_args()
     if args.what == "list":
         for name, area in AREAS.items():
-            print(f"{name}: configs {' '.join(area.configs)}; goals {' '.join(goals(area))}; "
+            print(f"{name} ({area.skill}): configs {' '.join(area.configs)}; goals {' '.join(goals(area))}; "
                   f"spec mutants {' '.join(spec_mutants(area))}; tests {' '.join(area.tests)}; "
                   f"code mutants {' '.join(area.code)}")
         return 0

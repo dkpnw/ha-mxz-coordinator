@@ -12,6 +12,7 @@ apply as separate steps, and changes made at a head.
 | [PARKED-FINDINGS.md](PARKED-FINDINGS.md) | What these checks found, and the accepted exception on cloud heads. |
 | [charts/](charts) | The user flows as the pstack `/statechart` skill draws them from the spec, cut small enough to draw whole. [STATECHART.md](STATECHART.md#user-flows-drawn-from-the-model) shows them. |
 | `tools/formal_area.py` | One subsystem's checks as one command: the fan hold, the door/window pause, changes made at a head, and the mode's record with each head's command. |
+| `.claude/skills/verify-mxz-fan-hold/`, `verify-mxz-door-window/`, `verify-mxz-head-changes/`, `verify-mxz-mode-record/` | One skill per subsystem: when to run its check, what it covers at which commit, and how to tell a real bug from a modeling error. |
 | [../STATE-MACHINES.md](../STATE-MACHINES.md) | Every state machine in the integration, explicit or implicit, with the invalid states found and where each is held. This folder is its formal part. |
 
 The model finds orderings nobody thought to test, and the properties check that the code
