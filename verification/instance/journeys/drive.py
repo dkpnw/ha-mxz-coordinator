@@ -32,7 +32,7 @@ ROW_KEYS = (
 )
 PLAN_KEYS = ("standoff", "mode_change_allowed", "paused_rooms")
 TILE_KEYS = ("hvac_action", "mode_change_hold_remaining", "mode_change_hold_until")
-LOGGERS = ("custom_components.mxz_coordinator", "custom_components.invented_house")
+LOG_NAMES = ("mxz_coordinator", "invented_house")
 
 
 class Drive:
@@ -168,4 +168,4 @@ class Drive:
         self.check("MXZ never commands opposite directions", not (found := opposite_directions(events, self.heads)), found)
         self.check("MXZ never sends auto or heat_cool, nor dry without Allow Dry",
                    not (found := forbidden_modes(events, self.heads, dry_allowed)), found)
-        self.check("no error or traceback from MXZ or the equipment", not (found := log_errors(log, LOGGERS)), found)
+        self.check("no error or traceback from MXZ or the equipment", not (found := log_errors(log, LOG_NAMES)), found)

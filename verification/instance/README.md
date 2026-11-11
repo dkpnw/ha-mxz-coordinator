@@ -80,7 +80,10 @@ that as a negative control before the cross-journey checks rely on it.
 Every journey ends with three checks over the whole recorded window: MXZ never
 commands one head `heat` while its latest command to another is `cool`; MXZ never
 sends `auto` or `heat_cool`, nor `dry` without Allow Dry; and the log has no error or
-traceback from MXZ or the equipment.
+traceback from MXZ or the equipment. An ERROR or CRITICAL block counts when its header
+or traceback names `mxz_coordinator` or `invented_house`, whatever the logger: Home
+Assistant logs an exception from MXZ's listeners, tasks and timers under its own
+`homeassistant.core` and `homeassistant` loggers. The doctor uses the same rule.
 
 ## Evidence
 

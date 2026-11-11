@@ -155,16 +155,23 @@ def forbidden_modes(events: Iterable[Event], heads: Iterable[str], dry_allowed: 
 _LOGGER_LINE = re.compile(r"^\S+ \S+ (?P<level>[A-Z]+) \((?P<thread>[^)]*)\) \[(?P<logger>[^\]]+)\] ")
 
 
-def log_errors(text: str, loggers: Iterable[str]) -> list[str]:
-    """Check 3: ERROR or worse from the named loggers, with any traceback under them."""
-    prefixes = tuple(loggers)
-    found: list[str] = []
+def log_errors(text: str, names: Iterable[str]) -> list[str]:
+    """Check 3: each ERROR or CRITICAL block, header and traceback, that names one of ``names``.
+
+    The logger alone does not say whose error it is: Home Assistant logs an
+    exception raised in an integration's listener under ``homeassistant.core``
+    ("Error running job") and one in its task or timer under ``homeassistant``
+    ("Error doing job"). The integration's name in the header or in a traceback
+    frame (``custom_components/<name>/``) does.
+    """
+    names = tuple(names)
+    blocks: list[str] = []
     inside = False
     for line in text.splitlines():
         if match := _LOGGER_LINE.match(line):
-            inside = match["level"] in ("ERROR", "CRITICAL") and match["logger"].startswith(prefixes)
+            inside = match["level"] in ("ERROR", "CRITICAL")
             if inside:
-                found.append(line)
+                blocks.append(line)
         elif inside:
-            found[-1] += "\n" + line
-    return found
+            blocks[-1] += "\n" + line
+    return [block for block in blocks if any(name in block for name in names)]

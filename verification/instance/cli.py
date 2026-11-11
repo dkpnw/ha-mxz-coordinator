@@ -140,7 +140,7 @@ def isolation_problems() -> list[str]:
 def doctor(instance: Instance) -> int:
     from expect import log_errors
     from homeassistant.const import __version__ as ha_version
-    from journeys.drive import LOGGERS
+    from journeys.drive import LOG_NAMES
 
     record = instance.record()
     current = revision()
@@ -161,7 +161,7 @@ def doctor(instance: Instance) -> int:
                 problems.append(f"Home Assistant will revert its HTTP config and exit at {revert_at}")
         except Exception as error:  # noqa: BLE001 - any failure to answer is the finding
             problems.append(f"the API does not answer: {error}")
-    errors = log_errors(instance.log.read_text(errors="replace"), LOGGERS) if instance.log.exists() else []
+    errors = log_errors(instance.log.read_text(errors="replace"), LOG_NAMES) if instance.log.exists() else []
     problems += [f"log error: {line.splitlines()[0]}" for line in errors]
     for problem in problems:
         print(f"DOCTOR_PROBLEM {problem}")

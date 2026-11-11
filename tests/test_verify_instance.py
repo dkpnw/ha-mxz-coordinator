@@ -118,10 +118,67 @@ def test_log_errors_keeps_mxz_errors_with_their_traceback_only() -> None:
         "2026-11-10 16:00:01.000 ERROR (MainThread) [homeassistant.setup] Setup failed for 'camera'\n"
         "2026-11-10 16:00:02.000 WARNING (MainThread) [custom_components.mxz_coordinator] fine\n"
     )
-    found = expect.log_errors(log, ("custom_components.mxz_coordinator",))
+    found = expect.log_errors(log, ("mxz_coordinator",))
     assert len(found) == 1
     assert found[0].endswith("ValueError: x")
-    assert not expect.log_errors(log, ("custom_components.invented_house",))
+    assert not expect.log_errors(log, ("invented_house",))
+
+
+# Home Assistant 2026.9.4 logs an exception from an integration's listener under
+# homeassistant.core (core.py, "Error running job") and one from its task or timer
+# under homeassistant (runner.py, "Error doing job"). Only the traceback names MXZ.
+_LISTENER = (
+    "2026-11-10 16:00:03.000 ERROR (MainThread) [homeassistant.core] Error running job: "
+    "<Job listen_event HassJobType.Callback <bound method MXZCoordinator._on_head_state of <x>>>\n"
+    "Traceback (most recent call last):\n"
+    '  File "/srv/env/lib/python3.14/site-packages/homeassistant/core.py", line 1678, in async_fire_internal\n'
+    "    self._hass.async_run_hass_job(job, event)\n"
+    '  File "/srv/config/custom_components/mxz_coordinator/coordinator.py", line 5001, in _on_head_state\n'
+    "    raise KeyError(entity_id)\n"
+    "KeyError: 'climate.studio_head'"
+)
+_TASK = (
+    "2026-11-10 16:00:04.000 ERROR (MainThread) [homeassistant] Error doing job: "
+    "Task exception was never retrieved (task: <Task finished name='Task-812'>)\n"
+    "Traceback (most recent call last):\n"
+    '  File "/srv/config/custom_components/mxz_coordinator/coordinator.py", line 2790, in _apply\n'
+    "    await self._send(zone)\n"
+    "RuntimeError: x"
+)
+_TIMER = (
+    "2026-11-10 16:00:05.000 CRITICAL (MainThread) [homeassistant] Error doing job: "
+    "Exception in callback (task: None)\n"
+    "Traceback (most recent call last):\n"
+    '  File "/srv/config/custom_components/invented_house/climate.py", line 60, in _report\n'
+    "    self.async_write_ha_state()\n"
+    "ValueError: y"
+)
+_SETUP = (
+    "2026-11-10 16:00:06.000 ERROR (MainThread) [homeassistant.setup] "
+    "Setup failed for custom integration 'mxz_coordinator': Integration failed to initialize."
+)
+_CAMERA = (
+    "2026-11-10 16:00:07.000 ERROR (MainThread) [homeassistant.setup] Setup failed for 'camera': "
+    "Unable to import component: No module named 'turbojpeg'\n"
+    "Traceback (most recent call last):\n"
+    '  File "/srv/env/lib/python3.14/site-packages/homeassistant/loader.py", line 1100, in async_get_component\n'
+    "ModuleNotFoundError: No module named 'turbojpeg'"
+)
+_WARNING = (
+    "2026-11-10 16:00:08.000 WARNING (MainThread) [homeassistant.core] Something slow\n"
+    '  File "/srv/config/custom_components/mxz_coordinator/coordinator.py", line 1, in x'
+)
+NAMES = ("mxz_coordinator", "invented_house")
+
+
+@pytest.mark.parametrize("block", [_LISTENER, _TASK, _TIMER, _SETUP], ids=["listener", "task", "timer", "setup"])
+def test_log_errors_counts_home_assistant_s_own_error_that_names_mxz_or_the_equipment(block: str) -> None:
+    log = f"{_CAMERA}\n{block}\n{_WARNING}\n"
+    assert expect.log_errors(log, NAMES) == [block]
+
+
+def test_log_errors_leaves_out_the_camera_failure_and_a_warning() -> None:
+    assert not expect.log_errors(f"{_CAMERA}\n{_WARNING}\n", NAMES)
 
 
 def _state(entity_id: str, state: str) -> dict:
