@@ -4,6 +4,7 @@ import ast
 import importlib.util
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -134,6 +135,28 @@ def test_no_required_job_depends_on_the_model() -> None:
         if path.name != "tla.yml":
             assert "formal_tlc" not in path.read_text()
             assert "docs/formal" not in path.read_text()
+
+
+@pytest.mark.parametrize(("value", "workers"), [(None, "auto"), ("", "auto"), ("4", "4")])
+def test_both_runners_give_tlc_the_workers_asked_for(monkeypatch, tmp_path, value, workers) -> None:
+    """TLC_WORKERS, or auto when it is unset or empty, reaches TLC from each runner."""
+    if value is None:
+        monkeypatch.delenv("TLC_WORKERS", raising=False)
+    else:
+        monkeypatch.setenv("TLC_WORKERS", value)
+    commands = []
+
+    def run(command, **_kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 1, "", "")
+
+    verify = _verify()
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(formal_tlc, "jar", lambda: "tla2tools.jar")
+    monkeypatch.setattr(verify, "_tools", lambda: ("java", "tla2tools.jar"))
+    assert formal_tlc.tlc(tmp_path, "ci-fan", tmp_path / "formal.out")[0] == "error"
+    assert verify.tlc(tmp_path, "ci-restarts", tmp_path / "verify.out")[0] == "error"
+    assert [command[command.index("-workers") + 1] for command in commands] == [workers, workers]
 
 
 def test_every_config_is_run_and_every_rule_exists() -> None:

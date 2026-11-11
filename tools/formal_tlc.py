@@ -6,9 +6,10 @@
     tools/formal_tlc.py all        check, cover and mutants (what .github/workflows/tla.yml runs)
 
 Set TLA2TOOLS to a tla2tools.jar and, if `java` isn't on PATH, JAVA. A jar whose sha256
-isn't TLA2TOOLS_SHA256 is refused. The exit status is 0 only if every case came out as
-stated. docs/formal/README.md explains the rules. The broken copies of the code that are
-these rules' twins are in tools/code_mutants.py.
+isn't TLA2TOOLS_SHA256 is refused. TLC_WORKERS sets TLC's -workers (default auto). The
+exit status is 0 only if every case came out as stated. docs/formal/README.md explains
+the rules. The broken copies of the code that are these rules' twins are in
+tools/code_mutants.py.
 """
 
 import argparse
@@ -140,8 +141,8 @@ def tlc(folder: Path, config: str, out: Path) -> tuple[str, str]:
     """Run one config in ``folder``: ("pass", states), or ("broke", rule), or ("error", text)."""
     with tempfile.TemporaryDirectory() as meta, out.open("w") as log:
         done = subprocess.run(
-            [*java(), "-cp", jar(), "tlc2.TLC", "-workers", "auto", "-cleanup", "-metadir", meta,
-             "-config", f"{config}.cfg", f"{SPEC}.tla"],
+            [*java(), "-cp", jar(), "tlc2.TLC", "-workers", os.environ.get("TLC_WORKERS") or "auto",
+             "-cleanup", "-metadir", meta, "-config", f"{config}.cfg", f"{SPEC}.tla"],
             cwd=folder, stdout=log, stderr=subprocess.STDOUT, check=False,
         )
     text = out.read_text()

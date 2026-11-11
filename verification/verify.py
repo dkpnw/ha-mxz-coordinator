@@ -5,8 +5,9 @@
 
 See .claude/skills/verify-mxz-formal/SKILL.md. Needs MXZ_PYTHON (a lane venv
 python), JAVA (Java 11 or later) and TLA2TOOLS (tla2tools.jar v1.7.4, checked
-against its sha256 below). Output goes to $MXZ_FORMAL_OUT, by default
-~/verify-mxz-formal/<UTC stamp>/, outside the checkout.
+against its sha256 below). TLC_WORKERS sets TLC's -workers (default auto).
+Output goes to $MXZ_FORMAL_OUT, by default ~/verify-mxz-formal/<UTC stamp>/,
+outside the checkout.
 """
 
 from __future__ import annotations
@@ -161,7 +162,8 @@ def tlc(root: Path, config: str, out: Path) -> tuple[str, str]:
     meta = tempfile.mkdtemp(prefix="tlc-meta-")
     try:
         run = subprocess.run(
-            [java, "-XX:+UseParallelGC", "-cp", jar, "tlc2.TLC", "-workers", "auto",
+            [java, "-XX:+UseParallelGC", "-cp", jar, "tlc2.TLC",
+             "-workers", os.environ.get("TLC_WORKERS") or "auto",
              "-metadir", meta, "-config", f"{config}.cfg", SPEC],
             cwd=root / MODEL, capture_output=True, text=True, check=False,
         )

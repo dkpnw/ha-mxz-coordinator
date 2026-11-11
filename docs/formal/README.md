@@ -142,7 +142,7 @@ You need Java 11 or later and `tla2tools.jar` 1.7.4 (sha256
 `.github/workflows/tla.yml` does the same on each change to the spec. It isn't a required check.
 
 ```sh
-export TLA2TOOLS=/path/to/tla2tools.jar   # and JAVA, if java isn't on PATH
+export TLA2TOOLS=/path/to/tla2tools.jar   # and JAVA, if java isn't on PATH; TLC_WORKERS (default auto)
 python3 tools/formal_tlc.py check     # every config passes every rule it lists
 python3 tools/formal_tlc.py cover     # every reachability goal has a path, any open finding still breaks
 python3 tools/formal_tlc.py mutants   # every broken copy of the spec breaks its named rule
