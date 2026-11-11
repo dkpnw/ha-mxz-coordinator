@@ -3,7 +3,7 @@
 </p>
 
 <p align="center"><b>Tesla-style Auto for your Mitsubishi multi-split.</b><br>
-Set a temperature in each room and forget it. Like a Model Y's heat pump in Auto, MXZ picks heat or cool and runs the fan for you.</p>
+Set a temperature in each room and forget it. Like a Tesla's climate Auto, MXZ picks heat or cool and runs the fan for you.</p>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-stock-vs-mxz-dark.gif">
@@ -36,10 +36,9 @@ Set a temperature in each room and forget it. Like a Model Y's heat pump in Auto
 
 ## What it does
 
-In a Tesla Model Y you set a temperature and leave the climate in Auto. The heat pump
-decides whether to heat or cool, and the fan runs hard while the cabin is far from your
-number and settles as it gets close. A Mitsubishi multi-split is also one heat pump, and
-MXZ Coordinator gives it the same Auto.
+In a Tesla you set a temperature and leave the climate in Auto. Auto picks heating or
+cooling, and the fan runs hard while the cabin is far from your number and settles as
+it gets close. MXZ Coordinator gives a Mitsubishi multi-split the same Auto.
 
 - **You set temperatures. MXZ picks the mode.** Each room's thermostat takes one target.
   MXZ chooses heat or cool for the whole system and never asks a head for its own AUTO.
