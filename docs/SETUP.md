@@ -10,10 +10,12 @@ screenshot, and error.
 - [Reconfigure heads, rooms, and sensors](#reconfigure-heads-rooms-and-sensors)
 - [Remove the integration](#remove-the-integration)
 
-**About the screenshots.** Every screenshot shows MXZ 3.12.0 on Home Assistant 2026.10.0,
-with invented heads (Studio, Loft, Den, Nook) and invented sensors on a test instance.
-The setup, Reconfigure, and Configure screenshots use Home Assistant's dark theme; the
-README's dashboard and Configure menu follow your GitHub theme.
+**About the screenshots.** They show invented heads (Studio, Loft, Den, Nook) and
+invented sensors on a test instance. Images named `mxz-3.12-*` show MXZ 3.12.0 on Home
+Assistant 2026.10.0 in its dark theme. The rest were retaken with MXZ 3.22.0b1 on Home
+Assistant 2026.9.4 in its light theme. The dashboard and the Configure menu were also
+taken in the dark theme: the README shows the one that matches your GitHub theme, and the
+[Configure](CONFIGURATION.md) page shows the dark menu.
 
 ## Requirements
 

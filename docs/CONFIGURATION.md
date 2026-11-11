@@ -142,7 +142,7 @@ The outdoor-unit name and **Notify on drift** service are set in setup and Recon
 <td>Standby hold, with no hold signal.</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-rooms-menu.png" alt="Rooms menu: Pick a room. Rooms are listed in priority order. Studio (priority 1, climate.studio_head), Loft (priority 2, climate.loft_head), Den (priority 3, climate.den_head), then Back."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-rooms-menu.png" alt="Rooms menu: Studio (priority 1, climate.studio_head), Loft (priority 2, climate.loft_head), Den (priority 3, climate.den_head), then Back."></td>
 <td></td>
 </tr>
 <tr>
