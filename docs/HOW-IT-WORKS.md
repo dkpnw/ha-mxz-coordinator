@@ -67,7 +67,7 @@ the system is not running. Under MXZ a waiting head is parked by command instead
 
 ## How MXZ decides
 
-A Tesla Model Y's heat pump in Auto takes one temperature and picks heating or cooling for
+A Tesla's climate Auto takes one temperature and picks heating or cooling for
 you. MXZ gives a Mitsubishi multi-split the same Auto, one outdoor unit at a time; the
 [README](../README.md#what-it-does) has the short version.
 
