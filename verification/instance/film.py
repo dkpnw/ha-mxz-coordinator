@@ -43,7 +43,7 @@ ROOMS = (("studio", "Studio"), ("loft", "Loft"), ("den", "Den"))
 
 def stock_card() -> str:
     """The stock row: each head's own setpoint, and the outdoor unit that decides who waits."""
-    lines = [HEAD, "## Stock", "Outdoor unit runs: **{{ states('sensor.outdoor_unit') | capitalize }}**", "",
+    lines = [HEAD, "### Stock · outdoor unit: {{ states('sensor.outdoor_unit') }}", "",
              "| Room | Reads | Head set to | Head |", "|:--|--:|--:|:--|"]
     for key, name in ROOMS:
         head = f"climate.{key}_head"
@@ -56,8 +56,7 @@ def stock_card() -> str:
 
 def mxz_card(ids: dict[str, str]) -> str:
     """The MXZ row: each room's one target, the shared mode, and Studio's fan while it runs."""
-    lines = [HEAD, "## MXZ Coordinator",
-             f"Shared mode: **{{{{ states('{ids['shared_mode']}') | capitalize }}}}**", "",
+    lines = [HEAD, f"### MXZ Coordinator · shared mode: {{{{ states('{ids['shared_mode']}') }}}}", "",
              "| Room | Reads | Target | Head |", "|:--|--:|--:|:--|"]
     for (key, name), slug in zip(ROOMS, ("primary", "secondary", "zone_3"), strict=True):
         target = f"{{{{ states('{ids[slug + '_target']}') | int(0) }}}} °F"
@@ -95,7 +94,7 @@ def save_dashboard(page: Page, content: str) -> None:
         call_ws(page, {"type": "lovelace/dashboards/create", "url_path": DASHBOARD, "title": "Demo",
                        "mode": "storage", "show_in_sidebar": False, "require_admin": False})
     call_ws(page, {"type": "lovelace/config/save", "url_path": DASHBOARD, "config": {
-        "views": [{"title": "Demo", "path": "row", "panel": True, "cards": [{"type": "markdown", "content": content}]}],
+        "views": [{"title": "Demo", "path": "row", "cards": [{"type": "markdown", "content": content}]}],
     }})
 
 
