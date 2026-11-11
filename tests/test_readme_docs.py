@@ -14,6 +14,7 @@
 - Every issue form has what GitHub requires, and the generic head report asks for what
   a report needs. Tested by users lists only reports with a public GitHub link.
 - RELEASING.md states the release cadence, and its step references point at the right steps.
+- Each screenshot the docs show is in the theme SETUP.md's note says (the pixels are the oracle).
 """
 
 import json
@@ -22,6 +23,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from PIL import Image, ImageStat
 
 ROOM_STEP = json.loads(
     Path("custom_components/mxz_coordinator/strings.json").read_text()
@@ -226,6 +228,56 @@ def test_beta_label_check_reports_an_unlabelled_row_and_relaxes_on_release() -> 
     assert _unlabelled_beta_settings(bare + "\n" + labelled, unreleased) == [" ".join(bare.split())]
     assert _unlabelled_beta_settings(bullet + labelled, unreleased) == []
     assert _unlabelled_beta_settings(bare, "## 3.22.0 (x)\n\n" + unreleased) == []
+
+
+SHOWN_IMAGE = re.compile(r"images/(mxz-[\w.-]+\.png)")
+
+
+def _shown_images() -> set[str]:
+    """Every mxz-* screenshot the README and docs show."""
+    pages = [Path("README.md"), *sorted(Path("docs").glob("*.md"))]
+    return {name for page in pages for name in SHOWN_IMAGE.findall(page.read_text())}
+
+
+def _stated_theme(name: str) -> str:
+    """Setup's "About the screenshots": -dark/-light copies as named; mxz-3.12-* dark; retakes light."""
+    if name.endswith(("-dark.png", "-light.png")):
+        return name.rsplit("-", 1)[1].removesuffix(".png")
+    return "dark" if name.startswith("mxz-3.12-") else "light"
+
+
+def _wrong_themes(paths: list[Path]) -> list[str]:
+    """Images whose pixels disagree with the theme their name states."""
+    wrong = []
+    for path in paths:
+        with Image.open(path) as image:
+            brightness = ImageStat.Stat(image.convert("L")).mean[0]
+        if ("light" if brightness > 128 else "dark") != _stated_theme(path.name):
+            wrong.append(path.name)
+    return wrong
+
+
+def test_setup_note_states_each_screenshot_s_theme() -> None:
+    """The pixels are the oracle for SETUP.md's note on which screenshots are dark."""
+    shown = _shown_images()
+    assert {_stated_theme(name) for name in shown} == {"light", "dark"}
+    assert any(name.startswith("mxz-3.12-") for name in shown)
+    assert _wrong_themes([Path("images") / name for name in sorted(shown)]) == []
+
+
+def test_theme_check_reports_a_screenshot_in_the_wrong_theme(tmp_path: Path) -> None:
+    """Negative: a light 3.12 shot, a dark retake and a light -dark copy are reported."""
+    white, black = (255, 255, 255), (0, 0, 0)
+    shots = {
+        "mxz-3.12-setup-heads.png": white, "mxz-setup-heads.png": black,
+        "mxz-dashboard-dark.png": white, "mxz-3.12-reconfigure-heads.png": black,
+        "mxz-configure-room.png": white, "mxz-dashboard-light.png": white,
+    }
+    for name, colour in shots.items():
+        Image.new("RGB", (8, 8), colour).save(tmp_path / name)
+    assert _wrong_themes([tmp_path / name for name in shots]) == [
+        "mxz-3.12-setup-heads.png", "mxz-setup-heads.png", "mxz-dashboard-dark.png",
+    ]
 
 
 def _diagnostics_section(readme: str) -> str:
