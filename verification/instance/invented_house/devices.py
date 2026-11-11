@@ -36,6 +36,7 @@ class Room:
 class Devices:
     heads: dict[str, Head] = field(default_factory=dict)
     rooms: dict[str, Room] = field(default_factory=dict)
+    outdoor: str | None = None  # the outdoor unit's direction, kept only while the demo model runs
 
     @classmethod
     def fresh(cls, house: dict[str, Any]) -> Devices:
@@ -55,6 +56,7 @@ class Devices:
             devices.heads[key] = Head(**head)
         for key, room in stored["rooms"].items():
             devices.rooms[key] = Room(**room)
+        devices.outdoor = stored.get("outdoor")
         return devices
 
     def save(self, path: Path) -> None:

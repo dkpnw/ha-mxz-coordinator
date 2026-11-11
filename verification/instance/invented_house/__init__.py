@@ -3,27 +3,32 @@
 Development only. It is copied into a throwaway instance's config directory and
 never ships: hassfest, HACS and the release zip see only custom_components/.
 A person at a head acts through this integration's own services, the way a
-remote changes a head without any climate service MXZ could see.
+remote changes a head without any climate service MXZ could see. The demo's
+outdoor unit and room model (model.py) runs only while a journey turns it on.
 """
 
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.discovery import async_load_platform
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
 
 from .devices import DEVICE_FILE, Devices, load_house
+from .model import Climate, direction, step
 
 DOMAIN = "invented_house"
 CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
 PLATFORMS = ("climate", "sensor", "binary_sensor")
+OUTDOOR = "outdoor"
 
 
 def signal(key: str) -> str:
@@ -39,11 +44,38 @@ class Bench:
         self.devices = devices
         self._path = path
         self._writing = asyncio.Lock()
+        self.climate = Climate(**house["climate"])
+        self._stop_model: CALLBACK_TYPE | None = None
+
+    @property
+    def modelled(self) -> bool:
+        return self._stop_model is not None
 
     async def changed(self, key: str) -> None:
+        if self.modelled:
+            self.devices.outdoor = direction(self.devices, self.devices.outdoor)
         async with self._writing:
             await self.hass.async_add_executor_job(self.devices.save, self._path)
-        async_dispatcher_send(self.hass, signal(key))
+        # With the model on, one head's change can put another in or out of standby.
+        keys = [*self.devices.heads, OUTDOOR] if self.modelled else [key]
+        for each in keys:
+            async_dispatcher_send(self.hass, signal(each))
+
+    async def model(self, running: bool) -> None:
+        """Turn the demo's outdoor unit and room model on or off."""
+        if running and not self.modelled:
+            self._stop_model = async_track_time_interval(
+                self.hass, self._tick, timedelta(seconds=self.climate.tick), name="invented_house model"
+            )
+        elif not running and self._stop_model is not None:
+            self._stop_model()
+            self._stop_model = None
+            self.devices.outdoor = None
+        await self.changed(OUTDOOR)
+
+    async def _tick(self, _now: object) -> None:
+        step(self.devices, self.climate, self.climate.tick / 60)
+        await self.changed(OUTDOOR)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -71,6 +103,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             state.window_open = call.data["window_open"]
         await bench.changed(call.data["room"])
 
+    async def model(call: ServiceCall) -> None:
+        await bench.model(call.data["running"])
+
     async def availability(call: ServiceCall) -> None:
         bench.devices.heads[call.data["head"]].available = call.data["available"]
         await bench.changed(call.data["head"])
@@ -87,6 +122,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         vol.Optional("temperature"): vol.Coerce(float),
         vol.Optional("window_open"): cv.boolean,
     }))
+    hass.services.async_register(DOMAIN, "model", model, vol.Schema({vol.Required("running"): cv.boolean}))
     hass.services.async_register(DOMAIN, "availability", availability, vol.Schema({
         vol.Required("head"): vol.In(rooms),
         vol.Required("available"): cv.boolean,

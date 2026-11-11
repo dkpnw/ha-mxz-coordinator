@@ -7,12 +7,14 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
+    HVACAction,
     HVACMode,
 )
 from homeassistant.const import UnitOfTemperature
 
 from . import DOMAIN
 from .entity import InventedEntity
+from .model import action
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -20,6 +22,13 @@ if TYPE_CHECKING:
 
     from . import Bench
     from .devices import Head
+
+# The model's word for what a head does, as Home Assistant shows it. Standby is
+# idle to Home Assistant; the head's `standby` attribute says which idle it is.
+ACTIONS = {
+    "off": HVACAction.OFF, "fan": HVACAction.FAN, "standby": HVACAction.IDLE,
+    "heating": HVACAction.HEATING, "cooling": HVACAction.COOLING, "idle": HVACAction.IDLE,
+}
 
 
 async def async_setup_platform(
@@ -57,6 +66,19 @@ class InventedHead(InventedEntity, ClimateEntity):
     @property
     def hvac_mode(self) -> HVACMode:
         return HVACMode(self._head.hvac_mode)
+
+    @property
+    def hvac_action(self) -> HVACAction | None:
+        """Only while the demo model runs; the proof journeys' heads report no action."""
+        return ACTIONS[self._doing] if self.bench.modelled else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        return {"standby": self._doing == "standby"} if self.bench.modelled else None
+
+    @property
+    def _doing(self) -> str:
+        return action(self._head, self.bench.devices.rooms[self.key], self.bench.devices.outdoor)
 
     @property
     def target_temperature_low(self) -> float | None:

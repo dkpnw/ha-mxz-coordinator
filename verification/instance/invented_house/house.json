@@ -19,5 +19,11 @@
     "fan_modes": ["auto", "quiet", "low", "medium", "middle", "high"],
     "min_temp": 59,
     "max_temp": 88
+  },
+  "climate": {
+    "ambient": 76,
+    "run_rate": 1.0,
+    "drift_rate": 0.05,
+    "tick": 5
   }
 }

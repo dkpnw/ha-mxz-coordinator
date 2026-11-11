@@ -3,7 +3,8 @@
 The driver itself runs a real Home Assistant and stays off CI. What decides a
 pass or keeps the instance isolated is plain code, tested here: the rendered
 configuration, the device file that outlives Home Assistant, the checks every
-journey runs, the deadline on an expectation, and the staleness digest.
+journey runs, the deadline on an expectation, the staleness digest, the demo's
+three-rule room model, and what the instance's environment installs for a browser.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ def _load(name: str, path: Path) -> ModuleType:
 home = _load("home", INSTANCE / "home.py")
 expect = _load("expect", INSTANCE / "expect.py")
 devices = _load("devices", INSTANCE / "invented_house" / "devices.py")
+model = _load("model", INSTANCE / "invented_house" / "model.py")
 HOUSE = devices.load_house()
 HEADS = ["climate.studio_head", "climate.loft_head"]
 
@@ -80,6 +82,133 @@ def test_with_no_device_file_the_house_starts_at_its_defaults(tmp_path: Path) ->
     assert list(fresh.heads) == ["studio", "loft", "den"]
     assert {head.hvac_mode for head in fresh.heads.values()} == {"off"}
     assert {room.temperature for room in fresh.rooms.values()} == {70.0}
+
+
+def test_a_device_file_from_before_the_model_loads_with_no_direction(tmp_path: Path) -> None:
+    path = tmp_path / devices.DEVICE_FILE
+    stored = devices.Devices.fresh(HOUSE)
+    stored.save(path)
+    data = json.loads(path.read_text())
+    del data["outdoor"]
+    path.write_text(json.dumps(data))
+    assert devices.Devices.load(path, HOUSE).outdoor is None
+    stored.outdoor = "heat"
+    stored.save(path)
+    assert devices.Devices.load(path, HOUSE).outdoor == "heat"
+
+
+CLIMATE = model.Climate(**HOUSE["climate"])
+
+
+def _house(**heads: tuple[str, float | None, float | None]) -> object:
+    """Fresh devices with the given heads set: key=(mode, low, high)."""
+    house = devices.Devices.fresh(HOUSE)
+    for key, (mode, low, high) in heads.items():
+        house.heads[key] = devices.Head(hvac_mode=mode, target_temp_low=low, target_temp_high=high)
+    return house
+
+
+def test_the_house_s_model_numbers_are_slower_to_drift_than_to_run() -> None:
+    assert 0 < CLIMATE.drift_rate < CLIMATE.run_rate
+    assert CLIMATE.tick > 0
+
+
+def test_rule_1_the_head_selected_last_waits_in_standby() -> None:
+    house = _house(loft=("heat", 70.0, None))
+    assert model.direction(house, None) == "heat"
+    house.heads["studio"] = devices.Head(hvac_mode="cool", target_temp_high=70.0)
+    # Studio comes first in house order, but heat is already running and Loft holds it.
+    assert model.direction(house, "heat") == "heat"
+    assert model.action(house.heads["studio"], house.rooms["studio"], "heat") == "standby"
+    house.heads["loft"].hvac_mode = "off"
+    assert model.direction(house, "heat") == "cool"
+
+
+def test_rule_1_with_nothing_running_the_first_head_in_house_order_decides() -> None:
+    house = _house(studio=("cool", None, 70.0), den=("heat", 70.0, None))
+    assert model.direction(house, None) == "cool"
+    assert model.direction(_house(), "heat") is None
+    unavailable = _house(studio=("cool", None, 70.0), loft=("heat", 70.0, None))
+    unavailable.heads["studio"].available = False
+    assert model.direction(unavailable, "cool") == "heat"
+
+
+def test_rule_1_negative_a_head_in_standby_never_moves_its_room() -> None:
+    house = _house(studio=("cool", None, 70.0), loft=("heat", 70.0, None))
+    house.outdoor = "heat"
+    house.rooms["studio"].temperature = 76.0
+    for _ in range(20):
+        model.step(house, CLIMATE, 1.0)
+    assert house.outdoor == "heat"
+    # Ambient is 76, so a waiting Studio stays exactly where the sun put it.
+    assert house.rooms["studio"].temperature == CLIMATE.ambient == 76
+
+
+def test_rule_2_a_running_head_moves_its_room_to_its_setpoint_then_idles() -> None:
+    house = _house(studio=("cool", 68.0, 70.0))
+    house.rooms["studio"].temperature = 76.0
+    model.step(house, CLIMATE, 1.0)
+    assert house.outdoor == "cool"
+    assert house.rooms["studio"].temperature == 76.0 - CLIMATE.run_rate
+    assert model.action(house.heads["studio"], house.rooms["studio"], "cool") == "cooling"
+    seen = []
+    for _ in range(10):
+        model.step(house, CLIMATE, 1.0)
+        seen.append(house.rooms["studio"].temperature)
+    # Cool runs to the high setpoint and never past it. There it idles, the room
+    # drifts back up by one slow step, and the head pulls it down again.
+    assert 70.0 in seen
+    assert min(seen) == 70.0
+    assert max(seen[seen.index(70.0):]) <= 70.0 + CLIMATE.drift_rate
+    house.rooms["studio"].temperature = 70.0
+    assert model.action(house.heads["studio"], house.rooms["studio"], "cool") == "idle"
+    heat = _house(den=("heat", 70.0, 72.0))
+    heat.rooms["den"].temperature = 66.0
+    model.step(heat, CLIMATE, 2.0)
+    assert heat.rooms["den"].temperature == 66.0 + 2 * CLIMATE.run_rate
+    assert model.action(heat.heads["den"], heat.rooms["den"], "heat") == "heating"
+
+
+def test_rule_2_negative_a_head_already_past_its_setpoint_does_not_run() -> None:
+    house = _house(loft=("heat", 70.0, None))
+    house.rooms["loft"].temperature = 71.0
+    model.step(house, CLIMATE, 1.0)
+    assert model.action(house.heads["loft"], house.rooms["loft"], "heat") == "idle"
+    # Not heated: it drifted toward the 76 ambient by the slower rate only.
+    assert house.rooms["loft"].temperature == 71.0 + CLIMATE.drift_rate
+
+
+def test_rule_3_an_unattended_room_drifts_toward_ambient_without_passing_it() -> None:
+    house = _house(studio=("fan_only", None, None))
+    house.rooms["studio"].temperature = 70.0
+    house.rooms["loft"].temperature = 80.0
+    model.step(house, CLIMATE, 1.0)
+    assert house.rooms["studio"].temperature == 70.0 + CLIMATE.drift_rate
+    assert house.rooms["loft"].temperature == 80.0 - CLIMATE.drift_rate
+    assert model.action(house.heads["studio"], house.rooms["studio"], None) == "fan"
+    house.rooms["den"].temperature = CLIMATE.ambient - CLIMATE.drift_rate / 2
+    model.step(house, CLIMATE, 1.0)
+    assert house.rooms["den"].temperature == CLIMATE.ambient
+
+
+def test_the_browser_requirements_follow_dependencies_once(tmp_path: Path) -> None:
+    def component(name: str, requirements: list[str], dependencies: list[str]) -> None:
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "manifest.json").write_text(
+            json.dumps({"domain": name, "requirements": requirements, "dependencies": dependencies}))
+
+    component("frontend", ["home-assistant-frontend==1"], ["api"])
+    component("api", [], ["frontend"])  # a cycle ends
+    component("ai_task", [], ["conversation"])
+    component("conversation", ["hassil==3"], [])
+    component("assist_satellite", ["hassil==3"], ["tts"])
+    component("tts", ["mutagen==1"], [])
+    component("camera", ["PyTurboJPEG==1"], [])
+    component("unrelated", ["never==1"], [])
+    found = home.ui_requirements(tmp_path)
+    assert found == ["home-assistant-frontend==1", "hassil==3", "mutagen==1", "PyTurboJPEG==1"]
+    assert "never==1" not in found
+    assert home.ui_requirements(tmp_path, ("camera",)) == ["PyTurboJPEG==1"]
 
 
 def test_opposite_directions_from_mxz_are_found() -> None:

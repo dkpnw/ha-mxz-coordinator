@@ -24,17 +24,30 @@ import subprocess
 import sys
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
-from home import EQUIPMENT, PRODUCT, REPO, Instance, Refused, digest, home, revision
+from home import (
+    EQUIPMENT,
+    PRODUCT,
+    REPO,
+    Instance,
+    Refused,
+    digest,
+    home,
+    revision,
+    ui_requirements,
+)
 
 LANES = ("py312-ha2024.12.5", "py313-ha2026.2.3", "py314-ha2026.9.4")
 JOURNEYS = {"setup-and-enable": "journeys.setup_and_enable", "room-targets": "journeys.room_targets"}
+# Run only by name, never by a bare `drive`: they film, and take half an hour.
+DEMOS = {"demo-stock": "journeys.demo_stock", "demo-coordinated": "journeys.demo_coordinated"}
 TEST_NET = ("192.0.2.1", 80)
 
 
 def build_env(lane: str) -> int:
-    """The instance's Python: the lane's lock plus the frontend wheel its Home Assistant pins.
+    """The instance's Python: the lane's lock, plus what its Home Assistant's frontend needs.
 
     Built outside the namespace with the lane's interpreter; no lane is changed.
     """
@@ -46,13 +59,11 @@ def build_env(lane: str) -> int:
     clean |= {"PIP_CONFIG_FILE": "/dev/null", "PIP_DISABLE_PIP_VERSION_CHECK": "1"}
     subprocess.run([sys.executable, "-m", "venv", str(target)], check=True)
     subprocess.run([*pip, "-r", str(lock)], check=True, env=clean)
-    pins = (
-        "import json, pathlib, homeassistant.components.frontend as f;"
-        "print(*json.loads((pathlib.Path(f.__file__).parent / 'manifest.json').read_text())['requirements'])"
-    )
-    frontend = subprocess.run(
-        [str(target / "bin" / "python"), "-I", "-c", pins], check=True, capture_output=True, text=True
-    ).stdout.split()
+    where = "import pathlib, homeassistant.components as c; print(pathlib.Path(c.__file__).parent)"
+    components = Path(subprocess.run(
+        [str(target / "bin" / "python"), "-I", "-c", where], check=True, capture_output=True, text=True
+    ).stdout.strip())
+    frontend = ui_requirements(components)
     subprocess.run([*pip, *frontend], check=True, env=clean)
     subprocess.run([str(target / "bin" / "python"), "-m", "pip", "check"], check=True, env=clean)
     print(f"ENV_READY {target} ({lane}, {' '.join(frontend)})")
@@ -215,7 +226,7 @@ async def _drive_one(instance: Instance, feature: str) -> str:
     from invented_house.devices import load_house
     from journeys.drive import Drive
 
-    journey = importlib.import_module(JOURNEYS[feature])
+    journey = importlib.import_module({**JOURNEYS, **DEMOS}[feature])
     house = load_house()
     transcript = Transcript(feature, journey.JOURNEY, {
         "revision": instance.record().revision, "homeassistant": _ha_version(), "instance": instance.name,
@@ -238,7 +249,7 @@ async def _drive_one(instance: Instance, feature: str) -> str:
             error = f"{type(failure).__name__}: {failure}"
         finally:
             ended = datetime.now(UTC)
-            entities = [*run.heads, *run.sensors, *(f"binary_sensor.{k}_window" for k in run.rooms)]
+            entities = [*run.heads, *run.sensors, *(f"binary_sensor.{k}_window" for k in run.rooms), "sensor.outdoor_unit"]
             if run.entry_id:
                 entities += list((await run.find_entities()).values())
                 transcript.attach("diagnostics.json", await client.diagnostics(run.entry_id))
@@ -261,7 +272,8 @@ def main(argv: list[str]) -> int:
     commands.add_parser("env").add_argument("--lane", choices=LANES, default="py314-ha2026.9.4")
     commands.add_parser("up")
     commands.add_parser("doctor")
-    commands.add_parser("drive").add_argument("features", nargs="*", help=f"default: all of {', '.join(JOURNEYS)}")
+    commands.add_parser("drive").add_argument(
+        "features", nargs="*", help=f"default: all of {', '.join(JOURNEYS)}; by name only: {', '.join(DEMOS)}")
     commands.add_parser("exec").add_argument("argv", nargs=argparse.REMAINDER)
     commands.add_parser("down")
     commands.add_parser("reset")
@@ -286,8 +298,8 @@ def main(argv: list[str]) -> int:
         command = args.argv[1:] if args.argv[:1] == ["--"] else args.argv
         os.execvp(command[0], command)
     if args.command == "drive":
-        if unknown := [feature for feature in args.features if feature not in JOURNEYS]:
-            raise Refused(f"no journey for {unknown}; known: {', '.join(JOURNEYS)}")
+        if unknown := [feature for feature in args.features if feature not in {**JOURNEYS, **DEMOS}]:
+            raise Refused(f"no journey for {unknown}; known: {', '.join([*JOURNEYS, *DEMOS])}")
         return drive(instance, args.features or list(JOURNEYS))
     return up(instance) if args.command == "up" else doctor(instance)
 
