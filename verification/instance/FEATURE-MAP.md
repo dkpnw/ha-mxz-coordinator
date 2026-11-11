@@ -8,9 +8,9 @@ statement was corrected here. [README.md](README.md) is how to run it.
 
 | Feature | Journey | Status |
 |---|---|---|
-| 5.1 Setup and turning it on | `setup-and-enable` | Proven, negative included. |
+| 5.1 Setup and turning it on | `setup-and-enable` | Proven, negative included: the flow, the `need_two_heads` refusal, and the Coordinator enable gate (a room past its drift, evaluated with it off, gets no call; turned on, its head is sent cool). |
 | 5.2 Shared mode | none yet | Not yet proven. |
-| 5.3 Room targets | `room-targets` | Steps 1 to 7 proven. The heat variant and the out-of-range negative are not yet driven. |
+| 5.3 Room targets | `room-targets` | Steps 1 to 7 proven, each reading checked after MXZ evaluated it. The heat variant and the out-of-range negative are not yet driven. |
 | 5.4 Accept changes made at the head | none yet | Not yet proven. |
 | 5.5 Door/window pause | none yet | Not yet proven. |
 | 5.6 Manual fan | none yet | Not yet proven. |
@@ -249,6 +249,10 @@ not by one sample.
 2. MXZ never sends `auto` or `heat_cool` to a head, and sends `dry` only to a room with
    Allow Dry mode on.
 3. The log has no error or traceback from the integration, unless the journey expects one.
+   An ERROR or CRITICAL block counts when its header or traceback names the integration
+   or the equipment, whatever the logger: Home Assistant logs an exception from an
+   integration's listener under `homeassistant.core` ("Error running job") and one from
+   its task or timer under `homeassistant` ("Error doing job").
 
 Checks 1 and 2 need MXZ's calls told apart from the person's. `coordinator.py` passes no
 `context=` to its head calls, so they carry no user, while API calls carry the instance
@@ -300,15 +304,30 @@ Every other journey depends on this one having run.
   - The flow ends in a created entry with three rooms in the order given.
   - Each room has a thermostat, target, drift, enable and Fan auto; the entry has the plan
     sensor, the shared-mode select and Coordinator enable.
+  - Before anything is enabled the plan reads `cool`, the fresh-install mode
+    (`docs/formal/STATECHART.md`).
   - Between entry creation and Coordinator enable turning on, MXZ sends no head any call
     (`README.md`: "A new entry starts with Coordinator enable and every room off, so it
-    commands nothing").
-  - After it is on with every room at target, no head is sent `heat` or `cool`, and the
-    plan reads `cool`, the fresh-install mode (`docs/formal/STATECHART.md`).
+    commands nothing"), though the rooms are enabled and Studio reads 72 against target
+    70, past its drift, and the plan shows that reading evaluated (Studio's row: `temp`
+    72, `engage` `cool`).
+  - Positive control: once it is on, Studio's head is sent `cool` with 68 and 70.
+  - Once Studio reads 70 again, is parked and MXZ is quiet, 60 s with every room at
+    target send no head `heat` or `cool`.
 - **Negative.** The flow run with one head selected, not generic, is refused with
   `need_two_heads` and creates no entry.
-- **Gotcha.** If the flow refuses the invented heads, that is a blocker to report, not a
-  reason to write the entry to disk.
+- **Gotchas.**
+  - If the flow refuses the invented heads, that is a blocker to report, not a reason to
+    write the entry to disk.
+  - A window that claims MXZ held back proves nothing unless MXZ evaluated inside it. MXZ
+    evaluates a room report through Home Assistant's 10 s request-refresh cooldown, so
+    the journey waits until the plan row shows the reading, not for a fixed time. A
+    product that ignored Coordinator enable fails this journey at the gate (checked once
+    on the real instance by removing both of MXZ's Coordinator enable checks, in `_apply`
+    and `_delivery_owned`; removing only the first changes nothing).
+  - A row's `demand` is the outdoor-unit call band (`cool_demand_above`, 73 for target 70 at
+    the defaults); `engage` is the run starting past the drift (`cool_start`). A room at
+    target + 2 engages `cool` with `demand` `neutral`.
 
 ### 5.2 Shared mode
 
@@ -349,9 +368,9 @@ target and not just back inside the drift, then coasts.
 | # | Actor and action | Pass |
 |---|---|---|
 | 1 | Person in Home Assistant: sets Studio's thermostat to 70 (`climate.set_temperature` on the room thermostat). | Studio's target number reads 70. Its row's `engage` is `cool`. Its head is `cool` with `target_temp_low` 68 and `target_temp_high` 70: a range head gets target − 2 to target when cooling (`docs/HOW-IT-WORKS.md`, Setpoints sent to the heads). |
-| 2 | Room: Studio reads 70.5. | Still running: the head is `cool`. |
+| 2 | Room: Studio reads 70.5. | Once the plan's Studio row shows `temp` 70.5, the row still engages `cool`, the head is `cool`, and MXZ has sent it no park call. |
 | 3 | Room: Studio reads 70. | `satisfied`; the head is parked. |
-| 4 | Room: Studio reads 70.5. | Inside the 1 °F drift: no run, and MXZ sends that head nothing. |
+| 4 | Room: Studio reads 70.5. | Inside the 1 °F drift: no run, and MXZ sends that head nothing over 20 s, in which the plan's Studio row shows `temp` 70.5 and stays `satisfied`. |
 | 5 | Person in Home Assistant: sets Studio's target number to 69. | The thermostat shows 69. A run starts: the head is `cool` with 67 and 69. |
 | 6 | Person in Home Assistant: turns Studio's thermostat off. | Studio's enable switch is off. Its head is `off`. Its row's start points are `null`. |
 | 7 | Person in Home Assistant: sets the thermostat back to `heat_cool`. | The enable switch is on and the run resumes. |
@@ -371,6 +390,9 @@ target and not just back inside the drift, then coasts.
     second call.
   - The transcript lists the calls since the step before, so a call MXZ makes in
     answer to one step can appear under the next.
+  - A reading MXZ never evaluated proves nothing: it evaluates a room report through
+    Home Assistant's 10 s request-refresh cooldown. A step about a reading waits until
+    the Studio row's `temp` shows it, with a deadline of the cooldown plus 10 s.
 
 ### 5.4 Accept changes made at the head
 
@@ -593,7 +615,8 @@ flow were not read line by line; pass criteria taken from the docs are cited to 
   flow accepts the invented heads, room sensors and room names (5.1).
 - MXZ's head calls carry no user in their context; the person's calls carry the
   instance user (section 4).
-- The number cells of 5.1 and 5.3 steps 1 to 7 held as written.
+- The number cells of 5.1 and 5.3 steps 1 to 7 held as written, re-run after review
+  found that 5.1's gate and 5.3 step 2 had passed without MXZ evaluating the reading.
 
 **Still unknown.**
 
