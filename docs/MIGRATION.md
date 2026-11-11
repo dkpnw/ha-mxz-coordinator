@@ -1,6 +1,6 @@
 # Upgrading and migrating MXZ Coordinator
 
-## Changes made at a head are accepted (unreleased)
+## Changes made at a head are accepted (3.22.0)
 
 **Nothing to do, but a behavior changes for every install.** No config-entry version change, and
 no migration writes anything. **Accept changes made at the head** is a new option on Configure →
