@@ -63,7 +63,7 @@ python3.12 -m venv "$work/venv"
 "$work/venv/bin/python" -m pytest -p tools.pytest_phases tests/ -q -s -p no:cacheprovider
 FAKE_UPTIME=120 "$work/venv/bin/python" -m pytest -p tools.fakeboot -p tools.pytest_phases \
   tests/ -q -s -p no:cacheprovider
-"$work/venv/bin/ruff" check --no-cache custom_components/ tests/ tools/
+"$work/venv/bin/ruff" check --no-cache .
 ```
 
 Use the floor when your platform cannot run the exact .10 bundle, and label the result

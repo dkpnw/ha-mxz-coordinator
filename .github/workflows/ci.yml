@@ -120,7 +120,7 @@ jobs:
         with:
           python-version: "3.12.14"
       - run: pip install --require-hashes -r requirements_ci.txt
-      - run: ruff check custom_components/ tests/ tools/
+      - run: ruff check .
 
   pytest:
     needs: approval
