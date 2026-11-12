@@ -10,6 +10,9 @@ on your equipment.
 
 ## Unreleased
 
+- Tooling only: `python3 tools/revert_rate.py` reports the share of landings on main that
+  were reverts, month by month in Pacific time, and lists each revert with the commit it
+  names. It only reads git. Nothing changes in the integration, `hacs.json` or CI.
 - Docs only: Home Assistant 2026.11 replaced HACS with the built-in Marketplace, so the README
   Quick start and [SETUP.md](docs/SETUP.md#install) now install from **Settings → Marketplace**,
   and the README's one-click badge opens the Marketplace. The HACS steps stay in
