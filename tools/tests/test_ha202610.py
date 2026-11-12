@@ -199,9 +199,10 @@ def test_additional_workflow_permissions_and_ordinary_execution():
     assert wf["permissions"] == {"contents": "read"}
     assert wf["on"]["push"] == {"branches": ["**"]}
     job = wf["jobs"]["exact-ha202610"]
+    # The required status check on main is this job's name.
+    assert job["name"] == "Python 3.14.8 / HA 2026.10.0 / generated plugin"
     assert job["runs-on"] == "ubuntu-26.04"
-    # Both 600 s passes, the 60 s sentinel, then setup, checks and export with margin.
-    assert job["timeout-minutes"] == "35"
+    assert job["timeout-minutes"] == "55"
     assert "permissions" not in job and "environment" not in job and "secrets" not in job
     assert job["needs"] == "approval" and job["if"] == "${{ !cancelled() }}"
     assert set(wf["jobs"]) == {"approval", "exact-ha202610"}
@@ -211,7 +212,7 @@ def test_additional_workflow_permissions_and_ordinary_execution():
                         "with": {"persist-credentials": "false"}}]
     assert job["steps"][-1]["if"] == "always()"
     script = (ROOT / "tools/ci-ha202610.sh").read_text()
-    assert "args=(600s tests/)" in script
+    assert "args=(1200s tests/)" in script
     assert "-p tools.pytest_phases" in script
     assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in script
     assert "--no-deps" not in (ROOT / "tools/ha202610.py").read_text()
@@ -287,7 +288,7 @@ def fakeboot_branch():
 
 def test_fresh_boot_pass_is_the_full_suite_on_the_two_minute_clock():
     branch = fakeboot_branch()
-    assert ('FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 600s "$python" -m pytest \\\n'
+    assert ('FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 1200s "$python" -m pytest \\\n'
             '      -p tools.fakeboot -p tools.pytest_phases tests/ -q -s -p no:cacheprovider'
             ' > "$root/fakeboot.log" 2>&1 || result=$?') in branch
     assert "printf '%s\\n' \"$result\" > \"$root/fakeboot.exit\"" in branch
@@ -650,12 +651,26 @@ def test_a_failed_setup_receipt_is_still_exported(tmp_path):
     assert "invented install output" in result.stdout
 
 
-def test_suite_pass_and_fresh_boot_pass_each_have_a_600_second_limit():
+def test_suite_pass_and_fresh_boot_pass_each_have_a_1200_second_limit():
     script = (ROOT / "tools/ci-ha202610.sh").read_text()
-    assert re.findall(r"args=\((\d+)s ", script) == ["60", "600"]
-    assert re.findall(r"--kill-after=5s (\d+)s ", script) == ["600"]
-    assert "args=(600s tests/)" in script
-    assert "300s" not in script and "180s" not in script
+    assert re.findall(r"args=\((\d+)s ", script) == ["60", "1200"]
+    assert re.findall(r"--kill-after=5s (\d+)s ", script) == ["1200"]
+    assert "args=(1200s tests/)" in script
+    assert "600s" not in script and "300s" not in script and "180s" not in script
+
+
+def test_job_limit_leaves_setup_and_export_room_after_every_watchdog():
+    """The job limit, read from the workflow, leaves at least 10 minutes beyond the
+    script's watchdogs (sentinel, suite, fresh-boot suite) for setup, checks and
+    export, so a job whose passes both time out still exports its evidence."""
+    script = (ROOT / "tools/ci-ha202610.sh").read_text()
+    limits = [int(m) for m in re.findall(r"args=\((\d+)s ", script)
+              + re.findall(r"--kill-after=5s (\d+)s ", script)]
+    assert sorted(limits) == [60, 1200, 1200]
+    minutes = int(workflow()["jobs"]["exact-ha202610"]["timeout-minutes"])
+    assert minutes * 60 - sum(limits) >= 600
+    # The old 35-minute limit could not hold these passes.
+    assert 35 * 60 - sum(limits) < 600
 
 
 INVENTED_LINES = "".join(f"INVENTED LINE {i}\n" for i in range(1, 251))
@@ -674,9 +689,9 @@ def run_branch(tmp_path, case, ending, mode=None, limit=None, path=os.defpath, p
     root.mkdir()
     branch = script_branch(case)
     if limit:
-        # A unit fixture: a short limit stands in for the branch's own limit (600 s
+        # A unit fixture: a short limit stands in for the branch's own limit (1200 s
         # for the fresh-boot pass and for the suite) so a real timeout fires.
-        own = "600s"
+        own = "1200s"
         assert branch.count(own) == 1
         branch = branch.replace(own, limit)
     prefix = f"python={stub}; root={root}\n" + (f"mode={mode}\n" if mode else "")

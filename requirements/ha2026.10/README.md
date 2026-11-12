@@ -44,17 +44,18 @@ The first command tests infrastructure controls with invented fixtures and plugi
 autoload disabled. Ordinary integration tests retain genuine plugin loading:
 
 ```bash
-timeout --signal=TERM --kill-after=5s 600s "$work/venv/bin/python" -m pytest \
+timeout --signal=TERM --kill-after=5s 1200s "$work/venv/bin/python" -m pytest \
   -p tools.pytest_phases tests/ -q -s -p no:cacheprovider
-FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 600s "$work/venv/bin/python" -m pytest \
+FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 1200s "$work/venv/bin/python" -m pytest \
   -p tools.fakeboot -p tools.pytest_phases tests/ -q -s -p no:cacheprovider
 ```
 
 The second run is the same suite on a clock that reads as if the host had booted
 two minutes ago (`tools/fakeboot.py`); it prints `FAKEBOOT_UPTIME=120` once. The
-hosted qualification runs both and exports both logs. Each has 600 s, as in CI
-(originally 300 s: 3.7.1's 1,969 tests took 110 s on one hosted runner and were
-still passing at 180 s on two slower ones, about 2× per test).
+hosted qualification runs both and exports both logs. Each has 1200 s (300 s at
+first, then 600 s). Hosted runners take about 0.09 s per test on fast machines and
+0.14 s on slow ones; at 4,156 tests (Nov 12, 2026) slow runners took 595 s or were
+killed at 600 s, so the limit is about twice the slowest pass.
 
 Do not interpret a collection, import, sentinel, or partial log as a full pass.
 For release qualification, settle the implementation, version, documentation, and
