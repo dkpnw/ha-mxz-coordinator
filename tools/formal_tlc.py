@@ -166,9 +166,9 @@ def only_rule(config: str, rule: str) -> str:
     return re.sub(r"^INVARIANTS .*$", f"INVARIANTS {rule}", config, count=1, flags=re.MULTILINE)
 
 
-def run_check(out: Path) -> bool:
+def run_check(out: Path, configs: tuple[str, ...] = CONFIGS) -> bool:
     good = True
-    for config in CONFIGS:
+    for config in configs:
         started = time.monotonic()
         result, detail = tlc(TLA, config, out / f"tlc-{config}.out")
         good = good and result == "pass"
@@ -177,11 +177,13 @@ def run_check(out: Path) -> bool:
     return good
 
 
-def run_cover(out: Path) -> bool:
+def run_cover(out: Path, configs: tuple[str, ...] = CONFIGS) -> bool:
     """Each goal, and each open finding's rule, must break in its config."""
     good = True
     spec = (TLA / f"{SPEC}.tla").read_text()
     for goal, config in {**COVERS, **FINDINGS}.items():
+        if config not in configs:
+            continue
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             scratch_spec(root, spec, [("c", only_rule((TLA / f"{config}.cfg").read_text(), goal))])
@@ -192,11 +194,11 @@ def run_cover(out: Path) -> bool:
     return good
 
 
-def run_mutants(out: Path, only: list[str]) -> bool:
+def run_mutants(out: Path, only: list[str], configs: tuple[str, ...] = CONFIGS) -> bool:
     good = True
     spec = (TLA / f"{SPEC}.tla").read_text()
     for name, (what, old, new, config, rule) in MUTANTS.items():
-        if only and name not in only:
+        if (only and name not in only) or config not in configs:
             continue
         if spec.count(old) != 1:
             print(f"FAIL mutant {name}: its text is not in the spec exactly once")

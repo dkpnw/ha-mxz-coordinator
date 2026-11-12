@@ -1,6 +1,7 @@
 """The formal docs, the spec, its runner and its workflow stay in step with the code."""
 
 import ast
+import dataclasses
 import importlib.util
 import json
 import re
@@ -10,7 +11,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tools import code_mutants, formal_tlc
+from tools import code_mutants, formal_area, formal_tlc
 
 ROOT = Path(__file__).parents[1]
 FORMAL = ROOT / "docs/formal"
@@ -315,3 +316,115 @@ def test_every_lock_pins_what_the_properties_need(lock) -> None:
 def test_the_exact_2026_10_bundle_pins_what_the_properties_need() -> None:
     rows = json.loads((ROOT / "requirements/ha2026.10/bundle.json").read_text())["artifacts"]
     assert {r["name"]: r["version"] for r in rows if r["name"] in PROPERTY_PINS} == PROPERTY_PINS
+
+
+SKILLS = ROOT / ".claude/skills"
+
+
+def skill_name(path: Path) -> str | None:
+    """The ``name`` in a SKILL.md's frontmatter, or None if it has none."""
+    found = re.match(r"---\n(.*?)\n---\n", path.read_text(), re.DOTALL)
+    names = re.findall(r"^name: (\S+)$", found.group(1), re.MULTILINE) if found else []
+    return names[0] if len(names) == 1 else None
+
+
+def area_violations(name: str, area: formal_area.Area) -> list[str]:
+    """What keeps a subsystem's checks from running, or from being able to fail."""
+    errors = []
+    if not area.configs or not set(area.configs) <= set(formal_tlc.CONFIGS):
+        errors.append("config")
+    if not formal_area.spec_mutants(area):
+        errors.append("no broken copy of the spec")
+    if not area.code or not set(area.code) <= set(code_mutants.MUTANTS):
+        errors.append("code mutant")
+    if any(not (ROOT / path).is_file() for path in area.tests):
+        errors.append("test file")
+    if {code_mutants.MUTANTS[m].test.split("::")[0] for m in area.code if m in code_mutants.MUTANTS} - set(area.tests):
+        errors.append("a code mutant's test isn't run by the check")
+    skill = SKILLS / area.skill / "SKILL.md"
+    if not skill.is_file() or skill_name(skill) != area.skill:
+        errors.append("skill")
+    elif f"tools/formal_area.py check {name}" not in skill.read_text():
+        errors.append("skill doesn't run its check")
+    return errors
+
+
+@pytest.mark.parametrize("name", sorted(formal_area.AREAS))
+def test_each_subsystem_runs_real_checks_that_can_fail_from_its_own_skill(name) -> None:
+    assert area_violations(name, formal_area.AREAS[name]) == []
+
+
+@pytest.mark.parametrize(("change", "expected"), [
+    ({"configs": ("ci-invented",)}, "config"),
+    ({"configs": ("ci-arbitration-rest-heat",)}, "no broken copy of the spec"),
+    ({"code": ()}, "code mutant"),
+    ({"code": ("C999",)}, "code mutant"),
+    ({"tests": ("tests/test_invented.py",)}, "test file"),
+    ({"tests": ("tests/test_head_fault.py",)}, "a code mutant's test isn't run by the check"),
+    ({"skill": "verify-mxz-invented"}, "skill"),
+    ({"skill": "verify-mxz-formal"}, "skill doesn't run its check"),
+], ids=["config", "no_spec_mutant", "no_code_mutant", "unknown_code_mutant", "test_file", "test_not_run",
+        "no_skill", "skill_runs_other"])
+def test_a_subsystem_that_drifts_is_refused(change, expected) -> None:
+    area = dataclasses.replace(formal_area.AREAS["adopt"], **change)
+    assert expected in area_violations("adopt", area)
+
+
+def test_no_two_subsystems_share_a_config_or_a_broken_copy() -> None:
+    configs = [config for area in formal_area.AREAS.values() for config in area.configs]
+    code = [name for area in formal_area.AREAS.values() for name in area.code]
+    assert len(configs) == len(set(configs))
+    assert len(code) == len(set(code))
+
+
+def test_every_project_skill_registers_under_its_folders_name() -> None:
+    for path in sorted(SKILLS.glob("*/SKILL.md")):
+        assert skill_name(path) == path.parent.name, path
+
+
+CHARTS = FORMAL / "charts"
+
+
+def spec_constants() -> set[str]:
+    block = re.search(r"^CONSTANTS\n(.*?)\n\n", (TLA / "MXZCoordinator.tla").read_text(), re.MULTILINE | re.DOTALL)
+    return set(re.findall(r"^\s+(\w+),?", block.group(1), re.MULTILINE))
+
+
+def chart_violations(name: str, text: str) -> list[str]:
+    """What keeps a user-flow chart's config from drawing the machine TLC checks."""
+    names = spec_names() | set(re.findall(r"^(\w+) ==", (CHARTS / "Charts.tla").read_text(), re.MULTILINE))
+    errors = []
+    if not re.search(r"^SPECIFICATION Spec$", text, re.MULTILINE):
+        errors.append("specification")
+    if set(re.findall(r"^    (\w+) (?:=|<-)", text, re.MULTILINE)) != spec_constants():
+        errors.append("constants")
+    used = re.findall(r"^    \w+ <- (\w+)$", text, re.MULTILINE)
+    for line in re.findall(r"^(?:INVARIANTS|CONSTRAINT) (.+)$", text, re.MULTILINE):
+        used += line.split()
+    if not used or set(used) - names:
+        errors.append("unknown name")
+    if not (CHARTS / f"{name.split('-')[0]}.ts").is_file():
+        errors.append("view")
+    if f"(charts/{name}.cfg)" not in (FORMAL / "STATECHART.md").read_text():
+        errors.append("not in STATECHART.md")
+    return errors
+
+
+@pytest.mark.parametrize("path", sorted(CHARTS.glob("*.cfg")), ids=lambda path: path.stem)
+def test_each_user_flow_chart_draws_the_checked_spec(path) -> None:
+    assert chart_violations(path.stem, path.read_text()) == []
+
+
+@pytest.mark.parametrize(("change", "expected"), [
+    (lambda text: text.replace("    QueueMax = 0\n", ""), "constants"),
+    (lambda text: text.replace("INVARIANTS TypeOK", "INVARIANTS TypeOK InventedRule"), "unknown name"),
+    (lambda text: text.replace("Readings <- Calls", "Readings <- InventedReadings"), "unknown name"),
+    (lambda text: text.replace("SPECIFICATION Spec", "SPECIFICATION Other"), "specification"),
+], ids=["constant", "rule", "substitution", "specification"])
+def test_a_chart_config_that_drifts_is_refused(change, expected) -> None:
+    assert expected in chart_violations("mode", change((CHARTS / "mode.cfg").read_text()))
+
+
+def test_a_chart_with_no_view_or_no_place_in_the_statechart_is_refused() -> None:
+    errors = chart_violations("invented", (CHARTS / "mode.cfg").read_text())
+    assert {"view", "not in STATECHART.md"} <= set(errors)

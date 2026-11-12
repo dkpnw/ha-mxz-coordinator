@@ -10,6 +10,9 @@ apply as separate steps, and changes made at a head.
 | [tla/MXZCoordinator.tla](tla/MXZCoordinator.tla) | The same machine in TLA+. TLC checks every order of steps at small bounds. |
 | `tests/test_properties_*.py` | Hypothesis properties on the real integration, in the normal suite on every lane. |
 | [PARKED-FINDINGS.md](PARKED-FINDINGS.md) | What these checks found, and the accepted exception on cloud heads. |
+| [charts/](charts) | The user flows as the pstack `/statechart` skill draws them from the spec, cut small enough to draw whole. [STATECHART.md](STATECHART.md#user-flows-drawn-from-the-model) shows them. |
+| `tools/formal_area.py` | One subsystem's checks as one command: the fan hold, the door/window pause, changes made at a head, and the mode's record with each head's command. |
+| `.claude/skills/verify-mxz-fan-hold/`, `verify-mxz-door-window/`, `verify-mxz-head-changes/`, `verify-mxz-mode-record/` | One skill per subsystem: when to run its check, what it covers at which commit, and how to tell a real bug from a modeling error. |
 | [../STATE-MACHINES.md](../STATE-MACHINES.md) | Every state machine in the integration, explicit or implicit, with the invalid states found and where each is held. This folder is its formal part. |
 
 The model finds orderings nobody thought to test, and the properties check that the code
@@ -148,6 +151,18 @@ python3 tools/formal_tlc.py cover     # every reachability goal has a path, any 
 python3 tools/formal_tlc.py mutants   # every broken copy of the spec breaks its named rule
 python3 tools/formal_tlc.py all       # those three, as the workflow runs them
 ```
+
+One subsystem at a time, with its tests on the real code (`MXZ_PYTHON`, a lane venv's python,
+as for the properties below):
+
+```sh
+python3 tools/formal_area.py list            # fan, window, adopt, apply, and what each runs
+python3 tools/formal_area.py check adopt     # its configs pass, its goals and open findings break, its tests pass
+python3 tools/formal_area.py mutants adopt   # each broken copy of the spec and of the code for it is caught
+```
+
+`ci-arbitration` and `ci-arbitration-rest-heat` belong to none of them: they are the mode
+hold, which `verification/modehold/` covers in depth, and `formal_tlc.py all` runs them.
 
 By hand, from `docs/formal/tla/`: `java -cp "$TLA2TOOLS" tlc2.TLC -workers auto -config ci-fan.cfg MXZCoordinator.tla`.
 
