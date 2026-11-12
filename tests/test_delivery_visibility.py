@@ -404,16 +404,16 @@ async def test_deferred_no_issuance_completion_updates_both_room_surfaces(hass, 
         assert current is not old
         room_id = _eid(hass, entry, "_primary_thermostat")
         plan_id = _eid(hass, entry, "_plan")
-        await until(lambda: cid in current._deliveries, 1.0)
-        generation = current._refresh_generation
+        await until(lambda: cid in current.deliveries._active, 1.0)
+        generation = current.deliveries.generation
         # Let already scheduled peer work finish, without another input or clock sweep.
         await asyncio.sleep(0.5)
-        assert current._refresh_generation == generation
-        assert not current._plan_lock.locked()
-        assert set(current._deliveries) == {cid}
-        assert current._deliveries[cid]["owner"] is current
-        assert current._deliveries[cid]["locked"] is False
-        assert current._head_locks[cid].locked()
+        assert current.deliveries.generation == generation
+        assert not current.deliveries._lock.locked()
+        assert set(current.deliveries._active) == {cid}
+        assert current.deliveries._active[cid].owner is current.deliveries
+        assert current.deliveries._active[cid].locked is False
+        assert current.deliveries._locks[cid].locked()
         assert not harness.kick_task.done()
         assert harness.commands == [("head", "fan_only"), ("head", "off")]
         assert hass.states.get(cid).state == "off"
@@ -429,19 +429,19 @@ async def test_deferred_no_issuance_completion_updates_both_room_surfaces(hass, 
         harness.barrier.release.set()
         await until(harness.kick_task.done, 1.0)
         await harness.kick_task
-        await until(lambda: cid not in current._deliveries, 2.0)
+        await until(lambda: cid not in current.deliveries._active, 2.0)
         await hass.async_block_till_done()
         # The handler returned, the queued no-op left, and nobody issued anything.
-        assert not current._deliveries
-        assert not current._vane_cleanup_pending
-        assert not current._head_locks[cid].locked()
-        assert current._refresh_generation == generation
+        assert not current.deliveries._active
+        assert not current.deliveries._cleanup
+        assert not current.deliveries._locks[cid].locked()
+        assert current.deliveries.generation == generation
         assert service_calls == calls_before
         assert harness.commands == [("head", "fan_only"), ("head", "off")]
         print("DELIVERY_NO_ISSUANCE " + json.dumps({
             "issued_after_release": service_calls[len(calls_before):],
-            "deliveries_remaining": len(current._deliveries),
-            "refresh_generation_unchanged": current._refresh_generation == generation,
+            "deliveries_remaining": len(current.deliveries._active),
+            "refresh_generation_unchanged": current.deliveries.generation == generation,
         }))
         for view in (hass.states.get(room_id).attributes, hass.states.get(plan_id).attributes["zones"][0]):
             assert view["command_deferred"] is False
@@ -461,9 +461,9 @@ async def test_deferred_no_issuance_completion_updates_both_room_surfaces(hass, 
             assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
         unsubscribe()
-        assert not old._deliveries
-        assert not old._vane_cleanup_pending
-        assert not old._head_locks[cid].locked()
+        assert not old.deliveries._active
+        assert not old.deliveries._cleanup
+        assert not old.deliveries._locks[cid].locked()
 
 
 async def test_inhibit_retires_only_its_pending_vane_wake(hass, monkeypatch, request):

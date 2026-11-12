@@ -70,8 +70,8 @@ stateDiagram-v2
 
 | Id | What happens | Code |
 | --- | --- | --- |
-| A1 | Every report passes MXZ's older writes, then is read against what is left. A write is remembered as it goes out. | `_on_head_change`, `_watch_head_change`, `_call_head_service`, `_remember_head_write`, `_head_writes_caught_up`, `wrote`, `caught_up` |
-| A2 | While the hold runs, `_apply` writes nothing to that head, and a command of MXZ's still waiting for the head is disowned. | `_head_change_settling`, `_apply`, `_arm_or_cancel`, `_disown_waiting_command` |
+| A1 | Every report passes MXZ's older writes, then is read against what is left. A write is remembered as it goes out. | `_on_head_change`, `_watch_head_change`, `DeliveryQueue._async_issue`, `MXZCoordinator.remember_head_write`, `_head_writes_caught_up`, `wrote`, `caught_up` |
+| A2 | While the hold runs, `_apply` writes nothing to that head, and a command of MXZ's still waiting for the head is disowned. | `_head_change_settling`, `_apply`, `_arm_or_cancel`, `DeliveryQueue.disown` |
 | A3 | Eco, a standby hold, Coordinator off, a start, a pause, a floor run, a hands-off room's disablement or a stale cloud report: the change counts for nothing. A head report that ends the hold this way, the head put back by hand say, asks for a compute, because the apply skipped that head and A2 disowned its waiting command. | `_head_adoption`, `drop_head_change`, `_watch_head_change`, `_on_head_change` |
 | A4 | The room's own number and switch take the change, held to the room's bounds. What the head shows then replaces what it last showed in the memory. | `_on_heal_timer`, `_async_adopt_head_change`, `_head_change_seen`, `seen` |
 | A5 | The next compute and apply. The head's heat or cool never reaches the shared mode. | `_apply` |
@@ -176,10 +176,10 @@ stateDiagram-v2
 
 | Id | What happens | Code |
 | --- | --- | --- |
-| D1 | One task per head, which waits for the head's lock. The apply records the mode, then waits until every head is done or a new input comes in. | `_queue_delivery`, `_write_back_mode`, `_wait_deliveries` |
-| D2 | A superseded command issues nothing more. A change at the head that will be adopted disowns it. | `_delivery_owned`, `_disown_waiting_command` |
-| D3 | Whatever a head's handler raises is that room's: its row reads rejected and the next update tries again. Only a fault in MXZ's own steps fails the plan. | `_deliver_head`, `_call_head_service`, `_finish_delivery` |
-| D4 | A retired coordinator's command sends nothing more; what it sent stays sent. | `_retire_deliveries` |
+| D1 | One task per head, which waits for the head's lock. The apply records the mode, then waits until every head is done or a new input comes in. | `DeliveryQueue.queue`, `_write_back_mode`, `DeliveryQueue.async_wait` |
+| D2 | A superseded command issues nothing more. A change at the head that will be adopted disowns it. | `DeliveryQueue.owned`, `DeliveryQueue.disown` |
+| D3 | Whatever a head's handler raises is that room's: its row reads rejected and the next update tries again. Only a fault in MXZ's own steps fails the plan. | `DeliveryQueue._deliver`, `DeliveryQueue._async_issue`, `DeliveryQueue._finish` |
+| D4 | A retired coordinator's command sends nothing more; what it sent stays sent. | `DeliveryQueue.retire` |
 
 ## Lifecycle
 

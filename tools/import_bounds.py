@@ -26,7 +26,7 @@ LAYERS = (
     # A controller another one calls sits below it: the door/window pause puts back a Dry
     # and snapshots the fan hold.
     ("lower controllers", {"dry", "fan_hold"}),
-    ("controllers", {"openings"}),
+    ("controllers", {"delivery", "openings"}),
     ("coordinator", {"coordinator"}),
     ("entity base", {"entity"}),
     ("surfaces", {"binary_sensor", "button", "climate", "config_flow", "diagnostics",

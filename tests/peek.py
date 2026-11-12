@@ -34,7 +34,7 @@ _WAKEUPS = {
     "comfort": "_comfort_timer",  # the nearest Comfort priority "on" going stale
     "cloud": "_cloud_timer",  # the nearest cloud head's write or stale window
     "fresh": "_fresh_timer",  # the nearest room sensor going stale
-    "refresh_followup": "_refresh_followup_timer",  # a refresh asked for during one
+    "refresh_followup": "deliveries._followup_timer",  # a refresh asked for during one
 }
 # Wakeups kept per head or per room, by key.
 _WAKEUP_MAPS = {

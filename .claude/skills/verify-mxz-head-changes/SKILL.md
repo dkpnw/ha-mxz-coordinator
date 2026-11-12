@@ -1,6 +1,6 @@
 ---
 name: verify-mxz-head-changes
-description: "Formal checks of MXZ Coordinator's Accept changes made at the head (on by default): a person's change at a head's remote becomes the room's target, and MXZ's own setpoint writes, which a lagging head shows late, never do. A TLA+ model checked with TLC (ci-adopt, ci-adopt-restart), the integration tests in tests/test_accept_head_changes.py, and broken copies of both that each check must catch. Use before and after any change to logic.HeadWriteMemory, coordinator.py _remember_head_write, _watch_head_change, _head_adoption, _head_change_settling, _async_adopt_head_change, startup quiet, or where the head write memory is kept, and when the model or a replay reports a break."
+description: "Formal checks of MXZ Coordinator's Accept changes made at the head (on by default): a person's change at a head's remote becomes the room's target, and MXZ's own setpoint writes, which a lagging head shows late, never do. A TLA+ model checked with TLC (ci-adopt, ci-adopt-restart), the integration tests in tests/test_accept_head_changes.py, and broken copies of both that each check must catch. Use before and after any change to logic.HeadWriteMemory, coordinator.py remember_head_write, _watch_head_change, _head_adoption, _head_change_settling, _async_adopt_head_change, startup quiet, or where the head write memory is kept, and when the model or a replay reports a break."
 ---
 
 # Verify changes made at a head
@@ -50,19 +50,20 @@ them, and run both commands under Run.
 
 | Check | Covers (custom_components/mxz_coordinator/) |
 | --- | --- |
-| Model `WriteSp` | `coordinator.py` `_apply` (skips a head while `_head_change_settling`), `_call_head_service`, `_remember_head_write`; `logic.py` `HeadWriteMemory.wrote` |
-| Model `HeadShows`, `PersonPress` (`Report`) | `coordinator.py` `_on_head_change`, `_head_writes_caught_up`, `_watch_head_change`, `_head_adoption`, `_arm_or_cancel`, `_disown_waiting_command`; `logic.py` `HeadWriteMemory.own`, `HeadWriteMemory.caught_up` |
+| Model `WriteSp` | `coordinator.py` `_apply` (skips a head while `_head_change_settling`), `remember_head_write`; `delivery.py` `DeliveryQueue._async_issue`; `logic.py` `HeadWriteMemory.wrote` |
+| Model `HeadShows`, `PersonPress` (`Report`) | `coordinator.py` `_on_head_change`, `_head_writes_caught_up`, `_watch_head_change`, `_head_adoption`, `_arm_or_cancel`; `delivery.py` `DeliveryQueue.disown`; `logic.py` `HeadWriteMemory.own`, `HeadWriteMemory.caught_up` |
 | Model `AdoptFires` | `coordinator.py` `_on_heal_timer`, `_async_adopt_head_change`, `_head_change_seen`; `logic.py` `HeadWriteMemory.seen` |
 | Model `SetTarget` | `number.py` `MXZTargetNumber.async_set_native_value`; `coordinator.py` `drop_head_change` |
 | Model `Reload`, `Restart`, `QuietEnds` | `coordinator.py` `MXZCoordinator.__init__` (`_head_writes` in `hass.data`, `_startup_quiet`), `_on_startup_timer` |
-| Code mutants C44 to C48 | `_remember_head_write`, `_head_change_settling`, `MXZCoordinator.__init__`, `HeadWriteMemory.caught_up`, `HeadWriteMemory.seen` |
+| Code mutants C44 to C48 | `remember_head_write`, `_head_change_settling`, `MXZCoordinator.__init__`, `HeadWriteMemory.caught_up`, `HeadWriteMemory.seen` |
 
 Does a change touch it?
 
 ```sh
 git diff --stat ca78324aca3d5402252a585693ae98193cee24ca -- \
-  custom_components/mxz_coordinator/coordinator.py custom_components/mxz_coordinator/logic.py \
-  custom_components/mxz_coordinator/number.py docs/formal/tla/MXZCoordinator.tla
+  custom_components/mxz_coordinator/coordinator.py custom_components/mxz_coordinator/delivery.py \
+  custom_components/mxz_coordinator/logic.py custom_components/mxz_coordinator/number.py \
+  docs/formal/tla/MXZCoordinator.tla
 ```
 
 If it lists a file, read the diff against the table. A change inside a listed function needs

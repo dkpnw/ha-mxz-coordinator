@@ -1149,18 +1149,18 @@ async def test_p15_a_report_while_mxz_command_is_in_flight_is_not_a_person(
     await _persons_heat_then_trip(f)
     assert _run(hass, f.b) == ("heat", 59, 61)
     sent = _setpoint_commands(hass, f.b)
-    lock = f.coord._head_locks.setdefault(f.b, asyncio.Lock())
+    lock = f.coord.deliveries._locks.setdefault(f.b, asyncio.Lock())
     await lock.acquire()  # stands in for a command still running on that head
     # (No block_till_done while the lock is held: it would wait for the
     # queued delivery forever.)
     hass.states.async_set(SENSOR_B, 46, {"unit_of_measurement": hass.config.units.temperature_unit})
     await f.coord.async_refresh()
-    assert f.coord.command_attributes(f.b)["command_deferred"] is True
+    assert f.coord.deliveries.attributes(f.b)["command_deferred"] is True
     head = _head(hass, f.b)
     head._attr_native_target_temperature_low, head._attr_native_target_temperature_high = 64, 66
     head.async_write_ha_state()
     await f.coord.async_refresh()
-    assert (f.coord.command_attributes(f.b)["command_deferred"], _theirs(f)) == (True, ("heat", 56, 58))
+    assert (f.coord.deliveries.attributes(f.b)["command_deferred"], _theirs(f)) == (True, ("heat", 56, 58))
     lock.release()
     await hass.async_block_till_done()
     await f.compute()
@@ -2056,14 +2056,14 @@ async def test_d8b_an_unsent_mxz_off_does_not_land_after_the_persons_change(
     await f.temp(SENSOR_A, 76)  # the enabled room holds cool; the wait runs
     await _remote(hass, f.b, "fan_only")  # the person's head, before any trip
     await f.compute()
-    lock = f.coord._head_locks.setdefault(f.b, asyncio.Lock())
+    lock = f.coord.deliveries._locks.setdefault(f.b, asyncio.Lock())
     await lock.acquire()  # stands in for a command still running on that head
     sent = _mode_commands(hass, f.b)
     # (No block_till_done while the lock is held: it would wait for the
     # queued delivery forever.)
     hass.states.async_set(SENSOR_B, 45)
     await f.coord.async_refresh()
-    assert f.coord._deliveries[f.b]["act"] == "off"
+    assert f.coord.deliveries._active[f.b].act == "off"
     await hass.services.async_call(
         "climate", "set_hvac_mode", {"entity_id": f.b, "hvac_mode": "heat"}, blocking=True
     )

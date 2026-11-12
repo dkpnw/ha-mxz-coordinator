@@ -260,7 +260,7 @@ async def test_opted_out_rejected_park_is_retried(hass: HomeAssistant) -> None:
     # Turning the switch off runs a cycle of its own: that park is rejected.
     await _switch(hass, _eid(hass, entry, "_secondary_enable"), False)
     assert _s(hass, head_b) == "heat"
-    assert entry.runtime_data.command_attributes(head_b)["command_status"] == "rejected"
+    assert entry.runtime_data.deliveries.attributes(head_b)["command_status"] == "rejected"
     await _recompute(hass, entry)
     assert _s(hass, head_b) == "off"
     assert calls["n"] == 2
@@ -356,7 +356,7 @@ async def test_rejected_park_is_retried_until_it_lands(hass: HomeAssistant) -> N
     head.async_set_hvac_mode = flaky
     await _switch(hass, _eid(hass, entry, "_secondary_enable"), False)  # rejected
     assert _s(hass, head_b) == "heat"
-    attrs = entry.runtime_data.command_attributes(head_b)
+    attrs = entry.runtime_data.deliveries.attributes(head_b)
     assert attrs["command_status"] == "rejected"
     assert attrs["command_error"] == "invented rejection"
     await _recompute(hass, entry)
@@ -386,7 +386,7 @@ async def test_returned_but_not_seen_off_is_not_landed(hass: HomeAssistant) -> N
 
     head.async_set_hvac_mode = swallowed
     await _switch(hass, _eid(hass, entry, "_secondary_enable"), False)
-    assert entry.runtime_data.command_attributes(head_b)["command_status"] == "returned"
+    assert entry.runtime_data.deliveries.attributes(head_b)["command_status"] == "returned"
     assert _s(hass, head_b) == "heat"
     await _recompute(hass, entry)
     assert (_s(hass, head_b), calls["n"]) == ("off", 2)

@@ -21,7 +21,7 @@ from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COO
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
-from custom_components.mxz_coordinator import coordinator as coordinator_module
+from custom_components.mxz_coordinator import delivery as delivery_module
 from custom_components.mxz_coordinator.const import MODE_COOL
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
 from tests.clocks import pass_time
@@ -244,7 +244,7 @@ async def test_many_mid_refresh_requests_coalesce_into_one_followup(
         await coord.async_request_refresh()
     release.set()
     await asyncio.wait_for(refresh, 3)
-    if coord._needs_legacy_refresh_guard:
+    if coord.deliveries.legacy:
         await hass.async_block_till_done()
     else:
         async_fire_time_changed(
@@ -298,7 +298,7 @@ async def test_coalesced_followup_preserves_dwell_and_coast_latch(
     await asyncio.sleep(0)
     release.set()
     await asyncio.wait_for(refresh, 3)
-    if coord._needs_legacy_refresh_guard:
+    if coord.deliveries.legacy:
         await hass.async_block_till_done()
     else:
         async_fire_time_changed(
@@ -370,7 +370,7 @@ async def test_completion_listener_request_publishes_current_inputs(
     async def request():
         windows.append(
             (
-                coord._refresh_lock.locked(),
+                coord.deliveries._lock.locked(),
                 coord._debounced_refresh._execute_lock.locked(),
             )
         )
@@ -408,9 +408,9 @@ async def test_completion_listener_request_publishes_current_inputs(
         assert fired and windows
         assert (
             False,
-            origin == "debounced" or not coord._needs_legacy_refresh_guard,
+            origin == "debounced" or not coord.deliveries.legacy,
         ) in windows
-        if coord._needs_legacy_refresh_guard and origin == "debounced":
+        if coord.deliveries.legacy and origin == "debounced":
             assert windows[-1] == (False, False)
         expected_override = narrow if action == "number" else None
         assert observed == (expected_override, narrow, MODE_COOL), (
@@ -444,7 +444,7 @@ async def test_ready_request_after_application_publishes_current_inputs(
     async def request():
         windows.append(
             (
-                coord._refresh_lock.locked(),
+                coord.deliveries._lock.locked(),
                 coord._debounced_refresh._execute_lock.locked(),
             )
         )
@@ -483,7 +483,7 @@ async def test_ready_request_after_application_publishes_current_inputs(
         hass.states.get(head_a).state,
     )
     assert windows
-    if coord._needs_legacy_refresh_guard and origin == "debounced":
+    if coord.deliveries.legacy and origin == "debounced":
         assert (False, True) in windows
         assert windows[-1] == (False, False)
     assert observed == (narrow, narrow, MODE_COOL), (origin, windows, observed)
@@ -522,7 +522,7 @@ async def test_direct_refresh_consumes_redundant_followup(
     await _drain_refreshes(hass, coord)
     assert snapshots == [wide, narrow]
     assert not armed(coord, "refresh_followup")
-    assert not coord._refresh_pending
+    assert not coord.deliveries._pending
     assert hass.states.get(head_a).state == MODE_COOL
 
 
@@ -569,9 +569,9 @@ async def test_interrupted_active_refresh_keeps_requested_followup(
     assert coord.last_update_success
     assert coord.data["zones"][0]["drift"] == narrow
     assert coord._applying_plan is None
-    assert not coord._refresh_lock.locked()
+    assert not coord.deliveries._lock.locked()
     assert not armed(coord, "refresh_followup")
-    assert not coord._refresh_pending
+    assert not coord.deliveries._pending
     assert hass.states.get(head_a).state == MODE_COOL
 
 
@@ -624,7 +624,7 @@ async def test_retirement_cancels_completion_followup(
     coord: MXZCoordinator = entry.runtime_data
     snapshots = _record_computes(coord, monkeypatch)
     captured = []
-    original_later = coordinator_module.async_call_later
+    original_later = delivery_module.async_call_later
 
     def later(hass, delay, action):
         if delay == 0:
@@ -637,7 +637,7 @@ async def test_retirement_cancels_completion_followup(
             return cancel
         return original_later(hass, delay, action)
 
-    monkeypatch.setattr(coordinator_module, "async_call_later", later)
+    monkeypatch.setattr(delivery_module, "async_call_later", later)
     entered = asyncio.Event()
     release = asyncio.Event()
     original_apply = coord._apply
@@ -655,7 +655,7 @@ async def test_retirement_cancels_completion_followup(
     if phase != "active":
         release.set()
         await asyncio.wait_for(first, 3)
-        if coord._needs_legacy_refresh_guard:
+        if coord.deliveries.legacy:
             assert len(captured) == 1
     if operation == "unload":
         assert await hass.config_entries.async_unload(entry.entry_id)
@@ -670,7 +670,7 @@ async def test_retirement_cancels_completion_followup(
             record["action"](dt_util.utcnow())
     await hass.async_block_till_done()
     assert coord.retired
-    assert not coord._refresh_pending
+    assert not coord.deliveries._pending
     assert not armed(coord, "refresh_followup")
     assert all(record["cancelled"] for record in captured)
     assert snapshots == [wide]
@@ -684,14 +684,14 @@ async def test_modern_debouncer_bypasses_legacy_completion_helpers(
     coord: MXZCoordinator = entry.runtime_data
     await _quiesce(hass, coord)
     expected = not hasattr(coord._debounced_refresh, "_execute_lock_owner")
-    assert coord._needs_legacy_refresh_guard == expected
+    assert coord.deliveries.legacy == expected
     if not expected:
 
         def forbidden(*args, **kwargs):
             raise AssertionError("modern path entered legacy completion helper")
 
-        monkeypatch.setattr(coord, "_sync_refresh_followup", forbidden)
-        monkeypatch.setattr(coord, "_cancel_refresh_followup", forbidden)
+        monkeypatch.setattr(coord.deliveries, "_sync_followup", forbidden)
+        monkeypatch.setattr(coord.deliveries, "_cancel_followup", forbidden)
         await coord.async_refresh()
         await coord.async_request_refresh()
         await _drain_refreshes(hass, coord)
@@ -739,7 +739,7 @@ async def test_two_active_windows_each_coalesce_once(
     await _drain_refreshes(hass, coord)
     assert snapshots == [wide, narrow, 2.0]
     assert coord.data["zones"][0]["drift"] == 2.0
-    assert not coord._refresh_pending
+    assert not coord.deliveries._pending
     assert not armed(coord, "refresh_followup")
 
 
@@ -762,7 +762,7 @@ async def test_plan_state_listener_service_request_stays_current(
     async def request():
         windows.append(
             (
-                coord._refresh_lock.locked(),
+                coord.deliveries._lock.locked(),
                 coord._debounced_refresh._execute_lock.locked(),
             )
         )
