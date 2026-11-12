@@ -191,7 +191,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: MXZConfigEntry) -> 
     """
     if await entry.runtime_data.async_switch_dual_in_place():
         return
-    entry.runtime_data.dry_option_turned_off({**entry.data, **entry.options}.get(CONF_ZONES))
+    entry.runtime_data.dry.option_turned_off({**entry.data, **entry.options}.get(CONF_ZONES))
     await hass.config_entries.async_reload(entry.entry_id)
 
 

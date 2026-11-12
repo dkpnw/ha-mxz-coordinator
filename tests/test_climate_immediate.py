@@ -459,7 +459,7 @@ async def test_a_dry_pick_the_head_never_reports_leaves_dry_when_it_expires(
     tile = rig.eid(BEDROOM)
     coord = rig.coord
     at_expiry: list[tuple[str, str]] = []  # the tile just before and just after
-    real = coord._dry_pick_expired
+    real = coord.dry._pick_expired
 
     @callback  # as the real one is: run on the event loop, not in a worker thread
     def _expired(zone, now) -> None:
@@ -467,7 +467,7 @@ async def test_a_dry_pick_the_head_never_reports_leaves_dry_when_it_expires(
         real(zone, now)  # a callback: no plan can run inside it
         at_expiry.append((before, hass.states.get(tile).state))
 
-    monkeypatch.setattr(coord, "_dry_pick_expired", _expired)  # before the pick binds it
+    monkeypatch.setattr(coord.dry, "_pick_expired", _expired)  # before the pick binds it
     await _mode(hass, tile, "dry")
     await rig.recompute()
     assert rig.state(1) != "dry" and hass.states.get(tile).state == "dry"  # asked, unreported

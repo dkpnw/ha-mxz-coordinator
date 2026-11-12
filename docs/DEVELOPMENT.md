@@ -82,9 +82,12 @@ a time. Each moves into a module that owns its state, its wakeups and its stored
 | `logic.py` | The decision math: room calls, arbitration, door/window states, floors, setpoints. No Home Assistant. |
 | `cloud.py` | A cloud or generic head's write record and its setpoint math. No Home Assistant. |
 | `openings.py` | The door/window pause: each room's record and its store, the delay wakeups, the notices, and the vanes a resume owes. |
+| `dry.py` | Allow Dry: which rooms are held or parked in dry, a Dry picked on a thermostat and its wakeup, a room released from dry, and the Dry notices. In memory only. |
+| `host.py` | `ControllerHost`, the coordinator members every controller uses: Home Assistant, the clock, `retired`, `notify`, `redraw_rooms` and the two recomputes. |
 
-A module that moved out reaches the coordinator only through a `Protocol` it declares, which
-names each coordinator member it uses (`OpeningHost`). The coordinator calls it at fixed
+A module that moved out reaches the coordinator only through a `Protocol` it declares on top of
+`ControllerHost`, which names each further coordinator member it uses (`OpeningHost`,
+`DryHost`). mypy checks that the coordinator satisfies each one. The coordinator calls it at fixed
 points and keeps no copy of its state. Code mutants (`tools/code_mutants.py`) and the
 statechart's Code column name functions, not files. A move therefore breaks an anchor only
 where a function is renamed.

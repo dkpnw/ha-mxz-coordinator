@@ -1015,7 +1015,7 @@ async def test_a_settle_wakeup_in_flight_at_unload_computes_nothing(
     computes = _computes(coord)
     # The retire step sets this first, before any cancel; no public step
     # stands between the two.
-    coord._retired = True
+    coord.retired = True
     _settled(coord)
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=SETTLE))
     await hass.async_block_till_done()

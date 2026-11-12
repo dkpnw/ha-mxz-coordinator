@@ -262,7 +262,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         Dry only with the room's Allow Dry mode on and its head listing dry
         now, a cool lockout or not. Every other room offers exactly the two.
         """
-        if self.coordinator.dry_offered(self._zone):
+        if self.coordinator.dry.offered(self._zone):
             return [*self._attr_hvac_modes, HVACMode.DRY]
         return self._attr_hvac_modes
 
@@ -279,7 +279,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         got there, the mode is DRY, from the moment Dry is picked to the
         moment Heat/Cool or Off is.
         """
-        if self.coordinator.in_dry(self._zone):
+        if self.coordinator.dry.in_dry(self._zone):
             return HVACMode.DRY
         return HVACMode.HEAT_COOL if self._enabled else HVACMode.OFF
 
@@ -311,7 +311,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
             # Paused for its door/window: its head is off by plan. The mode
             # stays the room's own (heat_cool); only the action says off.
             return HVACAction.OFF
-        if self.coordinator.in_dry(self._zone) and self.coordinator.dry_state(
+        if self.coordinator.dry.in_dry(self._zone) and self.coordinator.dry.state(
             self._zone.slug
         ) != "parked":
             # Allow Dry mode: a person runs the head in dry, so show the head.
@@ -473,26 +473,26 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         if hvac_mode == HVACMode.DRY:
             await self._pick_dry()
             return
-        self.coordinator.release_dry(self._zone)
+        self.coordinator.dry.release(self._zone)
         await self._set_enable(hvac_mode != HVACMode.OFF)
 
     async def _pick_dry(self) -> None:
-        if (refusal := self.coordinator.dry_pick_refusal(self._zone)) is not None:
+        if (refusal := self.coordinator.dry.pick_refusal(self._zone)) is not None:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key=refusal,
                 translation_placeholders={"zone": self._zone.name},
             )
-        send = self.coordinator.start_dry_pick(self._zone)
+        send = self.coordinator.dry.start_pick(self._zone)
         await self._set_enable(True)
         if send:
-            await self.coordinator.async_send_dry(self._zone)
+            await self.coordinator.dry.async_send(self._zone)
 
     async def async_turn_on(self) -> None:
         await self._set_enable(True)
 
     async def async_turn_off(self) -> None:
-        self.coordinator.release_dry(self._zone)
+        self.coordinator.dry.release(self._zone)
         await self._set_enable(False)
 
     async def _set_enable(self, on: bool) -> None:

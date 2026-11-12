@@ -10,7 +10,6 @@ it whether a room is paused and calls it at the points listed on ``OpeningPause`
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
@@ -33,6 +32,7 @@ from .const import (
     OPENING_REASON_PAUSED,
     UNAVAILABLE_STATES,
 )
+from .host import ControllerHost
 from .logic import (
     CLOSED_READ,
     finite_number,
@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from homeassistant.core import EventStateChangedData
 
     from .coordinator import Zone
+    from .dry import DryMode
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -152,32 +153,20 @@ def _iso(stamp: float | None) -> str | None:
     return dt_util.utc_from_timestamp(stamp).isoformat(timespec="seconds")
 
 
-class OpeningHost(Protocol):
-    """The coordinator members the pause reads or calls, as the coordinator has them.
+class OpeningHost(ControllerHost, Protocol):
+    """The coordinator members the pause reads or calls, beyond every controller's.
 
-    Read: Home Assistant, the clock, whether the coordinator is retired (it
-    then writes nothing, not even this store) and its kill switch. Asked: the
-    Fan auto and Dry state a pause snapshots. Called: a resume's Dry and
-    vanes, a notice, a recompute (at once, or the ordinary request), a
-    redraw, and the recompute that follows a person's change.
+    Read: the kill switch, and the Fan auto and Dry state a pause snapshots.
+    Called: a resume's Dry and vanes, and the recompute that follows a
+    person's change.
     """
 
-    hass: HomeAssistant
-    clock: Callable[[], float]
     coordinator_enable: bool
-    _retired: bool
+    dry: DryMode
 
     def fan_auto_is_on(self, climate_id: str) -> bool: ...
-    def in_dry(self, zone: Zone) -> bool: ...
-    def dry_pick_refusal(self, zone: Zone) -> str | None: ...
-    def start_dry_pick(self, zone: Zone) -> bool: ...
-    async def async_send_dry(self, zone: Zone) -> None: ...
     async def async_apply_vane(self, climate_id: str, vane_id: str, option: str) -> None: ...
     async def async_user_changed(self, *, at_once: bool = False) -> None: ...
-    async def async_request_refresh(self) -> None: ...
-    async def _async_refresh_now(self) -> None: ...
-    async def _notify(self, message: str, target: str | None = None) -> None: ...
-    def _redraw_rooms(self) -> None: ...
 
 
 class OpeningPause:
@@ -269,7 +258,7 @@ class OpeningPause:
         record = self._records.get(zone.slug)
         if record is None:
             return False
-        if self._live and not self._host._retired:
+        if self._live and not self._host.retired:
             sensor = self._hass.states.get(cast("str", zone.opening_entity))
             raw = opening_reading(sensor.state if sensor is not None else None)
             since = max(
@@ -350,7 +339,7 @@ class OpeningPause:
             }
         if (
             snapshot.get("dry") is True and zone.enable
-            and self._host.dry_pick_refusal(zone) is None and self._host.start_dry_pick(zone)
+            and self._host.dry.pick_refusal(zone) is None and self._host.dry.start_pick(zone)
         ):
             self._hass.async_create_task(self._send_dry(zone))
 
@@ -369,7 +358,7 @@ class OpeningPause:
             "fan_mode": head.attributes.get("fan_mode") if head is not None else None,
             "fan_held": not self._host.fan_auto_is_on(zone.climate_id),
             "vanes": vanes,
-            "dry": self._host.in_dry(zone),
+            "dry": self._host.dry.in_dry(zone),
         }
 
     def _notice(
@@ -407,14 +396,14 @@ class OpeningPause:
     async def _send_notice(self, message: str, target: str | None) -> None:
         """A notice that fails is logged; it never holds up control."""
         try:
-            await self._host._notify(message, target)
+            await self._host.notify(message, target)
         except Exception as err:  # noqa: BLE001 - any notify failure is only logged
             _LOGGER.warning("MXZ: door/window notice not sent (%s): %s", message, err)
 
     async def _send_dry(self, zone: Zone) -> None:
         """Put back the Dry a pause found, once; a refusal is logged."""
         try:
-            await self._host.async_send_dry(zone)
+            await self._host.dry.async_send(zone)
         except HomeAssistantError as err:
             _LOGGER.warning("MXZ: %s Dry not put back after its pause: %s", zone.name, err)
 
@@ -440,7 +429,7 @@ class OpeningPause:
         """
         for zone in self._zones:
             vanes = self._vanes_due.get(zone.slug)
-            if not vanes or self.paused(zone) or self._host._retired:
+            if not vanes or self.paused(zone) or self._host.retired:
                 continue
             self._vanes_due.pop(zone.slug)
             for vane_id, option in vanes.items():
@@ -461,7 +450,7 @@ class OpeningPause:
 
     def _save(self) -> None:
         """Write every room's door/window record at once (never on a retired one)."""
-        if self._host._retired:
+        if self._host.retired:
             return
         data = {
             OPENINGS_ROOMS_KEY: {
@@ -497,7 +486,7 @@ class OpeningPause:
     def sync_timers(self) -> None:
         """One wakeup per room at the end of its open or close delay."""
         self.cancel_timers()
-        if self._host._retired:
+        if self._host.retired:
             return
         now = dt_util.utcnow().timestamp()
         for slug, record in self._records.items():
@@ -508,7 +497,7 @@ class OpeningPause:
         """Replace this room's wakeup with one ``delay`` seconds from now."""
         if (cancel := self._timers.pop(slug, None)) is not None:
             cancel()
-        if self._host._retired:
+        if self._host.retired:
             return
 
         @callback
@@ -516,8 +505,8 @@ class OpeningPause:
             # At once, not after the request cooldown: the delay is the
             # promise, so a pause or resume lands when it ends.
             self._timers.pop(slug, None)
-            if not self._host._retired:
-                self._hass.async_create_task(self._host._async_refresh_now())
+            if not self._host.retired:
+                self._hass.async_create_task(self._host.async_refresh_now())
 
         self._timers[slug] = async_call_later(self._hass, max(0.0, delay), _fire)
 
@@ -578,7 +567,7 @@ class OpeningPause:
         closed = opening_reading(sensor.state if sensor is not None else None) == CLOSED_READ
         override = "switch" if on and not closed else None
         if override == record.override or (on and record.override is not None):
-            self._host._redraw_rooms()
+            self._host.redraw_rooms()
             return
         record.override = override
         self._save()

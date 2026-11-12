@@ -265,7 +265,7 @@ async def test_a_dry_pick_counts_before_the_head_reports_it(hass: HomeAssistant)
     await hass.async_block_till_done()
     await rig.recompute()
     assert rig.sent(1) == DRY and rig.state(1) == "dry"
-    assert rig.coord._dry_picks == {}
+    assert rig.coord.dry._picks == {}
     assert tile(rig).attributes["hvac_action"] == HVACAction.DRYING
 
 
@@ -288,7 +288,7 @@ async def test_a_dry_pick_the_head_never_reports_ends_in_the_wait(
     assert rig.sent(1) == DRY
     await rig.later(DRY_PICK_WAIT + 1)
     await rig.later(DRY_PICK_WAIT + REQUEST_REFRESH_DEFAULT_COOLDOWN + 2)
-    assert rig.coord._dry_picks == {}
+    assert rig.coord.dry._picks == {}
     assert (rig.row(1)["dry"], rig.row(1)["demand"]) == (None, "cool")
     assert rig.modes_sent(1)[0] == "dry" and "cool" in rig.modes_sent(1)[1:]  # the plan again
     assert tile(rig).state == "heat_cool"
@@ -397,7 +397,7 @@ async def test_heat_cool_from_dry_takes_the_head_back_and_dries_the_coil(
     await rig.recompute()
     assert rig.state(1) == "fan_only"  # the coil-dry run, owed from the dry
     assert tile(rig).state == "heat_cool"
-    assert rig.coord._dry_released == set()  # the head reported out of dry
+    assert rig.coord.dry._released == set()  # the head reported out of dry
     pass_time(rig.coord, rig.coord.coil_dry_seconds + 5)
     await rig.recompute()
     assert rig.state(1) == "off"
@@ -432,7 +432,7 @@ async def test_heat_cool_outside_dry_releases_nothing(hass: HomeAssistant) -> No
     """Heat/Cool picked while not in dry is just the switch: a later remote dry is held."""
     rig = await _setup(hass)
     await pick(rig, "heat_cool")
-    assert rig.coord._dry_released == set()
+    assert rig.coord.dry._released == set()
     await rig.person(1, "dry")
     await rig.recompute()
     assert (rig.row(1)["dry"], rig.state(1), tile(rig).state) == ("held", "dry", "dry")
@@ -572,7 +572,7 @@ async def test_a_cloud_dry_pick_waits_out_the_confirm_wait(hass: HomeAssistant) 
     await hass.async_block_till_done()
     row = hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][1]
     assert (row["dry"], row["dry_vote"]) == ("held", "cool")
-    assert coord._dry_picks == {}
+    assert coord.dry._picks == {}
     assert head_writes(calls, b.entity_id) == DRY
 
 

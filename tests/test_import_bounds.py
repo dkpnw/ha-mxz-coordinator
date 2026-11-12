@@ -33,10 +33,11 @@ def test_every_module_on_disk_is_checked():
     assert {"coordinator", "openings", "__init__"} <= files
 
 
-def test_without_its_exceptions_the_tree_shows_exactly_the_two_known_edges(monkeypatch):
+def test_without_its_exceptions_the_tree_shows_exactly_the_three_known_edges(monkeypatch):
     monkeypatch.setattr(import_bounds, "EXCEPTIONS", {})
     assert violations(SOURCES) == [
         "climate.py:66: climate (layer surfaces) imports number (layer surfaces)" + LOWER,
+        "dry.py:33: dry (layer lower controllers) type-only imports coordinator (layer coordinator)" + LOWER,
         "openings.py:47: openings (layer controllers) type-only imports coordinator (layer coordinator)" + LOWER,
     ]
 
@@ -58,6 +59,10 @@ def test_without_its_exceptions_the_tree_shows_exactly_the_two_known_edges(monke
      "openings (layer controllers) imports coordinator (layer coordinator)"),
     ("openings", "from custom_components.mxz_coordinator.coordinator import Zone\n",
      "openings (layer controllers) imports coordinator (layer coordinator)"),
+    ("dry", "from .openings import OpeningPause\n",
+     "dry (layer lower controllers) imports openings (layer controllers)"),
+    ("host", "from .dry import DryMode\n",
+     "host (layer helpers) imports dry (layer lower controllers)"),
     ("cloud", "import custom_components.mxz_coordinator.coordinator\n",
      "cloud (layer helpers) imports coordinator (layer coordinator)"),
     ("cloud", "from . import coordinator\n",
@@ -113,8 +118,8 @@ def test_a_type_only_exception_does_not_admit_a_runtime_import():
 
 
 def test_a_new_module_must_be_placed_in_a_layer():
-    sources, _ = added("dry", "from .const import DOMAIN\n")
-    assert violations(sources) == ["dry.py is in no layer of tools/import_bounds.py"]
+    sources, _ = added("fan_hold", "from .const import DOMAIN\n")
+    assert violations(sources) == ["fan_hold.py is in no layer of tools/import_bounds.py"]
 
 
 def test_a_layer_cannot_name_a_missing_module():
