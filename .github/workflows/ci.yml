@@ -129,9 +129,11 @@ jobs:
     if: ${{ !cancelled() && (((github.run_attempt == 1 || github.run_attempt == 2 && github.event_name == 'pull_request' && needs.approval.outputs.admitted == 'true') && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request' && startsWith(github.ref, 'refs/pull/') && github.head_ref != '' && github.base_ref != '') && github.ref != 'refs/heads/ci/issue25-discriminator' && github.head_ref != 'ci/issue25-discriminator' && github.base_ref != 'ci/issue25-discriminator' && github.ref != 'refs/heads/ci/issue25-independent-repeat' && github.head_ref != 'ci/issue25-independent-repeat' && github.base_ref != 'ci/issue25-independent-repeat' && github.ref != 'refs/heads/ci/issue25-harness-admission' && github.head_ref != 'ci/issue25-harness-admission' && github.base_ref != 'ci/issue25-harness-admission' && github.ref != 'refs/heads/ci/issue25-harness-replacement' && github.head_ref != 'ci/issue25-harness-replacement' && github.base_ref != 'ci/issue25-harness-replacement' && github.ref != 'refs/heads/ci/issue25-harness-repeat' && github.head_ref != 'ci/issue25-harness-repeat' && github.base_ref != 'ci/issue25-harness-repeat') || (github.run_attempt == 1 && github.event_name == 'push' && github.ref == 'refs/heads/ci/issue25-harness-admission' && github.head_ref == '' && github.base_ref == '')) }}
     name: pytest (${{ matrix.lane }})
     runs-on: ubuntu-24.04
-    # Covers a job owning both full passes (600 s each) plus the 60 s sentinel,
-    # install and export, with margin.
-    timeout-minutes: 35
+    # Covers a job owning both full passes (1200 s each) plus the 60 s sentinel, and
+    # leaves the same 14 minutes as before for checkout, Python setup and install (172 s
+    # at most on hosted runners) and export, so the export still runs after both passes
+    # time out.
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
@@ -203,29 +205,31 @@ jobs:
         run: |
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
           bash tools/issue25/run.sh
-      # 600 s, as the fresh-boot pass below: hosted full-suite runs took ~140 s and the
-      # suite grows; only attempt 1 may run.
+      # 1200 s, as the fresh-boot pass below. Hosted runners take 0.07-0.08 s per test
+      # on fast machines and 0.14-0.15 s on slow ones. From Nov 10 to 12, 2026 (3,975 to
+      # 4,156 tests) slow runners passed in up to 595 s or were killed at the old 600 s
+      # limit, so 1200 s is about twice the slowest pass. Only attempt 1 may run.
       # Runs only in a job that owns 'suite' (exact token in matrix.runs).
       - name: Full retained suite
         if: ${{ contains(format(' {0} ', matrix.runs), ' suite ') }}
         run: |
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
           suite_exit=0
-          timeout --signal=TERM --kill-after=5s 600s python -m pytest -p tools.pytest_phases tests/ -q -s > "$RUNNER_TEMP/suite.log" 2>&1 || suite_exit=$?
+          timeout --signal=TERM --kill-after=5s 1200s python -m pytest -p tools.pytest_phases tests/ -q -s > "$RUNNER_TEMP/suite.log" 2>&1 || suite_exit=$?
           printf '%s\n' "$suite_exit" > "$RUNNER_TEMP/suite.exit"
           echo "SUITE_EXIT=$suite_exit"
           exit "$suite_exit"
       # The mode-flip dwell runs on time.monotonic (#32), which counts from boot:
       # the same suite again as if this runner had booted 120 s ago, below the
       # hysteresis. Runs only in a job that owns 'fakeboot', after a failed suite
-      # too. 600 s: this pass hit the 300 s limit on a hosted runner on main
-      # b17fc3c with no failing test.
+      # too. 1200 s, as the suite pass: at the old 600 s this pass was killed 3,887 of
+      # 3,975 and 4,095 of 4,151 tests in, with no failing test.
       - name: Full suite on a fresh-boot clock
         if: ${{ !cancelled() && contains(format(' {0} ', matrix.runs), ' fakeboot ') }}
         run: |
           source "$RUNNER_TEMP/mxz-venv/bin/activate"
           fakeboot_exit=0
-          FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 600s python -m pytest -p tools.fakeboot -p tools.pytest_phases tests/ -q -s > "$RUNNER_TEMP/fakeboot.log" 2>&1 || fakeboot_exit=$?
+          FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 1200s python -m pytest -p tools.fakeboot -p tools.pytest_phases tests/ -q -s > "$RUNNER_TEMP/fakeboot.log" 2>&1 || fakeboot_exit=$?
           printf '%s\n' "$fakeboot_exit" > "$RUNNER_TEMP/fakeboot.exit"
           echo "FAKEBOOT_EXIT=$fakeboot_exit"
           exit "$fakeboot_exit"

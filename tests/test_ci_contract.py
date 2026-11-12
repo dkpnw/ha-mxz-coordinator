@@ -58,13 +58,13 @@ def violations(workflow):
     return errors
 
 
-# The pytest job's exact limit: a job owning both full passes needs 600 s for each,
+# The pytest job's exact limit: a job owning both full passes needs 1200 s for each,
 # 60 s for the sentinel, and room for install and export.
-PYTEST_JOB_MINUTES = "35"
+PYTEST_JOB_MINUTES = "55"
 
 
 FRESH_BOOT_RUN = (
-    'FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 600s python -m pytest '
+    'FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 1200s python -m pytest '
     '-p tools.fakeboot -p tools.pytest_phases tests/ -q -s > "$RUNNER_TEMP/fakeboot.log" 2>&1'
 )
 
@@ -267,7 +267,7 @@ def test_weakened_ci_boundary_rejects(workflow, change):
         if change == "job-time-missing":
             del job["timeout-minutes"]
         else:
-            job["timeout-minutes"] = "25" if change == "job-time-old" else "60"
+            job["timeout-minutes"] = "35" if change == "job-time-old" else "60"
         assert violations(bad) == ["pytest job time limit"]
         return
     if change.startswith("lane-"):
@@ -619,7 +619,7 @@ SUITE_RUNS = {
                  "-m pytest -p tools.fakeboot -p tools.pytest_phases tests/ -q -s", "120"),
 }
 # Each full-suite step's exact watchdog limit; no other value is accepted.
-SUITE_LIMITS = {"suite": "600s", "fakeboot": "600s"}
+SUITE_LIMITS = {"suite": "1200s", "fakeboot": "1200s"}
 
 
 def test_pytest_job_limit_covers_owned_watchdogs(workflow):
@@ -629,10 +629,10 @@ def test_pytest_job_limit_covers_owned_watchdogs(workflow):
     assert job["timeout-minutes"] == PYTEST_JOB_MINUTES
     limits = [int(m) for s in job["steps"]
               for m in re.findall(r"timeout --signal=TERM --kill-after=5s (\d+)s ", s.get("run", ""))]
-    assert sorted(limits) == [60, 600, 600]
+    assert sorted(limits) == [60, 1200, 1200]
     assert int(job["timeout-minutes"]) * 60 - sum(limits) >= 600
-    # The old 25-minute limit left under 4 minutes for install and export.
-    assert 25 * 60 - sum(limits) < 600
+    # The old 35-minute limit could not hold these passes.
+    assert 35 * 60 - sum(limits) < 600
 
 
 @pytest.mark.parametrize("owner", ["both", "split"])
