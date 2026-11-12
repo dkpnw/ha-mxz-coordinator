@@ -317,8 +317,8 @@ async def test_each_room_part_reads_its_own_key(hass: HomeAssistant, freezer) ->
     head = rig.heads[1]
     coord._floor_rejecting["secondary"] = "refused"
     coord._floor_yield["secondary"] = ("heat", 1_800_000_000.0)
-    coord._dry_rooms["secondary"] = "held"
-    coord._dry_released.add("secondary")
+    coord.dry._rooms["secondary"] = "held"
+    coord.dry._released.add("secondary")
     coord._hands_off_released.add("secondary")
     coord._fan_cmd[head] = "low"
     coord._last_active[head] = ("cool", time.monotonic())

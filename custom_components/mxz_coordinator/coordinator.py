@@ -59,7 +59,7 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
-from .capabilities import head_has_fan_auto, head_lists_dry, state_lists_dry
+from .capabilities import head_has_fan_auto
 from .cloud import (
     CLOUD_NOT_CONTROLLABLE,
     CLOUD_PENDING,
@@ -143,7 +143,6 @@ from .const import (
     DOMAIN,
     DRIVE_OFFSET_MAX_C,
     DRIVE_OFFSET_MAX_F,
-    DRY_PICK_WAIT,
     DUAL_HANDOFF_KEY,
     DUAL_ZONE_ENTITY_SUFFIXES,
     ENGAGE_SATISFIED,
@@ -234,6 +233,7 @@ from .const import (
     unit_profile,
     zone_slug,
 )
+from .dry import DryMode
 from .logic import (
     PRIORITY_DEMAND,
     PRIORITY_FLOOR_HEAT,
@@ -1062,21 +1062,6 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # included, exactly as an opted-out room's is. Cleared when the room is
         # enabled again; restored across a restart by its enable switch.
         self._hands_off_released: set[str] = set()
-        # Allow Dry mode: each room whose head a person has in dry, as the
-        # last compute found it ("held": left alone; "parked": another room
-        # won heat, so MXZ parks it), and the rooms already told about that
-        # park, until their head reports a mode other than dry. In memory
-        # only: after a restart a head still in dry is simply held again.
-        self._dry_rooms: dict[str, str] = {}
-        self._dry_noticed: set[str] = set()
-        self._dry_heat_for: str | None = None  # the room heat is for, by name
-        # Dry picked on a room's thermostat (3.16.0): each room whose head was
-        # sent dry and hasn't reported it yet, with the timer that gives up
-        # (DRY_PICK_WAIT), and each room a person took out of dry on that
-        # thermostat (Heat/Cool or Off), until its head reports another mode.
-        # In memory only: after a restart the head's own mode is the truth.
-        self._dry_picks: dict[str, Any] = {}
-        self._dry_released: set[str] = set()
         # The shared mode was last moved by hands-off votes alone. Going back
         # from it while no coordinated room calls is undoing the vote, not a
         # flip of ours, so that starts no dwell either (see _compute).
@@ -1147,7 +1132,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._vane_kick_apply: float = VANE_KICK_APPLY
         self._vane_kick_retire: float = VANE_KICK_RETIRE_TIMEOUT
         # Set once this incarnation is unloaded: it must never write again.
-        self._retired: bool = False
+        self.retired: bool = False
         # Per head: what MXZ last saw of it and since when it has been out of
         # sight (see logic.HeadSight). On the monotonic clock, like the dwell:
         # a wall-clock step must not shorten or stretch the time limit (the
@@ -1229,6 +1214,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # once, with no grace, as at any other time (the notice after the
         # first compute below reports what each room actually started as).
         self._started_ts: float = dt_util.utcnow().timestamp()
+        # Allow Dry mode, per room (see dry.DryMode).
+        self.dry = DryMode(self, self.zones)
         # Door/window pause, per room (see openings.OpeningPause).
         self.openings = OpeningPause(self, entry.entry_id, self.zones, openings, self._started_ts)
         self._freshness: dict[str, tuple[float, float]] = {}  # slug -> (max age, grace) s
@@ -1602,26 +1589,26 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         more. The load that follows converts what was saved in the old unit.
         Any other change to Home Assistant's core config is ignored.
         """
-        if self._retired or self.hass.config.units.temperature_unit == self.temp_unit:
+        if self.retired or self.hass.config.units.temperature_unit == self.temp_unit:
             return
         _LOGGER.info(
             "Home Assistant's temperature unit changed from %s to %s: reloading MXZ",
             self.temp_unit, self.hass.config.units.temperature_unit,
         )
-        self._retired = True
+        self.retired = True
         self._retire_deliveries()
         self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
 
     async def async_shutdown_listeners(self) -> None:
         """Retire this context, then cancel its listeners, timers, and kick tasks.
 
-        ``_retired`` first, so nothing this incarnation already scheduled can
+        ``retired`` first, so nothing this incarnation already scheduled can
         write a head again. Every pending self-heal, dry, dwell, coast,
         lost-vote and settle timer is cancelled here. Retiring kicks is last: the existing
         own-wake guard parks a head still reporting fan_only (see
         _restore_woken_heads).
         """
-        self._retired = True
+        self.retired = True
         self._retire_deliveries()
         for unsub in self._unsubs:
             unsub()
@@ -1659,9 +1646,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for cancel in self._dry_timers.values():
             cancel()
         self._dry_timers.clear()
-        for cancel in self._dry_picks.values():
-            cancel()
-        self._dry_picks.clear()
+        self.dry.cancel_timers()
         await self._async_retire_vane_kicks()
 
     # -- decision (mirrors sensor.mxz_plan) ---------------------------------
@@ -1830,7 +1815,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if zone.slug in self._engage_latch:
                     self._engage_latch[zone.slug] = ""
                 prior_engage = ""
-            dry = not paused and self.in_dry(zone)
+            dry = not paused and self.dry.in_dry(zone)
             if dry:
                 # Allow Dry mode: a person runs this head in dry, so the
                 # room's temperature goal pauses (no call, no run). Its vote
@@ -1923,7 +1908,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ):
             by_votes = True
         self._floor_settle(floors, state)
-        self._dry_settle(drys, state, held_demands, held_engages, votes)
+        self.dry.settle(drys, state, held_demands, held_engages, votes)
         calls = [*held_demands, *votes, *dry_votes, *floors]
         plan.update(
             {
@@ -1976,7 +1961,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "floor_want": floors[i],
                         **self.command_attributes(zone.climate_id),
                         **self._cloud_attributes(zone),
-                        **self._dry_attributes(zone, dry_votes[i]),
+                        **self.dry.attributes(zone, dry_votes[i]),
                         **self.openings.attributes(zone),
                     }
                     for i, zone in enumerate(self.zones)
@@ -2365,7 +2350,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_request_refresh(self) -> None:
         """Retain current inputs independently of HA's debounce timer."""
-        if self._retired:
+        if self.retired:
             return
         if self._deliveries:
             # New intent must progress even while another head is still held.
@@ -2374,7 +2359,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_request_ordinary_refresh(self) -> None:
         """Retain ordinary head reports without promoting echoes to new intent."""
-        if self._retired:
+        if self.retired:
             return
         if self._plan_lock.locked():
             self._refresh_wake.set()
@@ -2388,13 +2373,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         await super().async_request_refresh()
 
-    async def _async_refresh_now(self) -> None:
+    async def async_refresh_now(self) -> None:
         """Recompute at once, without waiting out the request cooldown.
 
         A plan already running is released from waiting on its deliveries,
         as by any new input, and this one computes next.
         """
-        if self._retired:
+        if self.retired:
             return
         if self._plan_lock.locked():
             self._refresh_wake.set()
@@ -2449,7 +2434,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _sync_refresh_followup(self) -> None:
         """Arm exactly one current-input refresh requested during this one."""
-        if self._retired:
+        if self.retired:
             self._refresh_pending = False
             self._cancel_refresh_followup()
             return
@@ -2464,7 +2449,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # A direct refresh already waiting on the plan lock consumes this
             # request. Check after it publishes, not when the timer is picked.
             async with self._plan_lock:
-                if self._retired or self._refresh_generation != generation:
+                if self.retired or self._refresh_generation != generation:
                     return
             if self._delivery_followup:
                 self._delivery_followup = False
@@ -2477,7 +2462,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         @callback
         def _fire(_now: Any) -> None:
             self._refresh_followup_timer = None
-            if self._retired:
+            if self.retired:
                 return
             self.hass.async_create_task(_refresh_current())
 
@@ -2620,7 +2605,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         self._last_mode_change_ts = self.clock()
         self._last_mode_change_at = dt_util.utcnow().timestamp()
-        if self._retired:
+        if self.retired:
             return
         self._arm_hold_end_timer()
 
@@ -2634,7 +2619,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         here the record is never older than the select's restore data
         (restore_shared_mode compares the two).
         """
-        if self._retired:
+        if self.retired:
             return
         data: dict[str, Any] = {
             MODE_KEY: self.current_shared_mode,
@@ -2684,13 +2669,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         self._cancel_hold_end_timer()
         remaining = self.mode_hold_remaining()
-        if self._retired or remaining <= 0:
+        if self.retired or remaining <= 0:
             return
 
         @callback
         def _fire(_now: Any) -> None:
             self._hold_end_timer = None
-            if not self._retired:
+            if not self.retired:
                 self.async_update_listeners()
 
         self._hold_end_timer = async_call_later(self.hass, remaining + 1, _fire)
@@ -2768,7 +2753,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # A hand-back (P3) is for this apply only: one skipped (Coordinator
         # off, a standby park, no plan yet) leaves the head as MXZ left it.
         handbacks, self._floor_handback = self._floor_handback, {}
-        if self._retired:
+        if self.retired:
             return
         if not self.coordinator_enable:
             return  # kill-switch: leave the heads untouched
@@ -2874,7 +2859,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     continue
                 # Another room won heat: park it at its idle action below,
                 # once told. Dry is never sent back.
-                self._dry_notice(zone)
+                self.dry.notice_parked(zone)
             idle = self._idle_act_for(zone.climate_id)
             if not zone.enable:
                 # A disabled room never idles in fan_only: a floor waiting out
@@ -3015,7 +3000,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _delivery_owned(self, active: dict[str, Any]) -> bool:
         return (
-            not self._retired and self.coordinator_enable
+            not self.retired and self.coordinator_enable
             and not active["superseded"] and not active["retired"] and not active["manual"]
         )
 
@@ -3066,7 +3051,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._deliveries.pop(climate_id)
             self._publish_delivery()
         successor = active["next"]
-        if successor is not None and not successor._retired:
+        if successor is not None and not successor.retired:
             successor._refresh_pending = True
             successor._delivery_followup = True
             successor._sync_refresh_followup()
@@ -3144,7 +3129,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         async with self._head_locks.setdefault(climate_id, asyncio.Lock()):
             await self._wait_vane_cleanup(climate_id)
-            if self._retired:
+            if self.retired:
                 return
             if vane and not self._owns_vane_kick(climate_id):
                 return
@@ -3250,7 +3235,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {key: view.get(key) for key in START_POINT_KEYS}
 
     @callback
-    def _redraw_rooms(self) -> None:
+    def redraw_rooms(self) -> None:
         """Re-render the room surfaces (each thermostat, the plan sensor) now.
 
         Only a re-render, no decision: the plan and the head writes are unchanged.
@@ -3276,7 +3261,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for listener in tuple(self._delivery_listeners):
             listener()
         successor = getattr(self.config_entry, "runtime_data", None)
-        if isinstance(successor, MXZCoordinator) and successor is not self and not successor._retired:
+        if isinstance(successor, MXZCoordinator) and successor is not self and not successor.retired:
             # The old handler may return after unload; publish that software
             # observation on the current incarnation's existing room surfaces.
             successor._publish_delivery()
@@ -3409,7 +3394,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         tasks = []
         for zone in self.zones:
-            if self._retired:
+            if self.retired:
                 return
             if zone.climate_id in self._vane_kicks:
                 continue
@@ -3837,6 +3822,10 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             same=partial(self._head_already_at, climate_id),
         )
 
+    def cloud_head(self, climate_id: str) -> CloudHead | None:
+        """This head's cloud write record; None for a local head."""
+        return self._cloud.get(climate_id)
+
     def _cloud_attributes(self, zone: Zone) -> dict[str, Any]:
         """A cloud room's head type, write state and settings; nothing for a local one.
 
@@ -3973,7 +3962,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # out, or now if the refusal itself took longer than the interval.
             if cloud.wait_for_slot(now) > 0:
                 self._sync_cloud_timer()
-            elif not self._retired:
+            elif not self.retired:
                 self.hass.async_create_task(self.async_request_refresh())
             raise
         self._floor_accepted(climate_id, active)
@@ -4057,7 +4046,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         so without this each would wait for an unrelated update.
         """
         self._cancel_cloud_timer()
-        if self._retired or not self._cloud:
+        if self.retired or not self._cloud:
             return
         clock = self.clock()
         wall = dt_util.utcnow().timestamp()
@@ -4078,7 +4067,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         @callback
         def _fire(_now: Any) -> None:
             self._cloud_timer = None
-            if self._retired:
+            if self.retired:
                 return  # cancelling cannot recall a callback already in flight
             self.hass.async_create_task(self.async_request_refresh())
 
@@ -4725,7 +4714,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         (the firmware applies it live). With the kill-switch off we never touch
         the head — best-effort select write only.
         """
-        if self._retired:
+        if self.retired:
             return
         zone = self._zone_of(climate_id)
         if (
@@ -4735,7 +4724,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Door/window pause: no kick (it would run the head with the
             # window open). The pick is kept for the resume, which sends it.
             self.openings.keep_vane(zone, vane_id, option)
-            self._redraw_rooms()
+            self.redraw_rooms()
             return
         state = self.hass.states.get(climate_id)
         running = state is not None and state.state not in (
@@ -4806,7 +4795,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _owns_vane_kick(self, climate_id: str) -> bool:
         """True while the calling task still owns this head's live kick."""
         return (
-            not self._retired
+            not self.retired
             and self.coordinator_enable
             and not self.inhibited
             and self._vane_kicks.get(climate_id) is asyncio.current_task()
@@ -5114,7 +5103,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._arm_or_cancel(
             entity_id, "band",
             mode in BANNED_MODES and not self._hands_off_head(entity_id) and not stale
-            and not self._dry_allowed(entity_id, mode),
+            and not self.dry.allowed(entity_id, mode),
             BAND_DRIFT_DELAY,
         )
         if (mode == MODE_DRY) != (old_mode == MODE_DRY) and any(
@@ -5127,29 +5116,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             refresh_needed = True
             if old_mode == MODE_DRY and not stale and mode not in (None, *UNAVAILABLE_STATES):
                 self._last_active[entity_id] = (MODE_COOL, self.clock())
-        if mode not in (None, *UNAVAILABLE_STATES, MODE_DRY) and not stale:
-            # One notice per park: a head seen in another mode has left dry
-            # (straight from dry, or back from out of sight), so a later dry
-            # parked for heat is a new notice. Read from the report, not the
-            # next compute: a person can pick dry again before that runs.
-            # A room taken out of dry on its thermostat is out of it now.
-            for zone in self.zones:
-                if zone.climate_id == entity_id:
-                    self._dry_noticed.discard(zone.slug)
-                    self._dry_released.discard(zone.slug)
-        if mode == MODE_DRY and not stale:
-            for zone in self.zones:
-                if zone.climate_id != entity_id:
-                    continue
-                self._cancel_dry_pick(zone.slug)  # a Dry picked on the thermostat landed
-                if (
-                    self.dry_state(zone.slug) is not None
-                    and state_lists_dry(old_state) and not state_lists_dry(new_state)
-                ):
-                    # The head dropped dry from its list while in it: the room
-                    # offers Dry no more and the plan has the head again.
-                    refresh_needed = True
-                    self._dry_ended_notice(zone, "its head no longer offers Dry")
+        if self.dry.head_reported(entity_id, old_state, new_state, stale=stale):
+            refresh_needed = True
         # Never heal a head the standby hold parked off (nor a wall override
         # mid-hold — a human turning a parked head on during an outage wins),
         # and never heal a head the PLAN itself parked off (idle_action) — but
@@ -5185,13 +5153,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             old_state is None or old_state.state in UNAVAILABLE_STATES
         )
         if refresh_now:
-            self.hass.async_create_task(self._async_refresh_now())
+            self.hass.async_create_task(self.async_refresh_now())
         elif refresh_needed or new_fan != old_fan or capabilities_changed or availability_changed:
             if (
                 self._needs_legacy_refresh_guard
                 and self._plan_lock.locked()
                 and not self._debounced_refresh._execute_lock.locked()
-                and not self._retired
+                and not self.retired
             ):
                 # A direct refresh leaves HA's debouncer free. Its tracked
                 # task waits for the plan, keeping this echo in the same drain.
@@ -5226,7 +5194,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if kind == "band":
             still = (
                 mode in BANNED_MODES and not self._hands_off_head(entity_id)
-                and not self._dry_allowed(entity_id, mode)
+                and not self.dry.allowed(entity_id, mode)
             )
         else:
             still = self._off_while_enabled(entity_id, mode)
@@ -5326,7 +5294,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         state = self.hass.states.get(climate_id)
         if (
             not self.accept_head_changes
-            or self._retired
+            or self.retired
             or not self.coordinator_enable
             or self.inhibited
             or self._eco_active()
@@ -5509,7 +5477,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except HomeAssistantError as err:
             _LOGGER.warning("MXZ: couldn't adopt a change made at %s: %s", climate_id, err)
         finally:
-            if not self._retired:
+            if not self.retired:
                 await self.async_request_refresh()
 
     async def _heal_and_notify(self, entity_id: str, kind: str, mode: str | None) -> None:
@@ -5538,9 +5506,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             what = "was off while its room is enabled"
         else:
             what = f"was in {mode}, off its coordinated mode"
-        await self._notify(f"{room}: {entity_id} {what} - re-applying via the coordinator.")
+        await self.notify(f"{room}: {entity_id} {what} - re-applying via the coordinator.")
 
-    async def _notify(self, message: str, target: str | None = None) -> None:
+    async def notify(self, message: str, target: str | None = None) -> None:
         target = target or self.notify_service
         if not target:
             return
@@ -5780,7 +5748,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Safety priority votes never wait on it: they don't read the run.
         """
         self._cancel_settle_timer()
-        if self._retired:
+        if self.retired:
             return
         clock = self.clock()
         waits = [
@@ -5796,9 +5764,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         @callback
         def _fire(_now: Any) -> None:
             self._settle_timer = None
-            if self._retired:
+            if self.retired:
                 return  # cancelling cannot recall a callback already in flight
-            self.hass.async_create_task(self._async_refresh_now())
+            self.hass.async_create_task(self.async_refresh_now())
 
         self._settle_timer = async_call_later(self.hass, min(waits), _fire)
 
@@ -5903,7 +5871,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         refresh, which re-reads every entity as it is then.
         """
         self._cancel_comfort_timer()
-        if self._retired or self.comfort_stale_after is None:
+        if self.retired or self.comfort_stale_after is None:
             return
         now = dt_util.utcnow().timestamp()
         waits = []
@@ -5920,7 +5888,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         @callback
         def _fire(_now: Any) -> None:
             self._comfort_timer = None
-            if self._retired:
+            if self.retired:
                 return  # cancelling cannot recall a callback already in flight
             self.hass.async_create_task(self.async_request_refresh())
 
@@ -5962,180 +5930,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._observe_fan_latch(climate_id, observed, MODE_OFF, 0.0)
         self._publish_fan_state(climate_id)
 
-    # -- Allow Dry mode (opt-in, enabled rooms) --------------------------------
-    def dry_offered(self, zone: Zone) -> bool:
-        """Whether this room offers Dry: Allow Dry on, and its head lists dry now.
-
-        The gate for the room thermostat's Dry and for every dry MXZ keeps.
-        A cool lockout doesn't close it (Dry just can't win the mode then).
-        """
-        return zone.allow_dry and head_lists_dry(self.hass, zone.climate_id)
-
-    def _dry_allowed(self, climate_id: str, mode: str | None) -> bool:
-        """Whether this report is a head in dry that its room lets stay there.
-
-        The heals read this: an enabled room that offers Dry is never put
-        back from dry (a park for heat goes through the plan instead), unless
-        a person took it out of dry on its thermostat. Any other room in dry
-        is healed exactly as before the option existed.
-        """
-        return mode == MODE_DRY and any(
-            zone.climate_id == climate_id and self.dry_offered(zone) and zone.enable
-            and zone.slug not in self._dry_released
-            for zone in self.zones
-        )
-
-    def in_dry(self, zone: Zone) -> bool:
-        """Whether a person has this room's head in dry, and MXZ honors it now.
-
-        The plan's dry input for this room, and what its thermostat shows as
-        Dry: read live, so a pick, Heat/Cool or Off shows at once, before the
-        plan that follows settles the room held or parked.
-
-        Only while the room offers Dry and is enabled, no standby hold is on
-        (a hold parks every head, a dry one too), and no person took it out
-        of dry on its thermostat. A cloud head's report of dry that may be
-        older than MXZ's last batch (inside its confirm wait), or from a head
-        out of MXZ's control, isn't one: that report isn't a person's choice
-        MXZ can act on. A Dry just picked on the thermostat is one until the
-        head reports it, or the pick's wait runs out.
-        """
-        if (
-            not self.dry_offered(zone) or not zone.enable or self.inhibited
-            or zone.slug in self._dry_released
-        ):
-            return False
-        head = self.hass.states.get(zone.climate_id)
-        if head is None or head.state in UNAVAILABLE_STATES:
-            return False
-        cloud = self._cloud.get(zone.climate_id)
-        if cloud is not None and cloud.unresponsive:
-            return False
-        if head.state != MODE_DRY:
-            return zone.slug in self._dry_picks
-        return cloud is None or not cloud.stale(self.clock(), mode=MODE_DRY)
-
-    def dry_pick_refusal(self, zone: Zone) -> str | None:
-        """Why Dry can't be picked on this room's thermostat now, as a translation key."""
-        if not self.dry_offered(zone):
-            return "dry_not_offered"
-        if not self.coordinator_enable:
-            return "dry_coordinator_off"
-        if self.inhibited:
-            return "dry_standby_hold"
-        return None
-
-    def start_dry_pick(self, zone: Zone) -> bool:
-        """Dry picked on the thermostat: count the head as in dry until it says so.
-
-        Returns whether the head still has to be sent dry. A head already
-        reporting dry needs nothing sent; the room is just enabled.
-        """
-        self._dry_released.discard(zone.slug)
-        head = self.hass.states.get(zone.climate_id)
-        if head is not None and head.state == MODE_DRY and not self._cloud_stale_report(
-            zone.climate_id, mode=MODE_DRY
-        ):
-            return False
-        self._cancel_dry_pick(zone.slug)
-        cloud = self._cloud.get(zone.climate_id)
-        wait = max(DRY_PICK_WAIT, cloud.confirm_wait if cloud is not None else 0)
-        self._dry_picks[zone.slug] = async_call_later(
-            self.hass, wait, partial(self._dry_pick_expired, zone)
-        )
-        return True
-
-    async def async_send_dry(self, zone: Zone) -> None:
-        """Send the head dry, once: the one write a Dry pick makes."""
-        try:
-            await self.async_head_service(
-                zone.climate_id, "set_hvac_mode", {"hvac_mode": MODE_DRY}, manual=True,
-            )
-        except HomeAssistantError:
-            self._cancel_dry_pick(zone.slug)
-            self._redraw_rooms()  # Dry off the thermostat now, not when the plan runs
-            await self.async_request_refresh()
-            raise
-
-    def release_dry(self, zone: Zone) -> None:
-        """Heat/Cool or Off picked on the thermostat: out of dry, the plan's again."""
-        if zone.slug in self._dry_picks or self.in_dry(zone):
-            self._cancel_dry_pick(zone.slug)
-            self._dry_released.add(zone.slug)
-
-    def _cancel_dry_pick(self, slug: str) -> None:
-        if (cancel := self._dry_picks.pop(slug, None)) is not None:
-            cancel()
-
-    @callback
-    def _dry_pick_expired(self, zone: Zone, _now: Any) -> None:
-        """The head never reported the Dry picked for it: the plan has it again."""
-        self._dry_picks.pop(zone.slug, None)
-        _LOGGER.warning(
-            "MXZ: %s was sent dry but its head didn't report it in time; "
-            "back to the room's plan", zone.name,
-        )
-        self._redraw_rooms()  # Dry off the thermostat now, not when the plan runs
-        self.hass.async_create_task(self.async_request_refresh())
-
-    def dry_option_turned_off(self, raw_zones: Any) -> None:
-        """Before a reload: tell people once for each room an options save took out of Dry."""
-        if not isinstance(raw_zones, list):
-            return
-        kept = {
-            z.get(ZONE_CLIMATE) for z in raw_zones
-            if isinstance(z, dict) and z.get(ZONE_ALLOW_DRY) is True
-        }
-        present = {z.get(ZONE_CLIMATE) for z in raw_zones if isinstance(z, dict)}
-        for zone in self.zones:
-            if (
-                self.dry_state(zone.slug) is not None
-                and zone.climate_id in present and zone.climate_id not in kept
-            ):
-                self._dry_ended_notice(zone, "Allow Dry mode was turned off")
-
-    def _dry_ended_notice(self, zone: Zone, why: str) -> None:
-        """Tell people once why a room's Dry ended and the plan has its head again."""
-        message = f"{zone.name} Dry ended: {why}. MXZ is back on the room's temperature goal."
-        _LOGGER.info("MXZ: %s", message)
-        self.hass.async_create_task(self._notify(message))
-
-    def _dry_settle(
-        self,
-        drys: list[bool],
-        state: str,
-        demands: list[str],
-        engages: list[str],
-        votes: list[str | None],
-    ) -> None:
-        """Settle each dry room as held or parked for this plan.
-
-        Parked while the shared mode is heat and some room wants heat: a room
-        calling or running heat (as arbitration counts it), a hands-off head
-        heating, or a tripped freeze floor (a tripped floor is its room's
-        engage, so ``engages`` carries it). The outdoor unit can't run a dry
-        head then; it would only wait in standby. Heat that is only the
-        resting mode, with no room wanting it, parks nothing: the dry head's
-        cool vote turns the mode once the mode-change wait allows.
-        """
-        heat_for = (
-            next(
-                (
-                    zone.name
-                    for zone, *wants in zip(self.zones, demands, engages, votes)
-                    if MODE_HEAT in wants
-                ),
-                None,
-            )
-            if state == MODE_HEAT else None
-        )
-        self._dry_heat_for = heat_for
-        self._dry_rooms = {
-            zone.slug: "held" if heat_for is None else "parked"
-            for zone, dry in zip(self.zones, drys)
-            if dry
-        }
-
+    # -- a dry head's fan (Allow Dry mode, see dry.DryMode) -------------------
     def _observe_dry_fan(self, climate_id: str) -> None:
         """Read a dry head's fan for the manual-fan hold, and write nothing.
 
@@ -6160,36 +5955,6 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         self._observe_fan_latch(climate_id, observed, MODE_DRY, 0.0)
         self._publish_fan_state(climate_id)
-
-    def dry_state(self, slug: str) -> str | None:
-        """held or parked while this room's head is in dry it may keep; else None."""
-        return self._dry_rooms.get(slug)
-
-    def _dry_attributes(self, zone: Zone, vote: str | None) -> dict[str, Any]:
-        """An Allow Dry room's dry state and vote; nothing for a room without it.
-
-        A room that never opted in keeps exactly the row it had before.
-        """
-        if not zone.allow_dry:
-            return {}
-        return {
-            "allow_dry": True,
-            "dry": self._dry_rooms.get(zone.slug),
-            "dry_vote": vote,
-        }
-
-    def _dry_notice(self, zone: Zone) -> None:
-        """Tell people once that a dry head was parked for heat (no retry, no restore)."""
-        if zone.slug in self._dry_noticed:
-            return
-        self._dry_noticed.add(zone.slug)
-        message = (
-            f"{zone.name} Dry paused: the outdoor unit is heating for "
-            f"{self._dry_heat_for or 'another room'}. MXZ won't turn Dry back on; "
-            "choose it again when you want it."
-        )
-        _LOGGER.info("MXZ: %s", message)
-        self.hass.async_create_task(self._notify(message))
 
     # -- freeze floor / overheat ceiling (opt-in, disabled rooms) -------------
     def floor_tripped(self, slug: str) -> bool:
@@ -6646,7 +6411,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
             return False
         _LOGGER.warning("MXZ floor: %s", message)
-        if self._retired:
+        if self.retired:
             return False
         self._floor_notice_at[slug] = now
         self._floor_held_back.pop(slug, None)
@@ -6656,7 +6421,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 if domain and service:
                     try:
-                        await self._notify(message)
+                        await self.notify(message)
                         return
                     except ServiceNotFound:
                         pass  # not registered: a Home Assistant notification
@@ -7025,7 +6790,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.coordinator_enable:
             self._retire_deliveries()
             await self._async_retire_vane_kicks()
-        self._redraw_rooms()
+        self.redraw_rooms()
         if at_once:
             await self.async_refresh()
         else:

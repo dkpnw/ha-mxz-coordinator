@@ -1697,7 +1697,7 @@ async def test_p11_a_notify_service_home_assistant_does_not_have_falls_back(
 async def test_p11_the_drift_notice_path_is_unchanged_for_a_missing_service(
     hass: HomeAssistant,
 ) -> None:
-    """P11 is for floor notices only: the drift notice (``_notify``) still
+    """P11 is for floor notices only: the drift notice (``notify``) still
     calls the configured service as before, so a missing one raises Home
     Assistant's ServiceNotFound there, and no Home Assistant notification
     is made for it."""
@@ -1705,7 +1705,7 @@ async def test_p11_the_drift_notice_path_is_unchanged_for_a_missing_service(
 
     f = await _setup(hass, notify=False, **{CONF_NOTIFY_SERVICE: "notify.nowhere"})
     with pytest.raises(ServiceNotFound):
-        await f.coord._notify("drift text")
+        await f.coord.notify("drift text")
     await hass.async_block_till_done()
     assert f.notes == [] and f.pinned == []
 

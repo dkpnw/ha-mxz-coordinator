@@ -278,7 +278,7 @@ def _coordinator(coordinator: Any) -> dict[str, Any]:
     elapsed = coordinator._mode_change_elapsed()
     record = coordinator._mode_record
     return {
-        "retired": coordinator._retired,
+        "retired": coordinator.retired,
         "plan_ready": coordinator.plan_ready,
         "last_update_success": coordinator.last_update_success,
         "started_at": _wall(coordinator._started_ts),
@@ -377,9 +377,7 @@ def _holds(coordinator: Any, zone: Any) -> dict[str, Any]:
         **coordinator.mode_hold_attributes(),
         "hands_off": zone.hands_off,
         "hands_off_released": zone.slug in coordinator._hands_off_released,
-        "dry": coordinator._dry_rooms.get(zone.slug),
-        "dry_pick_pending": zone.slug in coordinator._dry_picks,
-        "dry_released": zone.slug in coordinator._dry_released,
+        **coordinator.dry.diagnostics(zone.slug),
         "floor_run": run,
         "floor_yield": coordinator._floor_yield.get(zone.slug),
         "floor_rejecting": coordinator._floor_rejecting.get(zone.slug),

@@ -669,7 +669,7 @@ async def test_retirement_cancels_completion_followup(
         for record in captured:
             record["action"](dt_util.utcnow())
     await hass.async_block_till_done()
-    assert coord._retired
+    assert coord.retired
     assert not coord._refresh_pending
     assert not armed(coord, "refresh_followup")
     assert all(record["cancelled"] for record in captured)

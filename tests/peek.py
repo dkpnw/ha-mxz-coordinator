@@ -39,7 +39,7 @@ _WAKEUPS = {
 # Wakeups kept per head or per room, by key.
 _WAKEUP_MAPS = {
     "dry": "_dry_timers",  # a head's coil-dry run ending, by head
-    "dry_pick": "_dry_picks",  # a room's Dry pick taking effect, by room
+    "dry_pick": "dry._picks",  # a room's Dry pick taking effect, by room
     "heal": "_heal_timers",  # a head's put-back or adoption, by (head, kind)
     "opening": "openings._timers",  # a room's door/window delay, by room
 }

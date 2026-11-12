@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Written | 2026-11-09 (America/Los_Angeles); updated 2026-11-10 after the second review (section 3.23, and the SM-3 and SM-6 fixes made whole) |
-| Base | `f21dffef5b012ace9b31cf51fd277292f3ffa5b7` (`docs: clean-copy strings and correct accept-at-head help (#114)`). Every line number below is at that commit; the fixes in this change move some by a few lines. Code this change added or changed has no line there and is cited by name (`_write_back_mode`, `_disown_waiting_command`, `CloudHead.refused`, `_watch_head_change`'s return). The door/window pause has since moved to `openings.py` (`OpeningPause`); its line numbers here are from before that move. |
+| Base | `f21dffef5b012ace9b31cf51fd277292f3ffa5b7` (`docs: clean-copy strings and correct accept-at-head help (#114)`). Every line number below is at that commit; the fixes in this change move some by a few lines. Code this change added or changed has no line there and is cited by name (`_write_back_mode`, `_disown_waiting_command`, `CloudHead.refused`, `_watch_head_change`'s return). The door/window pause has since moved to `openings.py` (`OpeningPause`), and Allow Dry to `dry.py` (`DryMode`); their line numbers here are from before those moves, and the Allow Dry table in section 3.14 cites `DryMode` by name. |
 | How | The catalog and findings SM-1 to SM-9 come from a read-only review with scratch probes on invented heads (section 1). The fixes, the repros, the TLA+ extensions and SM-10 come from the change that added this file. Nothing ran on a real head, a real Home Assistant or a cloud account. |
 | Companion documents | The formal checks: [formal/README.md](formal/README.md), [formal/STATECHART.md](formal/STATECHART.md), [formal/PARKED-FINDINGS.md](formal/PARKED-FINDINGS.md), [formal/tla/MXZCoordinator.tla](formal/tla/MXZCoordinator.tla), `verification/modehold/MXZModeHold.tla`. IDs such as H1 or M1 are those of the whole-repo audit of the same date. |
 
@@ -100,7 +100,7 @@ a clean stop and every 15 minutes; `Store` is written at once.
 | 3.11 | Changes made at a head (adopt) and the head write ledger | `MXZCoordinator`, `logic.HeadWriteMemory` | hold in memory; ledger in `hass.data` | Chart A1–A5; `MXZCoordinator.tla` for room 1's setpoint (`ci-adopt`, `ci-adopt-restart`) |
 | 3.12 | A head's fan hold and the fan echo ledger | `MXZCoordinator`, `switch.py` | memory, carried in restore data | Chart F1–F11; `MXZCoordinator.tla` |
 | 3.13 | Door/window pause | `MXZCoordinator`, `logic.opening_state` | `Store` | Chart W1–W11; both specs |
-| 3.14 | Coil-dry idle, and Allow Dry | `MXZCoordinator` | memory | Tests only |
+| 3.14 | Coil-dry idle, and Allow Dry | `MXZCoordinator` (coil-dry), `dry.DryMode` (Allow Dry) | memory | Tests only |
 | 3.15 | Freeze floor and overheat ceiling | `MXZCoordinator`, `logic.FloorRun` | memory, with the run in restore data | Arbitration tier in tests; the run nowhere |
 | 3.16 | Cloud head batching | `cloud.CloudHead`, `MXZCoordinator` | memory | Nowhere |
 | 3.17 | Seasons (lockouts) | `MXZCoordinator`, `logic.season_lockouts`, lockout switches | restore data | Nowhere |
@@ -179,7 +179,7 @@ Retired.
 | Compute done | Deciding → Applying | — | Publish the plan as data, then `_apply` | 2499–2516 |
 | Apply done, or its wait released | Applying → Idle or Follow-up queued | — | Re-sync every wakeup; queue the follow-up if one is pending | 2525–2536 |
 | Follow-up fires | Follow-up queued → Deciding | same generation, not retired | Refresh at once if an intent is waiting, else an ordinary request | 2551–2563 |
-| Head change that must count now (action vote, door/window delay, settle) | any → Deciding next | — | `_async_refresh_now`: wake the plan, refresh without the cooldown | 2475–2485, 5259–5260, 5856, 6285 |
+| Head change that must count now (action vote, door/window delay, settle) | any → Deciding next | — | `async_refresh_now`: wake the plan, refresh without the cooldown | 2475–2485, 5259–5260, 5856, 6285 |
 | MXZ's own delivery step raises | Applying → failed | — | The refresh fails; the plan sensor and room thermostats read unavailable. At the base a head's own unexpected error did this too (SM-2, fixed) | 3099–3100, 3134–3143 |
 
 **Modeled.** The lock, the debouncer and the follow-up: nowhere. `ci-apply` takes one apply's
@@ -423,21 +423,23 @@ stopped, on the monotonic clock (1048–1054).
 | The head leaves dry | → owes a dry run from now | 2950–2956, 5193–5202 |
 | A door/window pause | → straight to off, no dry run | 2890–2902 |
 
-**Allow Dry.** Per room: not in dry; pick pending; held; parked for heat; released.
+**Allow Dry.** Per room: not in dry; pick pending; held; parked for heat; released. `DryMode`
+in `dry.py` owns all of it; the coordinator calls it from the compute, the apply, the heals and
+a head's report.
 
 | Event | From → to | Guard | Action | Code |
 |---|---|---|---|---|
-| The head reports dry | not in dry → held | the room offers Dry and is enabled, no standby hold | No mode, setpoint, fan or vane write | 6375–6403, 2957–2961 |
-| Dry picked on the thermostat | not in dry → pick pending | Coordinator on, no standby hold | Enable the room, send dry once, 60 s wakeup | `climate.py:479-489`; 6415–6445 |
-| The head reports dry | pick pending → held | — | Cancel the wakeup | 5213–5217 |
-| The wakeup fires, or the head refuses | pick pending → not in dry | — | Back to the plan | 6441–6445, 6457–6466 |
-| The shared mode is heat and a room wants heat | held → parked | — | One notice, the head parks, Dry is never sent back | 6490–6524, 2962–2964, 6568–6579 |
-| Heat/Cool or Off picked on the thermostat | held or pending → released | — | The plan has the head; cleared when the head reports another mode | 6447–6451, 5203–5212 |
-| The head stops listing dry | held → not in dry | — | One notice | 5218–5225 |
-| Allow Dry turned off in Configure | held → not in dry | — | One notice before the reload | 6468–6482 |
+| The head reports dry | not in dry → held | the room offers Dry and is enabled, no standby hold | No mode, setpoint, fan or vane write | `DryMode.in_dry`, `DryMode.settle`; `_apply` |
+| Dry picked on the thermostat | not in dry → pick pending | Coordinator on, no standby hold | Enable the room, send dry once, 60 s wakeup | `climate.py` `_pick_dry`; `DryMode.pick_refusal`, `DryMode.start_pick`, `DryMode.async_send` |
+| The head reports dry | pick pending → held | — | Cancel the wakeup | `DryMode.head_reported` |
+| The wakeup fires, or the head refuses | pick pending → not in dry | — | Back to the plan | `DryMode._pick_expired`, `DryMode.async_send` |
+| The shared mode is heat and a room wants heat | held → parked | — | One notice, the head parks, Dry is never sent back | `DryMode.settle`; `_apply`; `DryMode.notice_parked` |
+| Heat/Cool or Off picked on the thermostat | held or pending → released | — | The plan has the head; cleared when the head reports another mode | `DryMode.release`, `DryMode.head_reported` |
+| The head stops listing dry | held → not in dry | — | One notice | `DryMode.head_reported` |
+| Allow Dry turned off in Configure | held → not in dry | — | One notice before the reload | `DryMode.option_turned_off` |
 
 A dry head votes cool at vote rank, and not at all under a cool lockout (1938–1941). All of it is
-in memory: after a start a head still in dry is simply held again (1124–1138).
+in memory: after a start a head still in dry is simply held again (`DryMode.__init__`).
 
 **Modeled.** Tests only (`tests/test_dry_mode.py`).
 

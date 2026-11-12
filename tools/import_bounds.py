@@ -21,8 +21,10 @@ SOURCE = Path(__file__).resolve().parents[1] / "custom_components" / "mxz_coordi
 # Lowest first. A new module joins a layer here, in the same change that adds it.
 LAYERS = (
     ("constants", {"const"}),
-    ("helpers", {"logic", "cloud", "capabilities"}),
+    ("helpers", {"logic", "cloud", "capabilities", "host"}),
     # Concerns split out of the coordinator. Each reaches it through a Protocol it declares.
+    # A controller another one calls sits below it: the door/window pause puts back a Dry.
+    ("lower controllers", {"dry"}),
     ("controllers", {"openings"}),
     ("coordinator", {"coordinator"}),
     ("entity base", {"entity"}),
@@ -43,6 +45,9 @@ EXCEPTIONS = {
     ("openings", "coordinator", True):
         "Zone, the room's configuration, is defined in coordinator.py; "
         "the pause reaches the coordinator itself only through OpeningHost",
+    ("dry", "coordinator", True):
+        "Zone, the room's configuration, is defined in coordinator.py; "
+        "Dry reaches the coordinator itself only through DryHost",
 }
 
 

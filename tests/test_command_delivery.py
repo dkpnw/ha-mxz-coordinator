@@ -504,7 +504,7 @@ async def test_resistant_vane_retirement_preserves_guard_and_ordinary_order(
     next_command = None
     try:
         await until(cleanup_entered.is_set, 1.0)
-        assert coord._retired
+        assert coord.retired
         assert not harness.kick_task.done()
         assert harness.commands == [("head", "fan_only"), ("head", "off")]
         assert hass.states.get(cid).state == "off"

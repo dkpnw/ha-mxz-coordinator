@@ -370,7 +370,7 @@ async def test_the_old_load_writes_nothing_once_it_knows(hass: HomeAssistant, fr
         await hass.async_block_till_done()
         assert scheduled.call_count == 1
         old = rig.coord
-        assert old._retired is True
+        assert old.retired is True
         calls = []
         real = old._call_head_service
         async def spy(*args: Any, **kwargs: Any) -> None:
