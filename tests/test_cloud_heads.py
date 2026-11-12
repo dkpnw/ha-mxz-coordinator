@@ -41,6 +41,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_HEAD_TYPE,
     ZONE_WRITE_INTERVAL,
 )
+from custom_components.mxz_coordinator.fan_hold import FanEcho
 from tests.clocks import pass_time
 from tests.cloud_heads import (
     COMFORT,
@@ -635,13 +636,13 @@ async def test_a_fan_pick_inside_a_setpoint_only_wait_is_read_then(
     wait's end, and MXZ writes no fan over it, then or after."""
     a, entry, sent = await _setpoint_only_wait(hass)
     coordinator = entry.runtime_data
-    assert coordinator.fan_auto_is_on(a.entity_id)
+    assert coordinator.fan.auto_is_on(a.entity_id)
     a.device["fan"] = "high"
     a.poll()
     await hass.async_block_till_done()
     await recompute(hass, entry)
     assert row(hass, entry, 0)["cloud_status"] == "pending"  # still inside the wait
-    assert not coordinator.fan_auto_is_on(a.entity_id)
+    assert not coordinator.fan.auto_is_on(a.entity_id)
     assert row(hass, entry, 0)["fan_hold"] is True
     past_window(entry, a.entity_id, 300)  # past the wait and a boost step
     await recompute(hass, entry)
@@ -825,10 +826,10 @@ async def test_a_fan_batch_still_waits_out_its_own_wait(hass: HomeAssistant) -> 
     await hass.async_block_till_done()
     await recompute(hass, entry)
     assert row(hass, entry, 0)["cloud_status"] == "pending"
-    assert coordinator.fan_auto_is_on(a.entity_id)  # not read inside the wait
+    assert coordinator.fan.auto_is_on(a.entity_id)  # not read inside the wait
     past_window(entry, a.entity_id)
     await recompute(hass, entry)
-    assert not coordinator.fan_auto_is_on(a.entity_id)  # read once it ends
+    assert not coordinator.fan.auto_is_on(a.entity_id)  # read once it ends
     assert writes(calls, a.entity_id) == [("set_fan_mode", {"fan_mode": "low"})]
 
 
@@ -872,18 +873,18 @@ async def test_a_stale_fan_report_inside_the_wait_is_not_a_manual_pick(
     a.report(mode="fan_only", fan="auto")
     await hass.async_block_till_done()
     await recompute(hass, entry)
-    assert coordinator.fan_auto_is_on(a.entity_id)
+    assert coordinator.fan.auto_is_on(a.entity_id)
     a.poll()
     past_window(entry, a.entity_id)
     await recompute(hass, entry)
-    assert coordinator.fan_auto_is_on(a.entity_id)
+    assert coordinator.fan.auto_is_on(a.entity_id)
     assert row(hass, entry, 0)["fan_hold"] is False
     # Negative: once the wait is over, a fan the head never had is a person's.
     a.device["fan"] = "powerful"
     a.poll()
     await hass.async_block_till_done()
     await recompute(hass, entry)
-    assert not coordinator.fan_auto_is_on(a.entity_id)
+    assert not coordinator.fan.auto_is_on(a.entity_id)
     assert row(hass, entry, 0)["fan_hold"] is True
 
 
@@ -910,10 +911,10 @@ async def test_a_new_fan_inside_the_wait_is_a_manual_pick_once_read(
     calls = record(hass)
     await recompute(hass, entry)
     assert row(hass, entry, 0)["cloud_status"] == "pending"
-    assert not coordinator.fan_auto_is_on(a.entity_id)
+    assert not coordinator.fan.auto_is_on(a.entity_id)
     past_window(entry, a.entity_id)
     await recompute(hass, entry)
-    assert not coordinator.fan_auto_is_on(a.entity_id)
+    assert not coordinator.fan.auto_is_on(a.entity_id)
     assert [w for w in writes(calls, a.entity_id) if w[0] == "set_fan_mode"] == []
 
 
@@ -962,7 +963,7 @@ async def test_a_reload_starts_pending_and_sends_nothing_for_one_wait(
     await hass.async_block_till_done()
     await recompute(hass, entry)
     assert len(writes(calls, a.entity_id)) == 2
-    assert coordinator.fan_auto_is_on(a.entity_id)
+    assert coordinator.fan.auto_is_on(a.entity_id)
     assert (a.entity_id, "off") not in coordinator._heal_timers
     a.poll()
     await hass.async_block_till_done()
@@ -986,27 +987,27 @@ async def test_the_latch_skips_only_an_older_fan_inside_the_wait(hass: HomeAssis
     cloud = cloud_record(coordinator, a.entity_id)
     clock = cloud.window_until  # any clock; the record is set relative to it
     cloud.sent(clock, ("heat", 72.0, "high"), "heat", "low")
-    coordinator._fan_cmd[a.entity_id], coordinator._fan_prev[a.entity_id] = "high", "medium"
-    coordinator._fan_idx[a.entity_id] = 4
+    coordinator.fan._echo[a.entity_id] = FanEcho("high", "medium")
+    coordinator.fan._idx[a.entity_id] = 4
     a.report(mode="heat", fan="low")
     await hass.async_block_till_done()
     state = hass.states.get(a.entity_id)
-    assert coordinator._cloud_fan(a.entity_id, cloud, state, "heat", 5.0, "heat", clock + 10) is None
-    assert coordinator.fan_auto_is_on(a.entity_id)
+    assert coordinator.fan.cloud_token(a.entity_id, cloud, state, "heat", 5.0, clock + 10) is None
+    assert coordinator.fan.auto_is_on(a.entity_id)
     # A fan the head never had is read inside the wait as usual: a pick.
     a.report(mode="heat", fan="powerful")
     await hass.async_block_till_done()
     state = hass.states.get(a.entity_id)
-    assert coordinator._cloud_fan(a.entity_id, cloud, state, "heat", 5.0, "heat", clock + 10) is None
-    assert not coordinator.fan_auto_is_on(a.entity_id)
+    assert coordinator.fan.cloud_token(a.entity_id, cloud, state, "heat", 5.0, clock + 10) is None
+    assert not coordinator.fan.auto_is_on(a.entity_id)
     # After the wait, the older "low" is a departure from what MXZ sent.
-    coordinator._fan_latched[a.entity_id] = False
-    coordinator._fan_cmd[a.entity_id], coordinator._fan_prev[a.entity_id] = "high", "medium"
+    coordinator.fan._latched[a.entity_id] = False
+    coordinator.fan._echo[a.entity_id] = FanEcho("high", "medium")
     a.report(mode="heat", fan="low")
     await hass.async_block_till_done()
     state = hass.states.get(a.entity_id)
-    assert coordinator._cloud_fan(a.entity_id, cloud, state, "heat", 5.0, "heat", clock + 90) is None
-    assert not coordinator.fan_auto_is_on(a.entity_id)
+    assert coordinator.fan.cloud_token(a.entity_id, cloud, state, "heat", 5.0, clock + 90) is None
+    assert not coordinator.fan.auto_is_on(a.entity_id)
 
 
 async def test_an_unavailable_head_is_sent_nothing(hass: HomeAssistant) -> None:

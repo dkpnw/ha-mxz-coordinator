@@ -1,6 +1,6 @@
 ---
 name: verify-mxz-door-window
-description: "Formal checks of MXZ Coordinator's door/window pause: a room whose door or window is open past its open delay has its head turned off, counts for nothing in the shared mode, gets no fan write, and stays paused across a reload or restart; a person's change at the head or the Window Override switch takes it over until the window reads closed. A TLA+ model checked with TLC (ci-window, ci-window-fan, ci-arbitration-window), Hypothesis properties and integration tests on the real code, and broken copies of both that each check must catch. Use before and after any change to openings.py (OpeningPause), logic.opening_state, opening_due or opening_reading, the pause branches of coordinator.py _compute and _apply, or _observe_paused_fan, and when the model or a replay reports a break."
+description: "Formal checks of MXZ Coordinator's door/window pause: a room whose door or window is open past its open delay has its head turned off, counts for nothing in the shared mode, gets no fan write, and stays paused across a reload or restart; a person's change at the head or the Window Override switch takes it over until the window reads closed. A TLA+ model checked with TLC (ci-window, ci-window-fan, ci-arbitration-window), Hypothesis properties and integration tests on the real code, and broken copies of both that each check must catch. Use before and after any change to openings.py (OpeningPause), logic.opening_state, opening_due or opening_reading, the pause branches of coordinator.py _compute and _apply, or fan_hold.py FanHold.read, and when the model or a replay reports a break."
 ---
 
 # Verify the door/window pause
@@ -43,7 +43,7 @@ them, and run both commands under Run.
 
 | Check | Covers (custom_components/mxz_coordinator/) |
 | --- | --- |
-| Model `Decide` (the window part) | `openings.py` `OpeningPause.step`, `OpeningPause._transition`, `OpeningPause._save`; `logic.py` `opening_state`, `opening_due`, `opening_reading`; `coordinator.py` `_compute` (a paused room has no call, no run, an empty latch), `_apply` (a paused head straight to off), `_observe_paused_fan` |
+| Model `Decide` (the window part) | `openings.py` `OpeningPause.step`, `OpeningPause._transition`, `OpeningPause._save`; `logic.py` `opening_state`, `opening_due`, `opening_reading`; `coordinator.py` `_compute` (a paused room has no call, no run, an empty latch), `_apply` (a paused head straight to off); `fan_hold.py` `FanHold.read` |
 | Model `WindowReads` | `openings.py` `OpeningPause.on_change` |
 | Model `PersonMode` | `coordinator.py` `_on_head_change`; `openings.py` `OpeningPause.take_over` |
 | Model `OverrideSwitch` | `openings.py` `OpeningPause.async_set_override` |
@@ -55,7 +55,8 @@ Does a change touch it?
 ```sh
 git diff --stat ca78324aca3d5402252a585693ae98193cee24ca -- \
   custom_components/mxz_coordinator/openings.py custom_components/mxz_coordinator/logic.py \
-  custom_components/mxz_coordinator/coordinator.py docs/formal/tla/MXZCoordinator.tla
+  custom_components/mxz_coordinator/coordinator.py custom_components/mxz_coordinator/fan_hold.py \
+  docs/formal/tla/MXZCoordinator.tla
 ```
 
 If it lists a file, read the diff against the table. A change inside a listed function needs

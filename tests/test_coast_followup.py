@@ -396,7 +396,7 @@ async def test_a_fan_capable_head_with_the_boost_off_still_needs_the_wakeup(
 ) -> None:
     """The no-echo control on a FAN-CAPABLE head: boost off means no echo.
 
-    ``_apply_fan`` returns immediately when the boost is disabled, so this head
+    ``FanHold.async_apply`` returns immediately when the boost is disabled, so this head
     is never written a fan mode, its token never changes, and nothing echoes —
     exactly like the no-fan head, for a different reason. Only the coast wakeup
     re-commands it, and it fires exactly once. The one-command oracle is checked

@@ -745,13 +745,13 @@ async def test_a_manual_fan_hold_survives_staleness(hass: HomeAssistant, freezer
     await _recompute(hass, entry)
     await _user_set_fan(hass, head_a, "quiet")
     await _recompute(hass, entry)
-    assert coord.fan_auto_is_on(head_a) is False
+    assert coord.fan.auto_is_on(head_a) is False
 
     calls = _record_calls(hass)
     await _advance(hass, freezer, WINDOW + timedelta(seconds=2))
     await _settle(hass, freezer)
     assert _health(coord) == HEALTH_STALE
-    assert coord.fan_auto_is_on(head_a) is False, "the hold survives the episode"
+    assert coord.fan.auto_is_on(head_a) is False, "the hold survives the episode"
     assert hass.states.get(head_a).attributes["fan_mode"] == "quiet"
     assert not [
         c for c in _head_calls(calls, head_a) if c[0] == "set_fan_mode"

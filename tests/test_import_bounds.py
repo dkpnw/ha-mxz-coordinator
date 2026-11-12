@@ -63,6 +63,12 @@ def test_without_its_exceptions_the_tree_shows_exactly_the_three_known_edges(mon
      "dry (layer lower controllers) imports openings (layer controllers)"),
     ("host", "from .dry import DryMode\n",
      "host (layer helpers) imports dry (layer lower controllers)"),
+    ("fan_hold", "from .openings import OpeningPause\n",
+     "fan_hold (layer lower controllers) imports openings (layer controllers)"),
+    ("fan_hold", "from .dry import DryMode\n",
+     "fan_hold (layer lower controllers) imports dry (layer lower controllers)"),
+    ("fan_hold", "if TYPE_CHECKING:\n    from .coordinator import Zone\n",
+     "fan_hold (layer lower controllers) type-only imports coordinator (layer coordinator)"),
     ("cloud", "import custom_components.mxz_coordinator.coordinator\n",
      "cloud (layer helpers) imports coordinator (layer coordinator)"),
     ("cloud", "from . import coordinator\n",
@@ -118,8 +124,8 @@ def test_a_type_only_exception_does_not_admit_a_runtime_import():
 
 
 def test_a_new_module_must_be_placed_in_a_layer():
-    sources, _ = added("fan_hold", "from .const import DOMAIN\n")
-    assert violations(sources) == ["fan_hold.py is in no layer of tools/import_bounds.py"]
+    sources, _ = added("delivery", "from .const import DOMAIN\n")
+    assert violations(sources) == ["delivery.py is in no layer of tools/import_bounds.py"]
 
 
 def test_a_layer_cannot_name_a_missing_module():

@@ -435,7 +435,7 @@ async def test_switch_restore_path_end_to_end(hass: HomeAssistant) -> None:
 # ---------------------------------------------------------------------------
 # S10/S11: a standby (inhibit) hold releases like a restart for the fan latch.
 # The hold parks the heads with the fan machinery FROZEN (no fan writes); on
-# release _reseed_fan_after_standby carries the pre-hold latch truth into the
+# release FanHold.reseed_after_standby carries the pre-hold latch truth into the
 # restore slot and clears the command memory, so the fan the hold left behind
 # reconciles the same way a restart's does — a real hold is kept, boost residue
 # is not mistaken for one.
@@ -480,7 +480,7 @@ async def test_s11_standby_release_drops_boost_residue(hass: HomeAssistant):
 async def test_s12_restart_during_standby_keeps_restored_hold(hass: HomeAssistant):
     """HA restarts DURING the hold: the switch's restore must survive release.
 
-    The restart seeds _fan_restore before any fan write can consume it (fan
+    The restart seeds the fan restore before any fan write can consume it (fan
     writes are frozen while held), so the latch is empty when the hold releases.
     The release reseed must not overwrite that unconsumed restore with the empty
     latch — a pre-restart manual hold would silently dissolve into boost.

@@ -20,8 +20,8 @@
 (* Time is whole ticks on one clock. Rooms are in priority order, enabled, *)
 (* with Allowed drift 1 and Mode switch threshold 3 as multiples of one    *)
 (* reading position (see Demand and Engage). Room 1 is the room with the   *)
-(* door/window and the fan under study: _fan_cmd, _fan_prev, _fan_older,   *)
-(* _fan_idx, _fan_latched and the door/window records (OpeningPause) are   *)
+(* door/window and the fan under study: FanHold's rung, latch and echo     *)
+(* memory (FanEcho) and the door/window records (OpeningPause) are         *)
 (* per head and never read another head's.                                 *)
 (***************************************************************************)
 EXTENDS Integers, Sequences
@@ -99,11 +99,11 @@ VARIABLES
     \* Room 1's fan.
     fanShown,           \* the fan_mode its head reports
     fanSent,            \* a write the head hasn't reported yet, or None (WithLag)
-    fanCmd, fanPrev,    \* coordinator._fan_cmd, _fan_prev, or None
-    fanOlder,           \* coordinator._fan_older, as a set: it never repeats a speed
-    fanIdx,             \* coordinator._fan_idx, or NoIdx
-    fanLatched,         \* coordinator._fan_latched
-    fanRestore,         \* coordinator._fan_restore: None, "held" or "free"
+    fanCmd, fanPrev,    \* FanEcho.last, FanEcho.prior, or None
+    fanOlder,           \* FanEcho.older, as a set: it never repeats a speed
+    fanIdx,             \* FanHold._idx, or NoIdx
+    fanLatched,         \* FanHold._latched
+    fanRestore,         \* FanHold._restore: None, "held" or "free"
     saved,              \* the Fan auto switch's restore data; has = FALSE: none yet
     \* Room 1's door/window (openings.OpeningPause).
     winRead,            \* "open", "closed" or None (unavailable)
@@ -214,20 +214,20 @@ FanFor(delta, i) == Min(StepDown(delta, StepUp(delta, i)), FanMaxIdx)
 
 Memory == [cmd |-> fanCmd, prev |-> fanPrev, older |-> fanOlder, idx |-> fanIdx, latched |-> fanLatched]
 
-\* coordinator._hold_at
+\* FanHold._hold_at
 HoldAt(f, o) == [f EXCEPT !.latched = TRUE, !.prev = o, !.cmd = o, !.older = {}]
-\* coordinator._adopt_fan_speed; `i` NoIdx resumes from the ceiling, as the switch does.
+\* FanHold._adopt; `i` NoIdx resumes from the ceiling, as the switch does.
 Adopt(f, o, i) ==
     [f EXCEPT !.latched = FALSE, !.prev = IF f.cmd = None THEN o ELSE f.cmd, !.cmd = o, !.older = {},
               !.idx = IF i = NoIdx THEN FanMaxIdx ELSE i]
-\* The first branch of _observe_fan_latch and of _reconcile_restored_hold.
+\* The first branch of FanHold._observe_latch and of FanHold._reconcile_restored_hold.
 AtAuto(f) ==
     [f EXCEPT !.latched = FALSE,
               !.prev = IF f.cmd = None THEN "auto" ELSE f.prev,
               !.cmd = IF f.cmd = None THEN "auto" ELSE f.cmd]
 InCeiling(t) == t \in RungSet /\ RungIdx(t) <= FanMaxIdx
 
-\* coordinator._reconcile_restored_hold
+\* FanHold._reconcile_restored_hold
 Reconcile(f, o, restoredHeld, act) ==
     IF o = "auto" THEN [f |-> AtAuto(f), held |-> FALSE]
     ELSE IF restoredHeld THEN [f |-> HoldAt(f, o), held |-> TRUE]
@@ -242,16 +242,16 @@ Reconcile(f, o, restoredHeld, act) ==
                           THEN [g EXCEPT !.idx = Min(RungIdx(o), FanMaxIdx)] ELSE g
                  IN [f |-> h, held |-> FALSE]
 
-\* coordinator._seed_is_own_idle (idle action fan_only, an entry past its first minutes).
+\* FanHold._seed_is_own_idle (idle action fan_only, an entry past its first minutes).
 SeedIsOwnIdle(o, act) == act = "fan_only" /\ restoredOn /\ InCeiling(o)
-\* coordinator._seed_matches_boost
+\* FanHold._seed_matches_boost
 SeedMatchesBoost(o, act, delta) ==
     act \in Modes /\ InCeiling(o) /\ FanFor(delta, RungIdx(o)) = RungIdx(o)
 
-\* coordinator._observe_fan_latch (fan_on_pending is not modeled: the head always
+\* FanHold._observe_latch (fan_on_pending is not modeled: the head always
 \* reports a speed here).
 Observe(f0, o, act, delta) ==
-    \* coordinator._fan_caught_up: a report of the last command ends the lag.
+    \* FanEcho.caught_up: a report of the last command ends the lag.
     LET f == IF o = f0.cmd THEN [f0 EXCEPT !.older = {}] ELSE f0 IN
     IF fanRestore # None THEN Reconcile(f, o, fanRestore = "held", act)
     ELSE IF o = "auto" THEN [f |-> AtAuto(f), held |-> FALSE]
@@ -265,7 +265,7 @@ Observe(f0, o, act, delta) ==
     THEN [f |-> HoldAt(f, o), held |-> TRUE]
     ELSE [f |-> f, held |-> f.latched]
 
-\* coordinator._apply_fan on what _observe_fan_latch left; `token` is None for no write.
+\* FanHold.async_apply on what FanHold._observe_latch left; `token` is None for no write.
 ApplyFan(act, delta) ==
     LET ob == Observe(Memory, fanShown, act, delta)
         g == ob.f
@@ -278,20 +278,20 @@ ApplyFan(act, delta) ==
         THEN [f |-> [g EXCEPT !.idx = NoIdx], token |-> IF fanShown = "auto" THEN None ELSE "auto"]
         ELSE [f |-> [g EXCEPT !.idx = NoIdx], token |-> None]
 
-\* coordinator._remember_fan_write: a rewrite of the token already commanded rolls nothing.
+\* FanEcho.wrote: a rewrite of the token already commanded rolls nothing.
 Rolled(f, t) ==
     IF t = None \/ t = f.cmd THEN f
     ELSE [f EXCEPT !.prev = IF f.cmd = None THEN t ELSE f.cmd, !.cmd = t,
                    !.older = (f.older \cup ({f.prev} \cap RungSet)) \ {t, f.cmd}]
 
-\* coordinator.fan_auto_is_on
+\* FanHold.auto_is_on
 FanAutoOn == IF fanRestore # None THEN fanRestore = "free" ELSE ~fanLatched
 
 \* What the Fan auto switch writes as restore data (switch.extra_state_attributes).
 Dumped == [has |-> TRUE, held |-> ~FanAutoOn, last |-> fanCmd, prior |-> fanPrev, older |-> fanOlder]
 NoDump == [has |-> FALSE, held |-> FALSE, last |-> None, prior |-> None, older |-> {}]
 
-\* switch.py's restore eligibility in restore_fan_hold.
+\* switch.py's restore eligibility in FanHold.restore.
 Eligible(t) == IF InCeiling(t) THEN t ELSE "auto"
 
 \* The mode a start would read from the record (restore_shared_mode, no restore data).
@@ -363,9 +363,10 @@ Init ==
 (*              paused room has no demand, no engage and an empty latch;   *)
 (*              then logic.arbitrate with `allowed` and `running`.         *)
 (*   _apply   : a paused head goes to off with its fan only read           *)
-(*              (_observe_paused_fan); any other head gets                 *)
-(*              logic.head_action, then _apply_fan; a changed mode is      *)
-(*              stamped (_stamp_mode_change) and stored (_record_mode).    *)
+(*              (FanHold.read); any other head gets                        *)
+(*              logic.head_action, then FanHold.async_apply; a changed     *)
+(*              mode is stamped (_stamp_mode_change) and stored            *)
+(*              (_record_mode).                                            *)
 (* Idle action is fan_only; eco, standby, floors, Dry and lost heads are   *)
 (* out of this model.                                                      *)
 (***************************************************************************)
@@ -514,7 +515,7 @@ Select == WithSelect /\ \E m \in Modes :
 
 \* A person picks a speed on the head (its remote: not a service call of MXZ's).
 \* Picking the speed already showing changes nothing that can be read, so it is
-\* not a step: _observe_fan_latch's docstring accepts that.
+\* not a step: FanHold._observe_latch's docstring accepts that.
 PersonFan == WithFan /\ \E t \in Tokens :
     /\ fresh' = IF phase = "applying" THEN FALSE ELSE fresh
     /\ UNCHANGED <<phase, want, left, refused, picked, trailing, cutShort, adoptVars>>
@@ -554,7 +555,7 @@ HeadReports ==
     /\ UNCHANGED <<lastChange, pickSeen, gesture, flipInDwell, flipLate,
                    fanOverwritten, exceptionLost, falseHold, falseHoldTwoBehind, restoreBroken, pauseBroken, overrideBroken>>
 
-\* coordinator.async_set_fan_auto(on=True): hand back and adopt the showing speed.
+\* FanHold.async_set_auto(on=True): hand back and adopt the showing speed.
 FanAutoOnGesture ==
     /\ fresh' = IF phase = "applying" THEN FALSE ELSE fresh
     /\ UNCHANGED <<phase, want, left, refused, picked, trailing, cutShort, adoptVars>>
@@ -572,7 +573,7 @@ FanAutoOnGesture ==
     /\ UNCHANGED <<lastChange, flipInDwell, flipLate, fanOverwritten, exceptionLost, falseHold, twoBehind, falseHoldTwoBehind,
                    restoreBroken, pauseBroken, overrideBroken>>
 
-\* coordinator.async_set_fan_auto(on=False): hold the showing speed. At auto, a no-op
+\* FanHold.async_set_auto(on=False): hold the showing speed. At auto, a no-op
 \* (it only drops a pending restore, as its code does).
 FanAutoOffGesture ==
     /\ fresh' = IF phase = "applying" THEN FALSE ELSE fresh
@@ -648,7 +649,7 @@ OverrideSwitch == WithWindow /\ \E on \in BOOLEAN :
 (* A new coordinator: __init__ reads the Store record (mode and the time   *)
 (* of the last change: async_load_mode_record, mode_change_stamp,          *)
 (* restore_shared_mode), the door/window store (async_load_openings); the  *)
-(* switch restore hands the Fan auto truth to restore_fan_hold and puts    *)
+(* switch restore hands the Fan auto truth to FanHold.restore and puts     *)
 (* each room in _startup_resume, so the first compute seeds its latch from *)
 (* the head's mode. A reload or a stop writes restore data; a crash leaves *)
 (* the last periodic dump. `outage` is the fan the head shows when this    *)

@@ -17,6 +17,7 @@ from homeassistant.core import State
 from custom_components.mxz_coordinator import _async_prune_stale_entities
 from custom_components.mxz_coordinator.const import FAN_LADDER
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator, Zone
+from custom_components.mxz_coordinator.fan_hold import FanHold
 from custom_components.mxz_coordinator.switch import MXZZoneFanAutoSwitch
 
 HEAD = "climate.test_head"
@@ -38,19 +39,10 @@ def _pending_restore(held: bool) -> tuple[MXZCoordinator, MXZZoneFanAutoSwitch]:
     coordinator.last_update_success = True
     coordinator.fan_boost_enable = False
     coordinator.fan_boost_max = FAN_LADDER[-1]
-    coordinator._fan_restore = {}
-    coordinator._fan_restore_problem = {
-        HEAD: "Previous fan hold is missing or malformed."
-    }
-    coordinator._fan_on_pending = set()
-    coordinator._fan_state_writers = {}
-    coordinator._fan_latched = {}
-    coordinator._fan_cmd = {}
-    coordinator._fan_prev = {}
-    coordinator._fan_older = {}
-    coordinator._fan_idx = {}
+    coordinator.fan = FanHold(coordinator)
+    coordinator.fan.restore_failed(HEAD, "Previous fan hold is missing or malformed.")
     coordinator.async_request_refresh = AsyncMock()
-    coordinator.restore_fan_hold(HEAD, held)
+    coordinator.fan.restore(HEAD, held)
     switch = MXZZoneFanAutoSwitch(
         coordinator, SimpleNamespace(slug="primary", name="Primary", climate_id=HEAD)
     )
@@ -64,9 +56,9 @@ async def test_pending_restore_display_with_boost_disabled(
 ) -> None:
     """Held and unheld restores display correctly while fan seeding is inert."""
     coordinator, switch = _pending_restore(held)
-    await coordinator._apply_fan(HEAD, "cool", 20.0)
+    await coordinator.fan.async_apply(HEAD, "cool", 20.0)
 
-    assert coordinator._fan_restore == {HEAD: held}  # the pending path is reached
+    assert coordinator.fan._restore == {HEAD: held}  # the pending path is reached
     assert switch.available
     assert switch.is_on is expected_on, "pending restore must determine Fan auto display"
     coordinator.hass.services.async_call.assert_not_awaited()
@@ -79,7 +71,7 @@ async def test_handback_supersedes_pending_restore_with_boost_disabled() -> None
     assert switch.is_on is False
 
     await switch.async_turn_on()
-    await coordinator._apply_fan(HEAD, "cool", 20.0)
+    await coordinator.fan.async_apply(HEAD, "cool", 20.0)
 
     assert switch.is_on is True, "live Fan auto handback must supersede pending hold"
     assert coordinator.hass.states.get(HEAD).attributes["fan_mode"] == "high"

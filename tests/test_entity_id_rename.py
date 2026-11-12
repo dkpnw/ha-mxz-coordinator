@@ -382,11 +382,11 @@ async def test_rename_keeps_every_entity_working(
     # Fan auto: the switch acts on its own head, and redraws on the head's
     # changes (a state tracker keyed on the head, not on its own ID).
     await _call(hass, "switch", "turn_off", {"entity_id": new["secondary_fan_auto"]})
-    assert coordinator.fan_auto_is_on(head_b) is False
-    assert coordinator.fan_auto_is_on(head_a) is True
+    assert coordinator.fan.auto_is_on(head_b) is False
+    assert coordinator.fan.auto_is_on(head_a) is True
     assert hass.states.get(new["secondary_fan_auto"]).state == "off"
     await _call(hass, "switch", "turn_on", {"entity_id": new["secondary_fan_auto"]})
-    assert coordinator.fan_auto_is_on(head_b) is True
+    assert coordinator.fan.auto_is_on(head_b) is True
     assert hass.states.get(new["secondary_fan_auto"]).state == "on"
     await _user_set_fan(hass, head_a, "low")
     assert hass.states.get(new["primary_thermostat"]).attributes["fan_mode"] == "low"
@@ -564,7 +564,7 @@ async def test_renamed_values_survive_a_restart(
     assert (living.target_low, living.target_high) == (64, 76)
     assert bedroom.enable is False
     assert living.enable is True
-    assert coordinator.fan_auto_is_on(head_b) is False
+    assert coordinator.fan.auto_is_on(head_b) is False
     assert coordinator.current_shared_mode == "heat"
     assert coordinator.coordinator_enable is True
     assert _problems(caplog) == []
@@ -603,7 +603,7 @@ def _listeners(coordinator) -> Counter:
     return Counter(
         [who(cb) for cb, _ in coordinator._listeners.values()]
         + [("delivery", *who(cb)) for cb in coordinator._delivery_listeners]
-        + [("fan", cid, *who(cb)) for cid, cb in coordinator._fan_state_writers.items()]
+        + [("fan", cid, *who(cb)) for cid, cb in coordinator.fan._writers.items()]
     )
 
 
@@ -615,9 +615,9 @@ async def _held_and_running(
     await _user_set_fan(hass, heads[1], "low")
     await _recompute(hass, entry)
     coordinator = entry.runtime_data
-    assert coordinator.fan_auto_is_on(heads[1]) is False
+    assert coordinator.fan.auto_is_on(heads[1]) is False
     # Turned on live, not restored: no restart continuity to act on.
-    assert coordinator._restored_coordinator_on is False
+    assert coordinator.restored_coordinator_on is False
     assert coordinator._startup_resume == {}
     return entry, heads
 
@@ -683,8 +683,8 @@ async def test_listeners_fire_after_a_rename(
     # The Fan auto switch's writer, through the coordinator, and its head tracker.
     await _call(hass, "switch", "turn_on", {"entity_id": new["secondary_fan_auto"]})
     assert hass.states.get(new["secondary_fan_auto"]).state == "on"
-    coordinator._fan_latched[head_b] = True
-    coordinator._publish_fan_state(head_b)
+    coordinator.fan._latched[head_b] = True
+    coordinator.fan.publish(head_b)
     assert hass.states.get(new["secondary_fan_auto"]).state == "off"
     hass.states.async_set(head_a, hass.states.get(head_a).state,
                           {**hass.states.get(head_a).attributes, "fan_mode": None})
@@ -718,8 +718,8 @@ async def test_reload_after_a_rename_still_restores(
         assert _entity(hass, eid) is not old_entities[key], key
     assert _zone(entry, 1).target == 66
     assert coordinator.coordinator_enable is True
-    assert coordinator._restored_coordinator_on is True
-    assert coordinator.fan_auto_is_on(head_b) is False
+    assert coordinator.restored_coordinator_on is True
+    assert coordinator.fan.auto_is_on(head_b) is False
 
 
 @pytest.mark.parametrize("path", PATHS)
@@ -786,7 +786,7 @@ async def test_renaming_back_keeps_the_current_values(
     _assert_only_new_ids(hass, new, original)
     assert (bedroom.target, bedroom.drift, bedroom.enable) == (66, 3, False)
     assert (living.target_low, living.target_high) == (64, 76)
-    assert coordinator.fan_auto_is_on(head_b) is False
+    assert coordinator.fan.auto_is_on(head_b) is False
     assert coordinator.eco_idle is True
     assert coordinator.current_shared_mode == "heat"
     assert _memory(coordinator) == memory

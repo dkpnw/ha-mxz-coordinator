@@ -207,7 +207,7 @@ def _settings(
         "enable": hass.states.get(_room_eid(hass, entry, index, "enable")).state,
         "drift": float(drift.state),
         "drift_override": drift.attributes["override"],
-        "fan_hold": not coordinator.fan_auto_is_on(zone.climate_id),
+        "fan_hold": not coordinator.fan.auto_is_on(zone.climate_id),
     }
 
 

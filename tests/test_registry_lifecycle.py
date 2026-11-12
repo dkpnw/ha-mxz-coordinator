@@ -346,7 +346,7 @@ async def test_a_previous_incarnation_is_still_ignored(
     await hass.async_block_till_done()
 
     expected = {} if stale else {head_a: True}
-    assert entry.runtime_data._fan_restore == expected, (
+    assert entry.runtime_data.fan._restore == expected, (
         "a restore older than this entry incarnation must never seed the latch"
     )
 

@@ -23,8 +23,9 @@ LAYERS = (
     ("constants", {"const"}),
     ("helpers", {"logic", "cloud", "capabilities", "host"}),
     # Concerns split out of the coordinator. Each reaches it through a Protocol it declares.
-    # A controller another one calls sits below it: the door/window pause puts back a Dry.
-    ("lower controllers", {"dry"}),
+    # A controller another one calls sits below it: the door/window pause puts back a Dry
+    # and snapshots the fan hold.
+    ("lower controllers", {"dry", "fan_hold"}),
     ("controllers", {"openings"}),
     ("coordinator", {"coordinator"}),
     ("entity base", {"entity"}),
