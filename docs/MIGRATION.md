@@ -577,8 +577,9 @@ For an existing integration entry:
 2. Record room/head/sensor mappings, priority, targets, enables, drift overrides,
    fan holds, shared mode, lockouts, idle action, and standby settings. Include
    automation references to priority slots as well as entity IDs.
-3. Update the download in HACS (or replace only `custom_components/mxz_coordinator`
-   from the 3.4.0 release), then restart HA. Confirm
+3. Update MXZ Coordinator under **Settings → Updates** (before Home Assistant 2026.11,
+   update the download in HACS), or replace only `custom_components/mxz_coordinator`
+   from the 3.4.0 release, then restart HA. Confirm
    the installed manifest reads 3.4.0. Do not delete and recreate the entry to upgrade.
 4. Check the entry, registry identities, and restored room settings. Inspect the plan
    sensor and underlying heads before relying on control. An existing enabled entry
@@ -703,7 +704,7 @@ zone (`climate.*_<zone>_thermostat`) — see "Single-target HomeKit/Google tile"
 1. **Note your current setup** — screenshot your target values, which rooms are
    enabled, and any automations that read/write the old helpers.
 2. **Stop the package's head-writing automations** before setup. Install the
-   integration via HACS (see the README's [Quick start](../README.md#quick-start)) and select
+   integration (see the README's [Quick start](../README.md#quick-start)) and select
    2–8 heads and a sensor per room.
    Leave the new coordinator and rooms disabled while checking the mapping.
 3. **Remove the YAML package** (or comment out its `!include`) and reload/restart as

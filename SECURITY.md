@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Only the latest release of MXZ Coordinator gets security fixes. Please update through HACS before you report.
+Only the latest release of MXZ Coordinator gets security fixes. Please update to it before you report.
 
 ## Reporting a vulnerability
 

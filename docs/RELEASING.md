@@ -118,7 +118,22 @@ hand.
 
 ### How testers opt in
 
-HACS offers a pre-release only to someone who asks for it:
+The Marketplace (HACS before Home Assistant 2026.11) offers a pre-release only to someone
+who asks for it.
+
+On Home Assistant 2026.11 or newer:
+
+1. Go to **Settings > Devices & services > Marketplace** and open the MXZ Coordinator
+   repository's device page. Its **Pre-release** entity is disabled by default: enable the
+   entity, then turn on the switch.
+2. MXZ's update entity then offers the newest pre-release, and installs like any update.
+3. To leave the betas, turn the switch off. The Marketplace goes back to offering stable
+   releases only.
+
+The source for these steps is the
+[Marketplace docs](https://www.home-assistant.io/integrations/marketplace/).
+
+Before Home Assistant 2026.11, in HACS:
 
 1. In **Settings > Devices & services > Entities**, turn on the **Pre-release** switch of
    the MXZ Coordinator repository's HACS entry. HACS keeps this switch disabled until
@@ -142,4 +157,4 @@ gh release download v3.18.0 -R dkpnw/ha-mxz-coordinator -p mxz_coordinator.zip
 gh attestation verify mxz_coordinator.zip -R dkpnw/ha-mxz-coordinator
 ```
 
-The zip is built with `git archive` from the tag, so `git archive --format=zip --mtime="$(git log -1 --format=%cI v3.18.0)" v3.18.0:custom_components/mxz_coordinator` gives the same bytes on a recent git. HACS still installs from the repository as before. Tags aren't signed yet.
+The zip is built with `git archive` from the tag, so `git archive --format=zip --mtime="$(git log -1 --format=%cI v3.18.0)" v3.18.0:custom_components/mxz_coordinator` gives the same bytes on a recent git. The Marketplace, and HACS before it, still install from the repository as before. Tags aren't signed yet.

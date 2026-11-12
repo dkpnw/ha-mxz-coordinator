@@ -10,6 +10,14 @@ on your equipment.
 
 ## Unreleased
 
+- Docs only: Home Assistant 2026.11 replaced HACS with the built-in Marketplace, so the README
+  Quick start and [SETUP.md](docs/SETUP.md#install) now install from **Settings → Marketplace**,
+  and the README's one-click badge opens the Marketplace. The HACS steps stay in
+  [SETUP.md](docs/SETUP.md#before-home-assistant-202611-hacs) for older versions, and the
+  Quick start links to them. Removal, the 3.4.0 update step and how beta testers opt in
+  ([RELEASING.md](docs/RELEASING.md#how-testers-opt-in)) name the Marketplace first and keep
+  the HACS way for older versions. Nothing changes in the integration, `hacs.json` or CI.
+
 ## 3.22.0 (November 11, 2026)
 
 A setpoint or off set at a head, with its remote or its own app, now becomes the room's setting

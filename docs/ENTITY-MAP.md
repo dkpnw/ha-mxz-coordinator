@@ -1,7 +1,7 @@
 # Entity map — what to edit (legacy YAML package)
 
 > **This page is for the legacy manual install** (the `packages/` YAML file). The
-> recommended install is now the **HACS integration**, which configures these entities
+> recommended install is now the **MXZ Coordinator integration**, which configures these entities
 > through a UI form — no find/replace. See the README's [Quick start](../README.md#quick-start) section, and
 > [`MIGRATION.md`](MIGRATION.md) for the integration's entity IDs. Keep reading only if
 > you are using the YAML package directly.
@@ -13,7 +13,7 @@ Replace each placeholder on the left with your real entity on the right.
 
 ## Integration diagnostic surfaces (3.4.0)
 
-This section describes the HACS integration's added diagnostics; it is separate from
+This section describes the integration's added diagnostics; it is separate from
 the legacy YAML mappings below. These existing entities carry the observations:
 
 | Entity surface | Added fields | Meaning |

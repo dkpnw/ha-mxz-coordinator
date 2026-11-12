@@ -13,13 +13,13 @@ Set a temperature in each room and forget it. Like a Tesla's climate Auto, MXZ p
 <sub>Simulation, sped up 25×. The heads and rooms are invented, and a running head moves its room an invented 1 °F a minute. The top row follows one rule from Mitsubishi's manual for heads that share an outdoor unit: "the unit selected last goes into standby mode." The bottom row is MXZ Coordinator at its default settings. Neither row measures real equipment. [What stock AUTO does, with sources](docs/HOW-IT-WORKS.md#the-problem-in-detail).</sub>
 
 <p align="center">
-  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration"><img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open this repository in HACS."></a>
+  <a href="https://my.home-assistant.io/redirect/marketplace_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration"><img src="https://my.home-assistant.io/badges/marketplace_repository.svg" alt="Open this repository in the Home Assistant Marketplace (2026.11 or newer)."></a>
   <a href="https://my.home-assistant.io/redirect/config_flow_start/?domain=mxz_coordinator"><img src="https://my.home-assistant.io/badges/config_flow_start.svg" alt="Start setting up MXZ Coordinator."></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/dkpnw/ha-mxz-coordinator/releases/latest"><img src="https://img.shields.io/github/v/release/dkpnw/ha-mxz-coordinator" alt="Latest release"></a>
-  <a href="https://hacs.xyz"><img src="https://img.shields.io/badge/HACS-Default-41BDF5" alt="HACS: Default"></a>
+  <a href="https://www.home-assistant.io/integrations/marketplace/"><img src="https://img.shields.io/badge/Marketplace-listed-41BDF5" alt="Listed in the Home Assistant Marketplace catalog"></a>
   <a href="https://github.com/dkpnw/ha-mxz-coordinator#quick-start"><img src="https://img.shields.io/badge/Home%20Assistant-2024.12%2B-41BDF5" alt="Home Assistant 2024.12 or newer"></a>
   <a href="https://github.com/dkpnw/ha-mxz-coordinator/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/dkpnw/ha-mxz-coordinator/ci.yml?branch=main&label=CI" alt="CI status on main"></a>
   <a href="https://github.com/dkpnw/ha-mxz-coordinator/blob/main/LICENSE"><img src="https://img.shields.io/github/license/dkpnw/ha-mxz-coordinator" alt="License: MIT"></a>
@@ -126,13 +126,20 @@ good or bad.
 
 ## Quick start
 
+HACS became the Marketplace in Home Assistant 2026.11. On an older version, install with
+[the HACS steps](docs/SETUP.md#before-home-assistant-202611-hacs) instead of steps 1 to 3.
+
 You need Home Assistant 2024.12.0 or newer, 2 to 8 heads on one outdoor unit (one entry
 per outdoor unit), a `climate` entity for each head that offers heat, cool, and an idle
 mode, and a temperature sensor in each room.
 
-1. In HACS, search for **MXZ Coordinator** and select **Download**.
-2. Restart Home Assistant.
-3. Open **Settings → Devices & services → Add integration → MXZ Coordinator**.
+1. Go to **Settings → Marketplace** and search for **MXZ Coordinator**. The first time you
+   open the Marketplace it shows a notice: read it and select **I understand the risks and
+   agree**.
+2. Open **MXZ Coordinator**, select **Install**, then select **Install** in the dialog.
+3. MXZ's setup opens when the install finishes. If you close it, open **Settings → Devices &
+   services → Add integration → MXZ Coordinator**. If Home Assistant needs a restart first,
+   a repair says so and can restart it for you.
 4. **Heads.** Select every head on this outdoor unit, in priority order. Position 1 wins
    when rooms want opposite modes.
 5. **Rooms and sensors.** Check each room name, then pick one temperature sensor per
@@ -141,8 +148,9 @@ mode, and a temperature sensor in each room.
 7. On the device page, set each room's target, turn on the rooms, then turn on
    **Coordinator enable**. MXZ commands nothing until you do.
 
-**Without HACS:** copy the release's `custom_components/mxz_coordinator` directory into
-Home Assistant's `custom_components` directory, restart, then add the integration.
+**Without the Marketplace or HACS:** copy the release's `custom_components/mxz_coordinator`
+directory into Home Assistant's `custom_components` directory, restart, then add the
+integration.
 **Coming from the YAML package?** Follow
 [Migration](docs/MIGRATION.md#moving-from-the-yaml-package) and stop its automations first.
 [Setup in detail](docs/SETUP.md) has a screenshot of every step, what each error means,
@@ -330,7 +338,9 @@ a tested Mushroom card.
 
 1. Delete the entry through **Settings → Devices & services → MXZ Coordinator → ⋮ →
    Delete**.
-2. Then remove its download from HACS. Removing files first leaves a broken entry.
+2. Then uninstall it: in **Settings → Marketplace**, open **MXZ Coordinator**, select the
+   ⋮ menu in the upper-right corner, then **Uninstall**. Before Home Assistant 2026.11,
+   remove its download from HACS instead. Removing files first leaves a broken entry.
 
 Heads keep their last commanded state; use their own controls if they stay parked.
 [Removal details](docs/SETUP.md#remove-the-integration).

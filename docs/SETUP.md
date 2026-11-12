@@ -42,19 +42,37 @@ equivalent timing or hardware behavior.
 
 ## Install
 
-1. Open **HACS**, search for **MXZ Coordinator**, and select **Download**. You can also
-   [open it in HACS directly](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration).
-2. Restart Home Assistant to load the integration.
-3. Open **Settings → Devices & services → Add integration → MXZ Coordinator**.
+HACS became part of Home Assistant 2026.11 as the Marketplace. These steps are for 2026.11
+or newer. On an older version, follow
+[Before Home Assistant 2026.11 (HACS)](#before-home-assistant-202611-hacs).
+
+1. Go to **Settings → Marketplace** and search for **MXZ Coordinator**. You can also
+   [open it in the Marketplace directly](https://my.home-assistant.io/redirect/marketplace_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration).
+   The first time you open the Marketplace it shows a notice. Read it and select
+   **I understand the risks and agree**; until you do, the Marketplace can't install anything.
+2. Open **MXZ Coordinator** and select **Install**. Check the version shown in the dialog,
+   then select **Install**.
+3. MXZ's setup opens when the install finishes. If you close it, open **Settings → Devices &
+   services → Add integration → MXZ Coordinator**. If Home Assistant needs a restart first,
+   a repair in **Settings → System → Repairs** says so and can restart it for you.
 4. Complete the setup below. Installation alone does not enable control.
 
-**Without HACS:** copy the release's `custom_components/mxz_coordinator` directory into
-Home Assistant's `custom_components` directory, restart, then add the integration.
+**Without the Marketplace or HACS:** copy the release's `custom_components/mxz_coordinator`
+directory into Home Assistant's `custom_components` directory, restart, then add the
+integration.
 
 **Coming from the YAML package?** The shipped
 [YAML package](../packages/mxz_coordinator.yaml) is a separate legacy option. To move from
 it, follow [Migration](MIGRATION.md#moving-from-the-yaml-package). Stop its automations
 before letting the integration control the same heads.
+
+### Before Home Assistant 2026.11 (HACS)
+
+1. Open **HACS**, search for **MXZ Coordinator**, and select **Download**. You can also
+   [open it in HACS directly](https://my.home-assistant.io/redirect/hacs_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration).
+2. Restart Home Assistant to load the integration.
+3. Open **Settings → Devices & services → Add integration → MXZ Coordinator**.
+4. Complete the setup below. Installation alone does not enable control.
 
 ## Set up your outdoor unit
 
@@ -258,7 +276,9 @@ successful save with MXZ's own completion text.
 
 1. Delete the entry through **Settings → Devices & services → MXZ Coordinator → ⋮ →
    Delete**.
-2. Then remove its download from HACS. Removing files first leaves a broken entry.
+2. Then uninstall it: in **Settings → Marketplace**, open **MXZ Coordinator**, select the
+   ⋮ menu in the upper-right corner, then **Uninstall**. Before Home Assistant 2026.11,
+   remove its download from HACS instead. Removing files first leaves a broken entry.
 
 The shared recompute service is removed after the last loaded entry is gone. Heads retain
 their last commanded state; use their controls if they remain parked.
