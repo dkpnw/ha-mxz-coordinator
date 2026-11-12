@@ -51,7 +51,7 @@ from custom_components.mxz_coordinator.const import (
 from .test_drive import MockHead, _eid, _set_temp
 
 SENSORS = ("sensor.room_a_temp", "sensor.room_b_temp")
-# _apply_head decides skip-or-send from the head's current state on every
+# LocalDriver._async_apply decides skip-or-send from the head's current state on every
 # refresh; nothing delays a re-send, so a write loop re-sends on the first quiet
 # cycle (the pre-3.4.1 code fails the same cases at 1, 2 or 12 cycles). Two
 # cycles cover both sensor readings: the running one and a tenth off it.

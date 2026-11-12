@@ -20,7 +20,7 @@ from .logic import RangeError, resolve_range, shift_range
 
 def range_error(coordinator: MXZCoordinator, zone: Zone, err: RangeError) -> ServiceValidationError:
     """A refused dual-setpoint write as a translated ServiceValidationError."""
-    lo, hi = coordinator.head_target_bounds(zone.climate_id)
+    lo, hi = coordinator.heads.grid.target_bounds(zone.climate_id)
     unit = coordinator.temp_unit
     return ServiceValidationError(
         translation_domain=DOMAIN,
@@ -86,7 +86,7 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
         # firmware operating band [clamp_min, clamp_max].
         self._attr_native_unit_of_measurement = coordinator.temp_unit
         self._attr_native_step = coordinator.target_step
-        lo, hi = coordinator.head_target_bounds(zone.climate_id)
+        lo, hi = coordinator.heads.grid.target_bounds(zone.climate_id)
         self._attr_native_value = min(max(coordinator.target_default, lo), hi)
 
     # [clamp_min, clamp_max] narrowed to what THIS head will actually accept
@@ -98,11 +98,11 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
     # refreshes its cached bounds on the entity's next state write.
     @property
     def native_min_value(self) -> float:
-        return self.coordinator.head_target_bounds(self._zone.climate_id)[0]
+        return self.coordinator.heads.grid.target_bounds(self._zone.climate_id)[0]
 
     @property
     def native_max_value(self) -> float:
-        return self.coordinator.head_target_bounds(self._zone.climate_id)[1]
+        return self.coordinator.heads.grid.target_bounds(self._zone.climate_id)[1]
 
     async def async_added_to_hass(self) -> None:
         """Restore the last setpoint and seed the coordinator's zone.
@@ -134,7 +134,7 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
             # in zone.target steering the plan until the user touches the
             # slider. Best-effort — if the head's integration hasn't loaded
             # yet the bounds are still the wide clamp band, and the apply-time
-            # head-band clamp in _apply_head backstops whatever gets through.
+            # head-band clamp in LocalDriver._async_apply backstops whatever gets through.
             # A value saved in the other unit is converted first; the save holds
             # the unit it was in, so this happens once per °F/°C switch.
             self.coordinator.note_saved_unit(last.native_unit_of_measurement)
@@ -363,7 +363,7 @@ class MXZRangeTargetNumber(MXZTargetNumber):
         try:
             low, high = shift_range(
                 width=zone.target_high - zone.target_low, center=value,
-                bounds=self.coordinator.head_target_bounds(zone.climate_id),
+                bounds=self.coordinator.heads.grid.target_bounds(zone.climate_id),
                 step=self.coordinator.target_step,
             )
         except RangeError as err:
@@ -398,11 +398,11 @@ class MXZRangeNumber(MXZEntity, RestoreNumber):
 
     @property
     def native_min_value(self) -> float:
-        return self.coordinator.head_target_bounds(self._zone.climate_id)[0]
+        return self.coordinator.heads.grid.target_bounds(self._zone.climate_id)[0]
 
     @property
     def native_max_value(self) -> float:
-        return self.coordinator.head_target_bounds(self._zone.climate_id)[1]
+        return self.coordinator.heads.grid.target_bounds(self._zone.climate_id)[1]
 
     @property
     def native_value(self) -> float | None:
@@ -462,7 +462,7 @@ class MXZRangeNumber(MXZEntity, RestoreNumber):
                 new_low=value if self._low else low,
                 new_high=high if self._low else value,
                 gap=self.coordinator.dual_min_gap,
-                bounds=self.coordinator.head_target_bounds(zone.climate_id),
+                bounds=self.coordinator.heads.grid.target_bounds(zone.climate_id),
                 step=self.coordinator.target_step,
             )
         except RangeError as err:

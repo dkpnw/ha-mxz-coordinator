@@ -383,5 +383,5 @@ async def test_a_stored_generic_esphome_head_stays_local(hass: HomeAssistant) ->
     a, b = PlainHead("a"), PlainHead("b")
     await register(hass, {"esphome": [a, b]})
     entry = await setup_rooms(hass, [(a, GEN), (b, {})], options=OFF, enable=False)
-    assert entry.runtime_data._cloud == {}
+    assert entry.runtime_data.heads._clouds == {}
     assert [zone.head_type for zone in entry.runtime_data.zones] == [HEAD_TYPE_LOCAL] * 2

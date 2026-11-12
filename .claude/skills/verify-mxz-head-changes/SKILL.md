@@ -50,7 +50,7 @@ them, and run both commands under Run.
 
 | Check | Covers (custom_components/mxz_coordinator/) |
 | --- | --- |
-| Model `WriteSp` | `coordinator.py` `_apply` (skips a head while `_head_change_settling`), `remember_head_write`; `delivery.py` `DeliveryQueue._async_issue`; `logic.py` `HeadWriteMemory.wrote` |
+| Model `WriteSp` | `coordinator.py` `_apply` (skips a head while `_head_change_settling`), `remember_head_write`; `delivery.py` `DeliveryQueue._async_issue`; `heads.py` `LocalDriver._async_apply`, `HeadGrid.already_at` (the head's grid, which the memory compares on); `logic.py` `HeadWriteMemory.wrote` |
 | Model `HeadShows`, `PersonPress` (`Report`) | `coordinator.py` `_on_head_change`, `_head_writes_caught_up`, `_watch_head_change`, `_head_adoption`, `_arm_or_cancel`; `delivery.py` `DeliveryQueue.disown`; `logic.py` `HeadWriteMemory.own`, `HeadWriteMemory.caught_up` |
 | Model `AdoptFires` | `coordinator.py` `_on_heal_timer`, `_async_adopt_head_change`, `_head_change_seen`; `logic.py` `HeadWriteMemory.seen` |
 | Model `SetTarget` | `number.py` `MXZTargetNumber.async_set_native_value`; `coordinator.py` `drop_head_change` |
@@ -62,6 +62,7 @@ Does a change touch it?
 ```sh
 git diff --stat ca78324aca3d5402252a585693ae98193cee24ca -- \
   custom_components/mxz_coordinator/coordinator.py custom_components/mxz_coordinator/delivery.py \
+  custom_components/mxz_coordinator/heads.py \
   custom_components/mxz_coordinator/logic.py custom_components/mxz_coordinator/number.py \
   docs/formal/tla/MXZCoordinator.tla
 ```

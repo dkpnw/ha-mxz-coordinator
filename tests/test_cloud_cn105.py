@@ -92,7 +92,7 @@ async def test_a_local_head_off_esphome_keeps_the_separate_mode_call(
     await register(hass, {MELCLOUD: heads})
     extra = {} if stored is None else {ZONE_HEAD_TYPE: stored}
     entry = await setup_rooms(hass, [(heads[0], extra), (heads[1], extra)])
-    assert entry.runtime_data._cloud == {}
+    assert entry.runtime_data.heads._clouds == {}
     calls = record(hass)
     await set_room(hass, SENSORS[0], 65)
     await recompute(hass, entry)
@@ -119,8 +119,8 @@ async def test_an_all_cn105_install_has_no_cloud_machinery(hass: HomeAssistant) 
     coordinator = entry.runtime_data
     await set_room(hass, SENSORS[0], 65)
     await recompute(hass, entry)
-    assert coordinator._cloud == {}
-    assert coordinator._cloud_timer is None
+    assert coordinator.heads._clouds == {}
+    assert coordinator.heads._timer is None
     for index in (0, 1):
         assert not CLOUD_KEYS & set(row(hass, entry, index))
     assert not [

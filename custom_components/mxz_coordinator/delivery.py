@@ -34,12 +34,21 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__package__)
 
 
+class HeadSteps(Protocol):
+    """The per-head drivers (``heads.HeadDrivers``): one delivery's steps at its head."""
+
+    async def async_deliver(
+        self, climate_id: str, delivery: Delivery, act: str,
+        low: float, high: float, delta: float, engage: str | None,
+    ) -> None: ...
+
+
 class DeliveryHost(ControllerHost, Protocol):
     """The coordinator members the queue reads or calls, beyond every controller's.
 
     Read: the kill switch, the standby hold and the fan hold (each part of what
     a delivery is for), and whether the last update succeeded. Called: the
-    per-head driver that runs one delivery's steps, the memory of MXZ's own head
+    per-head drivers that run one delivery's steps, the memory of MXZ's own head
     writes, the floor's record of a refused command, the publication of the
     plan's rows, and Home Assistant's own refresh and listener update.
     """
@@ -49,15 +58,14 @@ class DeliveryHost(ControllerHost, Protocol):
     fan: FanHold
     last_update_success: bool
 
+    @property
+    def heads(self) -> HeadSteps: ...
+
     def async_update_listeners(self) -> None: ...
     async def async_refresh(self) -> None: ...
     def publish_delivery(self) -> None: ...
     def remember_head_write(self, climate_id: str, payload: dict[str, Any]) -> None: ...
     def floor_rejected(self, climate_id: str, err: Exception, delivery: Delivery) -> None: ...
-    async def async_deliver_steps(
-        self, climate_id: str, delivery: Delivery, act: str,
-        low: float, high: float, delta: float, engage: str | None,
-    ) -> None: ...
 
 
 @dataclass(eq=False)
@@ -352,7 +360,7 @@ class DeliveryQueue:
                 await self._wait_cleanup(climate_id)
                 active.locked = True
                 if self.owned(active):
-                    await host.async_deliver_steps(climate_id, active, act, low, high, delta, engage)
+                    await host.heads.async_deliver(climate_id, active, act, low, high, delta, engage)
         except HomeAssistantError as err:
             _LOGGER.error(
                 "MXZ: applying %s to %s failed (zone degraded, others continue): %s",

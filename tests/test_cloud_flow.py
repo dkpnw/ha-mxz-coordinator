@@ -187,7 +187,7 @@ async def test_room_page_saves_cloud_settings_and_local_clears_them(hass: HomeAs
     # Kept local on a cloud platform: remembered, and the settings are gone.
     assert zone[ZONE_HEAD_TYPE] == HEAD_TYPE_LOCAL
     assert not {ZONE_DRIVE_OFFSET, ZONE_WRITE_INTERVAL, ZONE_CONFIRM_WAIT} & set(zone)
-    assert entry.runtime_data._cloud == {}
+    assert entry.runtime_data.heads._clouds == {}
 
 
 async def test_settings_left_at_their_defaults_store_nothing_and_follow_the_unit(
@@ -354,7 +354,7 @@ async def test_an_unrelated_save_leaves_a_never_asked_cloud_platform_room_local(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
     assert entry.data["zones"][0] == {**before, ZONE_DRIFT_COOLER_BY: 1.5}
-    assert entry.runtime_data._cloud == {}
+    assert entry.runtime_data.heads._clouds == {}
     assert entry.runtime_data.zones[0].head_type == HEAD_TYPE_LOCAL
 
 
@@ -415,12 +415,12 @@ async def test_an_existing_entry_reads_local(hass: HomeAssistant) -> None:
     What a local MELCloud head is sent: tests/test_cloud_cn105.py.
     """
     _h, entry = await _entry(hass, [MELCLOUD, ESPHOME])
-    assert entry.runtime_data._cloud == {}
+    assert entry.runtime_data.heads._clouds == {}
     assert [zone.head_type for zone in entry.runtime_data.zones] == ["local", "local"]
     assert ZONE_HEAD_TYPE not in entry.data["zones"][0]
 
 
 async def test_a_stored_cloud_esphome_head_stays_local(hass: HomeAssistant) -> None:
     _h, entry = await _entry(hass, [ESPHOME, ESPHOME], [{ZONE_HEAD_TYPE: HEAD_TYPE_CLOUD}, {}])
-    assert entry.runtime_data._cloud == {}
+    assert entry.runtime_data.heads._clouds == {}
     assert entry.runtime_data.zones[0].head_type == HEAD_TYPE_LOCAL

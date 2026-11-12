@@ -851,7 +851,7 @@ async def test_a_held_back_step_wakes_the_plan_by_itself(
         {"entity_id": _eid(hass, entry, "_primary_target"), "value": 72}, blocking=True,
     )
     await hass.async_block_till_done()
-    assert entry.runtime_data._cloud_timer is not None
+    assert entry.runtime_data.heads._timer is not None
     for _ in range(4):  # 4 x 31 s: past the 60 s interval and the refresh cooldown
         freezer.tick(timedelta(seconds=31))
         async_fire_time_changed(hass, dt_util.utcnow())
@@ -905,9 +905,9 @@ async def test_a_new_fan_inside_the_wait_is_a_manual_pick_once_read(
     a.device["fan"] = "powerful"
     a.poll()
     await hass.async_block_till_done()
-    assert coordinator._cloud_stale_report(a.entity_id, fan="powerful") is False
-    assert coordinator._cloud_stale_report(a.entity_id, mode="fan_only") is True
-    assert coordinator._cloud_stale_report(a.entity_id, fan="auto") is False
+    assert coordinator.heads.stale_report(a.entity_id, fan="powerful") is False
+    assert coordinator.heads.stale_report(a.entity_id, mode="fan_only") is True
+    assert coordinator.heads.stale_report(a.entity_id, fan="auto") is False
     calls = record(hass)
     await recompute(hass, entry)
     assert row(hass, entry, 0)["cloud_status"] == "pending"

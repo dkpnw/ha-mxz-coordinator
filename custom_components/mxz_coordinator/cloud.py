@@ -24,6 +24,7 @@ import math
 import operator
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from .const import MODE_COOL, MODE_HEAT
 
@@ -185,6 +186,14 @@ class CloudHead:
         return CLOUD_CONFIRMED if self.confirmed else CLOUD_UNCONFIRMED
 
 
+class CloudRecords(Protocol):
+    """Where a controller looks up a head's cloud write record (``heads.HeadDrivers``)."""
+
+    def cloud(self, climate_id: str) -> CloudHead | None:
+        """This head's cloud write record; None for a local head."""
+        ...
+
+
 def drive_setpoint(*, act: str, target: float, offset: float) -> float:
     """The setpoint a running cloud head gets: past the target by ``offset``.
 
@@ -235,7 +244,7 @@ def target_in_unit(value: float, set_in: object, unit: str, step: float) -> floa
 def snap_to_step(value: float, step: float) -> float:
     """``value`` on the nearest multiple of ``step``, half up.
 
-    Half up, as the CN105 path reads a head's grid (``_head_already_at``):
+    Half up, as the CN105 path reads a head's grid (``HeadGrid.already_at``):
     Python's round() is half to even. No usable step leaves it unchanged.
     """
     if not step > 0 or not math.isfinite(step):

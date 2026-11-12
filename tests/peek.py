@@ -32,7 +32,7 @@ _WAKEUPS = {
     "lost": "_lost_timer",  # the nearest lost head's vote running out
     "settle": "_settle_timer",  # the nearest end of a head's settle window
     "comfort": "_comfort_timer",  # the nearest Comfort priority "on" going stale
-    "cloud": "_cloud_timer",  # the nearest cloud head's write or stale window
+    "cloud": "heads._timer",  # the nearest cloud head's write or stale window
     "fresh": "_fresh_timer",  # the nearest room sensor going stale
     "refresh_followup": "deliveries._followup_timer",  # a refresh asked for during one
 }
@@ -56,7 +56,7 @@ def cloud_record(coord: Any, head: str) -> Any:
     Read in place, for its settings (``confirm_wait``, ``write_interval``) and
     its status; a test never writes it.
     """
-    return coord._cloud.get(head)
+    return coord.heads.cloud(head)
 
 
 async def since_mode_change(hass: HomeAssistant, entry: Any) -> float | None:

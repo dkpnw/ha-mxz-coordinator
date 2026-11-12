@@ -238,12 +238,12 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
     @property
     def min_temp(self) -> float:
         """Low slider bound: clamp_min narrowed to the head's native floor (#10)."""
-        return self.coordinator.head_target_bounds(self._head_id)[0]
+        return self.coordinator.heads.grid.target_bounds(self._head_id)[0]
 
     @property
     def max_temp(self) -> float:
         """High slider bound: clamp_max narrowed to the head's native ceiling (#10)."""
-        return self.coordinator.head_target_bounds(self._head_id)[1]
+        return self.coordinator.heads.grid.target_bounds(self._head_id)[1]
 
     def _target_temperature(self) -> float | None:
         return self._zone.target
@@ -584,7 +584,7 @@ class MXZRangeRoomClimate(MXZRoomClimate):
                 new_low=zone.target_low if low is None else float(low),
                 new_high=zone.target_high if high is None else float(high),
                 gap=self.coordinator.dual_min_gap,
-                bounds=self.coordinator.head_target_bounds(zone.climate_id),
+                bounds=self.coordinator.heads.grid.target_bounds(zone.climate_id),
                 step=self.coordinator.target_step,
             )
         except RangeError as err:

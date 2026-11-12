@@ -36,7 +36,7 @@ from .logic import fan_for_delta
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
 
-    from .cloud import CloudHead
+    from .cloud import CloudHead, CloudRecords
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -46,9 +46,9 @@ class FanHost(ControllerHost, Protocol):
 
     Read: the fan boost settings, eco idle, the idle action, whether this
     entry's coordinator switch came back on at a start, the entry (its age),
-    and a cloud head's write record (whether a fan report can be older than
-    its last batch). Called: the delivery queue, for the head service a fan
-    write sends.
+    and a cloud head's write record through the head drivers (whether a fan
+    report can be older than its last batch). Called: the delivery queue, for
+    the head service a fan write sends.
     """
 
     fan_boost_enable: bool
@@ -60,9 +60,10 @@ class FanHost(ControllerHost, Protocol):
     restored_coordinator_on: bool
     config_entry: ConfigEntry
 
-    def cloud_head(self, climate_id: str) -> CloudHead | None: ...
     @property
     def deliveries(self) -> HeadCommands: ...
+    @property
+    def heads(self) -> CloudRecords: ...
 
 
 class FanEcho:
@@ -376,7 +377,7 @@ class FanHold:
         observed = state.attributes.get("fan_mode")
         if not modes or FAN_AUTO not in modes or observed is None:
             return
-        cloud = host.cloud_head(climate_id)
+        cloud = host.heads.cloud(climate_id)
         if cloud is not None and cloud.stale(host.clock(), fan=observed):
             return
         self._observe_latch(climate_id, observed, act, 0.0)

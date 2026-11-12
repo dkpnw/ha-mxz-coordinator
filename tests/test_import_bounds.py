@@ -33,11 +33,12 @@ def test_every_module_on_disk_is_checked():
     assert {"coordinator", "openings", "__init__"} <= files
 
 
-def test_without_its_exceptions_the_tree_shows_exactly_the_three_known_edges(monkeypatch):
+def test_without_its_exceptions_the_tree_shows_exactly_the_four_known_edges(monkeypatch):
     monkeypatch.setattr(import_bounds, "EXCEPTIONS", {})
     assert violations(SOURCES) == [
         "climate.py:66: climate (layer surfaces) imports number (layer surfaces)" + LOWER,
         "dry.py:33: dry (layer lower controllers) type-only imports coordinator (layer coordinator)" + LOWER,
+        "heads.py:72: heads (layer head drivers) type-only imports coordinator (layer coordinator)" + LOWER,
         "openings.py:47: openings (layer controllers) type-only imports coordinator (layer coordinator)" + LOWER,
     ]
 
@@ -77,6 +78,16 @@ def test_without_its_exceptions_the_tree_shows_exactly_the_three_known_edges(mon
      "dry (layer lower controllers) imports delivery (layer controllers)"),
     ("fan_hold", "if TYPE_CHECKING:\n    from .delivery import DeliveryQueue\n",
      "fan_hold (layer lower controllers) type-only imports delivery (layer controllers)"),
+    ("delivery", "if TYPE_CHECKING:\n    from .heads import HeadDrivers\n",
+     "delivery (layer controllers) type-only imports heads (layer head drivers)"),
+    ("openings", "from .heads import HeadDrivers\n",
+     "openings (layer controllers) imports heads (layer head drivers)"),
+    ("heads", "from .coordinator import Zone\n",
+     "heads (layer head drivers) imports coordinator (layer coordinator)"),
+    ("fan_hold", "from .heads import HeadGrid\n",
+     "fan_hold (layer lower controllers) imports heads (layer head drivers)"),
+    ("dry", "if TYPE_CHECKING:\n    from .heads import HeadDrivers\n",
+     "dry (layer lower controllers) type-only imports heads (layer head drivers)"),
     ("cloud", "import custom_components.mxz_coordinator.coordinator\n",
      "cloud (layer helpers) imports coordinator (layer coordinator)"),
     ("cloud", "from . import coordinator\n",
