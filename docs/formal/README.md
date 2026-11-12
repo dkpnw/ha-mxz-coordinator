@@ -123,7 +123,7 @@ the fan touched during the outage, and crash.
   `test_no_person_no_hold_when_a_head_reports_every_write_in_order`,
   `test_no_person_no_hold_when_a_head_jumps_to_its_latest_write` and
   `test_the_exception_is_still_the_last_two_with_a_write_in_flight` cover this.
-- The delivery queue itself (`_queue_delivery`): one apply at a time, every command of an apply
+- The delivery queue itself (`DeliveryQueue` in `delivery.py`): one apply at a time, every command of an apply
   goes before the next decision, and a later plan never supersedes a queued command. A head's
   lock, a vane cleanup, a manual gesture waiting its turn, and a head whose handler never returns
   are in `tests/test_command_delivery.py` and `tests/test_refresh_race.py`. A change made at a

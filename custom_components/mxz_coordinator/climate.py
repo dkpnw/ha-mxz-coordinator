@@ -164,7 +164,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         room without one adds nothing.
         """
         return {
-            **self.coordinator.command_attributes(self._head_id),
+            **self.coordinator.deliveries.attributes(self._head_id),
             "control_reasons": self.coordinator._control_reasons(self._zone),
             **self.coordinator.start_points(self._zone),
             **self.coordinator.mode_hold_attributes(),
@@ -425,7 +425,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         selects that same "low", this issues set_fan_mode low on the head — a
         genuine manual hold at low, exactly as intended (the coordinator's latch
         picks it up as a deliberate departure from `auto`)."""
-        await self.coordinator.async_head_service(
+        await self.coordinator.deliveries.async_send(
             self._head_id, "set_fan_mode", {"fan_mode": fan_mode}, manual=True,
         )
 

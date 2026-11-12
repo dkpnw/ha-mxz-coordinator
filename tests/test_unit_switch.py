@@ -372,12 +372,12 @@ async def test_the_old_load_writes_nothing_once_it_knows(hass: HomeAssistant, fr
         old = rig.coord
         assert old.retired is True
         calls = []
-        real = old._call_head_service
+        real = old.deliveries._async_issue
         async def spy(*args: Any, **kwargs: Any) -> None:
             calls.append(args)
             await real(*args, **kwargs)
-        old._call_head_service = spy
-        await old.async_head_service(rig.heads[0].entity_id, "set_temperature", {"temperature": 70})
+        old.deliveries._async_issue = spy
+        await old.deliveries.async_send(rig.heads[0].entity_id, "set_temperature", {"temperature": 70})
         assert calls == []
         await hass.config.async_update(location_name="Elsewhere")
         await hass.async_block_till_done()

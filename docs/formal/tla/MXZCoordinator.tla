@@ -451,12 +451,12 @@ Decide ==
 
 (***************************************************************************)
 (* WithSplit: one head's command from the apply in flight, as              *)
-(* MXZCoordinator._deliver_head runs it once the head's lock is free. The  *)
-(* mode was recorded by the Decide that queued it (_write_back_mode runs   *)
-(* before _wait_deliveries). Refuse is a head whose handler raised: since  *)
-(* _call_head_service, whatever it raised is that room's alone, and the    *)
-(* next update tries again. The apply is over once no command is left; it  *)
-(* counts as a decision only if nothing came in since (`fresh`).           *)
+(* DeliveryQueue._deliver runs it once the head's lock is free. The mode   *)
+(* was recorded by the Decide that queued it (_write_back_mode runs before *)
+(* DeliveryQueue.async_wait). Refuse is a head whose handler raised: since *)
+(* DeliveryQueue._async_issue, whatever it raised is that room's alone,    *)
+(* and the next update tries again. The apply is over once no command is   *)
+(* left; it counts as a decision only if nothing came in since (`fresh`).  *)
 (***************************************************************************)
 Finish(r) ==
     /\ left' = left \ {r}
@@ -691,7 +691,7 @@ Start(process, crash, outage) ==
     /\ gesture' = (gesture \/ (moved /\ outage # "auto") \/ crash)
     /\ restoreBroken' = (restoreBroken \/ newMode # mode \/ storedStamp # stamp
                          \/ storedWin # winState \/ storedOverride # winOverride)
-    \* A retired apply sends nothing more (_delivery_owned); what it sent stays sent.
+    \* A retired apply sends nothing more (DeliveryQueue.owned); what it sent stays sent.
     /\ phase' = "idle" /\ left' = {} /\ refused' = {} /\ fresh' = TRUE /\ picked' = FALSE
     /\ cutShort' = (cutShort \/ phase = "applying")
     /\ UNCHANGED <<want, trailing>>
@@ -738,7 +738,7 @@ SetTarget == WithAdopt /\ \E v \in Targets :
     /\ v # target /\ target' = v /\ holding' = FALSE
     /\ UNCHANGED <<spShown, spQueue, spMem, quiet, shownKind, adopted, writeInHold, others>>
 
-\* The apply's setpoint write (_apply_head, _call_head_service): skipped while a hold
+\* The apply's setpoint write (_apply_head, DeliveryQueue._async_issue): skipped while a hold
 \* counts (_head_change_settling), remembered before it goes out.
 WriteSp ==
     /\ WithAdopt /\ ~holding /\ spShown # target /\ Len(spQueue) < QueueMax

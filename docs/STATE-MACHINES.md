@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Written | 2026-11-09 (America/Los_Angeles); updated 2026-11-10 after the second review (section 3.23, and the SM-3 and SM-6 fixes made whole) |
-| Base | `f21dffef5b012ace9b31cf51fd277292f3ffa5b7` (`docs: clean-copy strings and correct accept-at-head help (#114)`). Every line number below is at that commit; the fixes in this change move some by a few lines. Code this change added or changed has no line there and is cited by name (`_write_back_mode`, `_disown_waiting_command`, `CloudHead.refused`, `_watch_head_change`'s return). The door/window pause has since moved to `openings.py` (`OpeningPause`), Allow Dry to `dry.py` (`DryMode`), and the fan hold to `fan_hold.py` (`FanHold`, `FanEcho`); their line numbers here are from before those moves. The Allow Dry table in section 3.14 cites `DryMode` by name, and section 3.12 names the `FanHold` method beside each old line range. |
+| Base | `f21dffef5b012ace9b31cf51fd277292f3ffa5b7` (`docs: clean-copy strings and correct accept-at-head help (#114)`). Every line number below is at that commit; the fixes in this change move some by a few lines. Code this change added or changed has no line there and is cited by name (`_write_back_mode`, `_disown_waiting_command`, `CloudHead.refused`, `_watch_head_change`'s return). The door/window pause has since moved to `openings.py` (`OpeningPause`), Allow Dry to `dry.py` (`DryMode`), the fan hold to `fan_hold.py` (`FanHold`, `FanEcho`), and the refresh serialization and the per-head delivery slot and command status to `delivery.py` (`DeliveryQueue`, `Delivery`); their line numbers here are from before those moves. The Allow Dry table in section 3.14 cites `DryMode` by name, and section 3.12 names the `FanHold` method beside each old line range, and sections 3.2 to 3.4 name the `DeliveryQueue` members. |
 | How | The catalog and findings SM-1 to SM-9 come from a read-only review with scratch probes on invented heads (section 1). The fixes, the repros, the TLA+ extensions and SM-10 come from the change that added this file. Nothing ran on a real head, a real Home Assistant or a cloud account. |
 | Companion documents | The formal checks: [formal/README.md](formal/README.md), [formal/STATECHART.md](formal/STATECHART.md), [formal/PARKED-FINDINGS.md](formal/PARKED-FINDINGS.md), [formal/tla/MXZCoordinator.tla](formal/tla/MXZCoordinator.tla), `verification/modehold/MXZModeHold.tla`. IDs such as H1 or M1 are those of the whole-repo audit of the same date. |
 
@@ -88,9 +88,9 @@ a clean stop and every 15 minutes; `Store` is written at once.
 | § | Machine | Owner | Lives in | Modeled |
 |---|---|---|---|---|
 | 3.1 | Coordinator lifecycle, Coordinator switch, startup quiet | `MXZCoordinator`, `__init__.py`, `switch.py` `MXZSwitch` | memory; the switch in restore data | Chart L1–L4; both specs (`Reload`, `Restart`, `Crash`). Startup quiet as adoption's gate and a retire inside an apply: `MXZCoordinator.tla` (`ci-adopt-restart`, `ci-apply`). The switch: nowhere |
-| 3.2 | Refresh serialization | `MXZCoordinator` | memory | Inputs landing during one apply: `MXZCoordinator.tla` (`ci-apply`). The lock, the debouncer and the follow-up: nowhere |
-| 3.3 | Per-head delivery slot | `MXZCoordinator` | `hass.data` | `MXZCoordinator.tla` `Deliver`, `Refuse` (`ci-apply`); the queue's locks and supersession in tests only |
-| 3.4 | Command status | `MXZCoordinator` | `hass.data` | Nowhere |
+| 3.2 | Refresh serialization | `DeliveryQueue` | memory | Inputs landing during one apply: `MXZCoordinator.tla` (`ci-apply`). The lock, the debouncer and the follow-up: nowhere |
+| 3.3 | Per-head delivery slot | `DeliveryQueue` | `hass.data` | `MXZCoordinator.tla` `Deliver`, `Refuse` (`ci-apply`); the queue's locks and supersession in tests only |
+| 3.4 | Command status | `DeliveryQueue` | `hass.data` | Nowhere |
 | 3.5 | Shared mode and its hold | `MXZCoordinator`, `logic.arbitrate`, `select.py` | `Store`, with the select's restore data second | Chart M1–M6; both specs. The writeback's place in the apply: `MXZCoordinator.tla` `WithSplit` (`ci-apply`, `RecordLeadsHeads`) |
 | 3.6 | A room's run, startup resume, coast wakeup | `MXZCoordinator`, `logic.engage_with_latch` | memory, re-read from the head | Chart R1–R4; both specs |
 | 3.7 | Room sensor freshness | `MXZCoordinator`, `logic.sensor_health` | memory | Tests only |
@@ -160,6 +160,15 @@ apply as unmodeled; that header now says the record comes before the deliveries.
 (1356–1360) selects one of two code paths by reading a private attribute of the debouncer (audit
 M2).
 
+Since the split, all of it but `_applying_plan` is `DeliveryQueue`'s, in `delivery.py`: `_lock`,
+`generation`, `_pending`, `_followup`, `_wake`, `_followup_timer` and `legacy`. A refresh runs
+inside `DeliveryQueue.deciding()`; requests go through `async_request`, `async_request_ordinary`
+and, for a head's report, `request_for_report`; the follow-up is `_sync_followup`. The coordinator
+now makes the request debouncer itself, through the public `request_refresh_debouncer` argument,
+and `legacy` is chosen by the public `Debouncer.async_lock`, which arrived in Home Assistant 2025.11
+together with the two debouncer fixes the legacy path makes up for. The one private read left,
+the debouncer's `_execute_lock`, runs only before 2025.11 (`delivery._legacy_busy`).
+
 **States.** Idle; Debouncing (a request waits out the cooldown); Deciding (lock held, compute);
 Applying (lock held, waiting on deliveries); Applying with a refresh pending; Follow-up queued;
 Retired.
@@ -193,7 +202,12 @@ reading private fields (audit H3).
 
 **State.** One record per head in `hass.data["mxz_coordinator_deliveries"]`, one lock per head in
 `…_head_locks`, and a cleanup event per head in `…_vane_cleanup_pending` (1368–1376). They outlive
-a reload on purpose, so a new coordinator waits behind an old handler.
+a reload on purpose, so a new coordinator waits behind an old handler. Since the split the record
+is a `Delivery` and the code is `DeliveryQueue`'s: `queue` (was `_queue_delivery`), `_deliver`
+(`_deliver_head`), `owned` (`_delivery_owned`), `_finish` (`_finish_delivery`), `retire`
+(`_retire_deliveries`), `async_send` (`async_head_service`, whose `vane` flag is now the vane
+kick's `guard`), `disown` (`_disown_waiting_command`). The per-head steps stay in the coordinator
+as `async_deliver_steps` (`_deliver_head_steps`).
 
 **States per head.** Empty; Queued (task made, lock not yet held); Issuing (lock held); Superseded
 (a newer intent is recorded as `next`); Superseded by a person's gesture (`manual`); Retired.
@@ -214,8 +228,8 @@ a reload on purpose, so a new coordinator waits behind an old handler.
 | Task done | → Empty | — | The recorded successor refreshes | 3145–3157 |
 | A person's gesture on the thermostat (fan, Dry) | occupied → gesture | — | Mark `manual`; the gesture waits for the lock | 3220–3239 |
 | Retire, or Coordinator switch off | owned → Retired | — | Mark retired and superseded | 3195–3213, 7418–7420 |
-| A person changes a head during a floor run | Queued → Superseded | — | Disown the queued command | 7083–7089, now `_disown_waiting_command` |
-| A person's change at the head arms the adopt hold | Queued → Superseded | the change will be adopted (3.11) | Disown the queued command; one already sent goes ahead (SM-6, fixed) | `_disown_waiting_command`, called where the hold is armed (5481–5482) |
+| A person changes a head during a floor run | Queued → Superseded | — | Disown the queued command | 7083–7089, now `DeliveryQueue.disown` |
+| A person's change at the head arms the adopt hold | Queued → Superseded | the change will be adopted (3.11) | Disown the queued command; one already sent goes ahead (SM-6, fixed) | `DeliveryQueue.disown` (was `_disown_waiting_command`), called where the hold is armed (5481–5482) |
 | A head report ends that hold with nothing adopted (the head put back by hand) | Superseded → re-owned, or Empty → Queued | — | Request a compute. A disowned command still queued is owned again if the plan still wants it, or gets the plan's newer one as `next`; one already skipped is replaced by a new one | `_watch_head_change` returns true and `_on_head_change` refreshes, as the floor-yield row does (5161–5162) |
 
 A head's handler has no timeout. A handler that never returns holds its head's lock for the life
@@ -234,6 +248,9 @@ the old setting until an unrelated compute (section 4, SM-6).
 **States per head.** not yet recorded → pending → returned | rejected | cancelled, outcome
 unknown. Flags beside it: ownership retired, deferred, and a separate status for the off that a
 retired vane kick's cleanup sends.
+
+**Code.** `DeliveryQueue._async_issue` (was `_call_head_service`) and `DeliveryQueue.attributes`
+(was `command_attributes`); a retired vane kick's cleanup goes through `async_send_cleanup`.
 
 **Rules.** It is a software observation and says so (3294–3295). Every change publishes at once
 (3260, 3277, 3348–3363).
@@ -828,7 +845,10 @@ stand-off the integration exists to prevent, for as long as the head keeps refus
 as it was, `HeadsFollowMode` leaves a refused head out, and `NeverRefused` shows the path is
 reached. `test_a_head_that_raises_during_a_mode_change_doesnt_undo_the_change` shows it on the
 real code: the refusing head stays in cool while the other runs heat. Sending parks before runs
-is a change to the delivery queue (chunk 5) and a decision for the owner.
+is a change to the delivery queue (chunk 5) and a decision for the owner. The split that moved the
+queue to `delivery.py` left it as it was: making a run wait on another head's park changes when
+heads are sent their commands, so it is a behavior change, not part of a move. If it is made, it
+goes in `DeliveryQueue.queue` and `_apply`'s order of queueing.
 
 ### SM-6. A press at the head while MXZ's command to it is queued is written over
 

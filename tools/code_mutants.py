@@ -124,7 +124,7 @@ MUTANTS: dict[str, Mutant] = {
     ),
     'C14': Mutant(
         "a paused head isn't sent off", '_apply',
-        'task = self._queue_delivery(zone.climate_id, MODE_OFF, 0.0, 0.0)\n                if task is not None:\n                    tasks.append(task)\n                continue',
+        'task = self.deliveries.queue(zone.climate_id, MODE_OFF, 0.0, 0.0)\n                if task is not None:\n                    tasks.append(task)\n                continue',
         'continue',
         'tests/test_properties_window.py::test_a_pause_stops_the_head_and_a_takeover_holds_until_the_window_closes',
     ),
@@ -293,12 +293,12 @@ MUTANTS: dict[str, Mutant] = {
     # The mode's record and each head's command (RecordLeadsHeads, ci-apply).
     'C42': Mutant(
         'the heads are sent the mode before it is recorded', '_apply',
-        'self._write_back_mode(plan, engages)\n        await self._wait_deliveries(tasks)',
-        'await self._wait_deliveries(tasks)\n        self._write_back_mode(plan, engages)',
+        'self._write_back_mode(plan, engages)\n        await self.deliveries.async_wait(tasks)',
+        'await self.deliveries.async_wait(tasks)\n        self._write_back_mode(plan, engages)',
         'tests/test_head_fault.py::test_a_head_is_sent_a_new_mode_only_once_it_is_the_recorded_mode',
     ),
     'C43': Mutant(
-        "a head's unexpected error fails the plan", '_call_head_service',
+        "a head's unexpected error fails the plan", '_async_issue',
         'if isinstance(err, HomeAssistantError):\n                raise',
         'if True:\n                raise',
         'tests/test_head_fault.py::test_a_head_that_raises_during_a_mode_change_doesnt_undo_the_change[RuntimeError]',
@@ -306,7 +306,7 @@ MUTANTS: dict[str, Mutant] = {
     # Changes made at a head and MXZ's memory of its own writes (OwnWriteNeverAdopted,
     # HoldBlocksWrite, StartWriteNeverAdopted in ci-adopt).
     'C44': Mutant(
-        "a write to a head isn't remembered", '_remember_head_write',
+        "a write to a head isn't remembered", 'remember_head_write',
         'if name in payload:',
         'if False:',
         'tests/test_accept_head_changes.py::test_a_head_two_writes_behind_is_not_adopted',
@@ -475,8 +475,8 @@ MUTANTS: dict[str, Mutant] = {
     ),
     'H24': Mutant(
         'the pause sends the coil-dry fan run first', '_apply',
-        '                task = self._queue_delivery(zone.climate_id, MODE_OFF, 0.0, 0.0)\n',
-        '                task = self._queue_delivery(\n                    zone.climate_id, self._idle_act_for(zone.climate_id), 0.0, 0.0\n                )\n',
+        '                task = self.deliveries.queue(zone.climate_id, MODE_OFF, 0.0, 0.0)\n',
+        '                task = self.deliveries.queue(\n                    zone.climate_id, self._idle_act_for(zone.climate_id), 0.0, 0.0\n                )\n',
         'tests/test_door_window.py::test_open_for_the_open_delay_pauses_straight_to_off',
     ),
 

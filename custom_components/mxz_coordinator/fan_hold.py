@@ -30,7 +30,7 @@ from .const import (
     MODE_FAN_ONLY,
     MODE_HEAT,
 )
-from .host import ControllerHost
+from .host import ControllerHost, HeadCommands
 from .logic import fan_for_delta
 
 if TYPE_CHECKING:
@@ -47,7 +47,8 @@ class FanHost(ControllerHost, Protocol):
     Read: the fan boost settings, eco idle, the idle action, whether this
     entry's coordinator switch came back on at a start, the entry (its age),
     and a cloud head's write record (whether a fan report can be older than
-    its last batch). Called: the head service a fan write sends.
+    its last batch). Called: the delivery queue, for the head service a fan
+    write sends.
     """
 
     fan_boost_enable: bool
@@ -60,10 +61,8 @@ class FanHost(ControllerHost, Protocol):
     config_entry: ConfigEntry
 
     def cloud_head(self, climate_id: str) -> CloudHead | None: ...
-    async def async_head_service(
-        self, climate_id: str, service: str, payload: dict[str, Any],
-        *, manual: bool = False, vane: bool = False,
-    ) -> None: ...
+    @property
+    def deliveries(self) -> HeadCommands: ...
 
 
 class FanEcho:
@@ -407,7 +406,7 @@ class FanHold:
         """
         self._echo[climate_id].wrote(token)
         self.publish(climate_id)
-        await self._host.async_head_service(
+        await self._host.deliveries.async_send(
             climate_id, "set_fan_mode",
             {"fan_mode": token},
         )

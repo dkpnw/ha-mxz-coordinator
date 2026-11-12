@@ -324,7 +324,7 @@ Every other journey depends on this one having run.
     the journey waits until the plan row shows the reading, not for a fixed time. A
     product that ignored Coordinator enable fails this journey at the gate (checked once
     on the real instance by removing both of MXZ's Coordinator enable checks, in `_apply`
-    and `_delivery_owned`; removing only the first changes nothing).
+    and `_delivery_owned`, now `DeliveryQueue.owned`; removing only the first changes nothing).
   - A row's `demand` is the outdoor-unit call band (`cool_demand_above`, 73 for target 70 at
     the defaults); `engage` is the run starting past the drift (`cool_start`). A room at
     target + 2 engages `cool` with `demand` `neutral`.

@@ -26,7 +26,7 @@ from .const import (
     ZONE_ALLOW_DRY,
     ZONE_CLIMATE,
 )
-from .host import ControllerHost
+from .host import ControllerHost, HeadCommands
 
 if TYPE_CHECKING:
     from .cloud import CloudHead
@@ -40,17 +40,16 @@ class DryHost(ControllerHost, Protocol):
 
     Read: the kill switch, the standby hold, and a cloud head's write record
     (whether it answers, its confirm wait, and whether a dry report can be
-    older than its last batch). Called: the head service a Dry pick sends.
+    older than its last batch). Called: the delivery queue, for the head service
+    a Dry pick sends.
     """
 
     coordinator_enable: bool
     inhibited: bool
 
     def cloud_head(self, climate_id: str) -> CloudHead | None: ...
-    async def async_head_service(
-        self, climate_id: str, service: str, payload: dict[str, Any],
-        *, manual: bool = False, vane: bool = False,
-    ) -> None: ...
+    @property
+    def deliveries(self) -> HeadCommands: ...
 
 
 class DryMode:
@@ -277,7 +276,7 @@ class DryMode:
     async def async_send(self, zone: Zone) -> None:
         """Send the head dry, once: the one write a Dry pick makes."""
         try:
-            await self._host.async_head_service(
+            await self._host.deliveries.async_send(
                 zone.climate_id, "set_hvac_mode", {"hvac_mode": MODE_DRY}, manual=True,
             )
         except HomeAssistantError:

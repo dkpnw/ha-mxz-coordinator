@@ -1,6 +1,6 @@
 ---
 name: verify-mxz-mode-record
-description: "Formal checks of how MXZ Coordinator applies a change of the shared mode: the mode is recorded, stamped and stored before any head is sent it, each head's command is its own step that can be refused, and a reload, a restart, a reading or a person's pick can land between them. A TLA+ model checked with TLC (ci-apply), tests/test_head_fault.py on the real integration, and broken copies of both that each check must catch. Use before and after any change to coordinator.py _apply, _write_back_mode, _queue_delivery, _wait_deliveries, _deliver_head, _call_head_service or _retire_deliveries, and when the model or a replay reports a break."
+description: "Formal checks of how MXZ Coordinator applies a change of the shared mode: the mode is recorded, stamped and stored before any head is sent it, each head's command is its own step that can be refused, and a reload, a restart, a reading or a person's pick can land between them. A TLA+ model checked with TLC (ci-apply), tests/test_head_fault.py on the real integration, and broken copies of both that each check must catch. Use before and after any change to coordinator.py _apply or _write_back_mode, or to delivery.py DeliveryQueue (queue, async_wait, _deliver, _async_issue, retire), and when the model or a replay reports a break."
 ---
 
 # Verify the mode's record and the heads' commands
@@ -46,18 +46,18 @@ them, and run both commands under Run.
 
 | Check | Covers (custom_components/mxz_coordinator/) |
 | --- | --- |
-| Model `Decide` (with `WithSplit`) | `coordinator.py` `_compute`, `_apply` (queues every head, then `_write_back_mode`, then `_wait_deliveries`, with nothing awaited before the writeback), `_write_back_mode`, `_stamp_mode_change`, `_record_mode`, `_queue_delivery` |
-| Model `Deliver`, `Refuse` | `coordinator.py` `_deliver_head`, `_call_head_service` (whatever a head's handler raises is that room's), `_finish_delivery` |
+| Model `Decide` (with `WithSplit`) | `coordinator.py` `_compute`, `_apply` (queues every head, then `_write_back_mode`, then `DeliveryQueue.async_wait`, with nothing awaited before the writeback), `_write_back_mode`, `_stamp_mode_change`, `_record_mode`; `delivery.py` `DeliveryQueue.queue` |
+| Model `Deliver`, `Refuse` | `delivery.py` `DeliveryQueue._deliver`, `DeliveryQueue._async_issue` (whatever a head's handler raises is that room's), `DeliveryQueue._finish` |
 | Model `Select` during an apply | `select.py` `async_select_option`; `coordinator.py` `async_select_shared_mode` |
-| Model `Reload`, `Restart` during an apply | `coordinator.py` `_retire_deliveries`, `_delivery_owned`; the record's load as in `verify-mxz-formal` |
-| Code mutants C42, C43 | `_apply` (the writeback after the wait), `_call_head_service` (a non-Home-Assistant error fails the plan) |
+| Model `Reload`, `Restart` during an apply | `delivery.py` `DeliveryQueue.retire`, `DeliveryQueue.owned`; the record's load as in `verify-mxz-formal` |
+| Code mutants C42, C43 | `_apply` (the writeback after the wait), `DeliveryQueue._async_issue` (a non-Home-Assistant error fails the plan) |
 
 Does a change touch it?
 
 ```sh
 git diff --stat ca78324aca3d5402252a585693ae98193cee24ca -- \
-  custom_components/mxz_coordinator/coordinator.py custom_components/mxz_coordinator/select.py \
-  docs/formal/tla/MXZCoordinator.tla
+  custom_components/mxz_coordinator/coordinator.py custom_components/mxz_coordinator/delivery.py \
+  custom_components/mxz_coordinator/select.py docs/formal/tla/MXZCoordinator.tla
 ```
 
 If it lists a file, read the diff against the table. A change inside a listed function needs

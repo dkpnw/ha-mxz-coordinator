@@ -452,13 +452,13 @@ async def test_fan_boost_measures_the_distance_to_the_range(hass: HomeAssistant,
     await _range(hass, entry, "primary", 68, 74)
     coord = entry.runtime_data
     seen: dict[str, float] = {}
-    original = coord._queue_delivery
+    original = coord.deliveries.queue
 
     def spy(climate_id, act, low, high, delta=0.0, engage=None):
         seen[climate_id] = delta
         return original(climate_id, act, low, high, delta, engage)
 
-    monkeypatch.setattr(coord, "_queue_delivery", spy)
+    monkeypatch.setattr(coord.deliveries, "queue", spy)
     await _start(hass, entry)
     for temp, want in ((71.0, 0.0), (68.0, 0.0), (74.0, 0.0), (65.5, 2.5), (77.0, 3.0)):
         await _run(hass, entry, temp, 72.5)

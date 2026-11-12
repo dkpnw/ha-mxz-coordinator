@@ -220,8 +220,8 @@ async def delivery(hass, request, monkeypatch):
         await until(lambda: not any(r.active.values()))
         r.emit("cleanup", active=r.active, peak=r.peak)
         assert not any(r.active.values())
-        await until(lambda: not r.coord._deliveries)
-        assert not r.coord._deliveries
+        await until(lambda: not r.coord.deliveries._active)
+        assert not r.coord.deliveries._active
 
 
 @pytest.mark.parametrize("park", [False, True])
@@ -359,7 +359,7 @@ async def test_resistant_return_retirement_and_new_incarnation(delivery, retire)
             await r.service("number", "set_value", "_primary_target", value=67)
     assert r.active["a"] == 1
     assert len(r.calls("a", kind="enter")) == 1
-    assert old.command_attributes(r.heads["a"].entity_id)["command_retired_at"] != "not yet recorded"
+    assert old.deliveries.attributes(r.heads["a"].entity_id)["command_retired_at"] != "not yet recorded"
     before = len(r.events)
     r.release(gate)
     await until(lambda: bool(r.calls("a", high=70)))
@@ -481,7 +481,7 @@ async def test_resistant_vane_retirement_preserves_guard_and_ordinary_order(
     cid = heads[0].entity_id
     harness = await _start_blocked_kick(hass, entry, heads[0], vane, "wake", monkeypatch, request)
     coord._vane_kick_retire = 0.05
-    before = coord.command_attributes(cid)
+    before = coord.deliveries.attributes(cid)
     cleanup_entered, cleanup_release = asyncio.Event(), asyncio.Event()
     original_mode = heads[0].async_set_hvac_mode
     original_fan = heads[0].async_set_fan_mode
@@ -508,7 +508,7 @@ async def test_resistant_vane_retirement_preserves_guard_and_ordinary_order(
         assert not harness.kick_task.done()
         assert harness.commands == [("head", "fan_only"), ("head", "off")]
         assert hass.states.get(cid).state == "off"
-        observed = coord.command_attributes(cid)
+        observed = coord.deliveries.attributes(cid)
         assert observed["command_status"] == "pending"
         assert observed["command_attempted_at"] == before["command_attempted_at"]
         assert observed["command_returned_at"] == before["command_returned_at"]
@@ -519,8 +519,8 @@ async def test_resistant_vane_retirement_preserves_guard_and_ordinary_order(
         # A fresh coordinator uses the same real per-head ordering, without
         # depending on HA entry setup waiting for unload's cleanup to finish.
         successor = type(coord)(hass, entry)
-        assert successor.command_attributes(cid) == observed
-        next_command = asyncio.create_task(successor.async_head_service(
+        assert successor.deliveries.attributes(cid) == observed
+        next_command = asyncio.create_task(successor.deliveries.async_send(
             cid, "set_fan_mode", {"fan_mode": "low"}, manual=True,
         ))
         await asyncio.sleep(0.03)
@@ -530,17 +530,17 @@ async def test_resistant_vane_retirement_preserves_guard_and_ordinary_order(
             await until(unload.done, 1.0)
             assert await unload
             assert not harness.kick_task.done()
-            observed = coord.command_attributes(cid)
+            observed = coord.deliveries.attributes(cid)
             assert observed["command_status"] == "pending"
             assert observed["command_returned_at"] == before["command_returned_at"]
             assert observed["vane_retirement_cleanup"]["command_status"] == "returned"
-            assert coord._head_locks[cid].locked()
+            assert coord.deliveries._locks[cid].locked()
         else:
             harness.barrier.release.set()
             await until(harness.kick_task.done, 1.0)
             await harness.kick_task
             assert not next_command.done() and next_calls == []
-            observed = coord.command_attributes(cid)
+            observed = coord.deliveries.attributes(cid)
             assert observed["command_status"] == "returned"
             assert observed["vane_retirement_cleanup"]["command_status"] == "pending"
             assert not unload.done()
@@ -551,8 +551,8 @@ async def test_resistant_vane_retirement_preserves_guard_and_ordinary_order(
         await until(next_command.done, 1.0)
         await next_command
         assert next_calls == ["low"]
-        assert successor.command_attributes(cid)["command_ownership_retired"] is False
-        assert successor.command_attributes(cid)["command_retired_at"] == observed["command_retired_at"]
+        assert successor.deliveries.attributes(cid)["command_ownership_retired"] is False
+        assert successor.deliveries.attributes(cid)["command_retired_at"] == observed["command_retired_at"]
     finally:
         cleanup_release.set()
         harness.barrier.release.set()
@@ -566,8 +566,8 @@ async def test_resistant_vane_retirement_preserves_guard_and_ordinary_order(
         await hass.async_block_till_done()
     assert harness.commands == [("head", "fan_only"), ("head", "off")]
     assert not coord._vane_kicks and not coord._vane_kick_woken
-    assert not coord._vane_cleanup_pending
-    assert not coord._head_locks[cid].locked()
+    assert not coord.deliveries._cleanup
+    assert not coord.deliveries._locks[cid].locked()
 
 
 async def test_queued_vane_has_no_own_wake_retirement_permission(hass, monkeypatch):
@@ -577,7 +577,7 @@ async def test_queued_vane_has_no_own_wake_retirement_permission(hass, monkeypat
     entry, heads, vane = await _setup_kickable(hass)
     coord = entry.runtime_data
     cid = heads[0].entity_id
-    lock = coord._head_locks.setdefault(cid, asyncio.Lock())
+    lock = coord.deliveries._locks.setdefault(cid, asyncio.Lock())
     await lock.acquire()
     commands = []
     original = heads[0].async_set_hvac_mode
@@ -600,7 +600,7 @@ async def test_queued_vane_has_no_own_wake_retirement_permission(hass, monkeypat
         assert kick.done()
         assert commands == []
         assert hass.states.get(cid).state == "fan_only"
-        assert coord.command_attributes(cid)["vane_retirement_cleanup"] == {}
+        assert coord.deliveries.attributes(cid)["vane_retirement_cleanup"] == {}
     finally:
         lock.release()
         if entry.state is ConfigEntryState.LOADED:
@@ -677,18 +677,18 @@ async def test_deferred_delivery_releases_creating_service_and_transaction(
             generation = plans.count
             async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=11))
             await asyncio.sleep(0.03)
-            assert not coord.coordinator_enable and not coord._plan_lock.locked()
+            assert not coord.coordinator_enable and not coord.deliveries._lock.locked()
             if plans.count == generation:
                 break
         else:
             pytest.fail("disabled preparation never settled")
         generation = plans.count
         enable = asyncio.create_task(switch("turn_on", "_coordinator_enable"))
-        await until(lambda: cid in coord._deliveries or calls != ["off"], 1.0)
+        await until(lambda: cid in coord.deliveries._active or calls != ["off"], 1.0)
         assert calls == ["off"], "ordinary work must wait for the actual wake and cleanup returns"
         await until(enable.done, 1.0)
         await enable
-        await until(lambda: plans.count > generation and not coord._plan_lock.locked(), 1.0)
+        await until(lambda: plans.count > generation and not coord.deliveries._lock.locked(), 1.0)
         await until(lambda: peer_calls == ["fan_only"], 1.0)
         observed = hass.states.get(room_id).attributes
         assert observed["command_deferred"] is True
@@ -716,7 +716,7 @@ async def test_deferred_delivery_releases_creating_service_and_transaction(
         harness.barrier.release.set()
         await until(harness.kick_task.done, 1.0)
         await harness.kick_task
-        await until(lambda: not coord._deliveries, 1.0)
+        await until(lambda: not coord.deliveries._active, 1.0)
         await hass.async_block_till_done()
         assert calls == ["off"]
         if latest == "idle":
@@ -737,7 +737,7 @@ async def test_deferred_delivery_releases_creating_service_and_transaction(
             await enable
         assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
-        assert not coord._deliveries and not coord._vane_cleanup_pending
+        assert not coord.deliveries._active and not coord.deliveries._cleanup
 
 
 @pytest.mark.parametrize("deferred", [False, True])
@@ -754,7 +754,7 @@ async def test_delivery_disclosure_is_not_refresh_completion(hass, request, monk
 
     @callback
     def completed():
-        windows.append(r.coord._plan_lock.locked())
+        windows.append(r.coord.deliveries._lock.locked())
 
     remove = r.coord.async_add_listener(completed)
     try:

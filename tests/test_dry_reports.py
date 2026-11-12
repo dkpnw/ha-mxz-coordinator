@@ -19,6 +19,13 @@ HEAD = "climate.den"
 MODES = ["off", "heat", "cool", "dry", "fan_only", "heat_cool"]
 
 
+class _Sender:
+    """The delivery queue's ``async_send``, sending nothing."""
+
+    async def async_send(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+
 class _Host:
     """The members DryHost names, with nothing behind them but a record of notices."""
 
@@ -27,6 +34,7 @@ class _Host:
         self.retired = False
         self.coordinator_enable = True
         self.inhibited = False
+        self.deliveries = _Sender()
         self.notices: list[str] = []
 
     def clock(self) -> float:
@@ -46,9 +54,6 @@ class _Host:
 
     def cloud_head(self, climate_id: str) -> Any:
         return None
-
-    async def async_head_service(self, *args: Any, **kwargs: Any) -> None:
-        pass
 
 
 def _head(mode: str) -> State:
