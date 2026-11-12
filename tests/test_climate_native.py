@@ -158,7 +158,7 @@ async def test_running_mxz_reads_no_deprecated_member(
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "cool"
     await _recompute(hass, entry)
-    assert coordinator.head_target_bounds(head_a)
+    assert coordinator.heads.grid.target_bounds(head_a)
     # A tile write, then the second room as a range tile.
     await hass.services.async_call(
         "climate",
@@ -175,7 +175,7 @@ async def test_running_mxz_reads_no_deprecated_member(
 
     # Control: the capture sees such a report where HA makes one. Read from this
     # test, the old name is reported against the head's own module.
-    assert coordinator._head_entity(head_a).temperature_unit
+    assert coordinator.heads.grid.entity(head_a).temperature_unit
     reads = [m for m in _deprecations(caplog, head.__module__) if "reads the" in m]
     if not NATIVE:
         assert reads == []

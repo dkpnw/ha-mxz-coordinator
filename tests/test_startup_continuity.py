@@ -693,14 +693,13 @@ async def test_memory_rides_the_unavailable_record(
     reinstate = await _idle_on_residue(hass, entry, head_a)
     switch_a = _eid(hass, entry, "_primary_fan_auto")
     coordinator = entry.runtime_data
-    real_apply_head = coordinator._apply_head
+    driver_b = coordinator.heads._drivers[head_b]
+    real_apply_b = driver_b._async_apply
 
-    async def _fail(climate_id, *args):
-        if climate_id == head_b:
-            raise RuntimeError("invented fault in MXZ's own step")
-        await real_apply_head(climate_id, *args)
+    async def _fail(*args):
+        raise RuntimeError("invented fault in MXZ's own step")
 
-    coordinator._apply_head = _fail
+    driver_b._async_apply = _fail
     await _set_temp(hass, SENSOR_B, 75)  # B is called; MXZ's step for it fails
     await _recompute(hass, entry)
     assert hass.states.get(switch_a).state == "unavailable"
@@ -712,7 +711,7 @@ async def test_memory_rides_the_unavailable_record(
     assert record["extra_data"] == {
         "held": False, ATTR_LAST_FAN_COMMAND: "auto", ATTR_PRIOR_FAN_COMMAND: "high",
     }
-    coordinator._apply_head = real_apply_head
+    driver_b._async_apply = real_apply_b
     reinstate()
     await _report(hass, head_a, "auto")  # provisional
     await _startup(hass, entry)

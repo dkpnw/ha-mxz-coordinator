@@ -29,7 +29,7 @@ from .const import (
 from .host import ControllerHost, HeadCommands
 
 if TYPE_CHECKING:
-    from .cloud import CloudHead
+    from .cloud import CloudRecords
     from .coordinator import Zone
 
 _LOGGER = logging.getLogger(__package__)
@@ -39,17 +39,18 @@ class DryHost(ControllerHost, Protocol):
     """The coordinator members Dry reads or calls, beyond every controller's.
 
     Read: the kill switch, the standby hold, and a cloud head's write record
-    (whether it answers, its confirm wait, and whether a dry report can be
-    older than its last batch). Called: the delivery queue, for the head service
+    through the head drivers (whether it answers, its confirm wait, and whether
+    a dry report can be older than its last batch). Called: the delivery queue, for the head service
     a Dry pick sends.
     """
 
     coordinator_enable: bool
     inhibited: bool
 
-    def cloud_head(self, climate_id: str) -> CloudHead | None: ...
     @property
     def deliveries(self) -> HeadCommands: ...
+    @property
+    def heads(self) -> CloudRecords: ...
 
 
 class DryMode:
@@ -125,7 +126,7 @@ class DryMode:
         head = self._hass.states.get(zone.climate_id)
         if head is None or head.state in UNAVAILABLE_STATES:
             return False
-        cloud = self._host.cloud_head(zone.climate_id)
+        cloud = self._host.heads.cloud(zone.climate_id)
         if cloud is not None and cloud.unresponsive:
             return False
         if head.state != MODE_DRY:
@@ -261,7 +262,7 @@ class DryMode:
         """
         self._released.discard(zone.slug)
         head = self._hass.states.get(zone.climate_id)
-        cloud = self._host.cloud_head(zone.climate_id)
+        cloud = self._host.heads.cloud(zone.climate_id)
         if head is not None and head.state == MODE_DRY and not (
             cloud is not None and cloud.stale(self._host.clock(), mode=MODE_DRY)
         ):

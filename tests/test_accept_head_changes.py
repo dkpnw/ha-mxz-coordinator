@@ -1138,7 +1138,7 @@ def test_a_setpoint_compares_on_the_heads_grid() -> None:
 
 async def test_the_setpoint_limits_win_over_a_press(hass: HomeAssistant, freezer: Any) -> None:
     rig = await _cooling(hass, freezer)
-    low, high = rig.coord.head_target_bounds(rig.heads[0].entity_id)
+    low, high = rig.coord.heads.grid.target_bounds(rig.heads[0].entity_id)
     await rig.temp(0, high + 5)  # still cooling at the highest target, so it is written
     await _press(rig, low=high + 3, high=high + 5)
     await rig.later(HELD)

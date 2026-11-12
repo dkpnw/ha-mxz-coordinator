@@ -355,6 +355,21 @@ def finite_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
+def as_float(value: Any) -> float | None:
+    """Best-effort float() of a state attribute for idempotency comparison."""
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def bounded(value: float | None, default: float, bounds: tuple[float, float]) -> float:
+    """A stored setting inside ``bounds``; None (not set) is ``default``."""
+    if value is None:
+        return float(default)
+    return float(min(max(value, bounds[0]), bounds[1]))
+
+
 def _positive(value: Any) -> float | None:
     """``value`` as a finite positive float, else None (unset or unusable)."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):

@@ -261,7 +261,7 @@ async def test_switching_a_room_to_generic_stores_no_cloud_defaults(hass: HomeAs
     await hass.async_block_till_done()
     zone = entry.data["zones"][0]
     assert ZONE_HEAD_TYPE not in zone and not TIMING & set(zone)
-    assert entry.runtime_data._cloud == {}
+    assert entry.runtime_data.heads._clouds == {}
 
 
 async def test_switching_a_cloud_room_to_generic_stores_no_cloud_timings(hass: HomeAssistant) -> None:

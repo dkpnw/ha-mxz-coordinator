@@ -436,7 +436,7 @@ def _room(coordinator: Any, zone: Any, last_decision: Any, now: float) -> dict[s
         "window_pause": _guard(_window_pause, coordinator, zone),
         "anti_flip": _guard(_anti_flip, coordinator, zone, now),
         "sensor_health": _guard(_sensor_health, coordinator, zone),
-        "cloud": coordinator._cloud.get(zone.climate_id),
+        "cloud": coordinator.heads.cloud(zone.climate_id),
         "last_decision": last_decision,
     }
 

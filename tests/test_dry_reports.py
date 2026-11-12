@@ -26,6 +26,13 @@ class _Sender:
         pass
 
 
+class _LocalHeads:
+    """The head drivers' ``cloud``: every head here is local."""
+
+    def cloud(self, climate_id: str) -> Any:
+        return None
+
+
 class _Host:
     """The members DryHost names, with nothing behind them but a record of notices."""
 
@@ -35,6 +42,7 @@ class _Host:
         self.coordinator_enable = True
         self.inhibited = False
         self.deliveries = _Sender()
+        self.heads = _LocalHeads()
         self.notices: list[str] = []
 
     def clock(self) -> float:
@@ -51,9 +59,6 @@ class _Host:
 
     async def async_request_refresh(self) -> None:
         pass
-
-    def cloud_head(self, climate_id: str) -> Any:
-        return None
 
 
 def _head(mode: str) -> State:

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Written | 2026-11-09 (America/Los_Angeles); updated 2026-11-10 after the second review (section 3.23, and the SM-3 and SM-6 fixes made whole) |
-| Base | `f21dffef5b012ace9b31cf51fd277292f3ffa5b7` (`docs: clean-copy strings and correct accept-at-head help (#114)`). Every line number below is at that commit; the fixes in this change move some by a few lines. Code this change added or changed has no line there and is cited by name (`_write_back_mode`, `_disown_waiting_command`, `CloudHead.refused`, `_watch_head_change`'s return). The door/window pause has since moved to `openings.py` (`OpeningPause`), Allow Dry to `dry.py` (`DryMode`), the fan hold to `fan_hold.py` (`FanHold`, `FanEcho`), and the refresh serialization and the per-head delivery slot and command status to `delivery.py` (`DeliveryQueue`, `Delivery`); their line numbers here are from before those moves. The Allow Dry table in section 3.14 cites `DryMode` by name, and section 3.12 names the `FanHold` method beside each old line range, and sections 3.2 to 3.4 name the `DeliveryQueue` members. |
+| Base | `f21dffef5b012ace9b31cf51fd277292f3ffa5b7` (`docs: clean-copy strings and correct accept-at-head help (#114)`). Every line number below is at that commit; the fixes in this change move some by a few lines. Code this change added or changed has no line there and is cited by name (`_write_back_mode`, `_disown_waiting_command`, `CloudHead.refused`, `_watch_head_change`'s return). The door/window pause has since moved to `openings.py` (`OpeningPause`), Allow Dry to `dry.py` (`DryMode`), the fan hold to `fan_hold.py` (`FanHold`, `FanEcho`), the refresh serialization and the per-head delivery slot and command status to `delivery.py` (`DeliveryQueue`, `Delivery`), and each head's driver, its band and setpoint grid, and the cloud heads' records, batches and wakeup to `heads.py` (`HeadDrivers`, `LocalDriver`, `CloudDriver`, `HeadGrid`); their line numbers here are from before those moves. The Allow Dry table in section 3.14 cites `DryMode` by name, and section 3.12 names the `FanHold` method beside each old line range, sections 3.2 to 3.4 name the `DeliveryQueue` members, and section 3.16 names the `heads.py` members. |
 | How | The catalog and findings SM-1 to SM-9 come from a read-only review with scratch probes on invented heads (section 1). The fixes, the repros, the TLA+ extensions and SM-10 come from the change that added this file. Nothing ran on a real head, a real Home Assistant or a cloud account. |
 | Companion documents | The formal checks: [formal/README.md](formal/README.md), [formal/STATECHART.md](formal/STATECHART.md), [formal/PARKED-FINDINGS.md](formal/PARKED-FINDINGS.md), [formal/tla/MXZCoordinator.tla](formal/tla/MXZCoordinator.tla), `verification/modehold/MXZModeHold.tla`. IDs such as H1 or M1 are those of the whole-repo audit of the same date. |
 
@@ -206,8 +206,9 @@ a reload on purpose, so a new coordinator waits behind an old handler. Since the
 is a `Delivery` and the code is `DeliveryQueue`'s: `queue` (was `_queue_delivery`), `_deliver`
 (`_deliver_head`), `owned` (`_delivery_owned`), `_finish` (`_finish_delivery`), `retire`
 (`_retire_deliveries`), `async_send` (`async_head_service`, whose `vane` flag is now the vane
-kick's `guard`), `disown` (`_disown_waiting_command`). The per-head steps stay in the coordinator
-as `async_deliver_steps` (`_deliver_head_steps`).
+kick's `guard`), `disown` (`_disown_waiting_command`). The per-head steps are each head's driver
+in `heads.py`: `HeadDrivers.async_deliver` (was `async_deliver_steps`, before that
+`_deliver_head_steps`) runs `LocalDriver.async_deliver` or `CloudDriver.async_deliver`.
 
 **States per head.** Empty; Queued (task made, lock not yet held); Issuing (lock held); Superseded
 (a newer intent is recorded as `next`); Superseded by a person's gesture (`manual`); Retired.
@@ -498,12 +499,19 @@ unconfirmed and sent again; a batch refused → unconfirmed and waiting for the 
 which wakes the plan when it allows the next batch; waiting for the write interval; waiting for a
 fan step; not controllable.
 
+Since the split the code is `heads.py`'s: `CloudDriver.async_deliver` (was `_deliver_cloud_steps`),
+`CloudDriver.setpoint` (`cloud_setpoint`), `CloudDriver.watch` and `CloudDriver.seen`
+(`_cloud_watch`, `_cloud_seen`), `HeadDrivers.stale_report` (`_cloud_stale_report`),
+`HeadDrivers.sync_timer` (`_sync_cloud_timer`), `HeadDrivers._on_report` (`_on_cloud_report`), and
+the build in `HeadDrivers._resolve` (`_resolve_head_type`). A generic head is a `CloudDriver` whose
+record has `generic` set.
+
 | Event | From → to | Guard | Action | Code |
 |---|---|---|---|---|
 | Build | → startup window | — | One confirm wait in which nothing is sent | 3797–3805, 3979–3991 |
 | The plan wants something the head does not show | → pending | the write interval allows, the head is controllable | Record the batch, then send mode, setpoint, fan | 4012–4047; `cloud.py:118-159` |
 | The same, too soon after the last batch | → waiting for the write interval | — | Wake when due; whatever the plan wants then goes out | 4019–4024 |
-| A call in the batch raises | pending → unconfirmed, waiting for the write interval | — | Drop the batch's intent, so nothing waits on it. The write interval still counts from it, and the window stays open, so a report of an older state is still stale. Set `release_at` to the moment the interval allows the next batch and re-arm the cloud wakeup, which the compute that queued the batch may already have done without it; if the refusal itself took longer than the interval, request a compute now. The room reads rejected and a tripped floor reads held (SM-3, fixed) | 4043–4046; `CloudHead.refused(clock)`, `_sync_cloud_timer`; `CloudHead.status` reads pending only with an intent or in the startup window |
+| A call in the batch raises | pending → unconfirmed, waiting for the write interval | — | Drop the batch's intent, so nothing waits on it. The write interval still counts from it, and the window stays open, so a report of an older state is still stale. Set `release_at` to the moment the interval allows the next batch and re-arm the cloud wakeup, which the compute that queued the batch may already have done without it; if the refusal itself took longer than the interval, request a compute now. The room reads rejected and a tripped floor reads held (SM-3, fixed) | 4043–4046; `CloudHead.refused(clock)`, `_sync_cloud_timer` (now `HeadDrivers.sync_timer`); `CloudHead.status` reads pending only with an intent or in the startup window |
 | The plan wants what the last batch carried | pending → pending | inside the confirm wait | Nothing is sent again | 3979–3991 |
 | The head shows everything wanted | pending or unconfirmed → confirmed | the window is over | Stamp the time | 4012–4018 |
 | A report of an older mode, fan or setpoint | pending | inside the window | Not a person, not drift, not a vote | 3906–3919; `cloud.py:83-116` |
@@ -792,7 +800,7 @@ trying at each update" (6932–6933, 6962–6963). Honest public state.
 **Evidence.**
 - `cloud.sent(...)` runs at 4026–4030, before the calls at 4043–4046. It sets the intent and opens a new confirm window (`cloud.py:154-159`).
 - If a call raises, the next compute finds `cloud.pending` true and the intent equal to what it wants, so it is "waiting" (3979–3982) and sends nothing (3983–3991, 4000–4018).
-- On that path it also calls `_floor_accepted` (3990, 4013), which clears `_floor_rejecting` (6970–6972). A tripped floor's row then reads heat or cool, not held, though no command was accepted.
+- On that path it also calls `_floor_accepted` (now `floor_accepted`) (3990, 4013), which clears `_floor_rejecting` (6970–6972). A tripped floor's row then reads heat or cool, not held, though no command was accepted.
 - The fan memory and ladder index are committed at 4031–4040, also before the calls.
 
 **Probe.** Two cloud heads parked in fan_only and confirmed. Room 1 went cold; the head's

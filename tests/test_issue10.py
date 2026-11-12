@@ -214,7 +214,7 @@ async def test_safe_band_round_trips_at_float_boundary(hass: HomeAssistant) -> N
     await hass.async_block_till_done()
 
     coord = entry.runtime_data
-    band = coord._head_safe_band(heads[0].entity_id)
+    band = coord.heads.grid.safe_band(heads[0].entity_id)
     assert band is not None
     lo_c, hi_c = band
     # One step inward of the 1-ulp-overshooting 26.0 °C.

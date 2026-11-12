@@ -738,7 +738,7 @@ SetTarget == WithAdopt /\ \E v \in Targets :
     /\ v # target /\ target' = v /\ holding' = FALSE
     /\ UNCHANGED <<spShown, spQueue, spMem, quiet, shownKind, adopted, writeInHold, others>>
 
-\* The apply's setpoint write (_apply_head, DeliveryQueue._async_issue): skipped while a hold
+\* The apply's setpoint write (LocalDriver._async_apply, DeliveryQueue._async_issue): skipped while a hold
 \* counts (_head_change_settling), remembered before it goes out.
 WriteSp ==
     /\ WithAdopt /\ ~holding /\ spShown # target /\ Len(spQueue) < QueueMax

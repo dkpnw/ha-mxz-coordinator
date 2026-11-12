@@ -154,8 +154,8 @@ shot), each with a head, a room temperature sensor and a door/window sensor.
   journey asks for by name.
 - **Platform.** The heads register under the equipment integration's own domain. MXZ
   treats any head that is not ESPHome and not opted in to cloud or generic as local, and
-  sends it the mode on its own call, then the setpoints (`coordinator.py`,
-  `_set_mode_and_setpoints`). So the instance exercises the local path's separate-call
+  sends it the mode on its own call, then the setpoints (`heads.py`,
+  `LocalDriver._async_set_mode_and_setpoints`). So the instance exercises the local path's separate-call
   branch.
 - **Device-side channel.** A person at a remote changes the head and the head reports it;
   no `climate.*` service is called. The suite's rule is the same: "the invented people

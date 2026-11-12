@@ -27,6 +27,9 @@ LAYERS = (
     # and snapshots the fan hold.
     ("lower controllers", {"dry", "fan_hold"}),
     ("controllers", {"delivery", "openings"}),
+    # Each room's head driver sends through the delivery queue, which reaches it through
+    # HeadSteps, a Protocol the queue declares.
+    ("head drivers", {"heads"}),
     ("coordinator", {"coordinator"}),
     ("entity base", {"entity"}),
     ("surfaces", {"binary_sensor", "button", "climate", "config_flow", "diagnostics",
@@ -49,6 +52,9 @@ EXCEPTIONS = {
     ("dry", "coordinator", True):
         "Zone, the room's configuration, is defined in coordinator.py; "
         "Dry reaches the coordinator itself only through DryHost",
+    ("heads", "coordinator", True):
+        "Zone, the room's configuration, is defined in coordinator.py; "
+        "the head drivers reach the coordinator itself only through HeadsHost",
 }
 
 
