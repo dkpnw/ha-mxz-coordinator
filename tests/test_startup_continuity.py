@@ -1048,7 +1048,7 @@ async def test_upgrade_restart_from_330_records(
     writes = _fan_writes(hass)
     await _startup(hass, entry)
 
-    assert entry.runtime_data._restored_coordinator_on is True
+    assert entry.runtime_data.restored_coordinator_on is True
     assert hass.states.get(switch_a).state == "on"
     assert _fan_hold(hass, entry, 0) is False
     assert writes == [(head_a, "auto")]

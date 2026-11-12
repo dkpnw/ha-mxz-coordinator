@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
     from .coordinator import Zone
     from .dry import DryMode
+    from .fan_hold import FanHold
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -163,8 +164,8 @@ class OpeningHost(ControllerHost, Protocol):
 
     coordinator_enable: bool
     dry: DryMode
+    fan: FanHold
 
-    def fan_auto_is_on(self, climate_id: str) -> bool: ...
     async def async_apply_vane(self, climate_id: str, vane_id: str, option: str) -> None: ...
     async def async_user_changed(self, *, at_once: bool = False) -> None: ...
 
@@ -356,7 +357,7 @@ class OpeningPause:
         return {
             "hvac_mode": None if mode in (None, *UNAVAILABLE_STATES) else mode,
             "fan_mode": head.attributes.get("fan_mode") if head is not None else None,
-            "fan_held": not self._host.fan_auto_is_on(zone.climate_id),
+            "fan_held": not self._host.fan.auto_is_on(zone.climate_id),
             "vanes": vanes,
             "dry": self._host.dry.in_dry(zone),
         }

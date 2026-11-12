@@ -413,7 +413,7 @@ async def test_press_changes_no_other_setting(hass: HomeAssistant) -> None:
     before = {
         "target": coord.zones[0].target,
         "enable": coord.zones[0].enable,
-        "fan_auto": coord.fan_auto_is_on(coord.zones[0].climate_id),
+        "fan_auto": coord.fan.auto_is_on(coord.zones[0].climate_id),
         "mode": coord.current_shared_mode,
         "target_state": hass.states.get(_eid(hass, entry, "_primary_target")).state,
     }
@@ -424,7 +424,7 @@ async def test_press_changes_no_other_setting(hass: HomeAssistant) -> None:
     assert {
         "target": coord.zones[0].target,
         "enable": coord.zones[0].enable,
-        "fan_auto": coord.fan_auto_is_on(coord.zones[0].climate_id),
+        "fan_auto": coord.fan.auto_is_on(coord.zones[0].climate_id),
         "mode": coord.current_shared_mode,
         "target_state": hass.states.get(_eid(hass, entry, "_primary_target")).state,
     } == before

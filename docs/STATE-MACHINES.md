@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Written | 2026-11-09 (America/Los_Angeles); updated 2026-11-10 after the second review (section 3.23, and the SM-3 and SM-6 fixes made whole) |
-| Base | `f21dffef5b012ace9b31cf51fd277292f3ffa5b7` (`docs: clean-copy strings and correct accept-at-head help (#114)`). Every line number below is at that commit; the fixes in this change move some by a few lines. Code this change added or changed has no line there and is cited by name (`_write_back_mode`, `_disown_waiting_command`, `CloudHead.refused`, `_watch_head_change`'s return). The door/window pause has since moved to `openings.py` (`OpeningPause`), and Allow Dry to `dry.py` (`DryMode`); their line numbers here are from before those moves, and the Allow Dry table in section 3.14 cites `DryMode` by name. |
+| Base | `f21dffef5b012ace9b31cf51fd277292f3ffa5b7` (`docs: clean-copy strings and correct accept-at-head help (#114)`). Every line number below is at that commit; the fixes in this change move some by a few lines. Code this change added or changed has no line there and is cited by name (`_write_back_mode`, `_disown_waiting_command`, `CloudHead.refused`, `_watch_head_change`'s return). The door/window pause has since moved to `openings.py` (`OpeningPause`), Allow Dry to `dry.py` (`DryMode`), and the fan hold to `fan_hold.py` (`FanHold`, `FanEcho`); their line numbers here are from before those moves. The Allow Dry table in section 3.14 cites `DryMode` by name, and section 3.12 names the `FanHold` method beside each old line range. |
 | How | The catalog and findings SM-1 to SM-9 come from a read-only review with scratch probes on invented heads (section 1). The fixes, the repros, the TLA+ extensions and SM-10 come from the change that added this file. Nothing ran on a real head, a real Home Assistant or a cloud account. |
 | Companion documents | The formal checks: [formal/README.md](formal/README.md), [formal/STATECHART.md](formal/STATECHART.md), [formal/PARKED-FINDINGS.md](formal/PARKED-FINDINGS.md), [formal/tla/MXZCoordinator.tla](formal/tla/MXZCoordinator.tla), `verification/modehold/MXZModeHold.tla`. IDs such as H1 or M1 are those of the whole-repo audit of the same date. |
 
@@ -98,7 +98,7 @@ a clean stop and every 15 minutes; `Store` is written at once.
 | 3.9 | Hands-off room | `MXZCoordinator` | memory, with `released` in restore data | `MXZModeHold.tla` has it always released; phases tests only |
 | 3.10 | Heal timers (band drift, off drift) | `MXZCoordinator` | memory | Tests only |
 | 3.11 | Changes made at a head (adopt) and the head write ledger | `MXZCoordinator`, `logic.HeadWriteMemory` | hold in memory; ledger in `hass.data` | Chart A1–A5; `MXZCoordinator.tla` for room 1's setpoint (`ci-adopt`, `ci-adopt-restart`) |
-| 3.12 | A head's fan hold and the fan echo ledger | `MXZCoordinator`, `switch.py` | memory, carried in restore data | Chart F1–F11; `MXZCoordinator.tla` |
+| 3.12 | A head's fan hold and the fan echo ledger | `fan_hold.FanHold`, `switch.py` | memory, carried in restore data | Chart F1–F11; `MXZCoordinator.tla` |
 | 3.13 | Door/window pause | `MXZCoordinator`, `logic.opening_state` | `Store` | Chart W1–W11; both specs |
 | 3.14 | Coil-dry idle, and Allow Dry | `MXZCoordinator` (coil-dry), `dry.DryMode` (Allow Dry) | memory | Tests only |
 | 3.15 | Freeze floor and overheat ceiling | `MXZCoordinator`, `logic.FloorRun` | memory, with the run in restore data | Arbitration tier in tests; the run nowhere |
@@ -392,10 +392,10 @@ that window.
 
 Chart F1–F11 and `MXZCoordinator.tla` (`Observe`, `Reconcile`, `Rolled`, `Start`). Not charted:
 
-- **Fan auto on with no speed showing** is an instruction kept until the first usable report, which is then adopted (1092–1094, 4287–4291, 4646–4653). Turning it off again before that report makes the first speed a hold (4659–4669). It rides a restart (`switch.py:67-73`, `436-445`).
-- **A standby release** moves each head's hold into the restore slot and clears the memory, so the fan the hold left behind is reconciled as after a start (7568–7589).
-- **A paused head and a dry head** are read for a pick and never written (6174–6194, 6526–6549).
-- **A cloud head** moves one rung per 300 seconds (4085–4108).
+- **Fan auto on with no speed showing** is an instruction kept until the first usable report, which is then adopted (1092–1094, 4287–4291, 4646–4653; now `FanHold._observe_latch` and `FanHold.async_set_auto`). Turning it off again before that report makes the first speed a hold (4659–4669). It rides a restart (`switch.py:67-73`, `436-445`).
+- **A standby release** moves each head's hold into the restore slot and clears the memory, so the fan the hold left behind is reconciled as after a start (7568–7589; now `FanHold.reseed_after_standby`).
+- **A paused head and a dry head** are read for a pick and never written (6174–6194, 6526–6549; now one method, `FanHold.read`).
+- **A cloud head** moves one rung per 300 seconds (4085–4108; now `FanHold.cloud_token`).
 
 The fan memory and `HeadWriteMemory` are two implementations of one rule (audit M6).
 

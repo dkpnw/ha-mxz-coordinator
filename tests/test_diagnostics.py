@@ -320,7 +320,7 @@ async def test_each_room_part_reads_its_own_key(hass: HomeAssistant, freezer) ->
     coord.dry._rooms["secondary"] = "held"
     coord.dry._released.add("secondary")
     coord._hands_off_released.add("secondary")
-    coord._fan_cmd[head] = "low"
+    coord.fan._echo[head].last = "low"
     coord._last_active[head] = ("cool", time.monotonic())
 
     rooms = (await async_get_config_entry_diagnostics(hass, rig.entry))["rooms"]

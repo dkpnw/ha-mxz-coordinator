@@ -55,22 +55,6 @@ def _fan_hold(hass, entry) -> bool:
     return hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][0]["fan_hold"]
 
 
-def _simulated_restart(coord, restore: dict | None = None) -> None:
-    """Wipe per-head decision memory as a restart would; inject the switch's restore.
-
-    Only test_s12_gestures_while_unresolved still uses it; its docstring says why.
-    """
-    coord._fan_cmd.clear()
-    coord._fan_prev.clear()
-    coord._fan_older.clear()
-    coord._fan_latched.clear()
-    coord._fan_idx.clear()
-    coord._engage_latch.clear()
-    if restore:
-        for cid, held in restore.items():
-            coord.restore_fan_hold(cid, held)
-
-
 def _plant(hass, entity_id: str, state: str, when: datetime | None = None) -> None:
     """Make ``state`` at ``when`` (default now) the record a start restores, with no attributes."""
     when = when or dt_util.utcnow()
@@ -341,19 +325,18 @@ async def test_s12_gestures_while_unresolved(hass: HomeAssistant):
     """H2 discriminator: satisfied ambiguous seed, then (a) Fan-auto switch OFF
     -> must become a firm hold; separately (b) token change -> firm hold.
 
-    Still on the simulated restart (``_simulated_restart``): on a real one the
-    switch restores "quiet" as MXZ's prior write, so the pick of "quiet" below
-    reads as MXZ's echo and the first refresh writes "auto" back before the
-    switch is turned off. The simulated restart forgets that write, and the
-    same coordinator's refresh cooldown keeps the rewrite back until after.
+    The switch restores "quiet" as MXZ's prior write, so a pick of "quiet"
+    reads as MXZ's echo, and the next refresh writes "auto" over it. Here the
+    pick and the switch both land inside the request cooldown a room report
+    opened just before them, so the switch, not the pick, is what holds.
     """
     head_a, _b, entry = await _std(hass)
-    coord = entry.runtime_data
     await _drive_to_quiet_active(hass, entry)
-    await _set_temp(hass, SENSOR_A, 61.5)
-    _simulated_restart(coord, {head_a: False})
+    async with stopped(hass, entry):
+        await _set_temp(hass, SENSOR_A, 61.5)
     await _recompute(hass, entry)
     _expect(hass, entry, head_a, hold=False)  # residue cleared at seed
+    await _set_temp(hass, SENSOR_A, 61.4)  # a room report opens the request cooldown
     # (a) user pins it via the switch while satisfied/pending
     await _user_set_fan(hass, head_a, "quiet")  # ensure a non-auto token to pin
     await _set_fan_auto(hass, _eid(hass, entry, "_primary_fan_auto"), False)
@@ -452,7 +435,7 @@ async def test_switch_restore_path_end_to_end(hass: HomeAssistant) -> None:
 # ---------------------------------------------------------------------------
 # S10/S11: a standby (inhibit) hold releases like a restart for the fan latch.
 # The hold parks the heads with the fan machinery FROZEN (no fan writes); on
-# release _reseed_fan_after_standby carries the pre-hold latch truth into the
+# release FanHold.reseed_after_standby carries the pre-hold latch truth into the
 # restore slot and clears the command memory, so the fan the hold left behind
 # reconciles the same way a restart's does — a real hold is kept, boost residue
 # is not mistaken for one.
@@ -497,7 +480,7 @@ async def test_s11_standby_release_drops_boost_residue(hass: HomeAssistant):
 async def test_s12_restart_during_standby_keeps_restored_hold(hass: HomeAssistant):
     """HA restarts DURING the hold: the switch's restore must survive release.
 
-    The restart seeds _fan_restore before any fan write can consume it (fan
+    The restart seeds the fan restore before any fan write can consume it (fan
     writes are frozen while held), so the latch is empty when the hold releases.
     The release reseed must not overwrite that unconsumed restore with the empty
     latch — a pre-restart manual hold would silently dissolve into boost.

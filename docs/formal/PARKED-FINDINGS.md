@@ -58,8 +58,8 @@ A speed MXZ didn't just write is held.
 driving it, and Fan auto read off until someone handed it back, across restarts too.
 
 **When.** A local head reported its fan late, and MXZ sent it a second, different speed
-before it had reported the first. `_observe_fan_latch` allowed only for the two speeds in
-`_fan_cmd` and `_fan_prev`, so a head still showing the speed before those read as a
+before it had reported the first. The latch (now `FanHold._observe_latch`) allowed only for the
+two speeds in `_fan_cmd` and `_fan_prev` (now `FanEcho.last` and `FanEcho.prior`), so a head still showing the speed before those read as a
 departure.
 
 **How likely.** Not measured: nothing here ran on hardware. It took two different ladder
@@ -70,11 +70,11 @@ low and high inside one lag, and a head applying them one at a time shows the fi
 the rest are still coming. The first version of this fix read that as caught up, forgot
 medium, and held medium when it was reported. An independent review reproduced that.
 
-**The fix.** The coordinator keeps its writes per head, `_fan_older`, in the order written, a
+**The fix.** The coordinator keeps its writes per head (`_fan_older`, now `FanEcho.older`), in the order written, a
 speed written twice appearing twice. A report that matches one is MXZ's own write, not a pick.
 A report drops the writes before it, since a head can't show those again, and a repeated speed
 counts as its earliest write left. When the last write is all that's left, the head has caught
-up, and that write stays as the memory (`_fan_caught_up`), so the next write can't bring back a
+up, and that write stays as the memory (`_fan_caught_up`, now `FanEcho.caught_up`), so the next write can't bring back a
 speed the head has passed. A hold or a hand-back empties the memory. A report of `_fan_prev` drops
 nothing, which is wider than it has to be, and lasts only while the head is one write behind. The
 memory rides a reload or restart in the Fan auto switch's restore data, limited to speeds boost

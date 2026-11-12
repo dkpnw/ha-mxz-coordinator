@@ -575,7 +575,7 @@ async def test_guards_across_unhealthy_subtypes(
     assert c.data["secondary_demand"] == ("neutral" if guard == "eco" else "cool")
     before_recovery = list(_head_calls(calls, head))
     if guard == "fan":
-        assert not c.fan_auto_is_on(head)
+        assert not c.fan.auto_is_on(head)
         assert hass.states.get(head).attributes["fan_mode"] == "quiet"
         assert hass.states.get(head).state == "fan_only"
         assert hass.states.get(head_b).state == "cool"

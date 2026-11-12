@@ -727,7 +727,7 @@ async def test_invalid_sensor_leaves_the_fan_boost_arithmetic_safe(
     assert hass.states.get(head_a).state == "fan_only"
     # Parked, and the boost handed back to the firmware's own auto.
     assert hass.states.get(head_a).attributes["fan_mode"] == "auto"
-    assert entry.runtime_data._fan_idx.get(head_a) is None
+    assert entry.runtime_data.fan._idx.get(head_a) is None
 
 
 @pytest.mark.parametrize(

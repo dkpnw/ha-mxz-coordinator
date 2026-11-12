@@ -442,7 +442,7 @@ async def _restart_without_fan_boost(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.runtime_data.fan_boost_enable is False
-    assert entry.runtime_data._fan_restore[head_a] is (restored_fan_auto == "off")
+    assert entry.runtime_data.fan._restore[head_a] is (restored_fan_auto == "off")
     return entry, head_a, fan_auto
 
 

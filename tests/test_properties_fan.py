@@ -6,7 +6,7 @@ reloads and restarts. MXZ never holds a speed nobody picked.
 
 The documented exception is pinned here too, as what it is: a pick of one of the
 last two speeds MXZ commanded reads as MXZ's own echo
-(``MXZCoordinator._observe_fan_latch``, the cloud1104 PARKED.md "A pick
+(``FanHold._observe_latch``, the cloud1104 PARKED.md "A pick
 of the previous fan speed is overwritten", docs/formal/README.md). It is a passing
 test on purpose: CI's phase plugin (tools/pytest_phases.py) refuses xfails, and a
 test that pins it still fails the day the behavior changes.
@@ -341,8 +341,8 @@ async def test_no_person_no_hold_when_a_head_reports_every_write_in_order(
             elif step[0] == "report":
                 await rig.report_next_fan()
             else:
-                memory = rig.coord._fan_older.get(head.entity_id, ())
-                assume(not (len(memory) > 1 and head.fan == rig.coord.fan_command_memory(head.entity_id)[0]))
+                memory = rig.coord.fan._echo[head.entity_id].older
+                assume(not (len(memory) > 1 and head.fan == rig.coord.fan.command_memory(head.entity_id)[0]))
                 await (rig.reload() if step[0] == "reload" else rig.restart())
             await nobody_touched_it()
         for _ in range(100):
@@ -351,7 +351,7 @@ async def test_no_person_no_hold_when_a_head_reports_every_write_in_order(
             await nobody_touched_it()
         else:
             raise AssertionError("the head never got through its queue")
-        assert rig.coord.fan_older_commands(head.entity_id) == []
+        assert rig.coord.fan.older_commands(head.entity_id) == []
     finally:
         await rig.close()
 

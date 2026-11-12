@@ -1,7 +1,7 @@
 """F1: a slow local head's report of an older fan write of MXZ's isn't a person's pick.
 
 The coordinator keeps its older fan writes, per head, until the head's reports pass them
-(``MXZCoordinator._fan_older``). A speed MXZ didn't recently write is still a person's
+(``FanEcho.older``). A speed MXZ didn't recently write is still a person's
 pick, held at once and across a start. docs/formal/PARKED-FINDINGS.md has the finding
 and docs/formal/README.md the rule. All rooms and heads are invented.
 """
@@ -15,6 +15,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.mxz_coordinator.const import FAN_LADDER, FAN_OLDER_WRITES
+from custom_components.mxz_coordinator.fan_hold import FanEcho
 from custom_components.mxz_coordinator.switch import FanHoldRestoreData
 from tests.property_rig import TARGET, Rig, open_rig
 
@@ -85,7 +86,7 @@ async def test_the_findings_walk_holds_nothing_and_boost_keeps_driving(hass: Hom
     head = rig.heads[0].entity_id
 
     def memory() -> tuple[Any, ...]:
-        return (*rig.coord.fan_command_memory(head), rig.coord.fan_older_commands(head))
+        return (*rig.coord.fan.command_memory(head), rig.coord.fan.older_commands(head))
 
     assert memory() == ("low", "medium", ["high"])
     assert rig.fan_held() is False
@@ -140,7 +141,7 @@ async def test_a_head_caught_up_reads_an_older_write_as_a_pick(hass: HomeAssista
     await rig.temp(0, MEDIUM_RUNG)
     await rig.temp(0, LOW_RUNG)
     assert head.fan_writes == ["high", "medium", "low"]
-    assert rig.coord.fan_older_commands(head.entity_id) == []
+    assert rig.coord.fan.older_commands(head.entity_id) == []
     writes = len(head.fan_writes)
     await rig.person_fan("high")
     assert rig.fan_held() is True
@@ -153,9 +154,9 @@ async def test_a_lagging_heads_report_of_the_last_write_ends_the_tolerance(hass:
     """The same pick as the walk's echo, one report later, is a hold."""
     rig = await _lagging_walk(hass, freezer)
     head = rig.heads[0]
-    assert rig.coord.fan_older_commands(head.entity_id) == ["high"]
+    assert rig.coord.fan.older_commands(head.entity_id) == ["high"]
     await rig.report_fan()
-    assert rig.coord.fan_older_commands(head.entity_id) == []
+    assert rig.coord.fan.older_commands(head.entity_id) == []
     await rig.person_fan("high")
     assert rig.fan_held() is True
     assert head.fan == "high"
@@ -169,8 +170,8 @@ async def test_the_memory_rides_a_start_with_the_head_still_behind(hass: HomeAss
     assert _switch_attrs(rig)["older_fan_commands"] == ["high"]
     await (rig.reload() if start == "reload" else rig.restart())
     head = rig.heads[0]
-    assert rig.coord.fan_command_memory(head.entity_id) == ("low", "medium")
-    assert rig.coord.fan_older_commands(head.entity_id) == ["high"]
+    assert rig.coord.fan.command_memory(head.entity_id) == ("low", "medium")
+    assert rig.coord.fan.older_commands(head.entity_id) == ["high"]
     assert rig.fan_held() is False
     assert rig.fan_auto_switch() == "on"
     await rig.report_fan()
@@ -180,10 +181,10 @@ async def test_the_memory_rides_a_start_with_the_head_still_behind(hass: HomeAss
 
 
 async def test_a_record_without_the_memory_still_holds_conservatively(hass: HomeAssistant, freezer: Any) -> None:
-    """A record from before this field: _reconcile_restored_hold's documented false hold,
+    """A record from before this field: ``FanHold._reconcile_restored_hold``'s documented false hold,
     unchanged. It is what the memory above is for, so a start with it lost must show it."""
     rig = await _lagging_walk(hass, freezer)
-    rig.coord.restore_fan_hold(rig.heads[0].entity_id, False, last="low", prior="medium")
+    rig.coord.fan.restore(rig.heads[0].entity_id, False, last="low", prior="medium")
     await rig.settle()
     assert rig.fan_held() is True
     await rig.close()
@@ -196,8 +197,8 @@ async def test_a_restored_speed_boost_could_never_write_is_no_echo(hass: HomeAss
     await rig.report_fan()
     head.person_fan("high")
     await hass.async_block_till_done()
-    rig.coord.restore_fan_hold(head.entity_id, False, last="low", prior="quiet", older=("high", "diffuse", "medium"))
-    assert rig.coord.fan_older_commands(head.entity_id) == ["medium"]
+    rig.coord.fan.restore(head.entity_id, False, last="low", prior="quiet", older=("high", "diffuse", "medium"))
+    assert rig.coord.fan.older_commands(head.entity_id) == ["medium"]
     await rig.settle()
     assert rig.fan_held() is True
     await rig.close()
@@ -208,14 +209,14 @@ async def test_a_hold_and_a_hand_back_leave_no_older_writes(hass: HomeAssistant,
     rig = await _lagging_walk(hass, freezer)
     head = rig.heads[0]
     await rig.switch("_primary_fan_auto", False)
-    assert rig.coord.fan_older_commands(head.entity_id) == []
+    assert rig.coord.fan.older_commands(head.entity_id) == []
     await rig.switch("_primary_fan_auto", True)
-    assert rig.coord.fan_older_commands(head.entity_id) == []
+    assert rig.coord.fan.older_commands(head.entity_id) == []
     await rig.close()
 
     rig = await _lagging_walk(hass, freezer)
     await rig.person_fan("quiet")
-    assert rig.coord.fan_older_commands(rig.heads[0].entity_id) == []
+    assert rig.coord.fan.older_commands(rig.heads[0].entity_id) == []
     await rig.close()
 
 
@@ -225,16 +226,16 @@ async def test_the_memory_is_bounded_and_per_head(hass: HomeAssistant, freezer: 
     coord = rig.coord
     head, other = rig.heads[0].entity_id, rig.heads[1].entity_id
     tokens = [f"speed{i}" for i in range(FAN_OLDER_WRITES + 6)]
-    coord._fan_cmd[head], coord._fan_prev[head] = "auto", "auto"
+    coord.fan._echo[head] = FanEcho("auto", "auto")
     for token in tokens:
-        coord._remember_fan_write(head, token)
-    older = coord.fan_older_commands(head)
+        coord.fan._echo[head].wrote(token)
+    older = coord.fan.older_commands(head)
     assert len(older) == FAN_OLDER_WRITES >= len(FAN_LADDER)
     assert older == tokens[-(FAN_OLDER_WRITES + 2):-2]
-    assert coord.fan_older_commands(other) == []
+    assert coord.fan.older_commands(other) == []
 
-    assert coord._observe_fan_latch(head, older[0], "cool", 1.0) is False
-    assert coord._observe_fan_latch(head, tokens[0], "cool", 1.0) is True
+    assert coord.fan._observe_latch(head, older[0], "cool", 1.0) is False
+    assert coord.fan._observe_latch(head, tokens[0], "cool", 1.0) is True
     await rig.close()
 
 
@@ -242,11 +243,11 @@ async def test_a_rewrite_and_a_repeat_keep_the_memory_exact(hass: HomeAssistant,
     """No speed twice, none of the last two, no auto, and a rewrite rolls nothing (#14)."""
     rig = await open_rig(hass, freezer)
     coord, head = rig.coord, rig.heads[0].entity_id
-    coord._fan_cmd[head], coord._fan_prev[head] = "auto", "auto"
+    coord.fan._echo[head] = FanEcho("auto", "auto")
     for token in ("high", "medium", "medium", "low", "high", "low"):
-        coord._remember_fan_write(head, token)
-    assert coord.fan_command_memory(head) == ("low", "high")
-    assert coord.fan_older_commands(head) == ["medium"]
+        coord.fan._echo[head].wrote(token)
+    assert coord.fan.command_memory(head) == ("low", "high")
+    assert coord.fan.older_commands(head) == ["medium"]
     await rig.close()
 
 
@@ -256,13 +257,13 @@ async def test_a_late_report_equal_to_the_last_write_keeps_the_writes_after_it(h
     rig = await _queued_walk(hass, freezer, HIGH_RUNG, MEDIUM_RUNG, LOW_RUNG, HIGH_RUNG)
     head = rig.heads[0]
     assert list(dict.fromkeys(head.fan_writes)) == ["high", "medium", "low"]
-    assert rig.coord.fan_command_memory(head.entity_id) == ("high", "low")
-    assert rig.coord.fan_older_commands(head.entity_id) == ["medium"]
+    assert rig.coord.fan.command_memory(head.entity_id) == ("high", "low")
+    assert rig.coord.fan.older_commands(head.entity_id) == ["medium"]
 
     shown = await _report_each_write_in_order(rig)
 
     assert shown == ["high", "medium", "low", "high"]
-    assert rig.coord.fan_older_commands(head.entity_id) == []
+    assert rig.coord.fan.older_commands(head.entity_id) == []
     await rig.close()
 
 
@@ -272,10 +273,10 @@ async def test_a_later_write_of_a_speed_outlives_a_report_past_its_first(hass: H
     rig = await _queued_walk(hass, freezer, HIGH_RUNG, MEDIUM_RUNG, LOW_RUNG, MEDIUM_RUNG, LOW_RUNG + 0.5, HIGH_RUNG)
     head = rig.heads[0]
     assert [token for token, _ in groupby(head.fan_writes)] == ["high", "medium", "low", "medium", "low", "high"]
-    assert rig.coord.fan_command_memory(head.entity_id) == ("high", "low")
-    assert rig.coord.fan_older_commands(head.entity_id) == ["medium"]
+    assert rig.coord.fan.command_memory(head.entity_id) == ("high", "low")
+    assert rig.coord.fan.older_commands(head.entity_id) == ["medium"]
     assert await _report_each_write_in_order(rig) == ["high", "medium", "low", "medium", "low", "high"]
-    assert rig.coord.fan_older_commands(head.entity_id) == []
+    assert rig.coord.fan.older_commands(head.entity_id) == []
     await rig.close()
 
 
@@ -283,11 +284,11 @@ async def test_a_late_report_of_auto_doesnt_end_a_walk_back_to_auto(hass: HomeAs
     """The same stream with auto as the repeat. Auto's report is the last write's, or the first's."""
     rig = await _walk_back_to_auto(hass, freezer)
     head = rig.heads[0]
-    assert rig.coord.fan_command_memory(head.entity_id) == ("auto", "low")
-    assert rig.coord.fan_older_commands(head.entity_id) == ["high", "medium"]
+    assert rig.coord.fan.command_memory(head.entity_id) == ("auto", "low")
+    assert rig.coord.fan.older_commands(head.entity_id) == ["high", "medium"]
 
     assert await _report_each_write_in_order(rig) == ["auto", "medium", "low", "auto"]
-    assert rig.coord.fan_older_commands(head.entity_id) == []
+    assert rig.coord.fan.older_commands(head.entity_id) == []
     await rig.close()
 
 
@@ -299,9 +300,9 @@ async def test_a_start_keeps_where_a_repeated_write_came_first(hass: HomeAssista
     assert _switch_attrs(rig)["older_fan_commands"] == ["high", "medium"]
     assert _restore_data(rig)["older_fan_commands"] == ["high", "medium"]
     await (rig.reload() if start == "reload" else rig.restart())
-    assert rig.coord.fan_older_commands(rig.heads[0].entity_id) == ["medium"]
+    assert rig.coord.fan.older_commands(rig.heads[0].entity_id) == ["medium"]
     assert await _report_each_write_in_order(rig) == ["high", "medium", "low", "high"]
-    assert rig.coord.fan_older_commands(rig.heads[0].entity_id) == []
+    assert rig.coord.fan.older_commands(rig.heads[0].entity_id) == []
     await rig.close()
 
 
@@ -311,7 +312,7 @@ async def test_a_start_keeps_where_a_repeat_of_auto_came_first(hass: HomeAssista
     assert _restore_data(rig)["older_fan_commands"] == ["high", "auto", "medium"]
     await (rig.reload() if start == "reload" else rig.restart())
     await _report_each_write_in_order(rig)
-    assert rig.coord.fan_older_commands(rig.heads[0].entity_id) == []
+    assert rig.coord.fan.older_commands(rig.heads[0].entity_id) == []
     await rig.close()
 
 
@@ -327,7 +328,7 @@ async def test_known_limit_a_start_on_the_first_of_two_writes_can_still_hold(
     head = rig.heads[0]
     while head.fan != "low":
         assert await rig.report_next_fan()
-    assert rig.coord.fan_command_memory(head.entity_id) == ("low", "medium")
+    assert rig.coord.fan.command_memory(head.entity_id) == ("low", "medium")
     assert "older_fan_commands" not in _switch_attrs(rig)
     await (rig.reload() if start == "reload" else rig.restart())
     await rig.temp(0, TARGET + 0.2)
@@ -349,7 +350,7 @@ async def test_without_a_start_that_walk_holds_nothing(hass: HomeAssistant, free
     await rig.temp(0, TARGET + 0.2)
     await rig.temp(0, MEDIUM_RUNG)
     assert await _report_each_write_in_order(rig) == ["low", "medium", "low", "quiet", "medium"]
-    assert rig.coord.fan_older_commands(head.entity_id) == []
+    assert rig.coord.fan.older_commands(head.entity_id) == []
     await rig.close()
 
 
@@ -358,14 +359,14 @@ async def test_a_report_drops_the_writes_before_it_and_no_others(hass: HomeAssis
     The tolerance ends write by write, not only at the last."""
     rig = await _queued_walk(hass, freezer, HIGH_RUNG, TARGET + 3.2, MEDIUM_RUNG, LOW_RUNG)
     head = rig.heads[0]
-    assert rig.coord.fan_command_memory(head.entity_id) == ("low", "medium")
-    assert rig.coord.fan_older_commands(head.entity_id) == ["high", "middle"]
+    assert rig.coord.fan.command_memory(head.entity_id) == ("low", "medium")
+    assert rig.coord.fan.older_commands(head.entity_id) == ["high", "middle"]
     while head.fan != "high":
         assert await rig.report_next_fan()
-    assert rig.coord.fan_older_commands(head.entity_id) == ["high", "middle"]  # it is what's showing
+    assert rig.coord.fan.older_commands(head.entity_id) == ["high", "middle"]  # it is what's showing
     while head.fan != "middle":
         assert await rig.report_next_fan()
-    assert rig.coord.fan_older_commands(head.entity_id) == ["middle"]
+    assert rig.coord.fan.older_commands(head.entity_id) == ["middle"]
     writes = len(head.fan_writes)
     await rig.person_fan("high")
     assert rig.fan_held() is True
@@ -384,14 +385,14 @@ async def test_a_head_that_only_reports_the_repeat_costs_one_pick_at_most(hass: 
     head = rig.heads[0]
     await rig.report_fan()
     assert head.fan == "high"
-    assert rig.coord.fan_older_commands(head.entity_id) == ["medium"]
+    assert rig.coord.fan.older_commands(head.entity_id) == ["medium"]
 
     await rig.person_fan("medium")
     assert rig.fan_held() is False
     assert head.unreported_fan == "high"  # boost is writing over the pick
     await rig.report_fan()
     assert head.fan == "high"
-    assert rig.coord.fan_older_commands(head.entity_id) == []
+    assert rig.coord.fan.older_commands(head.entity_id) == []
 
     writes = len(head.fan_writes)
     await rig.person_fan("medium")
@@ -409,7 +410,7 @@ async def test_a_prompt_head_shows_no_older_writes_after_a_repeat(hass: HomeAssi
     for temp in (HIGH_RUNG, MEDIUM_RUNG, LOW_RUNG, HIGH_RUNG, MEDIUM_RUNG, HIGH_RUNG):
         await rig.temp(0, temp)
         assert head.fan == head.fan_writes[-1]
-        assert rig.coord.fan_older_commands(head.entity_id) == []
+        assert rig.coord.fan.older_commands(head.entity_id) == []
         assert "older_fan_commands" not in _switch_attrs(rig)
     await rig.close()
 
@@ -441,7 +442,7 @@ async def test_a_prompt_heads_passed_speed_holds_during_the_next_writes_window(
     head = rig.heads[0]
     assert [token for token, _ in groupby(head.fan_writes)] == written
     assert head.unreported_fan == written[-1]
-    assert rig.coord.fan_older_commands(head.entity_id) == []
+    assert rig.coord.fan.older_commands(head.entity_id) == []
     assert "older_fan_commands" not in _switch_attrs(rig)
     writes = len(head.fan_writes)
     await rig.person_fan(pick)
@@ -480,18 +481,18 @@ async def test_known_cost_the_first_write_after_a_start_can_read_one_speed_more(
     head = rig.heads[0]
     await rig.report_fan()
     assert head.fan == "medium"
-    assert rig.coord.fan_command_memory(head.entity_id) == ("medium", "high")
+    assert rig.coord.fan.command_memory(head.entity_id) == ("medium", "high")
     await (rig.reload() if start == "reload" else rig.restart())
     await rig.temp(0, LOW_RUNG)
     assert head.unreported_fan == "low"
-    assert rig.coord.fan_command_memory(head.entity_id) == ("low", "medium")
-    assert rig.coord.fan_older_commands(head.entity_id) == ["high"]
+    assert rig.coord.fan.command_memory(head.entity_id) == ("low", "medium")
+    assert rig.coord.fan.older_commands(head.entity_id) == ["high"]
     await rig.person_fan("high")
     assert rig.fan_held() is False
     assert head.unreported_fan == "low"  # boost is writing over the pick
     await rig.report_fan()
     assert head.fan == "low"
-    assert rig.coord.fan_older_commands(head.entity_id) == []
+    assert rig.coord.fan.older_commands(head.entity_id) == []
     writes = len(head.fan_writes)
     await rig.person_fan("high")
     assert rig.fan_held() is True

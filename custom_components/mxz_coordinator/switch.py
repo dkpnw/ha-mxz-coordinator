@@ -9,7 +9,6 @@ the seed tells boost residue from a deliberate hold after a restart.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -214,9 +213,9 @@ class MXZSwitch(MXZBaseSwitch):
         setattr(self.coordinator, self._key, self._attr_is_on)
         if self._key == KEY_COORDINATOR_ENABLE:
             if restored:
-                self.coordinator._restored_coordinator_on = cast("bool", self._attr_is_on)
+                self.coordinator.restored_coordinator_on = cast("bool", self._attr_is_on)
             elif not was_enabled or not self._attr_is_on:
-                self.coordinator._restored_coordinator_on = False
+                self.coordinator.restored_coordinator_on = False
                 self.coordinator._startup_resume.clear()
 
 
@@ -366,7 +365,7 @@ class MXZZoneFanAutoSwitch(
         cid = self._zone.climate_id
         last = None if self._readded else await self.async_get_last_state()
         if last is not None and self._restored_state_is_stale(last):
-            self.coordinator._fan_restore_problem[cid] = "Previous fan hold belongs to an older entry."
+            self.coordinator.fan.restore_failed(cid, "Previous fan hold belongs to an older entry.")
         if last is not None and not self._restored_state_is_stale(last):
             stored: FanHoldRestoreData | None = None
             if last.state in ("on", "off"):
@@ -380,7 +379,7 @@ class MXZZoneFanAutoSwitch(
             elif (extra := await self.async_get_last_extra_data()) is not None:
                 stored = FanHoldRestoreData.from_dict(extra.as_dict())
             if stored is not None:
-                self.coordinator.restore_fan_hold(
+                self.coordinator.fan.restore(
                     self._zone.climate_id,
                     held=stored.held,
                     last=stored.last,
@@ -389,11 +388,8 @@ class MXZZoneFanAutoSwitch(
                     on_pending=stored.on_pending and self.coordinator.config_entry.created_at is not None,
                 )
             else:
-                self.coordinator._fan_restore_problem[cid] = "Previous fan hold is missing or malformed."
-        self.coordinator._fan_state_writers[cid] = self.async_write_ha_state
-        self.async_on_remove(
-            cast("Callable[[], None]", lambda: self.coordinator._fan_state_writers.pop(cid, None))
-        )
+                self.coordinator.fan.restore_failed(cid, "Previous fan hold is missing or malformed.")
+        self.async_on_remove(self.coordinator.fan.attach(cid, self.async_write_ha_state))
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self._zone.climate_id], self._handle_head_change
@@ -414,7 +410,7 @@ class MXZZoneFanAutoSwitch(
         these attributes are not a command log. An unavailable state has no
         attributes; extra restore data covers its ownership snapshot.
         """
-        last, prior = self.coordinator.fan_command_memory(self._zone.climate_id)
+        last, prior = self.coordinator.fan.command_memory(self._zone.climate_id)
         head = self.hass.states.get(self._zone.climate_id)
         reason = None
         if head is not None and head.attributes.get("fan_mode") is None:
@@ -426,22 +422,22 @@ class MXZZoneFanAutoSwitch(
             ATTR_LAST_FAN_COMMAND: last, ATTR_PRIOR_FAN_COMMAND: prior,
             "fan_control_reason": reason,
         }
-        if self._zone.climate_id in self.coordinator._fan_on_pending:
+        if self.coordinator.fan.on_pending(self._zone.climate_id):
             attributes[ATTR_FAN_ON_PENDING] = True
-        if older := self.coordinator.fan_older_record(self._zone.climate_id):
+        if older := self.coordinator.fan.older_record(self._zone.climate_id):
             attributes[ATTR_OLDER_FAN_COMMANDS] = older
         return attributes
 
     @property
     def extra_restore_state_data(self) -> FanHoldRestoreData:
         """Persist the hold truth and echo memory beside the state, available or not."""
-        last, prior = self.coordinator.fan_command_memory(self._zone.climate_id)
+        last, prior = self.coordinator.fan.command_memory(self._zone.climate_id)
         return FanHoldRestoreData(
-            held=not self.coordinator.fan_auto_is_on(self._zone.climate_id),
+            held=not self.coordinator.fan.auto_is_on(self._zone.climate_id),
             last=last,
             prior=prior,
-            on_pending=self._zone.climate_id in self.coordinator._fan_on_pending,
-            older=tuple(self.coordinator.fan_older_record(self._zone.climate_id)),
+            on_pending=self.coordinator.fan.on_pending(self._zone.climate_id),
+            older=tuple(self.coordinator.fan.older_record(self._zone.climate_id)),
         )
 
     @property
@@ -454,15 +450,15 @@ class MXZZoneFanAutoSwitch(
     @property
     def is_on(self) -> bool:
         """Mirror the latch: ON when boost drives, OFF when a manual hold is active."""
-        return self.coordinator.fan_auto_is_on(self._zone.climate_id)
+        return self.coordinator.fan.auto_is_on(self._zone.climate_id)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Release the zone's latch and let boost reassert."""
-        await self.coordinator.async_set_fan_auto(self._zone.climate_id, True)
+        await self.coordinator.fan.async_set_auto(self._zone.climate_id, True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Latch the zone at the head's current fan speed (no-op if it's at auto)."""
-        await self.coordinator.async_set_fan_auto(self._zone.climate_id, False)
+        await self.coordinator.fan.async_set_auto(self._zone.climate_id, False)
         self.async_write_ha_state()
 
 

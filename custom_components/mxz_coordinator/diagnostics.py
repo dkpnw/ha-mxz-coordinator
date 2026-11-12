@@ -303,7 +303,7 @@ def _coordinator(coordinator: Any) -> dict[str, Any]:
             "stored_mode": record.mode,
             "stored_mode_at": _wall(record.mode_at) if record.mode is not None else None,
             "stored_mode_by_votes": record.by_votes,
-            "restored_coordinator_on": coordinator._restored_coordinator_on,
+            "restored_coordinator_on": coordinator.restored_coordinator_on,
         },
     }
 
@@ -386,17 +386,7 @@ def _holds(coordinator: Any, zone: Any) -> dict[str, Any]:
 
 
 def _manual_fan(coordinator: Any, zone: Any) -> dict[str, Any]:
-    head = zone.climate_id
-    return {
-        "latched": coordinator._fan_latched.get(head, False),
-        "commanded": coordinator._fan_cmd.get(head),
-        "previous": coordinator._fan_prev.get(head),
-        "older": coordinator.fan_older_commands(head),
-        "ladder_index": coordinator._fan_idx.get(head),
-        "turn_on_pending": head in coordinator._fan_on_pending,
-        "restored_latch": coordinator._fan_restore.get(head),
-        "restore_problem": coordinator._fan_restore_problem.get(head),
-    }
+    return cast("dict[str, Any]", coordinator.fan.diagnostics(zone.climate_id))
 
 
 def _window_pause(coordinator: Any, zone: Any) -> dict[str, Any]:

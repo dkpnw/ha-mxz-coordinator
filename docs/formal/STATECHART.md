@@ -119,7 +119,7 @@ stateDiagram-v2
 | Id | What happens | Code |
 | --- | --- | --- |
 | W1, W2, W3 | The delay counts from the reading, or from this coordinator's start if that is later. A start can lengthen a delay, never shorten it. No reading never starts a pause. | `OpeningPause.step`, `opening_state`, `opening_reading` |
-| W3 | Entering the pause: the head goes straight to off, with no coil-dry run and no fan, setpoint or vane write. A speed picked on the off head is read and held. The state is stored at once. | `OpeningPause._transition`, `_apply`, `_observe_paused_fan`, `OpeningPause._save` |
+| W3 | Entering the pause: the head goes straight to off, with no coil-dry run and no fan, setpoint or vane write. A speed picked on the off head is read and held. The state is stored at once. | `OpeningPause._transition`, `_apply`, `FanHold.read`, `OpeningPause._save` |
 | W4, W5, W6 | A closed reading counts down the close delay. Opening again starts it over. No reading doesn't end a pause. | `opening_state`, `opening_due` |
 | W7 | A real mode change on a paused head, to anything but off, not MXZ's own, takes the room over at once. So does the Window Override switch. The room is coordinated normally: MXZ doesn't turn the head back off. | `_on_head_change`, `OpeningPause.take_over`, `OpeningPause.async_set_override` |
 | W8 | With the window already closed and the close delay running, a change on the head is recorded, and the closed reading ends it at the next compute: the room goes on closing and the head is sent off again. This is the documented "until the window closes", at its edge. | `_on_head_change`, `OpeningPause.step` |
@@ -151,14 +151,14 @@ stateDiagram-v2
 
 | Id | What happens | Code |
 | --- | --- | --- |
-| F1, F2 | With no memory, `auto` sets the baseline. A speed the ladder would stay on is adopted (a hold placed there is lost: documented), a fan_only idle on an established entry reads as ours (#25), and anything else seeds a hold. | `_observe_fan_latch`, `_seed_matches_boost`, `_seed_is_own_idle` |
-| F3 | Boost picks a rung and writes it once. A rewrite of the commanded token doesn't roll the memory (#14). | `_apply_fan`, `fan_for_delta`, `_write_fan` |
-| F4 | A speed in neither `_fan_cmd` nor `_fan_prev`, and not in `_fan_older` either, is a person's. MXZ makes no fan write while held. | `_observe_fan_latch`, `_hold_at` |
-| F5 | One of the two remembered speeds reads as MXZ's echo: not held, and boost writes over it. So does an older write, until the head's reports pass it (F1). A pick of the speed showing can't be read at all. | `_observe_fan_latch`, `_remember_fan_write`, `_fan_caught_up` |
-| F6 | A hold's memory is the held speed, so any other speed moves it. | `_hold_at` |
-| F7, F8 | Fan auto on adopts the showing speed and hands it back. Fan auto off holds it. At `auto`, off does nothing. | `async_set_fan_auto`, `_adopt_fan_speed` |
-| F9 | The switch restores the held or not-held truth and, if not held, the remembered speeds with any older writes, limited to what boost could write. | `MXZZoneFanAutoSwitch.async_added_to_hass`, `restore_fan_hold` |
-| F10, F11 | The first speed read settles it. Held stays held at that speed. Not held: a speed boost could never write holds; one in memory, or any in-ceiling rung with no memory or in a fan_only idle, is ours; otherwise it conservatively holds. | `_reconcile_restored_hold` |
+| F1, F2 | With no memory, `auto` sets the baseline. A speed the ladder would stay on is adopted (a hold placed there is lost: documented), a fan_only idle on an established entry reads as ours (#25), and anything else seeds a hold. | `FanHold._observe_latch`, `FanHold._seed_matches_boost`, `FanHold._seed_is_own_idle` |
+| F3 | Boost picks a rung and writes it once. A rewrite of the commanded token doesn't roll the memory (#14). | `FanHold.async_apply`, `fan_for_delta`, `FanHold._async_write` |
+| F4 | A speed that is neither of the last two writes (`FanEcho.last`, `FanEcho.prior`), and not in `FanEcho.older` either, is a person's. MXZ makes no fan write while held. | `FanHold._observe_latch`, `FanEcho.own`, `FanHold._hold_at` |
+| F5 | One of the two remembered speeds reads as MXZ's echo: not held, and boost writes over it. So does an older write, until the head's reports pass it (F1). A pick of the speed showing can't be read at all. | `FanHold._observe_latch`, `FanEcho.own`, `FanEcho.wrote`, `FanEcho.caught_up` |
+| F6 | A hold's memory is the held speed, so any other speed moves it. | `FanHold._hold_at` |
+| F7, F8 | Fan auto on adopts the showing speed and hands it back. Fan auto off holds it. At `auto`, off does nothing. | `FanHold.async_set_auto`, `FanHold._adopt` |
+| F9 | The switch restores the held or not-held truth and, if not held, the remembered speeds with any older writes, limited to what boost could write. | `MXZZoneFanAutoSwitch.async_added_to_hass`, `FanHold.restore` |
+| F10, F11 | The first speed read settles it. Held stays held at that speed. Not held: a speed boost could never write holds; one in memory, or any in-ceiling rung with no memory or in a fan_only idle, is ours; otherwise it conservatively holds. | `FanHold._reconcile_restored_hold` |
 
 ## An apply's commands
 
@@ -195,7 +195,7 @@ stateDiagram-v2
 
 | Id | What happens | Code |
 | --- | --- | --- |
-| L1, L2 | The Fan auto switch's state goes to restore data at a reload or a stop, and every 15 minutes by Home Assistant. | `extra_restore_state_data`, `fan_command_memory` |
+| L1, L2 | The Fan auto switch's state goes to restore data at a reload or a stop, and every 15 minutes by Home Assistant. | `extra_restore_state_data`, `FanHold.command_memory` |
 | L3 | The mode record and the door/window store were written at every change, so they survive. The Fan auto truth is as last dumped. | `_record_mode`, `OpeningPause._save` |
 | L4 | The record gives the mode, whether votes set it, and what is left of the hold; the store gives each room's door/window state and override; each room resumes from its head. | `async_load_mode_record`, `mode_change_stamp`, `restore_shared_mode`, `async_load_openings`, `OpeningRecord.restored` |
 
