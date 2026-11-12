@@ -15,6 +15,9 @@
   a report needs. Tested by users lists only reports with a public GitHub link.
 - RELEASING.md states the release cadence, and its step references point at the right steps.
 - Each screenshot the docs show is in the theme SETUP.md's note says (the pixels are the oracle).
+- The Quick start installs from the Marketplace (Home Assistant 2026.11 or newer) and links to
+  SETUP.md's HACS steps for older versions, which keep search, Download, restart and Add
+  integration. The README's main badge opens the Marketplace.
 """
 
 import json
@@ -467,3 +470,114 @@ def test_release_step_finder_rejects_a_missing_step() -> None:
     with pytest.raises(AssertionError):
         _release_step("1. One\n", 2)
     assert _release_step("1. One\n2. Two\n\n## Next\n", 1) == "One\n"
+
+
+# Home Assistant 2026.11 replaced HACS with the built-in Marketplace (release notes,
+# Nov 4, 2026). The Quick start defaults to the Marketplace and links to the HACS steps,
+# which SETUP.md keeps for older versions.
+HACS_SECTION_HEADING = "### Before Home Assistant 2026.11 (HACS)"
+HACS_SECTION_LINK = "docs/SETUP.md#before-home-assistant-202611-hacs"
+MY_LINK = "https://my.home-assistant.io/redirect/{}/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration"
+MARKETPLACE_LINK = MY_LINK.format("marketplace_repository")
+HACS_LINK = MY_LINK.format("hacs_repository")
+
+
+def _quick_start(readme: str) -> str:
+    return readme.split("\n## Quick start\n", 1)[1].split("\n## ", 1)[0]
+
+
+def _hacs_section(setup: str) -> str:
+    return re.split(r"^#{1,3} ", setup.split(f"\n{HACS_SECTION_HEADING}\n", 1)[1], maxsplit=1, flags=re.MULTILINE)[0]
+
+
+def _numbered_steps(section: str) -> list[str]:
+    steps = re.findall(r"^\d+\. (.*?)(?=^\d+\. |^\S|\Z)", section, flags=re.MULTILINE | re.DOTALL)
+    return [" ".join(step.split()) for step in steps]
+
+
+def _quick_start_problems(quick_start: str) -> list[str]:
+    """What is wrong with the Quick start: it opens with the Marketplace line and the HACS link,
+    installs from the Marketplace, and keeps MXZ's own setup steps."""
+    opening = " ".join(quick_start.strip().split("\n\n", 1)[0].split())
+    steps = _numbered_steps(quick_start)
+    problems = []
+    if "HACS became the Marketplace in Home Assistant 2026.11" not in opening:
+        problems.append("no Marketplace line first")
+    if f"]({HACS_SECTION_LINK})" not in opening:
+        problems.append("no link to the HACS steps")
+    if not steps or "**Settings → Marketplace**" not in steps[0]:
+        problems.append("step 1 is not the Marketplace")
+    problems += [f"step {n} names HACS" for n, step in enumerate(steps, 1) if "HACS" in step]
+    problems += [
+        f"no {name} step" for name in ("**Heads.**", "**Rooms and sensors.**", "**Save and finish**", "**Coordinator enable**")
+        if not any(name in step for step in steps)
+    ]
+    return problems
+
+
+def _hacs_section_problems(section: str) -> list[str]:
+    """The HACS steps a Home Assistant older than 2026.11 still needs, missing from the section."""
+    steps = " ".join(_numbered_steps(section))
+    wanted = (
+        "Open **HACS**, search for **MXZ Coordinator**, and select **Download**",
+        f"]({HACS_LINK})",
+        "Restart Home Assistant to load the integration",
+        "**Settings → Devices & services → Add integration → MXZ Coordinator**",
+        "Complete the setup below",
+    )
+    return [text for text in wanted if text not in steps]
+
+
+def test_quick_start_installs_from_the_marketplace_and_links_the_hacs_steps() -> None:
+    assert _quick_start_problems(_quick_start(Path("README.md").read_text())) == []
+
+
+def test_setup_keeps_the_hacs_steps_for_older_home_assistant() -> None:
+    setup = Path("docs/SETUP.md").read_text()
+    assert _hacs_section_problems(_hacs_section(setup)) == []
+    assert setup.index("\n## Install\n") < setup.index(HACS_SECTION_HEADING)
+
+
+def test_quick_start_check_reports_a_hacs_default_or_a_dropped_link() -> None:
+    """Negative: the base Quick start (HACS first), a dropped link and a dropped step are reported."""
+    hacs_default = (
+        "\nYou need Home Assistant.\n\n1. In HACS, search for **MXZ Coordinator** and select **Download**.\n"
+        "2. **Heads.** a\n3. **Rooms and sensors.** b\n4. **Save and finish**\n5. **Coordinator enable**\n"
+    )
+    assert _quick_start_problems(hacs_default) == [
+        "no Marketplace line first", "no link to the HACS steps", "step 1 is not the Marketplace", "step 1 names HACS",
+    ]
+    good = _quick_start(Path("README.md").read_text())
+    assert _quick_start_problems(good.replace(HACS_SECTION_LINK, "docs/SETUP.md#install")) == ["no link to the HACS steps"]
+    assert _quick_start_problems(good.replace("**Heads.**", "Heads.")) == ["no **Heads.** step"]
+
+
+def test_hacs_section_check_reports_a_dropped_step() -> None:
+    """Negative: losing Download, the restart or the hacs_repository link is reported, and the
+    section stops at the next heading."""
+    section = _hacs_section(Path("docs/SETUP.md").read_text())
+    assert _hacs_section_problems(section.replace("**Download**", "**Install**")) == [
+        "Open **HACS**, search for **MXZ Coordinator**, and select **Download**",
+    ]
+    assert _hacs_section_problems(section.replace(HACS_LINK, MARKETPLACE_LINK)) == [f"]({HACS_LINK})"]
+    assert _hacs_section_problems(section.replace("2. Restart", "2. Reload")) == [
+        "Restart Home Assistant to load the integration",
+    ]
+    setup = f"## Install\n\n{HACS_SECTION_HEADING}\n\n1. Open **HACS**\n\n## Set up\n\n1. Restart Home Assistant to load the integration\n"
+    assert "Restart Home Assistant to load the integration" in _hacs_section_problems(_hacs_section(setup))
+
+
+def _main_badge(readme: str) -> str:
+    """The first My Home Assistant link in the README: the one-click badge."""
+    return re.search(r'<a href="(https://my\.home-assistant\.io/redirect/[^"]+)"', readme)[1]
+
+
+def test_main_badge_opens_the_marketplace() -> None:
+    readme = Path("README.md").read_text()
+    assert _main_badge(readme) == MARKETPLACE_LINK
+    assert '<img src="https://my.home-assistant.io/badges/marketplace_repository.svg"' in readme
+
+
+def test_main_badge_check_reports_the_hacs_badge() -> None:
+    """Negative: the base README's HACS badge is not the Marketplace one."""
+    assert _main_badge(f'<p><a href="{HACS_LINK}"><img></a> <a href="{MARKETPLACE_LINK}"></a></p>') == HACS_LINK
