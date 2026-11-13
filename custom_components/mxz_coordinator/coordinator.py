@@ -57,12 +57,6 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .capabilities import head_has_fan_auto
 from .clock import Clock
-from .cloud import (
-    clamp,
-    offset_in_unit,
-    snap_to_step,
-    target_in_unit,
-)
 from .const import (
     ACTION_VOTE_HOLD,
     ACTION_VOTE_SETTLE,
@@ -241,6 +235,7 @@ from .logic import (
 )
 from .openings import OpeningPause
 from .plan import Plan, RoomPlan
+from .units import clamp, offset_in_unit, snap_to_step, target_in_unit
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry

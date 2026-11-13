@@ -81,6 +81,7 @@ a time. Each moves into a module that owns its state, its wakeups and its stored
 | --- | --- |
 | `logic.py` | The decision math: room calls, arbitration, door/window states, floors, setpoints. No Home Assistant. |
 | `cloud.py` | A cloud or generic head's write record and its setpoint math. No Home Assistant. |
+| `units.py` | How a saved temperature or difference follows a °F/°C switch (`offset_in_unit`, `target_in_unit`), and the rounding and bounding they use (`snap_to_step`, `clamp`). No Home Assistant. |
 | `plan.py` | The plan one compute decides (`Plan`, and a `RoomPlan` per room), which the apply, the mode's writeback, the dwell wakeup and the room thermostat read back as typed fields. `to_attributes()` renders it as the plan sensor, the room rows and diagnostics show it. A room row also carries what other controllers render for it (delivery, head, floor, Dry, door/window), kept as each one renders it. No Home Assistant. |
 | `openings.py` | The door/window pause: each room's record and its store, the delay wakeups, the notices, and the vanes a resume owes. |
 | `dry.py` | Allow Dry: which rooms are held or parked in dry, a Dry picked on a thermostat and its wakeup, a room released from dry, and the Dry notices. In memory only. |

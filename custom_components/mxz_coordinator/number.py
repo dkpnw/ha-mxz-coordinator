@@ -11,11 +11,11 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .cloud import offset_in_unit, snap_to_step, target_in_unit
 from .const import DOMAIN
 from .coordinator import MXZCoordinator, Zone
 from .entity import MXZEntity
 from .logic import RangeError, resolve_range, shift_range
+from .units import offset_in_unit, snap_to_step, target_in_unit
 
 
 def range_error(coordinator: MXZCoordinator, zone: Zone, err: RangeError) -> ServiceValidationError:

@@ -15,11 +15,9 @@ from custom_components.mxz_coordinator.cloud import (
     CLOUD_PENDING,
     CLOUD_UNCONFIRMED,
     CloudHead,
-    clamp,
     drive_setpoint,
-    offset_in_unit,
-    snap_to_step,
 )
+from custom_components.mxz_coordinator.units import clamp, offset_in_unit, snap_to_step
 
 
 @pytest.mark.parametrize(

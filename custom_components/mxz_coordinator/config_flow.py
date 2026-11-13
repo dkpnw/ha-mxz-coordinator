@@ -21,7 +21,6 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .capabilities import head_lists_dry, head_mode_problem, supported_idle_actions
-from .cloud import offset_in_unit
 from .const import (
     CLOUD_PLATFORMS,
     COMFORT_DOMAINS,
@@ -155,6 +154,7 @@ from .const import (
 )
 from .coordinator import read_room_temp
 from .logic import evidence_contract, freshness_window, snapped_midpoint
+from .units import offset_in_unit
 
 _CLIMATE_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="climate")
@@ -3216,7 +3216,7 @@ class MXZOptionsFlow(OptionsFlow):
             else:
                 zone.pop(zone_key, None)
         # A set offset keeps the unit it was set in, so a later °F/°C switch
-        # converts it (see cloud.offset_in_unit).
+        # converts it (see units.offset_in_unit).
         if ZONE_DRIVE_OFFSET in zone:
             zone[ZONE_DRIVE_OFFSET_UNIT] = unit
         else:

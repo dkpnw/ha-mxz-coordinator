@@ -17,7 +17,6 @@ from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 from hypothesis import given
 from hypothesis import strategies as st
 
-from custom_components.mxz_coordinator.cloud import target_in_unit
 from custom_components.mxz_coordinator.const import (
     CONF_CLAMP_MAX,
     CONF_CLAMP_MIN,
@@ -27,6 +26,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_FLOOR_HIGH,
     ZONE_FLOOR_LOW,
 )
+from custom_components.mxz_coordinator.units import target_in_unit
 from tests.property_rig import PURE, TARGET, Rig, open_rig
 from tests.restore_store import replace_stored_state, stored_state
 from tests.test_drive import _set_target

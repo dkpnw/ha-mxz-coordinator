@@ -22,7 +22,7 @@ every wait on the clock.
 
 `tools/import_bounds.py` is the one place the layers and exceptions are written. Each
 module of the integration sits in one layer and imports only from layers below its own.
-`const.py`, `logic.py`, `cloud.py` and `plan.py` also import only the standard library,
+`const.py`, `units.py`, `logic.py`, `cloud.py` and `plan.py` also import only the standard library,
 so their math runs without Home Assistant.
 
 The check fails when:
