@@ -16,9 +16,15 @@ import pytest
 from custom_components.mxz_coordinator.settings import (
     NUMBER,
     PAGES,
+    ROOM_FIELDS,
+    ROOM_SECTIONS,
     SETTINGS,
+    STORE_HOOK,
     finite,
     page_layout,
+    room_fields,
+    room_view,
+    store_room,
     tunable_errors,
 )
 
@@ -86,3 +92,49 @@ def test_every_number_is_checked_finite_and_nothing_else_is() -> None:
     errors = tunable_errors({setting.key: "nan" for setting in SETTINGS})
     assert set(errors) == numbers
     assert set(errors.values()) == {"not_a_number"}
+
+
+def test_the_room_page_shows_exactly_its_rows_in_order() -> None:
+    assert _layout_in_strings("options", "room") == (
+        [field.key for field in room_fields(None)],
+        {name: [field.key for field in room_fields(name)] for name in ROOM_SECTIONS},
+    )
+
+
+def test_every_room_row_has_a_label() -> None:
+    step = json.loads(STRINGS.read_text())["options"]["step"]["room"]
+    for field in ROOM_FIELDS:
+        where = step["sections"][field.section] if field.section else step
+        assert where["data"].get(field.key), field.key
+
+
+def test_a_room_left_as_shown_stores_what_it_stored() -> None:
+    """Saving a page untouched changes no record, whatever it holds (no new keys)."""
+    records = [
+        {},
+        {"hands_off": True, "hands_off_vote_basis": "action", "floor_low": 45.0,
+         "drift_cooler_by": 1.5, "report_interval": 5, "evidence_basis": "ha_state_write",
+         "dual_setpoint": True, "allow_dry": True, "opening_entity": "binary_sensor.w",
+         "opening_pause_enable": True, "opening_open_delay": 30.0, "stage_sensor": "sensor.s"},
+    ]
+    for record in records:
+        zone = dict(record)
+        view = room_view(zone)
+        store_room(zone, view, dry=True)
+        assert zone == record
+
+
+def test_off_or_blank_stores_no_key() -> None:
+    """Negative: every rule but the page's own (hook) removes the key for off/blank."""
+    full = {field.zone_key: "x" for field in ROOM_FIELDS}
+    zone = dict(full)
+    store_room(zone, {}, dry=True)
+    assert set(zone) == {field.zone_key for field in ROOM_FIELDS if field.store == STORE_HOOK}
+
+
+def test_allow_dry_is_left_alone_when_the_page_did_not_show_it() -> None:
+    zone = {"allow_dry": True}
+    store_room(zone, {}, dry=False)
+    assert zone == {"allow_dry": True}
+    store_room(zone, {}, dry=True)
+    assert zone == {}

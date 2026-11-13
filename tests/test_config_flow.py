@@ -2826,12 +2826,23 @@ def _flow_reasons(sources: dict[str, str]) -> dict[tuple[str, str], set[str]]:
         aborts, errors = direct(flow)
         reasons[section, "abort"] |= aborts
         reasons[section, "error"] |= errors
-        for name in {
+        # Each helper the class names, and each helper those name in turn.
+        pending = [
             node.id
             for node in ast.walk(flow)
             if isinstance(node, ast.Name) and node.id in helpers
-        }:
+        ]
+        reached: set[str] = set()
+        while pending:
+            if (name := pending.pop()) in reached:
+                continue
+            reached.add(name)
             reasons[section, "error"] |= helper_reasons(helpers[name])
+            pending += [
+                node.id
+                for node in ast.walk(helpers[name])
+                if isinstance(node, ast.Name) and node.id in helpers
+            ]
     return reasons
 
 
@@ -2871,7 +2882,13 @@ _PAIRS = (("low", "high", "pair_error"),)
 
 
 def _thing_problem():
-    return "tuple_error", {}
+    if _inner_error():
+        return "tuple_error", {}
+    return None
+
+
+def _inner_error():
+    return "nested_error"
 
 
 def _unused_problem():
@@ -2887,7 +2904,7 @@ def _validate_input(data):
     reasons = _flow_reasons({"flow.py": source})
     assert reasons == {
         ("config", "abort"): {"already_configured", "raised_abort", "never_translated"},
-        ("config", "error"): {"literal_error", "tuple_error"},
+        ("config", "error"): {"literal_error", "tuple_error", "nested_error"},
         ("options", "abort"): set(),
         ("options", "error"): {"options_literal", "pair_error"},
     }
@@ -2923,6 +2940,8 @@ def test_every_flow_reason_has_a_local_string() -> None:
         "idle_action_unsupported",
         "must_not_be_negative",
         "changeover_inverted",
+        "opening_notify_service_invalid",
+        "single_head_needs_generic",
     } <= reasons["options", "error"]
 
     paths = [folder / "strings.json", *sorted((folder / "translations").glob("*.json"))]

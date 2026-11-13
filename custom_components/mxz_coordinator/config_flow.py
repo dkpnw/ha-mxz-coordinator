@@ -23,7 +23,6 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 from .capabilities import head_lists_dry, head_mode_problem, supported_idle_actions
 from .const import (
     CLOUD_PLATFORMS,
-    COMFORT_DOMAINS,
     CONF_DRIFT_COOLER_BY,
     CONF_DRIFT_WARMER_BY,
     CONF_IDLE_ACTION,
@@ -31,13 +30,10 @@ from .const import (
     CONF_PRIMARY_CLIMATE,
     CONF_SECONDARY_CLIMATE,
     CONF_ZONES,
-    CONFIRM_WAIT_BOUNDS,
     DEFAULT_CONFIRM_WAIT,
     DEFAULT_DRIVE_OFFSET_C,
     DEFAULT_DRIVE_OFFSET_F,
     DEFAULT_IDLE_ACTION,
-    DEFAULT_OPENING_CLOSE_DELAY,
-    DEFAULT_OPENING_OPEN_DELAY,
     DEFAULT_WRITE_INTERVAL,
     DOMAIN,
     DRIVE_OFFSET_MAX_C,
@@ -62,18 +58,10 @@ from .const import (
     NEW_ROOM_FLOOR_LOW_F,
     NEW_ROOM_MAX_AGE,
     OFFSET_HEAD_TYPES,
-    OPENING_CLOSE_DELAY_BOUNDS,
-    OPENING_OPEN_DELAY_BOUNDS,
     OPENING_ZONE_ENTITY_SUFFIXES,
     UNAVAILABLE_STATES,
-    VOTE_BASES,
     VOTE_BASIS_ACTION,
-    VOTE_BASIS_MODE,
-    WRITE_INTERVAL_BOUNDS,
-    ZONE_ALLOW_DRY,
     ZONE_CLIMATE,
-    ZONE_COMFORT_PRIORITY_ENTITY,
-    ZONE_CONFIRM_WAIT,
     ZONE_DRIFT_COOLER_BY,
     ZONE_DRIFT_WARMER_BY,
     ZONE_DRIVE_OFFSET,
@@ -81,29 +69,17 @@ from .const import (
     ZONE_DUAL_SETPOINT,
     ZONE_ENTITY_SUFFIXES,
     ZONE_EVIDENCE_BASIS,
-    ZONE_FLOOR_HIGH,
     ZONE_FLOOR_LOW,
-    ZONE_HANDS_OFF,
-    ZONE_HANDS_OFF_VOTE_BASIS,
     ZONE_HEAD_TYPE,
     ZONE_MAX_AGE,
     ZONE_NAME,
-    ZONE_OPENING_CLOSE_DELAY,
     ZONE_OPENING_ENTITY,
-    ZONE_OPENING_NOTIFY,
     ZONE_OPENING_NOTIFY_SERVICE,
-    ZONE_OPENING_OPEN_DELAY,
     ZONE_OPENING_PAUSE,
-    ZONE_REPORT_INTERVAL,
-    ZONE_SAFETY_PRIORITY_ENTITY,
-    ZONE_SAMPLE_SEQUENCE_ATTR,
-    ZONE_SAMPLE_TIMESTAMP_ATTR,
     ZONE_SENSOR,
     ZONE_STAGE_SENSOR,
-    ZONE_STARTUP_GRACE,
     ZONE_VANE_HORIZONTAL,
     ZONE_VANE_VERTICAL,
-    ZONE_WRITE_INTERVAL,
     unit_profile,
     zone_slug,
 )
@@ -115,14 +91,25 @@ from .settings import (
     ENGAGE,
     ENTITY,
     FLAG,
+    NUMBER,
     PAGES,
+    ROOM_FIELD,
+    ROOM_FIELDS,
+    ROOM_SECTIONS,
     SETTINGS,
     TEMPERATURE,
     TEXT,
+    RoomField,
     Setting,
     blank,
+    finite,
+    number_bounds,
     page_fields,
     page_layout,
+    room_fields,
+    room_view,
+    shown_choice,
+    store_room,
     tunable_errors,
 )
 from .units import offset_in_unit
@@ -132,21 +119,6 @@ _CLIMATE_SELECTOR = selector.EntitySelector(
 )
 _SENSOR_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
-)
-_VANE_SELECTOR = selector.EntitySelector(
-    selector.EntitySelectorConfig(domain="select")
-)
-# The stage/airflow sensor is a sensor (ESPHome text_sensors register in the
-# `sensor` domain), so a sensor picker covers it.
-_STAGE_SELECTOR = selector.EntitySelector(
-    selector.EntitySelectorConfig(domain="sensor")
-)
-_SAFETY_PRIORITY_SELECTOR = selector.EntitySelector(
-    selector.EntitySelectorConfig(domain="binary_sensor")
-)
-# Comfort priority: an on/off entity or a number entity (see COMFORT_DOMAINS).
-_COMFORT_PRIORITY_SELECTOR = selector.EntitySelector(
-    selector.EntitySelectorConfig(domain=list(COMFORT_DOMAINS))
 )
 _ROOM_NAME_SELECTOR = selector.TextSelector()
 
@@ -249,16 +221,6 @@ def _one_head_allowed(heads: list[str], generic: bool) -> bool:
     its entry is its own outdoor unit. One local or cloud head is refused.
     """
     return generic and len(heads) == 1
-
-
-def _head_type_selector() -> selector.SelectSelector:
-    return selector.SelectSelector(
-        selector.SelectSelectorConfig(
-            options=list(HEAD_TYPES),
-            translation_key="head_type",
-            mode=selector.SelectSelectorMode.DROPDOWN,
-        )
-    )
 
 
 _CONF_HEADS = "heads"
@@ -652,77 +614,6 @@ def _sensors_schema(count: int, suggestions: list[str] | None = None) -> vol.Sch
     )
 
 
-# A room page's wiring fields (flow key, zone key). Clearing one removes that
-# wiring from the room.
-_ROOM_WIRING_FIELDS = (
-    ("stage", ZONE_STAGE_SENSOR),
-    ("vane_vertical", ZONE_VANE_VERTICAL),
-    ("vane_horizontal", ZONE_VANE_HORIZONTAL),
-    ("safety_priority_entity", ZONE_SAFETY_PRIORITY_ENTITY),
-    ("comfort_priority_entity", ZONE_COMFORT_PRIORITY_ENTITY),
-)
-# The room page's hands-off opt-in (flow key); stored as ZONE_HANDS_OFF only
-# when on, so an opted-out room's record is exactly what it was before this option existed.
-_HANDS_OFF_FIELD = "hands_off"
-# What that room's head vote follows (flow key); stored as
-# ZONE_HANDS_OFF_VOTE_BASIS only when "action", so a room left at "mode"
-# stores exactly what it stored before this option existed.
-_VOTE_BASIS_FIELD = "hands_off_vote_basis"
-_FRESHNESS_ZONE_FIELDS = (
-    ("report_interval", ZONE_REPORT_INTERVAL),
-    ("max_age", ZONE_MAX_AGE),
-    ("startup_grace", ZONE_STARTUP_GRACE),
-    ("evidence_basis", ZONE_EVIDENCE_BASIS),
-    ("sample_timestamp_attribute", ZONE_SAMPLE_TIMESTAMP_ATTR),
-    ("sample_sequence_attribute", ZONE_SAMPLE_SEQUENCE_ATTR),
-)
-_FRESHNESS_SECTION = "freshness"
-# The room page's optional freeze floor / overheat ceiling (flow key, zone key),
-# in a collapsed section. Blank by default; a blank field stores no key.
-_FLOOR_FIELDS = (("floor_low", ZONE_FLOOR_LOW), ("floor_high", ZONE_FLOOR_HIGH))
-_FLOOR_SECTION = "floor"
-# The room page's optional uneven drift (flow key, zone key), in a collapsed
-# section. Blank by default; a blank field stores no key, so the side falls
-# through to the room's drift number, then the global side, then Allowed drift.
-# The flow keys differ from the global CONF_DRIFT_* keys on purpose: flow keys
-# are scrubbed from flat storage, and the global ones are stored flat.
-_ROOM_DRIFT_FIELDS = (
-    ("room_cooler_by", ZONE_DRIFT_COOLER_BY),
-    ("room_warmer_by", ZONE_DRIFT_WARMER_BY),
-)
-_DRIFT_SECTION = "drift"
-# The room page's dual setpoint opt-in, in a collapsed section. Stored as
-# ZONE_DUAL_SETPOINT: True only while on; off removes the key.
-_DUAL_FIELD = "dual_setpoint"
-_DUAL_SECTION = "dual"
-# The room page's Allow Dry mode opt-in, shown only for a head that lists dry.
-# Stored as ZONE_ALLOW_DRY: True only while on; off removes the key. A page
-# that doesn't show it (its head lists no dry now, or is unavailable) leaves
-# whatever is stored alone.
-_ALLOW_DRY_FIELD = "allow_dry"
-# The room page's head type (beta) and, in a collapsed section, a cloud
-# head's settings (flow key, zone key). See ZONE_HEAD_TYPE for what is stored.
-_HEAD_TYPE_FIELD = "head_type"
-_CLOUD_FIELDS = (
-    ("drive_offset", ZONE_DRIVE_OFFSET),
-    ("write_interval", ZONE_WRITE_INTERVAL),
-    ("confirm_wait", ZONE_CONFIRM_WAIT),
-)
-_CLOUD_SECTION = "cloud"
-# The room page's door/window pause, in a collapsed section (flow key = zone
-# key: these keys are scrubbed from flat storage like every room key). The
-# entity alone stores the wiring; the pause and the notices store a key only
-# while on, and a delay only where it differs from its default, so a room
-# that never sets one stores exactly what it stored before.
-_OPENING_SECTION = "opening"
-_OPENING_DELAYS = (
-    (ZONE_OPENING_OPEN_DELAY, DEFAULT_OPENING_OPEN_DELAY, OPENING_OPEN_DELAY_BOUNDS),
-    (ZONE_OPENING_CLOSE_DELAY, DEFAULT_OPENING_CLOSE_DELAY, OPENING_CLOSE_DELAY_BOUNDS),
-)
-_OPENING_KEYS = (
-    ZONE_OPENING_ENTITY, ZONE_OPENING_PAUSE, ZONE_OPENING_OPEN_DELAY,
-    ZONE_OPENING_CLOSE_DELAY, ZONE_OPENING_NOTIFY, ZONE_OPENING_NOTIFY_SERVICE,
-)
 # The setup flow's head type fields, one per priority slot that suggests cloud.
 _SETUP_HEAD_TYPE = "head_type_{}"
 # The setup flow's first-step opt-in: every picked head is generic (beta).
@@ -730,25 +621,12 @@ _GENERIC_FIELD = "generic_heads"
 def _flow_only_keys() -> frozenset[str]:
     """Every key that is flow input only and must never be stored flat.
 
-    The section keys and the generic room-page keys of this flow, plus the
-    3.4.0 per-slot keys (``primary_vane_vertical`` …): those fold into the
-    zones list too, and a stale flat copy — still present in some old entries —
+    The section keys and the room-page keys of this flow, plus the 3.4.0
+    per-slot keys (``primary_vane_vertical`` …): those fold into the zones
+    list too, and a stale flat copy — still present in some old entries —
     would shadow it in the coordinator's {**data, **options} merge.
     """
-    room_keys = {
-        key
-        for key, _ in _ROOM_WIRING_FIELDS
-        + _FRESHNESS_ZONE_FIELDS
-        + _FLOOR_FIELDS
-        + _ROOM_DRIFT_FIELDS
-    }
-    room_keys.add(_HANDS_OFF_FIELD)
-    room_keys.add(_VOTE_BASIS_FIELD)
-    room_keys.add(_DUAL_FIELD)
-    room_keys.add(_ALLOW_DRY_FIELD)
-    room_keys.add(_HEAD_TYPE_FIELD)
-    room_keys.update(key for key, _ in _CLOUD_FIELDS)
-    room_keys.update(_OPENING_KEYS)
+    room_keys = {field.key for field in ROOM_FIELDS}
     section_keys = {name for page in PAGES.values() for name in page.sections}
     slot_keys = {
         f"{zone_slug(index)}_{key}"
@@ -759,10 +637,7 @@ def _flow_only_keys() -> frozenset[str]:
         room_keys
         | section_keys
         | slot_keys
-        | {
-            _FRESHNESS_SECTION, _FLOOR_SECTION, _DRIFT_SECTION, _DUAL_SECTION,
-            _CLOUD_SECTION, _OPENING_SECTION,
-        }
+        | set(ROOM_SECTIONS)
         | {_SETUP_HEAD_TYPE.format(index + 1) for index in range(MAX_ZONES)}
         | {_GENERIC_FIELD}
     )
@@ -857,10 +732,7 @@ def _room_view(zone: dict[str, Any], temperature_unit: str) -> dict[str, Any]:
     set drive offset shows in the system unit, converted from the unit it was
     set in and held to the page's range: the value MXZ drives by.
     """
-    view = {key: zone.get(zone_key) for key, zone_key in _ROOM_WIRING_FIELDS}
-    stored = zone.get(ZONE_HEAD_TYPE)
-    view[_HEAD_TYPE_FIELD] = stored if stored in HEAD_TYPES else HEAD_TYPE_LOCAL
-    view.update({key: zone.get(zone_key) for key, zone_key in _CLOUD_FIELDS})
+    view = room_view(zone)
     offset = view["drive_offset"]
     if isinstance(offset, (int, float)) and not isinstance(offset, bool) and math.isfinite(offset):
         celsius = temperature_unit == UnitOfTemperature.CELSIUS
@@ -868,24 +740,15 @@ def _room_view(zone: dict[str, Any], temperature_unit: str) -> dict[str, Any]:
         view["drive_offset"] = min(max(
             offset_in_unit(float(offset), zone.get(ZONE_DRIVE_OFFSET_UNIT), celsius), 0.0,
         ), most)
-    view[_HANDS_OFF_FIELD] = zone.get(ZONE_HANDS_OFF) is True
-    view[_VOTE_BASIS_FIELD] = (
-        VOTE_BASIS_ACTION
-        if zone.get(ZONE_HANDS_OFF_VOTE_BASIS) == VOTE_BASIS_ACTION
-        else VOTE_BASIS_MODE
-    )
-    view.update(_zone_freshness_profile(zone))
-    view.update({key: zone.get(zone_key) for key, zone_key in _FLOOR_FIELDS})
-    view.update({key: zone.get(zone_key) for key, zone_key in _ROOM_DRIFT_FIELDS})
-    view[_DUAL_FIELD] = zone.get(ZONE_DUAL_SETPOINT) is True
-    view[_ALLOW_DRY_FIELD] = zone.get(ZONE_ALLOW_DRY) is True
-    view[ZONE_OPENING_ENTITY] = zone.get(ZONE_OPENING_ENTITY)
-    view[ZONE_OPENING_PAUSE] = zone.get(ZONE_OPENING_PAUSE) is True
-    view[ZONE_OPENING_NOTIFY] = zone.get(ZONE_OPENING_NOTIFY) is True
-    view[ZONE_OPENING_NOTIFY_SERVICE] = zone.get(ZONE_OPENING_NOTIFY_SERVICE)
-    for key, default, _bounds in _OPENING_DELAYS:
-        view[key] = zone.get(key, default)
     return view
+
+
+def _notify_service_error(hass: HomeAssistant, service: Any) -> bool:
+    """Whether a set notify service is not one Home Assistant has."""
+    if not service:
+        return False
+    domain, _, name = str(service).partition(".")
+    return domain != "notify" or not name or not hass.services.has_service(domain, name)
 
 
 def _opening_error(hass: HomeAssistant, values: dict[str, Any]) -> str | None:
@@ -903,42 +766,15 @@ def _opening_error(hass: HomeAssistant, values: dict[str, Any]) -> str | None:
             return "opening_entity_invalid"
     elif values.get(ZONE_OPENING_PAUSE) is True:
         return "opening_entity_required"
-    for key, _default, (low, high) in _OPENING_DELAYS:
-        raw = values.get(key)
-        if raw in (None, ""):
+    for field in room_fields("opening"):
+        if field.kind != NUMBER or blank(raw := values.get(field.key)):
             continue
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
+        low, high = cast("tuple[float, float]", field.bounds)
+        if (value := finite(raw)) is None or not low <= value <= high:
             return "opening_delay_invalid"
-        if not math.isfinite(value) or not low <= value <= high:
-            return "opening_delay_invalid"
-    service = values.get(ZONE_OPENING_NOTIFY_SERVICE)
-    if service:
-        domain, _, name = str(service).partition(".")
-        if domain != "notify" or not name or not hass.services.has_service(domain, name):
-            return "opening_notify_service_invalid"
+    if _notify_service_error(hass, values.get(ZONE_OPENING_NOTIFY_SERVICE)):
+        return "opening_notify_service_invalid"
     return None
-
-
-def _store_opening(zone: dict[str, Any], values: dict[str, Any]) -> None:
-    """Fold the door/window section into the room's record (see _OPENING_SECTION)."""
-    for key in (ZONE_OPENING_ENTITY, ZONE_OPENING_NOTIFY_SERVICE):
-        if value := values.get(key):
-            zone[key] = value
-        else:
-            zone.pop(key, None)
-    for key in (ZONE_OPENING_PAUSE, ZONE_OPENING_NOTIFY):
-        if values.get(key) is True:
-            zone[key] = True
-        else:
-            zone.pop(key, None)
-    for key, default, _bounds in _OPENING_DELAYS:
-        raw = values.get(key)
-        if raw in (None, "") or float(raw) == default:
-            zone.pop(key, None)
-        else:
-            zone[key] = float(raw)
 
 
 def _floor_range(temperature_unit: str) -> tuple[float, float, float, float]:
@@ -956,14 +792,9 @@ def _floor_error(values: dict[str, Any], temperature_unit: str) -> bool:
     for key, lowest, highest in (
         ("floor_low", low_min, low_max), ("floor_high", high_min, high_max),
     ):
-        raw = values.get(key)
-        if raw in (None, ""):
+        if blank(raw := values.get(key)):
             continue
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            return True
-        if not math.isfinite(value) or not lowest <= value <= highest:
+        if (value := finite(raw)) is None or not lowest <= value <= highest:
             return True
     return False
 
@@ -974,214 +805,101 @@ def _room_drift_error(values: dict[str, Any]) -> bool:
     Blank is fine (the side falls through). The selector already refuses a
     value outside the drift bounds, but NaN passes its bounds, as on Comfort.
     """
-    for key, _ in _ROOM_DRIFT_FIELDS:
-        raw = values.get(key)
-        if raw in (None, ""):
-            continue
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            return True
-        if not math.isfinite(value):
-            return True
-    return False
+    return any(
+        not blank(raw := values.get(field.key)) and finite(raw) is None
+        for field in room_fields("drift")
+    )
+
+
+def _room_selector(field: RoomField, temperature_unit: str) -> selector.Selector[Any]:
+    """The field one room-page row is shown as."""
+    if field.kind == FLAG:
+        return selector.BooleanSelector()
+    if field.kind == TEXT:
+        return selector.TextSelector()
+    if field.kind == ENTITY:
+        return selector.EntitySelector(selector.EntitySelectorConfig(
+            domain=field.domains[0] if len(field.domains) == 1 else list(field.domains)
+        ))
+    if field.kind == CHOICE:
+        choice = selector.SelectSelectorConfig(
+            options=list(field.choices),
+            translation_key=field.translation_key,
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+        if field.custom_value:
+            choice["custom_value"] = True
+        return selector.SelectSelector(choice)
+    unit = temperature_unit if field.unit == TEMPERATURE else field.unit
+    bounds = number_bounds(
+        field.bounds, field.step, temperature_unit == UnitOfTemperature.CELSIUS
+    )
+    if bounds is None:
+        return _num(unit)
+    low, high, step = bounds
+    config = selector.NumberSelectorConfig(
+        mode=selector.NumberSelectorMode.BOX, min=low, max=high, step=step
+    )
+    if unit:
+        config["unit_of_measurement"] = unit
+    return selector.NumberSelector(config)
 
 
 def _room_schema(
     view: dict[str, Any],
-    expanded: bool = False,
+    *,
     temperature_unit: str = UnitOfTemperature.FAHRENHEIT,
-    floor_expanded: bool = False,
-    drift_expanded: bool = False,
     dry: bool = False,
-    opening_expanded: bool = False,
+    expanded: frozenset[str] = frozenset(),
 ) -> vol.Schema:
     """The room page: head type and wiring at the top, then the room's
     uneven drift, the freshness profile, the freeze floor / overheat ceiling,
-    the dual setpoint opt-in, and a cloud head's settings in sections. With
-    ``dry`` (the head lists dry), Allow Dry mode follows the vote basis.
+    the dual setpoint opt-in, a cloud head's settings and the door/window
+    pause in sections, each collapsed unless named in ``expanded`` (the cloud
+    section is open for a cloud or generic head). With ``dry`` (the head
+    lists dry), Allow Dry mode follows the vote basis.
 
     Suggested values show what is wired now, and an untouched field is
     submitted back with its value, so only an explicit clear removes wiring.
     The floor and drift fields suggest only a value already stored: blank
-    stays blank, so saving a room page for anything else never sets one.
+    stays blank, so saving a room page for anything else never sets one. A
+    cloud setting with nothing stored suggests the default of the room's head
+    type in the system unit.
     """
-    engage_min, engage_max = unit_profile(
-        temperature_unit == UnitOfTemperature.CELSIUS
-    )["engage_bounds"]
-    # The same box Comfort's Allowed drift and uneven drift use.
-    drift_box = selector.NumberSelector(
-        selector.NumberSelectorConfig(
-            mode=selector.NumberSelectorMode.BOX,
-            min=engage_min,
-            max=engage_max,
-            step=engage_min / 2,
-            unit_of_measurement=temperature_unit,
-        )
-    )
-    drift = {
-        vol.Optional(key, description={"suggested_value": view.get(key)}): drift_box
-        for key, _ in _ROOM_DRIFT_FIELDS
-    }
-    floor = {
-        vol.Optional(key, description={"suggested_value": view.get(key)}): _num(
-            temperature_unit
-        )
-        for key, _ in _FLOOR_FIELDS
-    }
-    celsius = temperature_unit == UnitOfTemperature.CELSIUS
-    head_type = view.get(_HEAD_TYPE_FIELD)
-    head_type = head_type if head_type in HEAD_TYPES else HEAD_TYPE_LOCAL
+    head_type = shown_choice(ROOM_FIELD["head_type"], view.get("head_type"))
     cloud_defaults = _cloud_defaults(
         temperature_unit, generic=head_type == HEAD_TYPE_GENERIC
     )
-    cloud_boxes = {
-        "drive_offset": (0.0, DRIVE_OFFSET_MAX_C if celsius else DRIVE_OFFSET_MAX_F, 0.5, temperature_unit),
-        "write_interval": (*WRITE_INTERVAL_BOUNDS, 1, "s"),
-        "confirm_wait": (*CONFIRM_WAIT_BOUNDS, 1, "s"),
-    }
-    cloud = {
-        vol.Optional(
-            key,
-            description={
-                "suggested_value": cloud_defaults[key] if view.get(key) is None else view.get(key)
-            },
-        ): selector.NumberSelector(
-            selector.NumberSelectorConfig(
-                mode=selector.NumberSelectorMode.BOX,
-                min=low, max=high, step=step, unit_of_measurement=unit,
-            )
+
+    def fields(section: str | None) -> dict[vol.Marker, Any]:
+        out: dict[vol.Marker, Any] = {}
+        for field in room_fields(section):
+            if field.needs_dry and not dry:
+                continue
+            value = view.get(field.key)
+            marker: vol.Marker
+            if field.kind == FLAG:
+                marker = vol.Optional(field.key, default=value is True)
+            elif field.kind == CHOICE:
+                marker = vol.Optional(field.key, default=shown_choice(field, value))
+            else:
+                default = cloud_defaults.get(field.key, field.default)
+                marker = vol.Optional(
+                    field.key,
+                    description={"suggested_value": default if value is None else value},
+                )
+            out[marker] = _room_selector(field, temperature_unit)
+        return out
+
+    schema = fields(None)
+    for name in ROOM_SECTIONS:
+        collapsed = (
+            head_type not in OFFSET_HEAD_TYPES if name == "cloud" else name not in expanded
         )
-        for key, (low, high, step, unit) in cloud_boxes.items()
-    }
-    opening = {
-        vol.Optional(
-            ZONE_OPENING_ENTITY,
-            description={"suggested_value": view.get(ZONE_OPENING_ENTITY)},
-        ): _SAFETY_PRIORITY_SELECTOR,
-        vol.Optional(
-            ZONE_OPENING_PAUSE, default=view.get(ZONE_OPENING_PAUSE) is True
-        ): selector.BooleanSelector(),
-        **{
-            vol.Optional(
-                key,
-                description={
-                    "suggested_value": default if view.get(key) is None else view.get(key)
-                },
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    mode=selector.NumberSelectorMode.BOX,
-                    min=low, max=high, step=1, unit_of_measurement="s",
-                )
-            )
-            for key, default, (low, high) in _OPENING_DELAYS
-        },
-        vol.Optional(
-            ZONE_OPENING_NOTIFY, default=view.get(ZONE_OPENING_NOTIFY) is True
-        ): selector.BooleanSelector(),
-        vol.Optional(
-            ZONE_OPENING_NOTIFY_SERVICE,
-            description={"suggested_value": view.get(ZONE_OPENING_NOTIFY_SERVICE)},
-        ): _ROOM_NAME_SELECTOR,
-    }
-    freshness: dict[Any, Any] = {}
-    for key, _ in _FRESHNESS_ZONE_FIELDS:
-        if key == "evidence_basis":
-            # Custom values keep invalid raw API submissions inside this
-            # form, where M23 requires one diagnostic and no mutation.
-            freshness[vol.Optional(key, default=view.get(key) or "unknown")] = (
-                selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=list(EVIDENCE_BASES),
-                        custom_value=True,
-                        translation_key="evidence_basis",
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
-                )
-            )
-        elif key in {"sample_timestamp_attribute", "sample_sequence_attribute"}:
-            freshness[
-                vol.Optional(key, description={"suggested_value": view.get(key)})
-            ] = _ROOM_NAME_SELECTOR
-        else:
-            freshness[
-                vol.Optional(key, description={"suggested_value": view.get(key)})
-            ] = _num("min")
-    return vol.Schema(
-        {  # type: ignore[misc]  # mixed vol.Required/vol.Optional keys
-            vol.Optional(_HEAD_TYPE_FIELD, default=head_type): _head_type_selector(),
-            vol.Optional(
-                "stage", description={"suggested_value": view.get("stage")}
-            ): _STAGE_SELECTOR,
-            vol.Optional(
-                "vane_vertical",
-                description={"suggested_value": view.get("vane_vertical")},
-            ): _VANE_SELECTOR,
-            vol.Optional(
-                "vane_horizontal",
-                description={"suggested_value": view.get("vane_horizontal")},
-            ): _VANE_SELECTOR,
-            vol.Optional(
-                "safety_priority_entity",
-                description={"suggested_value": view.get("safety_priority_entity")},
-            ): _SAFETY_PRIORITY_SELECTOR,
-            vol.Optional(
-                "comfort_priority_entity",
-                description={"suggested_value": view.get("comfort_priority_entity")},
-            ): _COMFORT_PRIORITY_SELECTOR,
-            vol.Optional(
-                _HANDS_OFF_FIELD, default=view.get(_HANDS_OFF_FIELD) is True
-            ): selector.BooleanSelector(),
-            vol.Optional(
-                _VOTE_BASIS_FIELD,
-                default=(
-                    VOTE_BASIS_ACTION
-                    if view.get(_VOTE_BASIS_FIELD) == VOTE_BASIS_ACTION
-                    else VOTE_BASIS_MODE
-                ),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=list(VOTE_BASES),
-                    translation_key="hands_off_vote_basis",
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            ),
-            **(
-                {
-                    vol.Optional(
-                        _ALLOW_DRY_FIELD, default=view.get(_ALLOW_DRY_FIELD) is True
-                    ): selector.BooleanSelector(),
-                }
-                if dry else {}
-            ),
-            vol.Required(_DRIFT_SECTION): section(
-                vol.Schema(drift), {"collapsed": not drift_expanded}
-            ),
-            vol.Required(_FRESHNESS_SECTION): section(
-                vol.Schema(freshness), {"collapsed": not expanded}
-            ),
-            vol.Required(_FLOOR_SECTION): section(
-                vol.Schema(floor), {"collapsed": not floor_expanded}
-            ),
-            vol.Required(_DUAL_SECTION): section(
-                vol.Schema(
-                    {
-                        vol.Optional(
-                            _DUAL_FIELD, default=view.get(_DUAL_FIELD) is True
-                        ): selector.BooleanSelector(),
-                    }
-                ),
-                {"collapsed": True},
-            ),
-            vol.Required(_CLOUD_SECTION): section(
-                vol.Schema(cloud),
-                {"collapsed": head_type not in OFFSET_HEAD_TYPES},
-            ),
-            vol.Required(_OPENING_SECTION): section(
-                vol.Schema(opening), {"collapsed": not opening_expanded}
-            ),
-        }
-    )
+        schema[vol.Required(name)] = section(
+            vol.Schema(fields(name)), {"collapsed": collapsed}
+        )
+    return vol.Schema(schema)
 
 
 def _cloud_problem(
@@ -1194,7 +912,7 @@ def _cloud_problem(
     settings must be finite numbers (the boxes refuse anything out of range).
     A generic head (beta) is held to the same, with its own messages.
     """
-    head_type = values.get(_HEAD_TYPE_FIELD)
+    head_type = values.get("head_type")
     if head_type not in OFFSET_HEAD_TYPES:
         return None
     generic = head_type == HEAD_TYPE_GENERIC
@@ -1202,25 +920,92 @@ def _cloud_problem(
         return ("generic_esphome_head", "base") if generic else ("cloud_esphome_head", "base")
     if (
         any(values.get(key) for key in ("stage", "vane_vertical", "vane_horizontal"))
-        or values.get(_DUAL_FIELD) is True
-        or values.get(_VOTE_BASIS_FIELD) == VOTE_BASIS_ACTION
+        or values.get("dual_setpoint") is True
+        or values.get("hands_off_vote_basis") == VOTE_BASIS_ACTION
     ):
         return (
             ("generic_unsupported_options", "base")
             if generic
             else ("cloud_unsupported_options", "base")
         )
-    for key, _ in _CLOUD_FIELDS:
-        raw = values.get(key)
-        if raw in (None, ""):
-            continue
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            return ("not_a_number", _CLOUD_SECTION)
-        if not math.isfinite(value):
-            return ("not_a_number", _CLOUD_SECTION)
+    if any(
+        not blank(raw := values.get(field.key)) and finite(raw) is None
+        for field in room_fields("cloud")
+    ):
+        return ("not_a_number", "cloud")
     return None
+
+
+def _room_problem(
+    hass: HomeAssistant,
+    climate_id: str,
+    values: dict[str, Any],
+    temperature_unit: str,
+    rooms: int,
+) -> tuple[str, str, frozenset[str]] | None:
+    """(error, where, sections to open) for the first check a room page fails.
+
+    An error inside a section goes on the section key: the frontend drops a
+    field error in a section. None when the page can be saved.
+    """
+    profile = {field.key: values.get(field.key) for field in room_fields("freshness")}
+    if _freshness_error(profile):
+        return "freshness_profile_invalid", "base", frozenset({"freshness"})
+    if _floor_error(values, temperature_unit):
+        return "floor_out_of_range", "base", frozenset({"floor"})
+    if _room_drift_error(values):
+        return "not_a_number", "drift", frozenset({"drift"})
+    if cloud := _cloud_problem(hass, climate_id, values):
+        return cloud[0], cloud[1], frozenset()
+    if error := _opening_error(hass, values):
+        return error, "opening", frozenset({"opening"})
+    if rooms < MIN_ZONES and values.get("head_type") != HEAD_TYPE_GENERIC:
+        # A 1-head entry exists only for a generic head (beta).
+        return "single_head_needs_generic", "base", frozenset()
+    return None
+
+
+def _store_head_type(
+    hass: HomeAssistant, zone: dict[str, Any], values: dict[str, Any], temperature_unit: str
+) -> None:
+    """Fold the room page's head type and cloud settings into the room's record.
+
+    Head type: stored as cloud or generic; as local only where the head's
+    platform suggests cloud and the room already had an answer (it was cloud
+    or generic, or kept local in setup); otherwise no key, so a CN105 room,
+    and a room never asked, stores exactly what it stored before. A cloud or
+    generic room's settings are kept only while it is one, and only where they
+    differ from the default: a box left at its default stores nothing, so the
+    default follows the unit (2 °F isn't carried into Celsius as 2 °C). The
+    page showed the defaults of the type the room had when it opened, so a box
+    left at those (switching cloud to generic, say) stores nothing either. A
+    set offset keeps the unit it was set in, so a later °F/°C switch converts
+    it (see units.offset_in_unit).
+    """
+    head_type = values.get("head_type")
+    shown = _cloud_defaults(
+        temperature_unit, generic=zone.get(ZONE_HEAD_TYPE) == HEAD_TYPE_GENERIC
+    )
+    cloud = head_type in OFFSET_HEAD_TYPES
+    if cloud:
+        zone[ZONE_HEAD_TYPE] = head_type
+    elif zone.get(ZONE_HEAD_TYPE) in HEAD_TYPES and _suggested_head_type(
+        hass, zone[ZONE_CLIMATE]
+    ) == HEAD_TYPE_CLOUD:
+        zone[ZONE_HEAD_TYPE] = HEAD_TYPE_LOCAL
+    else:
+        zone.pop(ZONE_HEAD_TYPE, None)
+    defaults = _cloud_defaults(temperature_unit, generic=head_type == HEAD_TYPE_GENERIC)
+    for field in room_fields("cloud"):
+        raw: Any = values.get(field.key)
+        if cloud and not blank(raw) and float(raw) not in (defaults[field.key], shown[field.key]):
+            zone[field.zone_key] = float(raw)
+        else:
+            zone.pop(field.zone_key, None)
+    if ZONE_DRIVE_OFFSET in zone:
+        zone[ZONE_DRIVE_OFFSET_UNIT] = temperature_unit
+    else:
+        zone.pop(ZONE_DRIVE_OFFSET_UNIT, None)
 
 
 def _room_name(zone: dict[str, Any], index: int) -> str:
@@ -1238,14 +1023,9 @@ def _freshness_error(profile: dict[str, Any]) -> str | None:
     """
     values: dict[str, float] = {}
     for suffix in ("report_interval", "max_age", "startup_grace"):
-        raw = profile.get(suffix)
-        if raw in (None, ""):
+        if blank(raw := profile.get(suffix)):
             continue
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            return "freshness_profile_invalid"
-        if not math.isfinite(value) or value <= 0:
+        if (value := finite(raw)) is None or value <= 0:
             return "freshness_profile_invalid"
         values[suffix] = value
     if (
@@ -1270,9 +1050,9 @@ def _freshness_error(profile: dict[str, Any]) -> str | None:
 def _zone_freshness_profile(zone: dict[str, Any]) -> dict[str, Any]:
     """Read one stored profile using flow names, without changing its values."""
     return {
-        suffix: zone.get(zone_key)
-        for suffix, zone_key in _FRESHNESS_ZONE_FIELDS
-        if zone.get(zone_key) is not None
+        field.key: zone.get(field.zone_key)
+        for field in room_fields("freshness")
+        if zone.get(field.zone_key) is not None
     }
 
 
@@ -1750,7 +1530,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                     vol.Required(
                         _SETUP_HEAD_TYPE.format(index + 1),
                         default=self._head_types.get(self._heads[index], HEAD_TYPE_CLOUD),
-                    ): _head_type_selector()
+                    ): _room_selector(ROOM_FIELD["head_type"], self._system_unit())
                     for index in slots
                 }
             ),
@@ -2731,160 +2511,21 @@ class MXZOptionsFlow(OptionsFlow):
                 description_placeholders=title,
             )
         values = _flatten(user_input)
-        profile = {
-            suffix: values.get(suffix) for suffix, _ in _FRESHNESS_ZONE_FIELDS
-        }
-        if _freshness_error(profile):
+        if refusal := _room_problem(self.hass, zone[ZONE_CLIMATE], values, unit, len(zones)):
+            error, where, expand = refusal
             return self.async_show_form(
                 step_id="room",
                 data_schema=_room_schema(
-                    values, expanded=True, temperature_unit=unit, dry=dry
+                    values, temperature_unit=unit, dry=dry, expanded=expand
                 ),
-                errors={"base": "freshness_profile_invalid"},
-                description_placeholders=title,
-            )
-        if _floor_error(values, unit):
-            return self.async_show_form(
-                step_id="room",
-                data_schema=_room_schema(
-                    values, temperature_unit=unit, floor_expanded=True, dry=dry
-                ),
-                errors={"base": "floor_out_of_range"},
-                description_placeholders=title,
-            )
-        if _room_drift_error(values):
-            # On the section key: the frontend drops field errors in sections.
-            return self.async_show_form(
-                step_id="room",
-                data_schema=_room_schema(
-                    values, temperature_unit=unit, drift_expanded=True, dry=dry
-                ),
-                errors={_DRIFT_SECTION: "not_a_number"},
-                description_placeholders=title,
-            )
-        if problem := _cloud_problem(self.hass, zone[ZONE_CLIMATE], values):
-            error, where = problem
-            return self.async_show_form(
-                step_id="room",
-                data_schema=_room_schema(values, temperature_unit=unit, dry=dry),
                 errors={where: error},
                 description_placeholders=title,
             )
-        if error := _opening_error(self.hass, values):
-            # On the section key: the frontend drops field errors in sections.
-            return self.async_show_form(
-                step_id="room",
-                data_schema=_room_schema(
-                    values, temperature_unit=unit, opening_expanded=True, dry=dry
-                ),
-                errors={_OPENING_SECTION: error},
-                description_placeholders=title,
-            )
-        if len(zones) < MIN_ZONES and values.get(_HEAD_TYPE_FIELD) != HEAD_TYPE_GENERIC:
-            # A 1-head entry exists only for a generic head (beta).
-            return self.async_show_form(
-                step_id="room",
-                data_schema=_room_schema(values, temperature_unit=unit, dry=dry),
-                errors={"base": "single_head_needs_generic"},
-                description_placeholders=title,
-            )
-        # Every field is rendered and a pre-filled field the user leaves
-        # untouched is submitted with its value, so an ABSENT/empty key means
-        # the user cleared it -> drop it from the room. (Skipping absent keys
-        # made an auto-detected vane/stage impossible to remove, even on heads
-        # that have no vane, e.g. a ducted air handler advertising a phantom.)
-        for key, zone_key in _ROOM_WIRING_FIELDS:
-            if value := values.get(key):
-                zone[zone_key] = value
-            else:
-                zone.pop(zone_key, None)
-        if values.get(_HANDS_OFF_FIELD) is True:
-            zone[ZONE_HANDS_OFF] = True
-        else:
-            zone.pop(ZONE_HANDS_OFF, None)
-        # Stored only as "action"; "mode" (the default) removes the key.
-        if values.get(_VOTE_BASIS_FIELD) == VOTE_BASIS_ACTION:
-            zone[ZONE_HANDS_OFF_VOTE_BASIS] = VOTE_BASIS_ACTION
-        else:
-            zone.pop(ZONE_HANDS_OFF_VOTE_BASIS, None)
-        # A complete all-empty profile is an explicit return to unknown
-        # cadence. Otherwise preserve the submitted values byte-for-byte under
-        # M36's existing zone keys.
-        empty_profile = profile["evidence_basis"] in (None, "", "unknown") and all(
-            profile[suffix] in (None, "")
-            for suffix, _ in _FRESHNESS_ZONE_FIELDS
-            if suffix != "evidence_basis"
-        )
-        for suffix, zone_key in _FRESHNESS_ZONE_FIELDS:
-            value = profile[suffix]
-            if empty_profile or value in (None, ""):
-                zone.pop(zone_key, None)
-            else:
-                zone[zone_key] = value
-        # A blank floor field stores no key (no floor); clearing one removes it.
-        for key, zone_key in _FLOOR_FIELDS:
-            if values.get(key) in (None, ""):
-                zone.pop(zone_key, None)
-            else:
-                zone[zone_key] = float(values[key])
-        # Likewise a blank side stores no key; clearing one removes it.
-        for key, zone_key in _ROOM_DRIFT_FIELDS:
-            if values.get(key) in (None, ""):
-                zone.pop(zone_key, None)
-            else:
-                zone[zone_key] = float(values[key])
-        # Dual setpoint: stored only while on (never a False), so a room left
-        # off stores exactly what it stored before the option existed.
         was_dual = zone.get(ZONE_DUAL_SETPOINT) is True
-        if values.get(_DUAL_FIELD) is True:
-            zone[ZONE_DUAL_SETPOINT] = True
-        else:
-            zone.pop(ZONE_DUAL_SETPOINT, None)
+        store_room(zone, values, dry=dry)
         if (zone.get(ZONE_DUAL_SETPOINT) is True) != was_dual:
             self._hand_off_dual(zone, now_dual=not was_dual)
-        # Allow Dry mode: stored only while on. A page that didn't show it
-        # leaves what is stored alone.
-        if dry:
-            if values.get(_ALLOW_DRY_FIELD) is True:
-                zone[ZONE_ALLOW_DRY] = True
-            else:
-                zone.pop(ZONE_ALLOW_DRY, None)
-        # Head type: stored as cloud or generic; as local only where the
-        # head's platform suggests cloud and the room already had an answer
-        # (it was cloud or generic, or kept local in setup); otherwise no key,
-        # so a CN105 room, and a room never asked, stores exactly what it
-        # stored before. A cloud or generic room's settings are kept only
-        # while it is one, and only where they differ from the default: a box
-        # left at its default stores nothing, so the default follows the unit
-        # (2 °F isn't carried into Celsius as 2 °C). The page showed the
-        # defaults of the type the room had when it opened, so a box left at
-        # those (switching cloud to generic, say) stores nothing either.
-        head_type = values.get(_HEAD_TYPE_FIELD)
-        shown = _cloud_defaults(unit, generic=zone.get(ZONE_HEAD_TYPE) == HEAD_TYPE_GENERIC)
-        cloud = head_type in OFFSET_HEAD_TYPES
-        if cloud:
-            zone[ZONE_HEAD_TYPE] = head_type
-        elif zone.get(ZONE_HEAD_TYPE) in HEAD_TYPES and _suggested_head_type(
-            self.hass, zone[ZONE_CLIMATE]
-        ) == HEAD_TYPE_CLOUD:
-            zone[ZONE_HEAD_TYPE] = HEAD_TYPE_LOCAL
-        else:
-            zone.pop(ZONE_HEAD_TYPE, None)
-        defaults = _cloud_defaults(unit, generic=head_type == HEAD_TYPE_GENERIC)
-        for key, zone_key in _CLOUD_FIELDS:
-            if cloud and values.get(key) not in (None, "") and (
-                float(values[key]) not in (defaults[key], shown[key])
-            ):
-                zone[zone_key] = float(values[key])
-            else:
-                zone.pop(zone_key, None)
-        # A set offset keeps the unit it was set in, so a later °F/°C switch
-        # converts it (see units.offset_in_unit).
-        if ZONE_DRIVE_OFFSET in zone:
-            zone[ZONE_DRIVE_OFFSET_UNIT] = unit
-        else:
-            zone.pop(ZONE_DRIVE_OFFSET_UNIT, None)
-        _store_opening(zone, values)
+        _store_head_type(self.hass, zone, values, unit)
         return self._save({}, zones)
 
     def _hand_off_dual(self, zone: dict[str, Any], *, now_dual: bool) -> None:

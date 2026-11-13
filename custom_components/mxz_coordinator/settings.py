@@ -13,9 +13,10 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from .const import (
+    COMFORT_DOMAINS,
     COMFORT_STALE_HOURS_BOUNDS,
     CONF_ACCEPT_HEAD_CHANGES,
     CONF_CHANGEOVER_COOL_BELOW,
@@ -42,6 +43,7 @@ from .const import (
     CONF_LOST_VOTE_TTL,
     CONF_MODE_HYSTERESIS,
     CONF_RESTING_MODE_BIAS,
+    CONFIRM_WAIT_BOUNDS,
     DEFAULT_ACCEPT_HEAD_CHANGES,
     DEFAULT_CHANGEOVER_COOL_BELOW,
     DEFAULT_CHANGEOVER_HEAT_ABOVE,
@@ -60,12 +62,55 @@ from .const import (
     DEFAULT_INHIBIT_ACTION,
     DEFAULT_INHIBIT_ACTIVE_STATE,
     DEFAULT_MODE_HYSTERESIS,
+    DEFAULT_OPENING_CLOSE_DELAY,
+    DEFAULT_OPENING_OPEN_DELAY,
     DEFAULT_RESTING_MODE_BIAS,
+    DRIVE_OFFSET_MAX_C,
+    DRIVE_OFFSET_MAX_F,
+    EVIDENCE_BASES,
+    EVIDENCE_UNKNOWN,
     FAN_LADDER,
+    HEAD_TYPE_LOCAL,
+    HEAD_TYPES,
     IDLE_ACTION_OPTIONS,
     INHIBIT_ACTION_OPTIONS,
     LOST_VOTE_TTL_BOUNDS,
+    OPENING_CLOSE_DELAY_BOUNDS,
+    OPENING_OPEN_DELAY_BOUNDS,
     RESTING_BIAS_OPTIONS,
+    VOTE_BASES,
+    VOTE_BASIS_MODE,
+    WRITE_INTERVAL_BOUNDS,
+    ZONE_ALLOW_DRY,
+    ZONE_COMFORT_PRIORITY_ENTITY,
+    ZONE_CONFIRM_WAIT,
+    ZONE_DRIFT_COOLER_BY,
+    ZONE_DRIFT_WARMER_BY,
+    ZONE_DRIVE_OFFSET,
+    ZONE_DUAL_SETPOINT,
+    ZONE_EVIDENCE_BASIS,
+    ZONE_FLOOR_HIGH,
+    ZONE_FLOOR_LOW,
+    ZONE_HANDS_OFF,
+    ZONE_HANDS_OFF_VOTE_BASIS,
+    ZONE_HEAD_TYPE,
+    ZONE_MAX_AGE,
+    ZONE_OPENING_CLOSE_DELAY,
+    ZONE_OPENING_ENTITY,
+    ZONE_OPENING_NOTIFY,
+    ZONE_OPENING_NOTIFY_SERVICE,
+    ZONE_OPENING_OPEN_DELAY,
+    ZONE_OPENING_PAUSE,
+    ZONE_REPORT_INTERVAL,
+    ZONE_SAFETY_PRIORITY_ENTITY,
+    ZONE_SAMPLE_SEQUENCE_ATTR,
+    ZONE_SAMPLE_TIMESTAMP_ATTR,
+    ZONE_STAGE_SENSOR,
+    ZONE_STARTUP_GRACE,
+    ZONE_VANE_HORIZONTAL,
+    ZONE_VANE_VERTICAL,
+    ZONE_WRITE_INTERVAL,
+    unit_profile,
 )
 
 # A setting's kind: what its field is and what it stores.
@@ -341,3 +386,229 @@ def tunable_errors(values: Mapping[str, Any]) -> dict[str, str]:
         if high < low or (high == low and not may_be_equal):
             errors[low_key] = errors[high_key] = error
     return errors
+
+
+# --- The room page ------------------------------------------------------------
+# Each field on a room's page (Configure -> Rooms -> the room) folds into that
+# room's record in the zones list, never into a flat key. ``key`` is the field's
+# name on the page and in strings.json; ``zone_key`` is what the record stores.
+
+# How a submitted value is stored in the room's record. Every rule stores no
+# key for "off" or blank, so a room that never set a field stores exactly what
+# it stored before the field existed.
+STORE_VALUE = "value"  # the value while it is set
+STORE_TRUE = "true"  # True while on
+STORE_CHOICE = "choice"  # the choice while it is not the default
+STORE_FLOAT = "float"  # the number while it is set
+STORE_NON_DEFAULT = "non_default"  # the number while it is set and not the default
+STORE_RAW = "raw"  # the value as submitted while it is set
+STORE_HOOK = "hook"  # stored by the room page itself (head type and cloud settings)
+
+# Bounds that follow the system unit: 0 up to the unit's largest drive offset.
+DRIVE_OFFSET = "drive_offset"
+
+# The room page's collapsed sections, in display order.
+ROOM_SECTIONS = ("drift", "freshness", "floor", "dual", "cloud", "opening")
+
+
+@dataclass(frozen=True, slots=True)
+class RoomField:
+    """One field on a room's page.
+
+    ``default`` is what the page shows while the record stores nothing.
+    ``custom_value``: a choice the page keeps as typed, even outside its
+    choices. ``needs_dry``: shown, and stored, only for a head that lists dry,
+    so a page that doesn't show it leaves what is stored alone.
+    """
+
+    key: str
+    zone_key: str
+    section: str | None = None
+    kind: str = ENTITY
+    store: str = STORE_VALUE
+    default: Any = None
+    unit: str | None = None
+    bounds: tuple[float, float] | str | None = None
+    step: float = 1
+    choices: tuple[str, ...] = ()
+    translation_key: str = ""
+    custom_value: bool = False
+    domains: tuple[str, ...] = ()
+    needs_dry: bool = False
+
+
+ROOM_FIELDS: tuple[RoomField, ...] = (
+    RoomField(
+        "head_type", ZONE_HEAD_TYPE, kind=CHOICE, store=STORE_HOOK, default=HEAD_TYPE_LOCAL,
+        choices=HEAD_TYPES, translation_key="head_type",
+    ),
+    # Wiring. ESPHome text_sensors register in the sensor domain, so a sensor
+    # picker covers the airflow (stage) sensor.
+    RoomField("stage", ZONE_STAGE_SENSOR, domains=("sensor",)),
+    RoomField("vane_vertical", ZONE_VANE_VERTICAL, domains=("select",)),
+    RoomField("vane_horizontal", ZONE_VANE_HORIZONTAL, domains=("select",)),
+    RoomField("safety_priority_entity", ZONE_SAFETY_PRIORITY_ENTITY, domains=("binary_sensor",)),
+    RoomField("comfort_priority_entity", ZONE_COMFORT_PRIORITY_ENTITY, domains=COMFORT_DOMAINS),
+    RoomField("hands_off", ZONE_HANDS_OFF, kind=FLAG, store=STORE_TRUE),
+    RoomField(
+        "hands_off_vote_basis", ZONE_HANDS_OFF_VOTE_BASIS, kind=CHOICE, store=STORE_CHOICE,
+        default=VOTE_BASIS_MODE, choices=VOTE_BASES, translation_key="hands_off_vote_basis",
+    ),
+    RoomField("allow_dry", ZONE_ALLOW_DRY, kind=FLAG, store=STORE_TRUE, needs_dry=True),
+    # The room's own uneven drift. The page keys differ from the global
+    # CONF_DRIFT_* keys on purpose: page keys are scrubbed from flat storage,
+    # and the global ones are stored flat.
+    RoomField(
+        "room_cooler_by", ZONE_DRIFT_COOLER_BY, "drift", kind=NUMBER, store=STORE_FLOAT,
+        unit=TEMPERATURE, bounds=ENGAGE,
+    ),
+    RoomField(
+        "room_warmer_by", ZONE_DRIFT_WARMER_BY, "drift", kind=NUMBER, store=STORE_FLOAT,
+        unit=TEMPERATURE, bounds=ENGAGE,
+    ),
+    # The sensor freshness profile (see const.ZONE_REPORT_INTERVAL). Stored as
+    # submitted; a profile left wholly empty is the unknown cadence and stores
+    # nothing (store_room).
+    RoomField(
+        "report_interval", ZONE_REPORT_INTERVAL, "freshness", kind=NUMBER, store=STORE_RAW,
+        unit=MINUTES,
+    ),
+    RoomField("max_age", ZONE_MAX_AGE, "freshness", kind=NUMBER, store=STORE_RAW, unit=MINUTES),
+    RoomField(
+        "startup_grace", ZONE_STARTUP_GRACE, "freshness", kind=NUMBER, store=STORE_RAW,
+        unit=MINUTES,
+    ),
+    # A choice kept as typed, so an invalid raw API submission stays inside the
+    # form, where it gets one diagnostic and changes nothing.
+    RoomField(
+        "evidence_basis", ZONE_EVIDENCE_BASIS, "freshness", kind=CHOICE, store=STORE_RAW,
+        default=EVIDENCE_UNKNOWN, choices=EVIDENCE_BASES, translation_key="evidence_basis",
+        custom_value=True,
+    ),
+    RoomField(
+        "sample_timestamp_attribute", ZONE_SAMPLE_TIMESTAMP_ATTR, "freshness", kind=TEXT,
+        store=STORE_RAW,
+    ),
+    RoomField(
+        "sample_sequence_attribute", ZONE_SAMPLE_SEQUENCE_ATTR, "freshness", kind=TEXT,
+        store=STORE_RAW,
+    ),
+    # Freeze floor and overheat ceiling, in the system unit: blank is none.
+    RoomField("floor_low", ZONE_FLOOR_LOW, "floor", kind=NUMBER, store=STORE_FLOAT, unit=TEMPERATURE),
+    RoomField("floor_high", ZONE_FLOOR_HIGH, "floor", kind=NUMBER, store=STORE_FLOAT, unit=TEMPERATURE),
+    RoomField("dual_setpoint", ZONE_DUAL_SETPOINT, "dual", kind=FLAG, store=STORE_TRUE),
+    # A cloud or generic head's settings (beta). Their defaults follow the head
+    # type and the unit, so the room page shows and stores them itself.
+    RoomField(
+        "drive_offset", ZONE_DRIVE_OFFSET, "cloud", kind=NUMBER, store=STORE_HOOK,
+        unit=TEMPERATURE, bounds=DRIVE_OFFSET, step=0.5,
+    ),
+    RoomField(
+        "write_interval", ZONE_WRITE_INTERVAL, "cloud", kind=NUMBER, store=STORE_HOOK,
+        unit=SECONDS, bounds=WRITE_INTERVAL_BOUNDS,
+    ),
+    RoomField(
+        "confirm_wait", ZONE_CONFIRM_WAIT, "cloud", kind=NUMBER, store=STORE_HOOK,
+        unit=SECONDS, bounds=CONFIRM_WAIT_BOUNDS,
+    ),
+    # Door/window pause. The page keys are the zone keys.
+    RoomField(ZONE_OPENING_ENTITY, ZONE_OPENING_ENTITY, "opening", domains=("binary_sensor",)),
+    RoomField(ZONE_OPENING_PAUSE, ZONE_OPENING_PAUSE, "opening", kind=FLAG, store=STORE_TRUE),
+    RoomField(
+        ZONE_OPENING_OPEN_DELAY, ZONE_OPENING_OPEN_DELAY, "opening", kind=NUMBER,
+        store=STORE_NON_DEFAULT, default=DEFAULT_OPENING_OPEN_DELAY, unit=SECONDS,
+        bounds=OPENING_OPEN_DELAY_BOUNDS,
+    ),
+    RoomField(
+        ZONE_OPENING_CLOSE_DELAY, ZONE_OPENING_CLOSE_DELAY, "opening", kind=NUMBER,
+        store=STORE_NON_DEFAULT, default=DEFAULT_OPENING_CLOSE_DELAY, unit=SECONDS,
+        bounds=OPENING_CLOSE_DELAY_BOUNDS,
+    ),
+    RoomField(ZONE_OPENING_NOTIFY, ZONE_OPENING_NOTIFY, "opening", kind=FLAG, store=STORE_TRUE),
+    RoomField(
+        ZONE_OPENING_NOTIFY_SERVICE, ZONE_OPENING_NOTIFY_SERVICE, "opening", kind=TEXT,
+    ),
+)
+ROOM_FIELD: dict[str, RoomField] = {field.key: field for field in ROOM_FIELDS}
+
+
+def room_fields(section: str | None) -> tuple[RoomField, ...]:
+    """The room page's fields in one section (None: the top of the page), in order."""
+    return tuple(field for field in ROOM_FIELDS if field.section == section)
+
+
+def number_bounds(
+    bounds: tuple[float, float] | str | None, step: float, celsius: bool
+) -> tuple[float, float, float] | None:
+    """(min, max, step) of a bounded number box in the system unit; None for a free box."""
+    if bounds is None:
+        return None
+    if bounds == ENGAGE:
+        low, high = unit_profile(celsius)["engage_bounds"]
+        return low, high, low / 2
+    if bounds == DRIVE_OFFSET:
+        return 0.0, DRIVE_OFFSET_MAX_C if celsius else DRIVE_OFFSET_MAX_F, step
+    low, high = cast("tuple[float, float]", bounds)
+    return low, high, step
+
+
+def shown_choice(field: RoomField, value: Any) -> Any:
+    """What a choice field shows for ``value``: a known choice, else its default.
+
+    A field that keeps custom values shows any non-empty value as it is.
+    """
+    if field.custom_value:
+        return value or field.default
+    return value if value in field.choices else field.default
+
+
+def room_view(zone: Mapping[str, Any]) -> dict[str, Any]:
+    """A stored room record as its page's field values (head type and cloud as stored)."""
+    view: dict[str, Any] = {}
+    for field in ROOM_FIELDS:
+        stored = zone.get(field.zone_key)
+        if field.kind == FLAG:
+            view[field.key] = stored is True
+        elif field.kind == CHOICE and not field.custom_value:
+            view[field.key] = shown_choice(field, stored)
+        elif field.store == STORE_NON_DEFAULT:
+            view[field.key] = zone.get(field.zone_key, field.default)
+        else:
+            view[field.key] = stored
+    return view
+
+
+def store_room(zone: dict[str, Any], values: Mapping[str, Any], *, dry: bool) -> None:
+    """Fold one room page's submitted ``values`` into the room's record ``zone``.
+
+    Every field is rendered and an untouched field is submitted with its
+    value, so an absent or empty field is the user clearing it. A field the
+    page didn't show (Allow Dry for a head that lists no dry) leaves what is
+    stored alone, and the hook fields are the page's own to store. A wholly
+    empty freshness profile is an explicit return to the unknown cadence.
+    """
+    empty_profile = all(
+        values.get(field.key) in (None, "", EVIDENCE_UNKNOWN)
+        if field.kind == CHOICE else blank(values.get(field.key))
+        for field in room_fields("freshness")
+    )
+    for field in ROOM_FIELDS:
+        if field.store == STORE_HOOK or (field.needs_dry and not dry):
+            continue
+        value: Any = values.get(field.key)
+        if field.store == STORE_TRUE:
+            keep: Any = True if value is True else None
+        elif field.store == STORE_CHOICE:
+            keep = value if value in field.choices and value != field.default else None
+        elif field.store == STORE_FLOAT:
+            keep = None if blank(value) else float(value)
+        elif field.store == STORE_NON_DEFAULT:
+            keep = None if blank(value) or float(value) == field.default else float(value)
+        elif field.store == STORE_RAW:
+            keep = None if blank(value) or (field.section == "freshness" and empty_profile) else value
+        else:
+            keep = value or None
+        if keep is None:
+            zone.pop(field.zone_key, None)
+        else:
+            zone[field.zone_key] = keep
