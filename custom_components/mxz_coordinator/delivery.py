@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Any, Protocol
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.debounce import Debouncer
-from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
@@ -263,14 +262,14 @@ class DeliveryQueue:
                 await self._host.async_request_refresh()
 
         @callback
-        def _fire(_now: Any) -> None:
+        def _fire() -> None:
             self._followup_timer = None
             if self.retired:
                 return
             self._host.hass.async_create_task(_refresh_current())
 
         if self.legacy:
-            self._followup_timer = async_call_later(self._host.hass, 0, _fire)
+            self._followup_timer = self._host.clock.call_later(0, _fire, name="refresh_followup")
         else:
             async def _run() -> None:
                 self._followup_timer = None

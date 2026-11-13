@@ -58,7 +58,7 @@ from tests.clocks import pass_time
 from tests.cloud_heads import record as record_calls
 from tests.cloud_heads import writes as head_writes
 from tests.flow_pages import open_options_page, prefilled, submit
-from tests.peek import cloud_record
+from tests.peek import armed, cloud_record
 from tests.test_drive import MockHead, _eid, _set_temp
 from tests.test_dry_mode import (
     INHIBIT,
@@ -265,7 +265,7 @@ async def test_a_dry_pick_counts_before_the_head_reports_it(hass: HomeAssistant)
     await hass.async_block_till_done()
     await rig.recompute()
     assert rig.sent(1) == DRY and rig.state(1) == "dry"
-    assert rig.coord.dry._picks == {}
+    assert not armed(rig.coord, "dry_pick")
     assert tile(rig).attributes["hvac_action"] == HVACAction.DRYING
 
 
@@ -288,7 +288,7 @@ async def test_a_dry_pick_the_head_never_reports_ends_in_the_wait(
     assert rig.sent(1) == DRY
     await rig.later(DRY_PICK_WAIT + 1)
     await rig.later(DRY_PICK_WAIT + REQUEST_REFRESH_DEFAULT_COOLDOWN + 2)
-    assert rig.coord.dry._picks == {}
+    assert not armed(rig.coord, "dry_pick")
     assert (rig.row(1)["dry"], rig.row(1)["demand"]) == (None, "cool")
     assert rig.modes_sent(1)[0] == "dry" and "cool" in rig.modes_sent(1)[1:]  # the plan again
     assert tile(rig).state == "heat_cool"
@@ -572,7 +572,7 @@ async def test_a_cloud_dry_pick_waits_out_the_confirm_wait(hass: HomeAssistant) 
     await hass.async_block_till_done()
     row = hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][1]
     assert (row["dry"], row["dry_vote"]) == ("held", "cool")
-    assert coord.dry._picks == {}
+    assert not armed(coord, "dry_pick")
     assert head_writes(calls, b.entity_id) == DRY
 
 

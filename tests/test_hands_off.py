@@ -71,6 +71,7 @@ from tests.dwell import (
     record_mode_change,
 )
 from tests.flow_pages import default, open_options_page, prefilled, submit
+from tests.peek import armed
 from tests.restore_store import replace_stored_state, stored_state
 from tests.test_drive import (
     SENSOR_A,
@@ -580,7 +581,7 @@ async def test_released_head_in_a_banned_mode_is_not_healed(hass: HomeAssistant)
     head._attr_hvac_mode = "dry"
     head.async_write_ha_state()
     await hass.async_block_till_done()
-    assert (head_b, "band") not in entry.runtime_data._heal_timers
+    assert not armed(entry.runtime_data, "heal", (head_b, "band"))
     await _recompute(hass, entry)
     assert _s(hass, head_b) == "dry"
 
@@ -1200,7 +1201,7 @@ async def test_a_dwelled_safety_clear_arms_the_wakeup(
     await _recompute(hass, entry)
     plan = _plan(hass, entry)
     assert (plan.state, plan.attributes["mode_change_allowed"]) == ("heat", False)
-    assert coord._dwell_timer is not None
+    assert armed(coord, "dwell")
     expire_dwell(coord)  # the wait runs out
     await _recompute(hass, entry)
     assert (_plan(hass, entry).state, _s(hass, head_a)) == ("cool", "cool")

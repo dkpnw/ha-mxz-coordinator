@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -176,7 +175,7 @@ class OpeningPause:
     The coordinator calls it from the compute (``step``), the apply (``paused``,
     then ``async_restore_vanes``), a head's report (``take_over``), a vane pick
     (``keep_vane``), the Window Override switch (``async_set_override``), and
-    its own setup and teardown (``start``, ``sync_timers``, ``cancel_timers``).
+    its own setup and its wakeups (``start``, ``sync_timers``).
     """
 
     def __init__(
@@ -213,7 +212,6 @@ class OpeningPause:
             set(stored or {}) - {z.climate_id for z in zones if z.opening_active}
         )
         self._live = False
-        self._timers: dict[str, Any] = {}
         self._notice_at: dict[str, float] = {}
         self._vanes_due: dict[str, dict[str, str]] = {}
 
@@ -497,7 +495,7 @@ class OpeningPause:
 
     def sync_timers(self) -> None:
         """One wakeup per room at the end of its open or close delay."""
-        self.cancel_timers()
+        self._host.clock.cancel_all("opening")
         if self._host.retired:
             return
         now = dt_util.utcnow().timestamp()
@@ -507,25 +505,18 @@ class OpeningPause:
 
     def _arm_timer(self, slug: str, delay: float) -> None:
         """Replace this room's wakeup with one ``delay`` seconds from now."""
-        if (cancel := self._timers.pop(slug, None)) is not None:
-            cancel()
         if self._host.retired:
+            self._host.clock.cancel("opening", slug)
             return
 
         @callback
-        def _fire(_now: Any) -> None:
+        def _fire() -> None:
             # At once, not after the request cooldown: the delay is the
             # promise, so a pause or resume lands when it ends.
-            self._timers.pop(slug, None)
             if not self._host.retired:
                 self._hass.async_create_task(self._host.async_refresh_now())
 
-        self._timers[slug] = async_call_later(self._hass, max(0.0, delay), _fire)
-
-    def cancel_timers(self) -> None:
-        for cancel in self._timers.values():
-            cancel()
-        self._timers.clear()
+        self._host.clock.call_later(max(0.0, delay), _fire, name="opening", key=slug)
 
     def state_of(self, slug: str) -> str | None:
         """This room's door/window state, or None for a room without the pause."""

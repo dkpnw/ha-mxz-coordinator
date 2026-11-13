@@ -13,6 +13,8 @@ from typing import Any, Protocol
 
 from homeassistant.core import HomeAssistant
 
+from .clock import Clock
+
 # A notice, a head command, a store write or a repair issue that a compute
 # decided. The compute only collects them; the coordinator makes them right
 # after it, in the order they were decided, before the plan's own commands.
@@ -22,6 +24,8 @@ type Effect = Callable[[], object]
 class ControllerHost(Protocol):
     """Home Assistant, the clock, and the coordinator's notices, redraws and recomputes.
 
+    ``clock`` reads monotonic seconds and holds every wait the controller arms.
+
     ``retired``: the coordinator was unloaded or replaced, so it writes nothing.
     ``redraw_rooms`` re-renders the room surfaces with no decision.
     ``async_refresh_now`` recomputes at once; ``async_request_refresh`` asks for
@@ -29,7 +33,7 @@ class ControllerHost(Protocol):
     """
 
     hass: HomeAssistant
-    clock: Callable[[], float]
+    clock: Clock
     retired: bool
 
     async def notify(self, message: str, target: str | None = None) -> None: ...

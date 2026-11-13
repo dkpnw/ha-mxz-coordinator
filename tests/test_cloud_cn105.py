@@ -40,6 +40,7 @@ from tests.cloud_heads import (
     setup_rooms,
     writes,
 )
+from tests.peek import armed
 from tests.test_drive import MockHead, _eid
 
 CLOUD_KEYS = {
@@ -120,7 +121,7 @@ async def test_an_all_cn105_install_has_no_cloud_machinery(hass: HomeAssistant) 
     await set_room(hass, SENSORS[0], 65)
     await recompute(hass, entry)
     assert coordinator.heads._clouds == {}
-    assert coordinator.heads._timer is None
+    assert not armed(coordinator, "cloud")
     for index in (0, 1):
         assert not CLOUD_KEYS & set(row(hass, entry, index))
     assert not [
@@ -130,4 +131,4 @@ async def test_an_all_cn105_install_has_no_cloud_machinery(hass: HomeAssistant) 
     heads[0]._attr_hvac_mode = "off"
     heads[0].async_write_ha_state()
     await hass.async_block_till_done()
-    assert (heads[0].entity_id, "off") in coordinator._heal_timers
+    assert armed(coordinator, "heal", (heads[0].entity_id, "off"))

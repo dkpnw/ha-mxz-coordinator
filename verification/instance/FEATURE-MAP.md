@@ -74,7 +74,7 @@ two do not cover the same ground twice.
 wrong reason:
 
 - No test seam inside the running process. The instance must not patch
-  `coordinator.monotonic`, write a coordinator field, or seed `.storage` to set a scene.
+  the coordinator's `Clock`, write a coordinator field, or seed `.storage` to set a scene.
   Time-travel belongs to the in-process driver. Here a wait is waited.
 - No config entry written to disk. The entry is created by the setup flow and changed by
   Configure, as a person does it.

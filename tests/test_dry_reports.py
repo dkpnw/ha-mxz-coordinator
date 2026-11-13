@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant, State
 
 from custom_components.mxz_coordinator.coordinator import Zone
 from custom_components.mxz_coordinator.dry import DryMode
+from tests.clocks import Clock, Time
 
 HEAD = "climate.den"
 MODES = ["off", "heat", "cool", "dry", "fan_only", "heat_cool"]
@@ -44,9 +45,7 @@ class _Host:
         self.deliveries = _Sender()
         self.heads = _LocalHeads()
         self.notices: list[str] = []
-
-    def clock(self) -> float:
-        return 0.0
+        self.clock = Clock(hass, time=Time())
 
     async def notify(self, message: str, target: str | None = None) -> None:
         self.notices.append(message)
@@ -96,7 +95,7 @@ async def test_a_stale_report_keeps_a_release_and_a_sent_park_notice(hass: HomeA
 
 
 async def test_a_stale_report_of_dry_does_not_land_a_pick(hass: HomeAssistant) -> None:
-    dry, _host, zone = await _dry(hass, "cool")
+    dry, host, zone = await _dry(hass, "cool")
     assert dry.start_pick(zone) is True  # the head still has to be sent dry
     assert dry.in_dry(zone)  # the pick counts until the head reports it
 
@@ -106,4 +105,4 @@ async def test_a_stale_report_of_dry_does_not_land_a_pick(hass: HomeAssistant) -
     # The control: a current report of dry lands it, so the pick no longer counts.
     assert dry.head_reported(HEAD, _head("cool"), _head("dry"), stale=False) is False
     assert not dry.in_dry(zone)
-    dry.cancel_timers()
+    host.clock.retire()

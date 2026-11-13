@@ -42,6 +42,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_REPORT_INTERVAL,
 )
 from custom_components.mxz_coordinator.logic import sample_evidence
+from tests.peek import armed
 
 from .test_drive import SENSOR_B, _eid, _recompute, _user_set_fan
 from .test_idle_action import _head_calls, _record_calls
@@ -633,7 +634,7 @@ async def test_reload_existing_sample_or_sequence_mid_episode(
     await hass.async_block_till_done()
     await _drain_startup(hass, freezer)
     c = entry.runtime_data
-    assert c is not old and old._fresh_retired and old._fresh_timer is None
+    assert c is not old and old.clock.retired and not armed(old, "fresh")
     if basis == "time":
         assert _health(c) == "healthy" and c._evidence_ts["primary"] == evidence
     else:

@@ -70,7 +70,7 @@ from tests.cloud_heads import (
     writes,
 )
 from tests.flow_pages import open_options_page, prefilled, submit
-from tests.peek import cloud_record
+from tests.peek import armed, cloud_record
 from tests.property_rig import (
     CLOSE_DELAY,
     HOLD,
@@ -116,7 +116,7 @@ def _edges(rig: Rig) -> tuple[float | None, float | None]:
 
 
 def _armed(rig: Rig) -> bool:
-    return (rig.heads[0].entity_id, "adopt") in rig.coord._heal_timers
+    return armed(rig.coord, "heal", (rig.heads[0].entity_id, "adopt"))
 
 
 async def _cooling(hass: HomeAssistant, freezer: Any, **kwargs: Any) -> Rig:
@@ -771,7 +771,7 @@ async def test_a_vane_kick_is_not_a_person(hass: HomeAssistant) -> None:
     assert hass.states.get(head).state == "off"
     await _elapse(hass, HELD)
     assert hass.states.get(_eid(hass, entry, "_primary_enable")).state == "off"
-    assert (head, "adopt") not in entry.runtime_data._heal_timers
+    assert not armed(entry.runtime_data, "heal", (head, "adopt"))
 
 
 # ---------------------------------------------------------------------------

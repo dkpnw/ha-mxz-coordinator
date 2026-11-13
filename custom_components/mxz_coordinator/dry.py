@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.event import async_call_later
 
 from .capabilities import head_lists_dry, state_lists_dry
 from .const import (
@@ -58,7 +57,7 @@ class DryMode:
 
     The coordinator calls it from the compute (``in_dry``, ``settle``,
     ``attributes``), the apply (``notice_parked``), the heals (``allowed``), a
-    head's report (``head_reported``), and its teardown (``cancel_timers``).
+    and a head's report (``head_reported``).
     The thermostat calls ``offered``, ``in_dry``, ``state``, ``pick_refusal``,
     ``start_pick``, ``async_send`` and ``release``.
     """
@@ -68,8 +67,8 @@ class DryMode:
 
         Per room: held or parked, as the last compute found it; whether it was
         told about its park, until its head reports a mode other than dry; the
-        wakeup of a Dry picked on its thermostat that its head hasn't reported
-        yet (DRY_PICK_WAIT); and whether a person took it out of dry on that
+        wait of a Dry picked on its thermostat that its head hasn't reported
+        yet (DRY_PICK_WAIT, the clock's ``dry_pick`` wait); and whether a person took it out of dry on that
         thermostat (Heat/Cool or Off), until its head reports another mode.
         """
         self._host = host
@@ -78,7 +77,6 @@ class DryMode:
         self._rooms: dict[str, str] = {}
         self._noticed: set[str] = set()
         self._heat_for: str | None = None  # the room heat is for, by name
-        self._picks: dict[str, Any] = {}
         self._released: set[str] = set()
 
     def offered(self, zone: Zone) -> bool:
@@ -130,7 +128,7 @@ class DryMode:
         if cloud is not None and cloud.unresponsive:
             return False
         if head.state != MODE_DRY:
-            return zone.slug in self._picks
+            return self._host.clock.waiting("dry_pick", zone.slug)
         return cloud is None or not cloud.stale(self._host.clock(), mode=MODE_DRY)
 
     def state(self, slug: str) -> str | None:
@@ -154,7 +152,7 @@ class DryMode:
         """This room's Dry state, pick and release, as diagnostics shows them."""
         return {
             "dry": self._rooms.get(slug),
-            "dry_pick_pending": slug in self._picks,
+            "dry_pick_pending": self._host.clock.waiting("dry_pick", slug),
             "dry_released": slug in self._released,
         }
 
@@ -267,10 +265,9 @@ class DryMode:
             cloud is not None and cloud.stale(self._host.clock(), mode=MODE_DRY)
         ):
             return False
-        self._cancel_pick(zone.slug)
         wait = max(DRY_PICK_WAIT, cloud.confirm_wait if cloud is not None else 0)
-        self._picks[zone.slug] = async_call_later(
-            self._hass, wait, partial(self._pick_expired, zone)
+        self._host.clock.call_later(
+            wait, partial(self._pick_expired, zone), name="dry_pick", key=zone.slug
         )
         return True
 
@@ -288,7 +285,7 @@ class DryMode:
 
     def release(self, zone: Zone) -> None:
         """Heat/Cool or Off picked on the thermostat: out of dry, the plan's again."""
-        if zone.slug in self._picks or self.in_dry(zone):
+        if self._host.clock.waiting("dry_pick", zone.slug) or self.in_dry(zone):
             self._cancel_pick(zone.slug)
             self._released.add(zone.slug)
 
@@ -308,12 +305,6 @@ class DryMode:
             ):
                 self._ended_notice(zone, "Allow Dry mode was turned off")
 
-    def cancel_timers(self) -> None:
-        """Teardown: no pick wakes a retired coordinator."""
-        for cancel in self._picks.values():
-            cancel()
-        self._picks.clear()
-
     def _ended_notice(self, zone: Zone, why: str) -> None:
         """Tell people once why a room's Dry ended and the plan has its head again."""
         message = f"{zone.name} Dry ended: {why}. MXZ is back on the room's temperature goal."
@@ -321,13 +312,11 @@ class DryMode:
         self._hass.async_create_task(self._host.notify(message))
 
     def _cancel_pick(self, slug: str) -> None:
-        if (cancel := self._picks.pop(slug, None)) is not None:
-            cancel()
+        self._host.clock.cancel("dry_pick", slug)
 
     @callback
-    def _pick_expired(self, zone: Zone, _now: Any) -> None:
+    def _pick_expired(self, zone: Zone) -> None:
         """The head never reported the Dry picked for it: the plan has it again."""
-        self._picks.pop(zone.slug, None)
         _LOGGER.warning(
             "MXZ: %s was sent dry but its head didn't report it in time; "
             "back to the room's plan", zone.name,

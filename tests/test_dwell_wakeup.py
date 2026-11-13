@@ -3,7 +3,7 @@ dwell runs out, not at the next sensor event or the 15-min heartbeat.
 
 The hysteresis gate is a timestamp comparison, so before this the plan only
 re-decided when something else woke it — a 10-min dwell could take 25. The
-wakeup is one cancellable ``async_call_later`` (the per-head dry-dwell nudge is
+wakeup is one cancellable wait on the clock (the per-head dry-dwell nudge is
 the model) that carries NO decision: it asks for a recompute of the inputs as
 they are when it fires, so a manual choice made in between wins.
 
@@ -34,7 +34,6 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from custom_components.mxz_coordinator import coordinator as coordinator_module
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
     CONF_IDLE_ACTION,
@@ -721,9 +720,7 @@ async def test_a_refresh_finishing_after_retirement_arms_nothing(
     assert coord.current_shared_mode == MODE_COOL  # no stale flip after retirement
 
 
-async def test_a_wakeup_firing_after_retirement_asks_for_nothing(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_a_wakeup_firing_after_retirement_asks_for_nothing(hass: HomeAssistant) -> None:
     """Cancelling a handle cannot recall a callback the loop already picked up.
 
     So the callback itself is fired here after the entry is unloaded — the one
@@ -731,18 +728,11 @@ async def test_a_wakeup_firing_after_retirement_asks_for_nothing(
     refuse it.
     """
     entry, head_a, _b = await _setup_dwell(hass)
-    callbacks: list[Any] = []
-    original_call_later = coordinator_module.async_call_later
-
-    def capturing(hass_: HomeAssistant, delay: float, action: Any) -> Any:
-        if "_arm_dwell_timer" in getattr(action, "__qualname__", ""):
-            callbacks.append(action)
-        return original_call_later(hass_, delay, action)
-
-    monkeypatch.setattr(coordinator_module, "async_call_later", capturing)
+    since = len(entry.runtime_data.clock.log)
     coord = await _defer_a_heat_flip(hass, entry)
-    assert callbacks  # the deferred flip armed a wakeup...
-    fire = callbacks[-1]  # ...and the last one armed owns the live handle
+    waits = [wait for wait in coord.clock.log[since:] if wait.name == "dwell"]
+    assert waits  # the deferred flip armed a wakeup...
+    taken = waits[-1]  # ...and the last one armed owns the live handle
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
@@ -751,7 +741,7 @@ async def test_a_wakeup_firing_after_retirement_asks_for_nothing(
     calls = _record_calls(hass)
     _age_out_dwell(coord)
     with _count_refresh_requests(coord) as requests:
-        fire(dt_util.utcnow())  # the callback the loop had already taken
+        taken.fire()  # the callback the loop had already taken
         await hass.async_block_till_done()
         await _fire_due(hass, coord.hysteresis + 5)
     assert requests == []

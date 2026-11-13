@@ -48,6 +48,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_SENSOR,
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+from tests.peek import armed, armed_keys
 from tests.restart import restart, stopped
 from tests.test_drive import (
     EVENT_CALL_SERVICE,
@@ -295,7 +296,7 @@ async def test_wall_off_during_active_call_still_arms_heal(
     )
     await hass.async_block_till_done()
     coord = entry.runtime_data
-    assert any(kind == "off" for (_, kind) in coord._heal_timers)
+    assert any(kind == "off" for (_, kind) in armed_keys(coord, "heal"))
 
 
 async def test_plan_parked_off_head_never_arms_heal(
@@ -327,7 +328,7 @@ async def test_plan_parked_off_head_never_arms_heal(
     assert hass.states.get(head_a).state == "off"
     coord = entry.runtime_data
     assert (head_a, "cool", "off") in changes  # actual registered callback ran
-    assert not any(kind == "off" for (_, kind) in coord._heal_timers)
+    assert not any(kind == "off" for (_, kind) in armed_keys(coord, "heal"))
 
 
 @pytest.mark.parametrize("deferred", [False, True], ids=["synchronous", "deferred"])
@@ -343,7 +344,7 @@ async def test_plan_parked_off_is_stable_across_callback_delivery(
     await _recompute(hass, entry)
     coord = entry.runtime_data
     assert hass.states.get(head_a).state == "off"
-    assert not any(kind == "off" for (_, kind) in coord._heal_timers)
+    assert not any(kind == "off" for (_, kind) in armed_keys(coord, "heal"))
 
     calls = _record_calls(hass)
     async_fire_time_changed(
@@ -389,7 +390,7 @@ async def test_wall_off_timer_callback_reengages_active_head(
         blocking=True,
     )
     await hass.async_block_till_done()
-    assert any(kind == "off" for (_, kind) in coord._heal_timers)
+    assert any(kind == "off" for (_, kind) in armed_keys(coord, "heal"))
 
     async_fire_time_changed(
         hass, dt_util.utcnow() + timedelta(seconds=OFF_WHILE_ENABLED_DELAY + 5)
@@ -397,7 +398,7 @@ async def test_wall_off_timer_callback_reengages_active_head(
     await hass.async_block_till_done()
     assert heals == 1
     assert hass.states.get(head_a).state == "cool"
-    assert not any(kind == "off" for (_, kind) in coord._heal_timers)
+    assert not any(kind == "off" for (_, kind) in armed_keys(coord, "heal"))
 
 
 async def test_human_correction_cancels_pending_off_heal(
@@ -416,7 +417,7 @@ async def test_human_correction_cancels_pending_off_heal(
         blocking=True,
     )
     await hass.async_block_till_done()
-    assert any(kind == "off" for (_, kind) in coord._heal_timers)
+    assert any(kind == "off" for (_, kind) in armed_keys(coord, "heal"))
 
     heals = 0
 
@@ -432,7 +433,7 @@ async def test_human_correction_cancels_pending_off_heal(
         blocking=True,
     )
     await hass.async_block_till_done()
-    assert not any(kind == "off" for (_, kind) in coord._heal_timers)
+    assert not any(kind == "off" for (_, kind) in armed_keys(coord, "heal"))
 
     async_fire_time_changed(
         hass, dt_util.utcnow() + timedelta(seconds=OFF_WHILE_ENABLED_DELAY + 5)
@@ -453,13 +454,13 @@ async def test_new_demand_callback_wakes_parked_head_without_heal_timer(
     await _recompute(hass, entry)
     coord = entry.runtime_data
     assert hass.states.get(head_a).state == "off"
-    assert not any(kind == "off" for (_, kind) in coord._heal_timers)
+    assert not any(kind == "off" for (_, kind) in armed_keys(coord, "heal"))
 
     await _set_temp(hass, SENSOR_A, 75)  # no explicit recompute
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=15))
     await hass.async_block_till_done()
     assert hass.states.get(head_a).state == "cool"
-    assert not any(kind == "off" for (_, kind) in coord._heal_timers)
+    assert not any(kind == "off" for (_, kind) in armed_keys(coord, "heal"))
 
 
 async def test_unload_cancels_pending_off_heal_callback(hass: HomeAssistant) -> None:
@@ -475,10 +476,10 @@ async def test_unload_cancels_pending_off_heal_callback(hass: HomeAssistant) -> 
         blocking=True,
     )
     await hass.async_block_till_done()
-    assert any(kind == "off" for (_, kind) in coord._heal_timers)
+    assert any(kind == "off" for (_, kind) in armed_keys(coord, "heal"))
 
     assert await hass.config_entries.async_unload(entry.entry_id)
-    assert coord._heal_timers == {}
+    assert not armed(coord, "heal")
     calls = _record_calls(hass)
     async_fire_time_changed(
         hass, dt_util.utcnow() + timedelta(seconds=OFF_WHILE_ENABLED_DELAY + 5)
@@ -505,7 +506,7 @@ async def test_fan_only_idle_wall_off_still_arms_heal(hass: HomeAssistant) -> No
     )
     await hass.async_block_till_done()
     coord = entry.runtime_data
-    assert any(kind == "off" for (_, kind) in coord._heal_timers)
+    assert any(kind == "off" for (_, kind) in armed_keys(coord, "heal"))
 
 
 async def test_default_config_wall_off_while_drying_still_arms_heal(
@@ -522,14 +523,14 @@ async def test_default_config_wall_off_while_drying_still_arms_heal(
     await _set_temp(hass, SENSOR_A, 70)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "fan_only"
-    assert head_a in coord._dry_timers
+    assert armed(coord, "dry", head_a)
 
     await hass.services.async_call(
         "climate", "set_hvac_mode",
         {"entity_id": head_a, "hvac_mode": "off"}, blocking=True,
     )
     await hass.async_block_till_done()
-    assert any(kind == "off" for (_, kind) in coord._heal_timers)
+    assert any(kind == "off" for (_, kind) in armed_keys(coord, "heal"))
 
 
 async def test_vane_change_on_idle_off_head_kicks_and_returns_off(

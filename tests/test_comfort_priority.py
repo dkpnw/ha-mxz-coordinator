@@ -15,13 +15,12 @@ from typing import Any
 
 import pytest
 import voluptuous as vol
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.mxz_coordinator import coordinator as coordinator_module
 from custom_components.mxz_coordinator.const import (
     CONF_COMFORT_STALE_HOURS,
     CONF_IDLE_ACTION,
@@ -48,6 +47,7 @@ from tests.flow_pages import (
     save_options,
     submit,
 )
+from tests.peek import armed
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -155,7 +155,7 @@ async def test_no_entity_set_decides_by_room_order_and_says_so(hass: HomeAssista
     assert all(ZONE_COMFORT_PRIORITY_ENTITY not in z for z in _zones(entry))
     coord = entry.runtime_data
     assert [z.comfort_priority_entity for z in coord.zones] == [None, None]
-    assert coord._comfort_timer is None
+    assert not armed(coord, "comfort")
 
 
 # --- every accepted domain ---------------------------------------------------
@@ -293,7 +293,7 @@ async def test_a_boosted_flip_held_by_the_wait_arms_the_dwell_wakeup(
     coord = entry.runtime_data
     await _standoff(hass, entry)
     assert _plan(hass, entry).state == MODE_COOL
-    assert coord._dwell_timer is None  # room order already answers cool: nothing waits
+    assert not armed(coord, "dwell")  # room order already answers cool: nothing waits
 
     await _set(hass, OCCUPIED, "on")
     await _recompute(hass, entry)
@@ -301,11 +301,11 @@ async def test_a_boosted_flip_held_by_the_wait_arms_the_dwell_wakeup(
     assert plan.state == MODE_COOL  # the wait holds the boosted heat back
     assert plan.attributes["mode_change_allowed"] is False
     assert plan.attributes["mode_by_comfort_priority"] is False  # it changed nothing yet
-    assert coord._dwell_timer is not None  # the wakeup replays the same boost
+    assert armed(coord, "dwell")  # the wakeup replays the same boost
 
     await _set(hass, OCCUPIED, "off")
     await _recompute(hass, entry)
-    assert coord._dwell_timer is None  # the boost is gone, so is the wait's reason
+    assert not armed(coord, "dwell")  # the boost is gone, so is the wait's reason
 
     await _set(hass, OCCUPIED, "on")
     expire_dwell(coord)
@@ -344,7 +344,7 @@ async def test_restart_with_the_entity_still_loading_keeps_the_restored_hold(
     assert plan.state == MODE_COOL  # the restored hold still holds
     assert plan.attributes["mode_change_allowed"] is False
     assert hass.states.get(head_a).state == MODE_COOL
-    assert coord._dwell_timer is not None
+    assert armed(coord, "dwell")
 
     expire_dwell(coord)
     await _recompute(hass, entry)
@@ -420,7 +420,7 @@ async def test_fresh_just_under_and_just_over_the_limit(
     plan = _plan(hass, entry)
     assert plan.state == MODE_COOL  # back to room order, through the normal wait (0 here)
     assert plan.attributes["mode_by_comfort_priority"] is False
-    assert entry.runtime_data._comfort_timer is None  # nothing left to go stale
+    assert not armed(entry.runtime_data, "comfort")  # nothing left to go stale
 
     # Home Assistant stamps a new state from its own clock, not the stepped
     # utcnow above, so step back before writing one.
@@ -440,7 +440,7 @@ async def test_zero_means_no_limit(hass: HomeAssistant, monkeypatch: pytest.Monk
     await _recompute(hass, entry)
     assert _row(hass, entry, 1) == (OCCUPIED, 1.0, "on")
     assert _plan(hass, entry).state == MODE_HEAT
-    assert entry.runtime_data._comfort_timer is None
+    assert not armed(entry.runtime_data, "comfort")
 
 
 @pytest.mark.parametrize("entity_id", ["number.den_priority", "input_number.den_priority", "sensor.den_people"])
@@ -450,31 +450,17 @@ async def test_numbers_never_go_stale(
     hass.states.async_set(entity_id, "1")
     entry, _a, _b = await _setup(hass, comfort=(None, entity_id))
     await _standoff(hass, entry)
-    assert entry.runtime_data._comfort_timer is None
+    assert not armed(entry.runtime_data, "comfort")
     jump_wall_clock(monkeypatch, 1000 * HOUR)
     await _recompute(hass, entry)
     assert _row(hass, entry, 1) == (entity_id, 1.0, "number")
     assert _plan(hass, entry).state == MODE_HEAT
 
 
-def _count_comfort_wakeups(monkeypatch: pytest.MonkeyPatch) -> list[float]:
-    """Record each stale-limit wakeup that actually runs (its delay), from here on."""
-    fired: list[float] = []
-    real = coordinator_module.async_call_later
-
-    def arming(hass: HomeAssistant, delay: float, action: Any) -> Any:
-        if "_sync_comfort_timer" in getattr(action, "__qualname__", ""):
-            inner = action
-
-            @callback
-            def action(now: Any) -> None:
-                fired.append(delay)
-                inner(now)
-
-        return real(hass, delay, action)
-
-    monkeypatch.setattr(coordinator_module, "async_call_later", arming)
-    return fired
+def _comfort_wakeups_run(coord: Any, since: int) -> list[float]:
+    """The delay of each stale-limit wakeup that actually ran, read from the clock's log."""
+    waits = [wait for wait in coord.clock.log[since:] if wait.name == "comfort"]
+    return [wait.delay for wait in waits for _ in range(wait.fired)]
 
 
 async def test_the_stale_moment_wakes_a_recompute_by_itself(
@@ -484,20 +470,21 @@ async def test_the_stale_moment_wakes_a_recompute_by_itself(
     hass.states.async_set(OCCUPIED, "on")
     entry, _a, _b = await _setup(hass, **{CONF_COMFORT_STALE_HOURS: 1})
     coord = entry.runtime_data
-    fired = _count_comfort_wakeups(monkeypatch)
+    since = len(coord.clock.log)
     await _standoff(hass, entry)
     await _quiesce(hass, coord)
-    assert coord._comfort_timer is not None
+    assert armed(coord, "comfort")
     assert _plan(hass, entry).state == MODE_HEAT
     jump_wall_clock(monkeypatch, HOUR + 1)
     with _count_refresh_requests(coord) as requests:
         await _fire_due(hass, HOUR + 1)
+    fired = _comfort_wakeups_run(coord, since)
     assert len(fired) >= 1
     assert all(0 < delay <= HOUR for delay in fired)
     assert "request" in requests
     assert _row(hass, entry, 1) == (OCCUPIED, 0.0, "stale")
     assert _plan(hass, entry).state == MODE_COOL
-    assert coord._comfort_timer is None
+    assert not armed(coord, "comfort")
 
 
 async def test_unload_cancels_the_stale_wakeup(hass: HomeAssistant) -> None:
@@ -505,12 +492,12 @@ async def test_unload_cancels_the_stale_wakeup(hass: HomeAssistant) -> None:
     entry, _a, _b = await _setup(hass)
     coord = entry.runtime_data
     await _standoff(hass, entry)
-    assert coord._comfort_timer is not None
+    assert armed(coord, "comfort")
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    assert coord._comfort_timer is None
+    assert not armed(coord, "comfort")
     coord._sync_comfort_timer()  # a late re-sync arms nothing on a retired one
-    assert coord._comfort_timer is None
+    assert not armed(coord, "comfort")
 
 
 async def test_the_age_survives_a_reload_and_restarts_with_a_new_state(
