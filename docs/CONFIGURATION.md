@@ -114,7 +114,7 @@ The outdoor-unit name and **Notify on drift** service are set in setup and Recon
 <td>Comfort, with its <b>Advanced</b> section opened. <b>Keep a lost head's vote for</b> is blank, which means 30 minutes, and <b>Comfort priority stale limit</b> is blank, which means 12 hours.</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-needs-attention.png" alt="Settings menu headed by Needs attention: the saved lowest setpoint is above the highest setpoint. Open Away and setpoint limits to fix it. The six pages follow."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-needs-attention.png" alt="Settings menu headed by Needs attention: the saved lowest setpoint is above the highest setpoint. Open Away and setpoint limits to fix it. The six pages follow, each with a subtitle."></td>
 <td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-room.png" alt="Room page titled Studio: Head type Local with its description, empty Airflow sensor, Vertical vane, Horizontal vane, Safety priority sensor and Comfort priority pickers, Let its own remote run it while disabled off, While its own remote runs it, its vote counts set to Whenever it is set to heat or cool (default), and collapsed Uneven drift, Sensor freshness, Freeze floor and overheat ceiling, Dual setpoint, Cloud or generic head (beta), and Door/window pause sections, then Submit."></td>
 </tr>
 <tr>
@@ -129,15 +129,15 @@ The outdoor-unit name and **Notify on drift** service are set in setup and Recon
 <table>
 <tr>
 <td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-fan-idle.png" alt="Fan and idle page: Fan boost on, Fan boost top speed High, When a room reaches target Dry the coil (fan only), then off (default), and Coil drying time 10 min."></td>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-seasons.png" alt="Seasons page: no weather source, Lock out heat when the high is at least 68 °F, Lock out cool when the high is at most 50 °F, and Safety overrides open with Heat anyway below 58 °F and Cool anyway above 80 °F."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-seasons.png" alt="Seasons page: no weather source, Lock out heat when the high is at least 68 °F, Lock out cool when the high is at most 50 °F, and Safety overrides open with Heat anyway below 58 °F and Cool anyway above 80 °F."></td>
 </tr>
 <tr>
 <td>Fan and idle, with the defaults.</td>
 <td>Seasons, with <b>Safety overrides</b> opened.</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-limits.png" alt="Away and setpoint limits page: Away low limit 50 °F and Away high limit 78 °F, and Head setpoint range open with Lowest setpoint 59 °F and Highest setpoint 88 °F."></td>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-standby.png" alt="Standby hold page: no hold signal, Active state on, and During a hold Eco, protection only (recommended)."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-limits.png" alt="Away and setpoint limits page: Away low limit 50 °F and Away high limit 78 °F, and Head setpoint range open with Lowest setpoint 59 °F and Highest setpoint 88 °F."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-standby.png" alt="Standby hold page: no hold signal, Active state on, and During a hold Eco, protection only (recommended)."></td>
 </tr>
 <tr>
 <td>Away and setpoint limits, with <b>Head setpoint range</b> opened.</td>
@@ -191,9 +191,9 @@ numbers: `nan` and `±inf` are rejected.
 
 <table>
 <tr>
-<td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-error-setpoint-range.png" alt="Away and setpoint limits page with Lowest setpoint 80 °F and Highest setpoint 70 °F, and the error The lowest setpoint can't be above the highest setpoint. shown above the open Head setpoint range section."></td>
+<td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-error-setpoint-range.png" alt="Away and setpoint limits page with Lowest setpoint 80 °F and Highest setpoint 70 °F, and the error The lowest setpoint can't be above the highest setpoint. shown above the open Head setpoint range section."></td>
 <td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-error-freshness.png" alt="Studio's room page with Sensor freshness open, Report interval 10 min and Maximum age 5 min, and an error at the top: these freshness settings don't fit together, and maximum age can't be shorter than the report interval."></td>
-<td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-configure-saved.png" alt="Success dialog reading Options successfully saved. with a Finish button."></td>
+<td width="33%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-saved.png" alt="Success dialog reading Options successfully saved. with a Finish button."></td>
 </tr>
 <tr>
 <td>A lowest setpoint above the highest: the error shows above the <b>Head setpoint range</b> section.</td>

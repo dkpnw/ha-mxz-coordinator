@@ -33,6 +33,12 @@ on your equipment.
   Quick start links to them. Removal, the 3.4.0 update step and how beta testers opt in
   ([RELEASING.md](docs/RELEASING.md#how-testers-opt-in)) name the Marketplace first and keep
   the HACS way for older versions. Nothing changes in the integration, `hacs.json` or CI.
+- Docs only: the last 19 screenshots from 3.12 are retaken on the throwaway instance after the
+  settings change above, in the light theme, with names that carry no version: the setup
+  errors and warning, the four Reconfigure steps and its completion, six Configure pages, the
+  plan's lost-head vote, and the dual-setpoint thermostat. Alt text and captions describe the
+  new pictures. Four unused 3.12 copies are deleted. A test now refuses an image name with a
+  version in it.
 
 ## 3.22.0 (November 11, 2026)
 
