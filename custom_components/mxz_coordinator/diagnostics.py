@@ -372,15 +372,12 @@ def _votes(coordinator: Any, zone: Any, now: float) -> dict[str, Any]:
 
 
 def _holds(coordinator: Any, zone: Any) -> dict[str, Any]:
-    run = coordinator._floor_runs.get(zone.slug)
     return {
         **coordinator.mode_hold_attributes(),
         "hands_off": zone.hands_off,
         "hands_off_released": zone.slug in coordinator._hands_off_released,
         **coordinator.dry.diagnostics(zone.slug),
-        "floor_run": run,
-        "floor_yield": coordinator._floor_yield.get(zone.slug),
-        "floor_rejecting": coordinator._floor_rejecting.get(zone.slug),
+        **coordinator.floor.diagnostics(zone.slug),
         "vane_kick_running": zone.climate_id in coordinator._vane_kicks,
     }
 

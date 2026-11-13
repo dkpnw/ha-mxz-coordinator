@@ -309,8 +309,8 @@ async def test_a_floor_run_on_a_cloud_head_ends_off_not_handed_back(
     await set_room(hass, SENSORS[0], 55)  # below the floor anyway
     await recompute(hass, entry)
     coordinator = entry.runtime_data
-    assert coordinator.floor_tripped("primary")
-    assert "primary" not in coordinator._floor_prior  # nothing taken over
+    assert coordinator.floor.tripped("primary")
+    assert "primary" not in coordinator.floor._prior  # nothing taken over
     past_window(entry, a.entity_id)
     await recompute(hass, entry)
     assert a.device["mode"] == "heat"
@@ -319,7 +319,7 @@ async def test_a_floor_run_on_a_cloud_head_ends_off_not_handed_back(
     await recompute(hass, entry)
     past_window(entry, a.entity_id)
     await recompute(hass, entry)
-    assert not coordinator.floor_tripped("primary")
+    assert not coordinator.floor.tripped("primary")
     assert a.device["mode"] == "off"
 
 

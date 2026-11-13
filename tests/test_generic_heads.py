@@ -274,7 +274,7 @@ async def test_a_disabled_generic_room_is_still_protected(
     await past_startup(hass, entry)
     assert head.device["mode"] == "off"
     await _driven(hass, entry, SENSORS[0], room)
-    assert entry.runtime_data.floor_tripped("primary") is bool(limit)
+    assert entry.runtime_data.floor.tripped("primary") is bool(limit)
     assert head.device["mode"] == mode
 
 

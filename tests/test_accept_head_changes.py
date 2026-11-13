@@ -1168,7 +1168,7 @@ async def test_a_safety_limit_still_runs_a_room_turned_off_at_its_head(
     await rig.later(HOLD)
     head = rig.heads[0]
     assert head.mode == mode
-    assert rig.coord.floor_tripped("primary") is True
+    assert rig.coord.floor.tripped("primary") is True
     clear_line = _edges(rig)[edge]
     assert not _armed(rig)
     await rig.later(HELD)

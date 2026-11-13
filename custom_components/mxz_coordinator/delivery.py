@@ -43,6 +43,13 @@ class HeadSteps(Protocol):
     ) -> None: ...
 
 
+class FloorReports(Protocol):
+    """The freeze floor (``floor.FloorGuard``): what became of a command to a head."""
+
+    def rejected(self, climate_id: str, err: Exception, delivery: Delivery) -> None: ...
+    def accepted(self, climate_id: str, delivery: Delivery) -> None: ...
+
+
 class DeliveryHost(ControllerHost, Protocol):
     """The coordinator members the queue reads or calls, beyond every controller's.
 
@@ -60,12 +67,13 @@ class DeliveryHost(ControllerHost, Protocol):
 
     @property
     def heads(self) -> HeadSteps: ...
+    @property
+    def floor(self) -> FloorReports: ...
 
     def async_update_listeners(self) -> None: ...
     async def async_refresh(self) -> None: ...
     def publish_delivery(self) -> None: ...
     def remember_head_write(self, climate_id: str, payload: dict[str, Any]) -> None: ...
-    def floor_rejected(self, climate_id: str, err: Exception, delivery: Delivery) -> None: ...
 
 
 @dataclass(eq=False)
@@ -366,7 +374,7 @@ class DeliveryQueue:
                 "MXZ: applying %s to %s failed (zone degraded, others continue): %s",
                 act, climate_id, err,
             )
-            host.floor_rejected(climate_id, err, active)
+            host.floor.rejected(climate_id, err, active)
         except Exception as err:
             # A head's own refusal arrives above as HomeAssistantError
             # (_async_issue); this is a fault in MXZ's own steps, and

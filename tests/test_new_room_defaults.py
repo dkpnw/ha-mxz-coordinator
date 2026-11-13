@@ -547,7 +547,7 @@ async def test_disabled_new_room_below_the_default_floor_heats_even_under_heat_l
     assert f.coord.heat_lockout is True
     floor = FLOOR[metric]
     margin = 1.5 if metric else 3.0
-    assert f.coord._floor_margin == margin
+    assert f.coord.floor.margin == margin
     await _report(hass, SENSOR_A, floor - 0.5)  # the ENABLED room, below its floor
     await f.temp(SENSOR_B, floor + 0.5)
     assert (_s(hass, f.b), f.floor(1)) == ("off", ("armed", None))

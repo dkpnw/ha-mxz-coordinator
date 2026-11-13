@@ -229,7 +229,7 @@ class ZoneEnableRestoreData(ExtraStoredData):
     not released, and that room parks, as a newly disabled room does.
 
     ``floor``: a disabled room's floor run and/or hands-off yield, as
-    :meth:`MXZCoordinator.floor_record` gives it. Stored only while one
+    :meth:`floor.FloorGuard.record` gives it. Stored only while one
     exists, so a room with no floor stores exactly what it stored before.
     """
 
@@ -276,14 +276,14 @@ class MXZZoneEnableSwitch(MXZBaseSwitch):
         if self._zone.hands_off and data.get("hands_off_released") is True:
             self.coordinator.restore_hands_off(self._zone.slug)
         if floor:
-            self.coordinator.restore_floor(self._zone.slug, data)
+            self.coordinator.floor.restore(self._zone.slug, data)
 
     @property
     def extra_restore_state_data(self) -> ZoneEnableRestoreData:
         """Read live at every restore dump, so it needs no state write."""
         return ZoneEnableRestoreData(
             self.coordinator.hands_off_released(self._zone.slug),
-            self.coordinator.floor_record(self._zone.slug) or None,
+            self.coordinator.floor.record(self._zone.slug) or None,
         )
 
     def _seed(self, *, restored: bool = False) -> None:

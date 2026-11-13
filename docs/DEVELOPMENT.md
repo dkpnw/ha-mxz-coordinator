@@ -87,25 +87,28 @@ a time. Each moves into a module that owns its state, its wakeups and its stored
 | `fan_hold.py` | Fan boost and the manual fan hold, per head: the ladder's rung, whether a person's pick is held, the echo memory of MXZ's own writes (`FanEcho`), and what the Fan auto switch restores. The switch keeps the restore data; `FanHold` reads and writes it through `restore`, `command_memory` and `older_record`. |
 | `delivery.py` | The delivery queue: one plan decided at a time, each head's commands in turn (`Delivery`), across reloads, the one follow-up refresh owed to a request made during a plan, and what each software call to a head returned. On Home Assistant before 2025.11 it makes up for two gaps in the request debouncer; that code goes when the minimum version reaches 2025.11. |
 | `heads.py` | Each room's head driver behind one interface (`HeadDriver`): `LocalDriver` for a local head and `CloudDriver` for a cloud or generic one, with its `CloudHead` record, its batches, whether it is out of control, and its repair issue. `HeadGrid` reads what a head accepts: its native band and its setpoint grid. `HeadDrivers` settles each room's head type at the start, runs a delivery through the head's driver, and keeps the one wakeup the cloud heads share. |
+| `floor.py` | The freeze floor and overheat ceiling of each disabled room that sets one (`FloorGuard`): the run and its no-progress clock, a person's setting a hands-off run took over and the hand-back that returns it, a yield to a person, the floor notices and their hourly limit, and the record the room's enable switch restores. |
 | `host.py` | `ControllerHost`, the coordinator members every controller uses: Home Assistant, the clock, `retired`, `notify`, `redraw_rooms` and the two recomputes. `HeadCommands`: the delivery queue's `async_send`, for a controller below it. |
 
 A module that moved out reaches the coordinator only through a `Protocol` it declares on top of
 `ControllerHost`, which names each further coordinator member it uses (`OpeningHost`,
-`DryHost`, `FanHost`, `DeliveryHost`, `HeadsHost`). mypy checks that the coordinator satisfies each one. The coordinator calls it at fixed
+`DryHost`, `FanHost`, `DeliveryHost`, `HeadsHost`, `FloorHost`). mypy checks that the coordinator satisfies each one. The coordinator calls it at fixed
 points and keeps no copy of its state. A controller that a lower one calls is reached through a
 small Protocol the lower one can import: `HeadCommands` in `host.py`, `CloudRecords` in
-`cloud.py` (a head's cloud record, for Dry and the fan hold), and `HeadSteps` in `delivery.py`
-(the head drivers, for the queue). Code mutants (`tools/code_mutants.py`) and the
+`cloud.py` (a head's cloud record, for Dry and the fan hold), `HeadSteps` in `delivery.py`
+(the head drivers, for the queue), and `FloorReports` in `delivery.py` (the floor, for the queue
+and the head drivers, which tell it whether a command to a head was refused). Code mutants (`tools/code_mutants.py`) and the
 statechart's Code column name functions, not files. A move therefore breaks an anchor only
 where a function is renamed.
 
 Still in `coordinator.py`: the compute and the apply, the mode-change hold and its record,
-sensor freshness, head sight and the hands-off votes, accept-at-head and the drift heals,
-the freeze floor, vane kicks, the season changeover and the standby hold. The freeze floor
-is the next to move (`FloorGuard`). The compute still performs some effects itself: the
-door/window pause saves its record and sends its notices from `OpeningPause.step`, and the
-floor and Dry send theirs from inside the compute. Making the compute return those effects
-for the coordinator to perform comes after the floor has moved.
+sensor freshness, head sight, the hands-off room and its votes, accept-at-head and the drift
+heals, vane kicks, the season changeover and the standby hold. The hands-off release stays the
+coordinator's; the floor changes it through `set_hands_off_released`. The compute still
+performs some effects itself: the door/window pause saves its record and sends its notices from
+`OpeningPause.step`, and the floor sends its trip, blind and stalled notices from
+`FloorGuard.want`, through `FloorGuard._send`. Making the compute return those effects for the
+coordinator to perform is the next step.
 
 Which module may import which is checked in CI; a new module joins a layer in
 `tools/import_bounds.py`. See [ARCHITECTURE-RULES.md](ARCHITECTURE-RULES.md).
