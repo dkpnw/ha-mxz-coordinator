@@ -1368,6 +1368,8 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             elif generic and esphome:
                 errors[_CONF_HEADS] = "generic_esphome_head"
                 placeholders = {"esphome_heads": ", ".join(esphome)}
+            elif _notify_service_error(self.hass, user_input.get(CONF_NOTIFY_SERVICE)):
+                errors[CONF_NOTIFY_SERVICE] = "notify_service_invalid"
             else:
                 cast("dict[str, Any]", self.context)[_CONTEXT_HEADS] = tuple(heads)
                 await self.async_set_unique_id("|".join(heads))
@@ -1924,6 +1926,8 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             ):
                 error, placeholders = problem
                 errors[_CONF_HEADS] = error
+            elif _notify_service_error(self.hass, user_input.get(CONF_NOTIFY_SERVICE)):
+                errors[CONF_NOTIFY_SERVICE] = "notify_service_invalid"
             else:
                 cast("dict[str, Any]", self.context)[_CONTEXT_HEADS] = tuple(heads)
                 cast("dict[str, Any]", self.context)[_CONTEXT_ENTRY_ID] = entry.entry_id

@@ -19,6 +19,10 @@ on your equipment.
   saved and the rooms in options stayed in use.
 - Fix: saving a Configure page on an entry that still had a 2.x flat vane key (such as
   `primary_vane_vertical`) no longer drops that room's vane wiring.
+- Fix: setup and Reconfigure check **Notify on drift** as a room's door/window notify service
+  is checked. It must be a notify service Home Assistant has, or empty. An entry that already
+  stores one keeps it, and notices still fall back to Home Assistant's notifications when the
+  service is gone.
 - Tooling only: `python3 tools/revert_rate.py` reports the share of landings on main that
   were reverts, month by month in Pacific time, and lists each revert with the commit it
   names. It only reads git. Nothing changes in the integration, `hacs.json` or CI.

@@ -295,7 +295,8 @@
       "sensor_missing": "Home Assistant has no state for: {problem_sensors}. Make sure each sensor exists and is loaded, then pick it again.",
       "sensor_unit_unsupported": "MXZ Coordinator cannot read the temperature unit these sensors report: {problem_sensors}. Choose a sensor that reports a temperature unit Home Assistant can convert, such as degrees Celsius, degrees Fahrenheit, or kelvin.",
       "too_many_heads": "A single MXZ outdoor unit supports at most 8 heads.",
-      "generic_esphome_head": "These heads are on ESPHome, which MXZ drives as local (CN105) heads: {esphome_heads}. Turn Generic heads off, or pick other heads."
+      "generic_esphome_head": "These heads are on ESPHome, which MXZ drives as local (CN105) heads: {esphome_heads}. Turn Generic heads off, or pick other heads.",
+      "notify_service_invalid": "Enter a notify service Home Assistant has, such as notify.mobile_app_phone, or leave it empty."
     },
     "abort": {
       "already_configured": "These heads are already configured.",

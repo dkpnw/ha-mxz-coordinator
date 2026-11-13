@@ -20,7 +20,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_mock_service,
+)
 
 from custom_components.mxz_coordinator.const import (
     CONF_CHANGEOVER_COOL_BELOW,
@@ -850,6 +853,8 @@ async def test_s23_summary_is_complete_and_nothing_is_written_until_confirmed(
     hass: HomeAssistant,
 ) -> None:
     """S23 / W6, W6c: everything on one screen; closing it creates nothing."""
+    # Setup takes a drift-alert service Home Assistant has (tests/test_entry_checks.py).
+    async_mock_service(hass, "notify", "mobile_app_phone")
     result = await _to_review(
         hass, title="Upstairs MXZ", notify="notify.mobile_app_phone"
     )

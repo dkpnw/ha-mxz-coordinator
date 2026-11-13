@@ -40,6 +40,12 @@ checked.
 A config entry with a higher major version than this release knows (v3) is refused with a
 migration error and left as it is.
 
+**Notify on drift is checked.** Setup and Reconfigure now refuse a drift-alert service Home
+Assistant does not have, as the room page already refuses one for door/window notices. An
+entry that stores one keeps it, and its notices still go to Home Assistant's notifications
+while the service is missing. Reconfigure asks for a service Home Assistant has, or an empty
+box, the next time that entry is saved.
+
 ## Changes made at a head are accepted (3.22.0)
 
 **Nothing to do, but a behavior changes for every install.** No config-entry version change, and
