@@ -820,10 +820,7 @@ async def test_every_rendered_field_and_section_has_floor_safe_copy(
 def test_attention_and_idle_labels_match_the_shipped_copy() -> None:
     """The code-side names the user reads match the labels they see."""
     from custom_components.mxz_coordinator.capabilities import IDLE_ACTION_LABELS
-    from custom_components.mxz_coordinator.config_flow import (
-        _FIELD_LABELS,
-        _PAGE_NAMES,
-    )
+    from custom_components.mxz_coordinator.settings import PAGES, SETTINGS
 
     strings = _strings()
     shown: dict[str, str] = {}
@@ -832,9 +829,11 @@ def test_attention_and_idle_labels_match_the_shipped_copy() -> None:
             shown.update(step["data"])
             for page_section in step.get("sections", {}).values():
                 shown.update(page_section["data"])
-    for field, label in _FIELD_LABELS.items():
+    labels = {setting.key: setting.label for setting in SETTINGS if setting.label}
+    assert labels
+    for field, label in labels.items():
         assert shown[field] == label, field
-    assert _PAGE_NAMES == {
+    assert {page: PAGES[page].name for page in PAGES} == {
         page: strings["options"]["step"]["init"]["menu_options"][page]
         for page in PAGE_FIELDS
     }

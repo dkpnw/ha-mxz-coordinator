@@ -24,61 +24,20 @@ from .capabilities import head_lists_dry, head_mode_problem, supported_idle_acti
 from .const import (
     CLOUD_PLATFORMS,
     COMFORT_DOMAINS,
-    COMFORT_STALE_HOURS_BOUNDS,
-    CONF_ACCEPT_HEAD_CHANGES,
-    CONF_CHANGEOVER_COOL_BELOW,
-    CONF_CHANGEOVER_ENTITY,
-    CONF_CHANGEOVER_HEAT_ABOVE,
-    CONF_CLAMP_MAX,
-    CONF_CLAMP_MIN,
-    CONF_COIL_DRY_MINUTES,
-    CONF_COMFORT_STALE_HOURS,
-    CONF_COOL_LOCKOUT_CEILING,
-    CONF_DEMAND_THRESHOLD,
     CONF_DRIFT_COOLER_BY,
     CONF_DRIFT_WARMER_BY,
-    CONF_ECO_COOL_MAX,
-    CONF_ECO_HEAT_MIN,
-    CONF_ENGAGE_DEADBAND,
-    CONF_FAN_BOOST_ENABLE,
-    CONF_FAN_BOOST_MAX,
-    CONF_HEAT_LOCKOUT_FLOOR,
     CONF_IDLE_ACTION,
-    CONF_INHIBIT_ACTION,
-    CONF_INHIBIT_ACTIVE_STATE,
-    CONF_INHIBIT_ENTITY,
-    CONF_LOST_VOTE_TTL,
-    CONF_MODE_HYSTERESIS,
     CONF_NOTIFY_SERVICE,
     CONF_PRIMARY_CLIMATE,
-    CONF_RESTING_MODE_BIAS,
     CONF_SECONDARY_CLIMATE,
     CONF_ZONES,
     CONFIRM_WAIT_BOUNDS,
-    DEFAULT_ACCEPT_HEAD_CHANGES,
-    DEFAULT_CHANGEOVER_COOL_BELOW,
-    DEFAULT_CHANGEOVER_HEAT_ABOVE,
-    DEFAULT_CLAMP_MAX,
-    DEFAULT_CLAMP_MIN,
-    DEFAULT_COIL_DRY_MINUTES,
     DEFAULT_CONFIRM_WAIT,
-    DEFAULT_COOL_LOCKOUT_CEILING,
-    DEFAULT_DEMAND_THRESHOLD,
     DEFAULT_DRIVE_OFFSET_C,
     DEFAULT_DRIVE_OFFSET_F,
-    DEFAULT_ECO_COOL_MAX,
-    DEFAULT_ECO_HEAT_MIN,
-    DEFAULT_ENGAGE_DEADBAND,
-    DEFAULT_FAN_BOOST_ENABLE,
-    DEFAULT_FAN_BOOST_MAX,
-    DEFAULT_HEAT_LOCKOUT_FLOOR,
     DEFAULT_IDLE_ACTION,
-    DEFAULT_INHIBIT_ACTION,
-    DEFAULT_INHIBIT_ACTIVE_STATE,
-    DEFAULT_MODE_HYSTERESIS,
     DEFAULT_OPENING_CLOSE_DELAY,
     DEFAULT_OPENING_OPEN_DELAY,
-    DEFAULT_RESTING_MODE_BIAS,
     DEFAULT_WRITE_INTERVAL,
     DOMAIN,
     DRIVE_OFFSET_MAX_C,
@@ -88,7 +47,6 @@ from .const import (
     EVIDENCE_BASES,
     EVIDENCE_HA_WRITE,
     EVIDENCE_SAMPLE_TIMESTAMP,
-    FAN_LADDER,
     FLOOR_RANGE_C,
     FLOOR_RANGE_F,
     GENERIC_CONFIRM_WAIT,
@@ -98,8 +56,6 @@ from .const import (
     HEAD_TYPE_LOCAL,
     HEAD_TYPES,
     IDLE_ACTION_OPTIONS,
-    INHIBIT_ACTION_OPTIONS,
-    LOST_VOTE_TTL_BOUNDS,
     MAX_ZONES,
     MIN_ZONES,
     NEW_ROOM_FLOOR_LOW_C,
@@ -109,7 +65,6 @@ from .const import (
     OPENING_CLOSE_DELAY_BOUNDS,
     OPENING_OPEN_DELAY_BOUNDS,
     OPENING_ZONE_ENTITY_SUFFIXES,
-    RESTING_BIAS_OPTIONS,
     UNAVAILABLE_STATES,
     VOTE_BASES,
     VOTE_BASIS_ACTION,
@@ -154,6 +109,22 @@ from .const import (
 )
 from .coordinator import read_room_temp
 from .logic import evidence_contract, freshness_window, snapped_midpoint
+from .settings import (
+    BY_KEY,
+    CHOICE,
+    ENGAGE,
+    ENTITY,
+    FLAG,
+    PAGES,
+    SETTINGS,
+    TEMPERATURE,
+    TEXT,
+    Setting,
+    blank,
+    page_fields,
+    page_layout,
+    tunable_errors,
+)
 from .units import offset_in_unit
 
 _CLIMATE_SELECTOR = selector.EntitySelector(
@@ -756,82 +727,6 @@ _OPENING_KEYS = (
 _SETUP_HEAD_TYPE = "head_type_{}"
 # The setup flow's first-step opt-in: every picked head is generic (beta).
 _GENERIC_FIELD = "generic_heads"
-# Comfort's optional uneven drift. Blank by default; a blank field stores no
-# key (Allowed drift applies), and clearing one removes the saved key.
-_BLANK_DRIFT = (CONF_DRIFT_COOLER_BY, CONF_DRIFT_WARMER_BY)
-# Every optional Comfort field that works that way: the uneven drift, how
-# long a lost head's vote is kept, and the Comfort priority stale limit
-# (blank is the default time for both).
-_BLANK_CLEARS = (*_BLANK_DRIFT, CONF_LOST_VOTE_TTL, CONF_COMFORT_STALE_HOURS)
-
-# Configure and setup pages: (top-level fields, {section: fields}), in display
-# order. Every tunable sits on exactly one page, and each validated pair sits
-# on one page, so a page's own validation never needs a value it doesn't show.
-_PAGES: dict[str, tuple[tuple[str, ...], dict[str, tuple[str, ...]]]] = {
-    "comfort": (
-        (
-            CONF_ENGAGE_DEADBAND,
-            CONF_DEMAND_THRESHOLD,
-            CONF_RESTING_MODE_BIAS,
-            CONF_ACCEPT_HEAD_CHANGES,
-        ),
-        {
-            "advanced": (
-                CONF_MODE_HYSTERESIS,
-                CONF_DRIFT_COOLER_BY,
-                CONF_DRIFT_WARMER_BY,
-                CONF_LOST_VOTE_TTL,
-                CONF_COMFORT_STALE_HOURS,
-            )
-        },
-    ),
-    "fan_idle": (
-        (
-            CONF_FAN_BOOST_ENABLE,
-            CONF_FAN_BOOST_MAX,
-            CONF_IDLE_ACTION,
-            CONF_COIL_DRY_MINUTES,
-        ),
-        {},
-    ),
-    "seasons": (
-        (
-            CONF_CHANGEOVER_ENTITY,
-            CONF_CHANGEOVER_HEAT_ABOVE,
-            CONF_CHANGEOVER_COOL_BELOW,
-        ),
-        {"safety": (CONF_HEAT_LOCKOUT_FLOOR, CONF_COOL_LOCKOUT_CEILING)},
-    ),
-    "limits": (
-        (CONF_ECO_HEAT_MIN, CONF_ECO_COOL_MAX),
-        {"setpoint_range": (CONF_CLAMP_MIN, CONF_CLAMP_MAX)},
-    ),
-    "standby": (
-        (CONF_INHIBIT_ENTITY, CONF_INHIBIT_ACTIVE_STATE, CONF_INHIBIT_ACTION),
-        {},
-    ),
-}
-# Page names as the menu shows them, for the Needs attention line.
-_PAGE_NAMES = {
-    "comfort": "Comfort",
-    "fan_idle": "Fan and idle",
-    "seasons": "Seasons",
-    "limits": "Away and setpoint limits",
-    "standby": "Standby hold",
-}
-# The optional entity picker each page shows; emptying it there clears it.
-_CLEARABLE_ENTITY = {
-    "seasons": CONF_CHANGEOVER_ENTITY,
-    "standby": CONF_INHIBIT_ENTITY,
-}
-
-
-def _page_fields(page: str) -> tuple[str, ...]:
-    """Every field one page shows, sections included."""
-    top, groups = _PAGES[page]
-    return top + tuple(field for fields in groups.values() for field in fields)
-
-
 def _flow_only_keys() -> frozenset[str]:
     """Every key that is flow input only and must never be stored flat.
 
@@ -854,7 +749,7 @@ def _flow_only_keys() -> frozenset[str]:
     room_keys.add(_HEAD_TYPE_FIELD)
     room_keys.update(key for key, _ in _CLOUD_FIELDS)
     room_keys.update(_OPENING_KEYS)
-    section_keys = {key for _, groups in _PAGES.values() for key in groups}
+    section_keys = {name for page in PAGES.values() for name in page.sections}
     slot_keys = {
         f"{zone_slug(index)}_{key}"
         for index in range(MAX_ZONES)
@@ -919,7 +814,7 @@ def _page_schema(
         # blocked before it renders in that case.
         return dict(by_key[field] for field in fields if field in by_key)
 
-    top, groups = _PAGES[page]
+    top, groups = page_layout(page)
     schema = pick(top)
     for key, fields in groups.items():
         schema[vol.Required(key)] = section(
@@ -950,7 +845,7 @@ def _page_form(
         idle_options,
         temperature_unit=temperature_unit,
     )
-    page_errors = _errors_by_section(_PAGES[page][1], errors or {})
+    page_errors = _errors_by_section(page_layout(page)[1], errors or {})
     return _page_schema(union, page, frozenset(page_errors)), page_errors
 
 
@@ -1490,102 +1385,43 @@ def _num(unit: str | None = None) -> selector.NumberSelector:
     return selector.NumberSelector(config)
 
 
-# Duration/magnitude tunables where a negative value is meaningless. Temperature
-# tunables are deliberately absent: below zero is an ordinary °C reading.
-_NONNEGATIVE_TUNABLES = (
-    CONF_DEMAND_THRESHOLD,
-    CONF_ENGAGE_DEADBAND,
-    CONF_DRIFT_COOLER_BY,
-    CONF_DRIFT_WARMER_BY,
-    CONF_MODE_HYSTERESIS,
-    CONF_COIL_DRY_MINUTES,
-    CONF_COMFORT_STALE_HOURS,
-)
-# Every numeric tunable that must be a finite real number. `NumberSelector`
-# coerces via `float()`, which happily accepts "nan"/"inf" and passes them
-# through unchanged (NaN fails every min/max comparison, so the selector's own
-# bounds never catch it) — so finiteness must be checked explicitly here.
-_FINITE_TUNABLES = _NONNEGATIVE_TUNABLES + (
-    CONF_ECO_COOL_MAX,
-    CONF_ECO_HEAT_MIN,
-    CONF_CLAMP_MIN,
-    CONF_CLAMP_MAX,
-    CONF_HEAT_LOCKOUT_FLOOR,
-    CONF_COOL_LOCKOUT_CEILING,
-    CONF_CHANGEOVER_HEAT_ABOVE,
-    CONF_CHANGEOVER_COOL_BELOW,
-    CONF_LOST_VOTE_TTL,
-)
-# (low, high, error, may_be_equal) for every pair a single field's selector can't
-# see. Inverted (low above high) always breaks its consumer:
-#   eco    — `room_call` tests `temp > eco_cool_max` BEFORE
-#            `temp < eco_heat_min`, so an inverted band silently calls cool for
-#            rooms that also qualify as too cold.
-#   clamp  — `setpoints` computes max(min(t, clamp_max), clamp_min), which
-#            returns clamp_min and ignores clamp_max entirely once inverted.
-#   lockout— between an inverted floor and ceiling NEITHER safety override is
-#            suppressed, so a heat-locked and cool-locked room can call both.
-#   changeover — `season_lockouts` checks `high >= heat_above` BEFORE
-#            `high <= cool_below` and returns on the first match, so an inverted
-#            pair reads the warm season for every high at or above heat_above,
-#            including forecasts the user set cool_below to call cold.
-# Equality is rejected ONLY for the changeover pair. The gap between those two
-# thresholds is the shoulder season documented on `season_lockouts`: the
-# hysteresis that keeps the forecast from chattering the lockouts. Equal values
-# leave a zero-width shoulder, so a single reading flips the heat lockout to the
-# cool lockout. It never turns both on — those branches return, they don't OR.
-# For the other three pairs, equality merely collapses the band to zero width —
-# degenerate, but the consumers handle it consistently, so refusing it would
-# reject a combination that works today.
-_ORDERED_PAIRS: tuple[tuple[str, str, str, bool], ...] = (
-    (CONF_ECO_HEAT_MIN, CONF_ECO_COOL_MAX, "eco_band_inverted", True),
-    (CONF_CLAMP_MIN, CONF_CLAMP_MAX, "clamp_inverted", True),
-    (CONF_HEAT_LOCKOUT_FLOOR, CONF_COOL_LOCKOUT_CEILING, "lockout_inverted", True),
-    (
-        CONF_CHANGEOVER_COOL_BELOW,
-        CONF_CHANGEOVER_HEAT_ABOVE,
-        "changeover_inverted",
-        False,
-    ),
-)
-
-
-def _validate_tunables(user_input: dict[str, Any]) -> dict[str, str]:
-    """Return {field: error_key} for every submitted tunable that fails validation.
-
-    Runs after the schema/selectors have already coerced the submission, so
-    this only needs to catch what they miss: non-finite numbers, negative
-    durations, and the cross-field orderings in ``_ORDERED_PAIRS``. An ordering
-    error names BOTH fields, because either one of them can be the wrong number.
-    """
-    errors: dict[str, str] = {}
-    parsed: dict[str, float] = {}
-    for key in _FINITE_TUNABLES:
-        if key not in user_input:
-            continue
-        try:
-            value = float(user_input[key])
-        except (TypeError, ValueError):
-            errors[key] = "not_a_number"
-        else:
-            if math.isfinite(value):
-                parsed[key] = value
-            else:
-                errors[key] = "not_a_number"
-
-    for key in _NONNEGATIVE_TUNABLES:
-        if parsed.get(key, 0.0) < 0:
-            errors[key] = "must_not_be_negative"
-
-    for low_key, high_key, error, may_be_equal in _ORDERED_PAIRS:
-        if low_key in errors or high_key in errors:
-            continue  # the value itself is wrong; ordering it says nothing
-        low, high = parsed.get(low_key), parsed.get(high_key)
-        if low is None or high is None:
-            continue  # a field this submission never carried
-        if high < low or (high == low and not may_be_equal):
-            errors[low_key] = errors[high_key] = error
-    return errors
+def _setting_selector(
+    setting: Setting,
+    engage_min: float,
+    engage_max: float,
+    temperature_unit: str | None,
+    choices: tuple[str, ...],
+) -> selector.Selector[Any]:
+    """The field one setting is shown as, from its row."""
+    if setting.kind == FLAG:
+        return selector.BooleanSelector()
+    if setting.kind == TEXT:
+        return selector.TextSelector()
+    if setting.kind == ENTITY:
+        return selector.EntitySelector(
+            selector.EntitySelectorConfig(domain=list(setting.domains))
+        )
+    if setting.kind == CHOICE:
+        return selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=list(choices),
+                translation_key=setting.translation_key,
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        )
+    unit = temperature_unit if setting.unit == TEMPERATURE else setting.unit
+    if setting.bounds is None:
+        return _num(unit)
+    if setting.bounds == ENGAGE:
+        low, high, step = engage_min, engage_max, engage_min / 2
+    else:
+        (low, high), step = cast("tuple[float, float]", setting.bounds), setting.step
+    config = selector.NumberSelectorConfig(
+        mode=selector.NumberSelectorMode.BOX, min=low, max=high, step=step
+    )
+    if unit:
+        config["unit_of_measurement"] = unit
+    return selector.NumberSelector(config)
 
 
 def _tunables_schema(
@@ -1599,212 +1435,41 @@ def _tunables_schema(
     """Every tunable, as one schema: setup's and Configure's pages pick from it.
 
     ``temperature_unit`` labels the temperature boxes (display only). Stored
-    values are the same with or without it.
+    values are the same with or without it. A setting with a default is
+    pre-filled with the stored value, else that default; one without (blank
+    means none) suggests only a stored value. The idle field offers
+    ``idle_options`` only, is left out when there are none, and is required
+    when the stored choice is not among them.
     """
-    idle_action = eff.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION)
-    idle_field: dict[vol.Marker, selector.SelectSelector] = {}
-    drift = selector.NumberSelector(
-        selector.NumberSelectorConfig(
-            mode=selector.NumberSelectorMode.BOX,
-            min=engage_min,
-            max=engage_max,
-            step=engage_min / 2,
-            **({"unit_of_measurement": temperature_unit} if temperature_unit else {}),
-        )
-    )
-    if idle_options:
-        idle_marker: vol.Marker = (
-            vol.Optional(CONF_IDLE_ACTION, default=idle_action)
-            if idle_action in idle_options
-            else vol.Required(CONF_IDLE_ACTION)
-        )
-        idle_field[idle_marker] = selector.SelectSelector(
-            selector.SelectSelectorConfig(
-                options=list(idle_options),
-                translation_key="idle_action",
-                mode=selector.SelectSelectorMode.DROPDOWN,
+    fields: dict[vol.Marker, Any] = {}
+    for setting in SETTINGS:
+        choices = setting.choices
+        marker: vol.Marker
+        if setting.key == CONF_IDLE_ACTION:
+            if not idle_options:
+                continue
+            choices = idle_options
+            idle_action = eff.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION)
+            marker = (
+                vol.Optional(CONF_IDLE_ACTION, default=idle_action)
+                if idle_action in idle_options
+                else vol.Required(CONF_IDLE_ACTION)
             )
+        elif setting.default is None:
+            marker = vol.Optional(
+                setting.key, description={"suggested_value": eff.get(setting.key)}
+            )
+        else:
+            marker = vol.Optional(setting.key, default=eff.get(setting.key, setting.default))
+        fields[marker] = _setting_selector(
+            setting, engage_min, engage_max, temperature_unit, choices
         )
-    return vol.Schema(
-        {  # type: ignore[misc]  # mixed vol.Required/vol.Optional keys
-            vol.Optional(
-                CONF_DEMAND_THRESHOLD,
-                default=eff.get(CONF_DEMAND_THRESHOLD, DEFAULT_DEMAND_THRESHOLD),
-            ): _num(temperature_unit),
-            vol.Optional(
-                CONF_ENGAGE_DEADBAND,
-                default=eff.get(CONF_ENGAGE_DEADBAND, DEFAULT_ENGAGE_DEADBAND),
-            ): drift,
-            # Same box and bounds as Allowed drift, but no default: blank
-            # means Allowed drift, so only a stored value is suggested.
-            **{
-                vol.Optional(key, description={"suggested_value": eff.get(key)}): drift
-                for key in _BLANK_DRIFT
-            },
-            vol.Optional(
-                CONF_ACCEPT_HEAD_CHANGES,
-                default=eff.get(CONF_ACCEPT_HEAD_CHANGES, DEFAULT_ACCEPT_HEAD_CHANGES),
-            ): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_MODE_HYSTERESIS,
-                default=eff.get(CONF_MODE_HYSTERESIS, DEFAULT_MODE_HYSTERESIS),
-            ): _num("s"),
-            # Whole minutes, no default: blank means the default time, so only
-            # a stored value is suggested.
-            vol.Optional(
-                CONF_LOST_VOTE_TTL,
-                description={"suggested_value": eff.get(CONF_LOST_VOTE_TTL)},
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    mode=selector.NumberSelectorMode.BOX,
-                    min=LOST_VOTE_TTL_BOUNDS[0],
-                    max=LOST_VOTE_TTL_BOUNDS[1],
-                    step=1,
-                    unit_of_measurement="min",
-                )
-            ),
-            # Whole hours, no default: blank means the default (12 h), and 0
-            # means no limit, so only a stored value is suggested.
-            vol.Optional(
-                CONF_COMFORT_STALE_HOURS,
-                description={"suggested_value": eff.get(CONF_COMFORT_STALE_HOURS)},
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    mode=selector.NumberSelectorMode.BOX,
-                    min=COMFORT_STALE_HOURS_BOUNDS[0],
-                    max=COMFORT_STALE_HOURS_BOUNDS[1],
-                    step=1,
-                    unit_of_measurement="h",
-                )
-            ),
-            vol.Optional(
-                CONF_ECO_COOL_MAX,
-                default=eff.get(CONF_ECO_COOL_MAX, DEFAULT_ECO_COOL_MAX),
-            ): _num(temperature_unit),
-            vol.Optional(
-                CONF_ECO_HEAT_MIN,
-                default=eff.get(CONF_ECO_HEAT_MIN, DEFAULT_ECO_HEAT_MIN),
-            ): _num(temperature_unit),
-            vol.Optional(
-                CONF_CLAMP_MIN,
-                default=eff.get(CONF_CLAMP_MIN, DEFAULT_CLAMP_MIN),
-            ): _num(temperature_unit),
-            vol.Optional(
-                CONF_CLAMP_MAX,
-                default=eff.get(CONF_CLAMP_MAX, DEFAULT_CLAMP_MAX),
-            ): _num(temperature_unit),
-            vol.Optional(
-                CONF_RESTING_MODE_BIAS,
-                default=eff.get(
-                    CONF_RESTING_MODE_BIAS, DEFAULT_RESTING_MODE_BIAS
-                ),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=list(RESTING_BIAS_OPTIONS),
-                    translation_key="resting_mode_bias",
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            ),
-            vol.Optional(
-                CONF_HEAT_LOCKOUT_FLOOR,
-                default=eff.get(
-                    CONF_HEAT_LOCKOUT_FLOOR, DEFAULT_HEAT_LOCKOUT_FLOOR
-                ),
-            ): _num(temperature_unit),
-            vol.Optional(
-                CONF_COOL_LOCKOUT_CEILING,
-                default=eff.get(
-                    CONF_COOL_LOCKOUT_CEILING, DEFAULT_COOL_LOCKOUT_CEILING
-                ),
-            ): _num(temperature_unit),
-            vol.Optional(
-                CONF_CHANGEOVER_ENTITY,
-                description={"suggested_value": eff.get(CONF_CHANGEOVER_ENTITY)},
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["weather", "sensor"])
-            ),
-            vol.Optional(
-                CONF_CHANGEOVER_HEAT_ABOVE,
-                default=eff.get(
-                    CONF_CHANGEOVER_HEAT_ABOVE, DEFAULT_CHANGEOVER_HEAT_ABOVE
-                ),
-            ): _num(temperature_unit),
-            vol.Optional(
-                CONF_CHANGEOVER_COOL_BELOW,
-                default=eff.get(
-                    CONF_CHANGEOVER_COOL_BELOW, DEFAULT_CHANGEOVER_COOL_BELOW
-                ),
-            ): _num(temperature_unit),
-            vol.Optional(
-                CONF_INHIBIT_ENTITY,
-                description={"suggested_value": eff.get(CONF_INHIBIT_ENTITY)},
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain=["binary_sensor", "switch", "input_boolean"]
-                )
-            ),
-            vol.Optional(
-                CONF_INHIBIT_ACTIVE_STATE,
-                default=eff.get(
-                    CONF_INHIBIT_ACTIVE_STATE, DEFAULT_INHIBIT_ACTIVE_STATE
-                ),
-            ): selector.TextSelector(),
-            vol.Optional(
-                CONF_INHIBIT_ACTION,
-                default=eff.get(CONF_INHIBIT_ACTION, DEFAULT_INHIBIT_ACTION),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=list(INHIBIT_ACTION_OPTIONS),
-                    translation_key="inhibit_action",
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            ),
-            **idle_field,
-            vol.Optional(
-                CONF_COIL_DRY_MINUTES,
-                default=eff.get(CONF_COIL_DRY_MINUTES, DEFAULT_COIL_DRY_MINUTES),
-            ): _num("min"),
-            vol.Optional(
-                CONF_FAN_BOOST_ENABLE,
-                default=eff.get(
-                    CONF_FAN_BOOST_ENABLE, DEFAULT_FAN_BOOST_ENABLE
-                ),
-            ): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_FAN_BOOST_MAX,
-                default=eff.get(CONF_FAN_BOOST_MAX, DEFAULT_FAN_BOOST_MAX),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=list(FAN_LADDER),
-                    translation_key="fan_speed",
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            ),
-        }
-    )
+    return vol.Schema(fields)
 
 
-# The Needs attention line's words for a stored value that fails validation.
-# Labels match the page field labels in strings.json (a test holds them
-# together); pairs get one sentence, because either value can be the wrong one.
-_FIELD_LABELS = {
-    CONF_ENGAGE_DEADBAND: "Allowed drift",
-    CONF_DRIFT_COOLER_BY: "Let it get cooler by",
-    CONF_DRIFT_WARMER_BY: "Let it get warmer by",
-    CONF_DEMAND_THRESHOLD: "Mode switch threshold",
-    CONF_MODE_HYSTERESIS: "Minimum time between mode switches",
-    CONF_LOST_VOTE_TTL: "Keep a lost head's vote for",
-    CONF_COMFORT_STALE_HOURS: "Comfort priority stale limit",
-    CONF_COIL_DRY_MINUTES: "Coil drying time",
-    CONF_CHANGEOVER_HEAT_ABOVE: "Lock out heat when the high is at least",
-    CONF_CHANGEOVER_COOL_BELOW: "Lock out cool when the high is at most",
-    CONF_HEAT_LOCKOUT_FLOOR: "Heat anyway below",
-    CONF_COOL_LOCKOUT_CEILING: "Cool anyway above",
-    CONF_ECO_HEAT_MIN: "Away low limit",
-    CONF_ECO_COOL_MAX: "Away high limit",
-    CONF_CLAMP_MIN: "Lowest setpoint",
-    CONF_CLAMP_MAX: "Highest setpoint",
-}
+# The Needs attention line's words for a stored pair that fails validation;
+# pairs get one sentence, because either value can be the wrong one. A single
+# value is named by its label (Setting.label, held to strings.json by a test).
 _PAIR_ATTENTION = {
     "eco_band_inverted": "the saved away low limit is above the away high limit",
     "clamp_inverted": "the saved lowest setpoint is above the highest setpoint",
@@ -1840,15 +1505,14 @@ def _attention(
             " Open Fan and idle to choose another."
         )
     stored = {
-        field: conf[field]
-        for page in _PAGES
-        for field in _page_fields(page)
-        if conf.get(field) is not None
+        setting.key: conf[setting.key]
+        for setting in SETTINGS
+        if conf.get(setting.key) is not None
     }
-    errors = _validate_tunables(stored)
+    errors = tunable_errors(stored)
     reported: set[str] = set()
-    for page in _PAGES:
-        for field in _page_fields(page):
+    for page in PAGES:
+        for field in page_fields(page):
             error = errors.get(field)
             if error is None or error in reported:
                 continue
@@ -1856,10 +1520,10 @@ def _attention(
                 reported.add(error)
                 problem_text = _PAIR_ATTENTION[error]
             elif error == "must_not_be_negative":
-                problem_text = f'the saved "{_FIELD_LABELS[field]}" is negative'
+                problem_text = f'the saved "{BY_KEY[field].label}" is negative'
             else:
-                problem_text = f'the saved "{_FIELD_LABELS[field]}" isn\'t a number'
-            items.append(f"{problem_text}. Open {_PAGE_NAMES[page]} to fix it.")
+                problem_text = f'the saved "{BY_KEY[field].label}" isn\'t a number'
+            items.append(f"{problem_text}. Open {PAGES[page].name} to fix it.")
     for index, zone in enumerate(zones):
         name = _room_name(zone, index)
         profile = _zone_freshness_profile(zone)
@@ -1877,7 +1541,7 @@ def _attention(
             )
             if zone.get(zone_key) is not None
         }
-        room_errors = _validate_tunables(room_drift)
+        room_errors = tunable_errors(room_drift)
         for field in room_drift:
             if (error := room_errors.get(field)) is None:
                 continue
@@ -1885,7 +1549,7 @@ def _attention(
                 "is negative" if error == "must_not_be_negative" else "isn't a number"
             )
             items.append(
-                f'the saved "{_FIELD_LABELS[field]}" for {name} {problem_text}.'
+                f'the saved "{BY_KEY[field].label}" for {name} {problem_text}.'
                 f" Open Rooms, then {name}, to fix it."
             )
     if not items:
@@ -2389,7 +2053,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             error, placeholders = problem
             return self._back_to_user(error, placeholders)
         return self.async_show_menu(
-            step_id="tuning", menu_options=[*_PAGES, "review"]
+            step_id="tuning", menu_options=[*PAGES, "review"]
         )
 
     async def async_step_comfort(
@@ -2459,13 +2123,13 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             return self._show_setup_page(
                 page, shown, {CONF_IDLE_ACTION: error}, placeholders
             )
-        if tuning_errors := _validate_tunables(values):
+        if tuning_errors := tunable_errors(values):
             return self._show_setup_page(page, shown, tuning_errors)
         # The page replaces its own answers whole: a field it shows and the
         # user emptied (the optional entity pickers) is gone, as it was when
         # one form replaced them all.
         self._tunables = {
-            **{k: v for k, v in base.items() if k not in _page_fields(page)},
+            **{k: v for k, v in base.items() if k not in page_fields(page)},
             **values,
         }
         return await self.async_step_tuning()
@@ -2880,7 +2544,7 @@ class MXZOptionsFlow(OptionsFlow):
         conf = {**self.config_entry.data, **self.config_entry.options}
         return self.async_show_menu(
             step_id="init",
-            menu_options=[*_PAGES, *(["rooms"] if zones else [])],
+            menu_options=[*PAGES, *(["rooms"] if zones else [])],
             description_placeholders={
                 "attention": _attention(self.hass, heads, conf, zones)
             },
@@ -2934,7 +2598,7 @@ class MXZOptionsFlow(OptionsFlow):
                 error, placeholders = problem
                 errors = {CONF_IDLE_ACTION: error}
             else:
-                errors = _validate_tunables(values)
+                errors = tunable_errors(values)
             if not errors:
                 tunables = dict(values)
                 # The standby-hold and weather-source entities are clearable:
@@ -2947,20 +2611,19 @@ class MXZOptionsFlow(OptionsFlow):
                 # Only on the page that shows it: every other page never
                 # shows the field, so its absence there means nothing. A
                 # degenerate empty submit (schema bypass) still wipes nothing.
-                clearable = _CLEARABLE_ENTITY.get(page)
-                if clearable and values and not values.get(clearable):
-                    tunables[clearable] = None
+                on_page = [setting for setting in SETTINGS if setting.page == page]
+                for setting in on_page:
+                    if setting.clearable and values and not values.get(setting.key):
+                        tunables[setting.key] = None
                 # The uneven drift and lost-vote fields go further: blank
                 # stores NO key, so clearing one drops the saved key from
                 # options and data alike.
                 # Same guards: only on the page that shows them, never on a
                 # degenerate empty submit.
                 cleared = frozenset(
-                    key
-                    for key in _BLANK_CLEARS
-                    if values
-                    and key in _page_fields(page)
-                    and values.get(key) in (None, "")
+                    setting.key
+                    for setting in on_page
+                    if setting.blank_clears and values and blank(values.get(setting.key))
                 )
                 for key in cleared:
                     tunables.pop(key, None)

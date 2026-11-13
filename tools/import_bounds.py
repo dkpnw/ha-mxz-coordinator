@@ -25,7 +25,7 @@ LAYERS = (
     ("units", {"units"}),
     # Monotonic seconds and every wait; the one caller of async_call_later (tools/raw_timers.py).
     ("clock", {"clock"}),
-    ("helpers", {"logic", "cloud", "capabilities", "host"}),
+    ("helpers", {"logic", "cloud", "capabilities", "host", "settings"}),
     # The plan one compute decides and the attributes it is shown as.
     ("plan", {"plan"}),
     # Concerns split out of the coordinator. Each reaches it through a Protocol it declares.
@@ -47,7 +47,7 @@ LAYERS = (
 )
 
 # Kept free of Home Assistant so their math is tested directly (docs/DEVELOPMENT.md).
-STDLIB_ONLY = {"const", "units", "logic", "cloud", "plan"}
+STDLIB_ONLY = {"const", "units", "logic", "cloud", "plan", "settings"}
 
 # (importer, imported, type_only): why. Each one is an architecture decision. A runtime
 # exception also covers type-only imports; one that no longer matches an import of its own

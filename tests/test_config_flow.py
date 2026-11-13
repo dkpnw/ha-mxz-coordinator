@@ -24,7 +24,6 @@ from custom_components.mxz_coordinator.config_flow import (
     _detect_stage,
     _detect_vanes,
     _tunables_schema,
-    _validate_tunables,
 )
 from custom_components.mxz_coordinator.const import (
     CONF_CHANGEOVER_COOL_BELOW,
@@ -66,6 +65,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_VANE_VERTICAL,
     unit_profile,
 )
+from custom_components.mxz_coordinator.settings import tunable_errors
 from tests.flow_pages import (
     SECTION_FIELDS,
     fields,
@@ -2486,11 +2486,11 @@ def test_validate_tunables_covers_a_field_its_selector_already_bounds() -> None:
     schema = _tunables_schema({}, engage_min, engage_max)
     with pytest.raises(vol.Invalid):
         schema({CONF_ENGAGE_DEADBAND: -1.0})
-    assert _validate_tunables({CONF_ENGAGE_DEADBAND: -1.0}) == {
+    assert tunable_errors({CONF_ENGAGE_DEADBAND: -1.0}) == {
         CONF_ENGAGE_DEADBAND: "must_not_be_negative"
     }
     # A value problem outranks an ordering it would make meaningless.
-    assert _validate_tunables(
+    assert tunable_errors(
         {CONF_CLAMP_MIN: float("nan"), CONF_CLAMP_MAX: 50.0}
     ) == {CONF_CLAMP_MIN: "not_a_number"}
 
@@ -2523,7 +2523,7 @@ async def test_migration_does_not_revalidate_stored_tuning(hass: HomeAssistant) 
     assert dict(entry.options) == {**stored, CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY}
     assert entry.data[CONF_ZONES][0][ZONE_CLIMATE] == _VALID[CONF_PRIMARY_CLIMATE]
     # The same combination IS rejected when a human resubmits it.
-    assert _validate_tunables(stored) == {
+    assert tunable_errors(stored) == {
         CONF_ECO_HEAT_MIN: "eco_band_inverted",
         CONF_ECO_COOL_MAX: "eco_band_inverted",
     }
@@ -2693,7 +2693,7 @@ async def test_reconfigure_unenforced_profile_matches_consumer(
     assert _entry_snapshot(entry) == before
 
 
-_FLOW_SOURCES = ("config_flow.py", "capabilities.py")
+_FLOW_SOURCES = ("config_flow.py", "capabilities.py", "settings.py")
 _FLOW_SECTIONS = (
     ("config", "abort"),
     ("config", "error"),
@@ -2708,10 +2708,10 @@ def _flow_reasons(sources: dict[str, str]) -> dict[tuple[str, str], set[str]]:
     Direct sites inside a ConfigFlow/OptionsFlow class: ``async_abort(reason=)``,
     ``AbortFlow(...)``, ``_abort_if_unique_id_configured()`` (HA's
     ``already_configured``), ``errors[...] = "..."`` and ``errors={...}``.
-    Indirect sites: every module-level ``*_problem``/``*_error``/``_validate_*``
+    Indirect sites: every module-level ``*_problem``/``*_error(s)``/``_validate_*``
     helper the class names contributes the literals it returns or stores in
     ``errors`` — including those unpacked from a constant table such as
-    ``_ORDERED_PAIRS``.
+    ``settings.ORDERED_PAIRS``.
     """
     import ast
     import re
@@ -2741,7 +2741,7 @@ def _flow_reasons(sources: dict[str, str]) -> dict[tuple[str, str], set[str]]:
                 if isinstance(node.target, ast.Name):
                     constants[node.target.id] = node.value
             elif isinstance(node, ast.FunctionDef) and re.search(
-                r"(_problem|_error)$|^_validate_", node.name
+                r"(_problem|_errors?)$|^_validate_", node.name
             ):
                 helpers[node.name] = node
             elif isinstance(node, ast.ClassDef):
