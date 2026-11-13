@@ -365,7 +365,7 @@ async def _setup_fresh(
 
 
 def _health(coord: MXZCoordinator, slug: str = "primary") -> str:
-    return coord.data[f"{slug}_sensor_health"]
+    return coord.data.room(slug).sensor_health
 
 
 async def _advance(hass: HomeAssistant, freezer: Any, delta: timedelta) -> None:
@@ -419,7 +419,7 @@ async def test_stale_at_the_third_due_instant(
     await _report(hass, SENSOR_A, HOT[celsius])  # the witnessed report at T0
     await _recompute(hass, entry)
     assert _health(coord) == HEALTH_HEALTHY
-    assert coord.data["primary_demand"] == MODE_COOL
+    assert coord.data.room("primary").demand == MODE_COOL
     assert hass.states.get(head_a).state == MODE_COOL
 
     await _advance(hass, freezer, WINDOW - timedelta(seconds=1))
@@ -430,8 +430,8 @@ async def test_stale_at_the_third_due_instant(
     await _advance(hass, freezer, timedelta(seconds=1))
     await _recompute(hass, entry)
     assert _health(coord) == HEALTH_STALE
-    assert coord.data["primary_demand"] == DEMAND_NEUTRAL
-    assert coord.data["primary_engage"] == ENGAGE_SATISFIED
+    assert coord.data.room("primary").demand == DEMAND_NEUTRAL
+    assert coord.data.room("primary").engage == ENGAGE_SATISFIED
     assert hass.states.get(head_a).state == MODE_FAN_ONLY, "parked at the idle action"
 
 
@@ -499,7 +499,7 @@ async def test_startup_grace_is_provisional_then_expires(
     coord: MXZCoordinator = entry.runtime_data
     await _recompute(hass, entry)
     assert _health(coord) == HEALTH_AWAITING
-    assert coord.data["primary_demand"] == MODE_COOL, "provisionally eligible"
+    assert coord.data.room("primary").demand == MODE_COOL, "provisionally eligible"
     assert hass.states.get(head_a).state == MODE_COOL, "and driven, not parked"
 
     await _advance(hass, freezer, WINDOW + timedelta(seconds=2))
@@ -560,7 +560,7 @@ async def test_recovery_needs_one_fresh_valid_report(
     await _report(hass, SENSOR_A, HOT[False])
     await _recompute(hass, entry)
     assert _health(coord) == HEALTH_HEALTHY
-    assert coord.data["primary_demand"] == MODE_COOL
+    assert coord.data.room("primary").demand == MODE_COOL
     assert hass.states.get(head_a).state == MODE_COOL
 
 
@@ -614,7 +614,7 @@ async def test_an_unchanged_report_keeps_a_periodic_sensor_fresh(
         await _advance(hass, freezer, timedelta(minutes=INTERVAL_MIN))
     await _recompute(hass, entry)
     assert _health(coord) == HEALTH_HEALTHY
-    assert coord.data["primary_demand"] == MODE_COOL
+    assert coord.data.room("primary").demand == MODE_COOL
     assert hass.states.get(head_a).state == MODE_COOL
 
 
@@ -656,10 +656,10 @@ async def test_an_unknown_cadence_is_never_cut_off(
     await _advance(hass, freezer, timedelta(hours=2))
     await _recompute(hass, entry)
     assert _health(coord) == HEALTH_CADENCE_UNKNOWN
-    assert coord.data["primary_demand"] == MODE_COOL
+    assert coord.data.room("primary").demand == MODE_COOL
     assert hass.states.get(head_a).state == MODE_COOL
     # The age is visible even though nothing enforces it.
-    assert coord.data["primary_sensor_age"] >= 7200
+    assert coord.data.room("primary").sensor_age >= 7200
 
 
 async def test_a_healthy_neighbour_is_unaffected(
@@ -680,7 +680,7 @@ async def test_a_healthy_neighbour_is_unaffected(
 
     assert _health(coord, "primary") == HEALTH_STALE
     assert _health(coord, "secondary") == HEALTH_HEALTHY
-    assert coord.data["secondary_demand"] == MODE_COOL
+    assert coord.data.room("secondary").demand == MODE_COOL
     assert hass.states.get(head_a).state == MODE_FAN_ONLY
     assert hass.states.get(head_b).state == MODE_COOL
 
@@ -700,13 +700,13 @@ async def test_a_stale_room_keeps_showing_its_last_reading(
     await _advance(hass, freezer, WINDOW + timedelta(seconds=2))
     await _settle(hass, freezer)
     assert _health(coord) == HEALTH_STALE
-    assert coord.data["primary_temp"] == HOT[False]
-    assert coord.data["primary_sensor_age"] >= int(WINDOW.total_seconds())
-    zone_view = coord.data["zones"][0]
+    assert coord.data.room("primary").temp == HOT[False]
+    assert coord.data.room("primary").sensor_age >= int(WINDOW.total_seconds())
+    zone_view = coord.data.rooms[0].to_attributes()
     assert zone_view["sensor_health"] == HEALTH_STALE
     assert zone_view["temp"] == HOT[False]
     # The neighbour's reading was never borrowed to fill the gap.
-    assert coord.data["secondary_temp"] == NEUTRAL[False]
+    assert coord.data.room("secondary").temp == NEUTRAL[False]
 
 
 async def test_an_invalid_reading_is_invalid_not_stale(
@@ -722,8 +722,8 @@ async def test_an_invalid_reading_is_invalid_not_stale(
     await hass.async_block_till_done()
     await _recompute(hass, entry)
     assert _health(coord) == HEALTH_INVALID, "not stale: the value is the problem"
-    assert coord.data["primary_temp"] is None
-    assert coord.data["primary_demand"] == DEMAND_NEUTRAL
+    assert coord.data.room("primary").temp is None
+    assert coord.data.room("primary").demand == DEMAND_NEUTRAL
     assert hass.states.get(head_a).state == MODE_FAN_ONLY
 
 
@@ -896,7 +896,7 @@ async def test_a_reload_re_derives_health_and_says_so(
     reloaded: MXZCoordinator = entry.runtime_data
     assert reloaded is not coord
     assert _health(reloaded) == HEALTH_AWAITING, "the earlier report is not this one's"
-    assert reloaded.data["primary_demand"] == MODE_COOL, "provisionally eligible"
+    assert reloaded.data.room("primary").demand == MODE_COOL, "provisionally eligible"
     # The new grace is a full window from the reload, not the old deadline.
     await _advance(hass, freezer, WINDOW - timedelta(seconds=2))
     await _recompute(hass, entry)
@@ -965,5 +965,5 @@ async def test_an_invalid_profile_is_rejected_whole_and_reported_once(
     await _advance(hass, freezer, timedelta(hours=3))
     await _recompute(hass, entry)
     assert _health(coord) == HEALTH_CADENCE_UNKNOWN
-    assert coord.data["primary_demand"] == MODE_COOL
+    assert coord.data.room("primary").demand == MODE_COOL
     assert hass.states.get(head_a).state == MODE_COOL

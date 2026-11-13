@@ -274,7 +274,7 @@ async def test_the_last_vote_is_what_the_head_showed_just_before_it_was_lost(
     entity._attr_hvac_mode = "off"
     entity.async_write_ha_state()
     await hass.async_block_till_done()
-    assert coord.data["zones"][1]["hands_off_vote"] == MODE_HEAT  # not recomputed
+    assert coord.data.rooms[1].hands_off_vote == MODE_HEAT  # not recomputed
     await _lose(hass, head_b)
     await _recompute(hass, entry)
     assert _vote(hass, entry, 1)[:2] == (None, "stale")

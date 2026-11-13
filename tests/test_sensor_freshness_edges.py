@@ -345,9 +345,9 @@ async def test_unknown_source_contract_never_enforces(
     await _settle(hass, freezer)
     coord: MXZCoordinator = entry.runtime_data
     assert _health(coord) == HEALTH_CADENCE_UNKNOWN
-    assert coord.data["primary_demand"] == MODE_COOL
+    assert coord.data.room("primary").demand == MODE_COOL
     assert hass.states.get(head).state == MODE_COOL
-    assert coord.data["primary_sensor_age"] >= 240, "the age is still shown"
+    assert coord.data.room("primary").sensor_age >= 240, "the age is still shown"
 
 
 async def test_a_duration_alone_is_reported_and_never_enforced(
@@ -440,8 +440,8 @@ async def test_cache_writes_do_not_refresh_a_sample_deadline(
     async_fire_time_changed_exact(hass, dt_util.utcnow())
     await hass.async_block_till_done()
     assert _health(coord) == HEALTH_STALE, "stale on the sample clock, not the write"
-    assert coord.data["primary_sensor_age"] == 0, "though HA wrote this instant"
-    assert coord.data["primary_demand"] == DEMAND_NEUTRAL
+    assert coord.data.room("primary").sensor_age == 0, "though HA wrote this instant"
+    assert coord.data.room("primary").demand == DEMAND_NEUTRAL
     assert hass.states.get(head).state == MODE_FAN_ONLY
 
 
@@ -670,7 +670,7 @@ async def test_reload_notice_counts_only_eligible_rooms(
     c = entry.runtime_data
     assert _health(c) == "healthy"
     assert _health(c, "secondary") == "invalid"
-    assert c.data["secondary_demand"] == "neutral"
+    assert c.data.room("secondary").demand == "neutral"
     assert hass.states.get(head_b).state == "fan_only"
     assert "secondary" not in c._grace_until and "secondary" not in c._fresh_deadline
     assert len(notices) == 1
@@ -726,7 +726,7 @@ async def test_stale_at_the_third_due_instant_with_no_forced_recompute(
     await _exact(hass, freezer, timedelta(seconds=1))
     assert _now() == deadline
     assert _health(coord) == HEALTH_STALE, "the boundary instant itself is stale"
-    assert coord.data["primary_demand"] == DEMAND_NEUTRAL
+    assert coord.data.room("primary").demand == DEMAND_NEUTRAL
     assert hass.states.get(head).state == MODE_FAN_ONLY, "parked at the idle action"
 
 
@@ -1164,30 +1164,30 @@ async def test_recovery_re_enters_arbitration_without_bypassing_the_mode_dwell(
     await _drain_startup(hass, freezer)
     await _report(hass, SENSOR_A, COLD)  # room A now calls heat, against the mode
     await _settle(hass, freezer)
-    assert (_health(coord), coord.data["primary_demand"]) == (HEALTH_HEALTHY, MODE_HEAT)
-    assert coord.data["secondary_demand"] == MODE_COOL
-    assert coord.data["state"] == MODE_COOL
-    assert coord.data["mode_change_allowed"] is False, "the dwell is holding the flip"
+    assert (_health(coord), coord.data.room("primary").demand) == (HEALTH_HEALTHY, MODE_HEAT)
+    assert coord.data.room("secondary").demand == MODE_COOL
+    assert coord.data.state == MODE_COOL
+    assert coord.data.mode_change_allowed is False, "the dwell is holding the flip"
 
     await _exact(hass, freezer, timedelta(seconds=coord._fresh_deadline["primary"] - _now()))
     assert _health(coord) == HEALTH_STALE
-    assert coord.data["primary_demand"] == DEMAND_NEUTRAL
-    assert coord.data["state"] == MODE_COOL
+    assert coord.data.room("primary").demand == DEMAND_NEUTRAL
+    assert coord.data.state == MODE_COOL
     assert time.monotonic() < started + 400, "still inside the dwell"
 
     await _report(hass, SENSOR_A, COLD)  # one fresh valid report, same reading
     await _settle(hass, freezer)
     assert _health(coord) == HEALTH_HEALTHY, "recovered immediately"
-    assert coord.data["primary_demand"] == MODE_HEAT, "back in arbitration"
-    assert coord.data["standoff"] is True
-    assert coord.data["state"] == MODE_COOL, "the dwell was not bypassed"
-    assert coord.data["mode_change_allowed"] is False
+    assert coord.data.room("primary").demand == MODE_HEAT, "back in arbitration"
+    assert coord.data.standoff is True
+    assert coord.data.state == MODE_COOL, "the dwell was not bypassed"
+    assert coord.data.mode_change_allowed is False
     assert hass.states.get(head_a).state != MODE_HEAT
 
     await _exact(hass, freezer, timedelta(seconds=started + 400 - time.monotonic()))
     await _settle(hass, freezer)
     assert _health(coord) == HEALTH_HEALTHY, "the recovered vote is still standing"
-    assert coord.data["state"] == MODE_HEAT, "and the dwell, once over, lets it through"
+    assert coord.data.state == MODE_HEAT, "and the dwell, once over, lets it through"
     assert hass.states.get(head_a).state == MODE_HEAT
 
 
@@ -1295,7 +1295,7 @@ async def test_every_automatic_room_unhealthy_parks_both_under_a_retained_cool_t
     await _report(hass, SENSOR_A, HOT[False])
     await _report(hass, SENSOR_B, HOT[False])
     await _settle(hass, freezer)
-    assert coord.data["state"] == MODE_COOL
+    assert coord.data.state == MODE_COOL
     assert hass.states.get(head_a).state == hass.states.get(head_b).state == MODE_COOL
 
     hass.states.async_set(SENSOR_B, "unavailable")
@@ -1304,7 +1304,7 @@ async def test_every_automatic_room_unhealthy_parks_both_under_a_retained_cool_t
     await _settle(hass, freezer)
     assert _health(coord, "primary") == HEALTH_STALE
     assert _health(coord, "secondary") == HEALTH_INVALID
-    assert coord.data["state"] == MODE_COOL, "the token keeps its history"
-    assert coord.data["primary_demand"] == coord.data["secondary_demand"] == DEMAND_NEUTRAL
-    assert coord.data["sensors_ok"] is False
+    assert coord.data.state == MODE_COOL, "the token keeps its history"
+    assert coord.data.room("primary").demand == coord.data.room("secondary").demand == DEMAND_NEUTRAL
+    assert coord.data.sensors_ok is False
     assert hass.states.get(head_a).state == hass.states.get(head_b).state == MODE_FAN_ONLY

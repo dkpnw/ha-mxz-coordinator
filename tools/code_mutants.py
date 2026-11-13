@@ -58,7 +58,7 @@ MUTANTS: dict[str, Mutant] = {
     ),
     'C3': Mutant(
         "a flip isn't stamped", '_write_back_mode',
-        'if not plan.get("mode_by_hands_off"):\n                self._stamp_mode_change()',
+        'if not plan.mode_by_hands_off:\n                self._stamp_mode_change()',
         'if False:\n                self._stamp_mode_change()',
         'tests/test_properties_mode.py::test_no_flip_inside_the_hold_and_no_wait_after_it',
     ),

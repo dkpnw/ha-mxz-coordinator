@@ -317,8 +317,10 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
             # Allow Dry mode: a person runs the head in dry, so show the head.
             # (Parked for heat, its engage is satisfied: idle, below.)
             return self._head_action()
-        engage = (self.coordinator.data or {}).get(f"{self._zone.slug}_engage")
-        shared = (self.coordinator.data or {}).get("state")
+        plan = self.coordinator.data
+        room = plan.room(self._zone.slug) if plan else None
+        engage = room.engage if room is not None else None
+        shared = plan.state if plan else None
         if engage == MODE_COOL and shared == MODE_COOL:
             return HVACAction.COOLING
         if engage == MODE_HEAT and shared == MODE_HEAT:

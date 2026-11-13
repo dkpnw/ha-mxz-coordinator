@@ -81,6 +81,7 @@ a time. Each moves into a module that owns its state, its wakeups and its stored
 | --- | --- |
 | `logic.py` | The decision math: room calls, arbitration, door/window states, floors, setpoints. No Home Assistant. |
 | `cloud.py` | A cloud or generic head's write record and its setpoint math. No Home Assistant. |
+| `plan.py` | The plan one compute decides (`Plan`, and a `RoomPlan` per room), which the apply, the mode's writeback, the dwell wakeup and the room thermostat read back as typed fields. `to_attributes()` renders it as the plan sensor, the room rows and diagnostics show it. A room row also carries what other controllers render for it (delivery, head, floor, Dry, door/window), kept as each one renders it. No Home Assistant. |
 | `openings.py` | The door/window pause: each room's record and its store, the delay wakeups, the notices, and the vanes a resume owes. |
 | `dry.py` | Allow Dry: which rooms are held or parked in dry, a Dry picked on a thermostat and its wakeup, a room released from dry, and the Dry notices. In memory only. |
 | `fan_hold.py` | Fan boost and the manual fan hold, per head: the ladder's rung, whether a person's pick is held, the echo memory of MXZ's own writes (`FanEcho`), and what the Fan auto switch restores. The switch keeps the restore data; `FanHold` reads and writes it through `restore`, `command_memory` and `older_record`. |
@@ -97,6 +98,14 @@ small Protocol the lower one can import: `HeadCommands` in `host.py`, `CloudReco
 (the head drivers, for the queue). Code mutants (`tools/code_mutants.py`) and the
 statechart's Code column name functions, not files. A move therefore breaks an anchor only
 where a function is renamed.
+
+Still in `coordinator.py`: the compute and the apply, the mode-change hold and its record,
+sensor freshness, head sight and the hands-off votes, accept-at-head and the drift heals,
+the freeze floor, vane kicks, the season changeover and the standby hold. The freeze floor
+is the next to move (`FloorGuard`). The compute still performs some effects itself: the
+door/window pause saves its record and sends its notices from `OpeningPause.step`, and the
+floor and Dry send theirs from inside the compute. Making the compute return those effects
+for the coordinator to perform comes after the floor has moved.
 
 Which module may import which is checked in CI; a new module joins a layer in
 `tools/import_bounds.py`. See [ARCHITECTURE-RULES.md](ARCHITECTURE-RULES.md).

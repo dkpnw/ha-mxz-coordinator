@@ -59,7 +59,6 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .capabilities import head_has_fan_auto
 from .cloud import (
-    CLOUD_NOT_CONTROLLABLE,
     clamp,
     offset_in_unit,
     snap_to_step,
@@ -246,6 +245,7 @@ from .logic import (
     snapped_midpoint,
 )
 from .openings import OpeningPause
+from .plan import Plan, RoomPlan
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -843,7 +843,7 @@ def async_keep_saved_temps_in_unit(hass: HomeAssistant, entry: ConfigEntry) -> N
 # ---------------------------------------------------------------------------
 # Coordinator
 # ---------------------------------------------------------------------------
-class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     """Owns the decision state, drives the heads, and self-heals drift."""
 
     config_entry: ConfigEntry
@@ -1199,7 +1199,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # State callbacks may run inside a service call or one loop turn later.
         # Keep the current decision, while each delivery slot separately owns
         # its head's applicable action until those pending reports are dispatched.
-        self._applying_plan: dict[str, Any] | None = None
+        self._applying_plan: Plan | None = None
         self._delivery_listeners: set[Callable[[], None]] = set()
         self.deliveries = DeliveryQueue(self, debouncer, super().async_request_refresh)
         # Lives with HA like the above, so a reload keeps what the head may still
@@ -1573,16 +1573,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else None
         )
 
-    def _compute(self) -> dict[str, Any]:
-        """Recompute the plan dict from current inputs. Commands nothing.
+    def _compute(self) -> Plan:
+        """Recompute the plan from current inputs. Commands nothing.
 
         It advances the per-zone engage latch and any pending startup seed.
         Missing startup evidence is retained separately from a known idle run.
-
-        The plan carries per-zone keys (``{slug}_demand`` / ``{slug}_engage`` /
-        ``{slug}_temp``) — zones 0/1 use the primary/secondary slugs, so the
-        legacy plan attributes are preserved verbatim — plus a compact ``zones``
-        list for display.
         """
         common: dict[str, Any] = {
             "eco": self.eco_active(),
@@ -1596,7 +1591,6 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = dt_util.utcnow().timestamp()
         # The lost-vote clock (see logic.HeadSight); `now` above is wall-clock.
         clock = self.clock()
-        plan: dict[str, Any] = {}
         demands: list[str] = []
         engages: list[str] = []
         # Each room's demand and engage as arbitration counts them: its own,
@@ -1605,7 +1599,8 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         held_engages: list[str] = []
         statuses: list[str] = []
         healths: list[str] = []
-        ages: list[float | None] = []
+        ages: list[int | None] = []
+        shown: list[float | None] = []
         votes: list[str | None] = []
         arb_demands: list[Demand] = []
         floors: list[str | None] = []
@@ -1765,17 +1760,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             statuses.append(status)
             votes.append(vote)
             healths.append(health)
-            ages.append(age)
-            plan[f"{zone.slug}_demand"] = demand
-            plan[f"{zone.slug}_engage"] = engage
+            ages.append(None if age is None else int(age))
             # Display only: a rejected reading publishes NO temperature. The
             # fallback stays inside the arithmetic above (and in _apply's
             # delta) instead of being shown as the room's measured value. A
             # STALE reading is a real measurement and keeps being shown — with
             # its health and its age beside it. No value is ever substituted.
-            plan[f"{zone.slug}_temp"] = temp if valid else None
-            plan[f"{zone.slug}_sensor_health"] = health
-            plan[f"{zone.slug}_sensor_age"] = None if age is None else int(age)
+            shown.append(temp if valid else None)
 
         self._coasted = coasted
         current = self._arbitration_mode()
@@ -1814,84 +1805,78 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._floor_settle(floors, state)
         self.dry.settle(drys, state, held_demands, held_engages, votes)
         calls = [*held_demands, *votes, *dry_votes, *floors]
-        plan.update(
-            {
-                "state": state,
-                "zones": [
-                    {
-                        "name": zone.name,
-                        "demand": demands[i],
-                        "engage": engages[i],
-                        "temp": plan[f"{zone.slug}_temp"],
-                        "target": zone.target,
-                        # A dual-setpoint room's Heat to and Cool to (its
-                        # target above is their midpoint). A single-target
-                        # row has no such keys.
-                        **(
-                            {"target_low": zone.target_low, "target_high": zone.target_high}
-                            if zone.dual else {}
-                        ),
-                        "enabled": zone.enable,
-                        "drift": self.zone_drift(zone),
-                        # The drift in use below / above target (the same as
-                        # "drift" unless uneven drift is set).
-                        "drift_heat": sides[i][0],
-                        "drift_cool": sides[i][1],
-                        **starts[i],
-                        "fan_hold": not self.fan.auto_is_on(zone.climate_id),
-                        "sensor_health": healths[i],
-                        "sensor_age": None if ages[i] is None else int(cast("float", ages[i])),
-                        "control_reasons": self._control_reasons(zone),
-                        "hands_off": self._hands_off_phase(zone),
-                        "hands_off_vote": votes[i],
-                        # How far this room's head vote can be trusted now,
-                        # and since when MXZ has not seen the head (None
-                        # while it is in sight).
-                        "vote_status": statuses[i],
-                        "lost_since": self._lost_since(zone.climate_id),
-                        # A room that votes by action: what its vote follows
-                        # now, and when a stopped head's held vote drops.
-                        **self._vote_basis_row(zone, clock, now),
-                        "safety_priority": self._zone_safety(zone),
-                        # The Comfort priority entity, the boost this compute
-                        # read from it (0 = none), and why (see
-                        # logic.comfort_priority). The dwell wakeup replays it.
-                        "comfort_priority_entity": zone.comfort_priority_entity,
-                        "comfort_priority": comforts[i][0],
-                        "comfort_priority_status": comforts[i][1],
-                        "floor_low": zone.floor_low,
-                        "floor_high": zone.floor_high,
-                        **self._floor_attributes(zone),
-                        "floor_want": floors[i],
-                        **self.deliveries.attributes(zone.climate_id),
-                        **self.heads.attributes(zone),
-                        **self.dry.attributes(zone, dry_votes[i]),
-                        **self.openings.attributes(zone),
-                    }
-                    for i, zone in enumerate(self.zones)
-                ],
-                # Both directions physically asked of the one outdoor unit,
-                # a hands-off head's and a floor's included (a room whose
-                # head's vote expired asks nothing any more).
-                "standoff": MODE_COOL in calls and MODE_HEAT in calls,
-                "mode_by_hands_off": by_votes,
-                "mode_by_safety": grant.by_safety,
-                "mode_by_comfort_priority": by_comfort,
-                "mode_by_floor": state in floors,
-                "sensors_ok": all_ok,
-                "seconds_since_mode_change": None if elapsed is None else int(elapsed),
-                "mode_change_allowed": allowed,
-                "inhibited": self.inhibited,
-                "idle_action": self.idle_action,
-            }
-        )
-        if self.openings.any_room:
-            # Only an entry with a door/window pause has this key, so every
+        rooms = [
+            RoomPlan(
+                slug=zone.slug,
+                name=zone.name,
+                demand=demands[i],
+                engage=engages[i],
+                temp=shown[i],
+                target=zone.target,
+                # A dual-setpoint room's Heat to and Cool to (its target
+                # above is their midpoint).
+                target_range=(zone.target_low, zone.target_high) if zone.dual else None,
+                enabled=zone.enable,
+                drift=self.zone_drift(zone),
+                # The drift in use below / above target (the same as drift
+                # unless uneven drift is set).
+                drift_heat=sides[i][0],
+                drift_cool=sides[i][1],
+                start_points=starts[i],
+                fan_hold=not self.fan.auto_is_on(zone.climate_id),
+                sensor_health=healths[i],
+                sensor_age=ages[i],
+                control_reasons=self._control_reasons(zone),
+                hands_off=self._hands_off_phase(zone),
+                hands_off_vote=votes[i],
+                # How far this room's head vote can be trusted now, and since
+                # when MXZ has not seen the head (None while it is in sight).
+                vote_status=statuses[i],
+                lost_since=self._lost_since(zone.climate_id),
+                # A room that votes by action: what its vote follows now, and
+                # when a stopped head's held vote drops.
+                vote_basis=self._vote_basis_row(zone, clock, now),
+                safety_priority=self._zone_safety(zone),
+                # The Comfort priority entity, the boost this compute read
+                # from it (0 = none), and why (see logic.comfort_priority).
+                # The dwell wakeup replays it.
+                comfort_priority_entity=zone.comfort_priority_entity,
+                comfort_priority=comforts[i][0],
+                comfort_priority_status=comforts[i][1],
+                floor_low=zone.floor_low,
+                floor_high=zone.floor_high,
+                floor=self._floor_attributes(zone),
+                floor_want=floors[i],
+                delivery=self.deliveries.attributes(zone.climate_id),
+                head=self.heads.attributes(zone),
+                dry=self.dry.attributes(zone, dry_votes[i]),
+                opening=self.openings.attributes(zone),
+            )
+            for i, zone in enumerate(self.zones)
+        ]
+        return Plan(
+            rooms=rooms,
+            state=state,
+            # Both directions physically asked of the one outdoor unit, a
+            # hands-off head's and a floor's included (a room whose head's
+            # vote expired asks nothing any more).
+            standoff=MODE_COOL in calls and MODE_HEAT in calls,
+            mode_by_hands_off=by_votes,
+            mode_by_safety=grant.by_safety,
+            mode_by_comfort_priority=by_comfort,
+            mode_by_floor=state in floors,
+            sensors_ok=all_ok,
+            seconds_since_mode_change=None if elapsed is None else int(elapsed),
+            mode_change_allowed=allowed,
+            inhibited=self.inhibited,
+            idle_action=self.idle_action,
+            # Only an entry with a door/window pause has the list, so every
             # other entry's plan is exactly what it was before the feature.
-            plan["paused_rooms"] = [
-                zone.name for zone in self.zones if self.openings.paused(zone)
-            ]
-        return plan
+            paused_rooms=(
+                [zone.name for zone in self.zones if self.openings.paused(zone)]
+                if self.openings.any_room else None
+            ),
+        )
 
     def _control_reasons(self, zone: Zone) -> list[dict[str, str]]:
         """Room detail on the existing plan, including unavailable Fan-auto.
@@ -2267,12 +2252,12 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.deliveries.release()
         await self.async_refresh()
 
-    async def _async_update_data(self) -> dict[str, Any]:
+    async def _async_update_data(self) -> Plan:
         """Serialize plan decisions on every supported HA version."""
         async with self.deliveries.deciding():
             return await self._async_update_data_once()
 
-    async def _async_update_data_once(self) -> dict[str, Any]:
+    async def _async_update_data_once(self) -> Plan:
         """Recompute and apply one plan."""
         plan = self._compute()
         self._applying_plan = plan
@@ -2290,9 +2275,9 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # observed fan_mode), so re-stamp fan_hold from the post-apply state —
             # otherwise the plan's diagnostic would lag the latch by a cycle. It
             # is the same truth the Fan auto switch shows, pending restore first.
-            for zone_view, zone in zip(plan.get("zones", ()), self.zones):
-                zone_view["fan_hold"] = not self.fan.auto_is_on(zone.climate_id)
-                zone_view["control_reasons"] = self._control_reasons(zone)
+            for room, zone in zip(plan.rooms, self.zones):
+                room.fan_hold = not self.fan.auto_is_on(zone.climate_id)
+                room.control_reasons = self._control_reasons(zone)
             return plan
         finally:
             self._applying_plan = None
@@ -2306,7 +2291,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.openings.sync_timers()
 
     # -- mode-dwell wakeup ---------------------------------------------------
-    def _sync_dwell_timer(self, plan: dict[str, Any]) -> None:
+    def _sync_dwell_timer(self, plan: Plan) -> None:
         """Keep exactly one wakeup armed for a flip the dwell is holding back.
 
         The hysteresis gate in ``_compute`` is a timestamp comparison, so a
@@ -2337,24 +2322,23 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ):
             self._cancel_dwell_timer()
             return
-        if remaining <= 0 and plan["mode_change_allowed"]:
+        if remaining <= 0 and plan.mode_change_allowed:
             self._cancel_dwell_timer()  # this plan already had its free hand
             return
         current = self._arbitration_mode()
-        views = plan.get("zones", ())
         held_demands, held_engages = self._held_calls(plan)
         engaged = any(e in (MODE_COOL, MODE_HEAT) for e in held_engages)
         arb_demands: list[Demand] = []
-        for i, (view, demand) in enumerate(zip(views, held_demands)):
+        for i, (room, demand) in enumerate(zip(plan.rooms, held_demands)):
             arb_demands.extend(
                 self._zone_arbitration_pair(
                     demand=demand,
-                    vote=view.get("hands_off_vote"),
-                    safety=bool(view.get("safety_priority")),
+                    vote=room.hands_off_vote,
+                    safety=room.safety_priority,
                     index=i,
-                    floor=view.get("floor_want"),
-                    dry=view.get("dry_vote"),
-                    boost=view.get("comfort_priority") or 0.0,
+                    floor=room.floor_want,
+                    dry=room.dry_vote,
+                    boost=room.comfort_priority,
                 )
             )
         would_flip_to = arbitrate(
@@ -2565,7 +2549,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._coast_timer = None
 
     # -- actuator (mirrors script.mxz_coordinate) ---------------------------
-    async def _apply(self, plan: dict[str, Any]) -> None:
+    async def _apply(self, plan: Plan) -> None:
         """Schedule each head's ordered plan writes, record the mode, then wait; idempotent.
 
         Nothing is awaited between the compute and the mode's writeback, so a
@@ -2592,18 +2576,17 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             return
 
-        state = plan["state"]
+        state = plan.state
         valid_eng = (MODE_COOL, MODE_HEAT, ENGAGE_SATISFIED, MODE_OFF)
         if state not in (MODE_COOL, MODE_HEAT):
             return  # plan not ready
-        engages = [plan[f"{zone.slug}_engage"] for zone in self.zones]
+        engages = [room.engage for room in plan.rooms]
         if any(engage not in valid_eng for engage in engages):
             return
 
-        floors = [view.get("floor_want") for view in plan.get("zones", ())]
-        drys = [view.get("dry") for view in plan.get("zones", ())]
         tasks = []
-        for zone, engage, floor, dry in zip(self.zones, engages, floors, drys):
+        for zone, room in zip(self.zones, plan.rooms):
+            engage, floor, dry = room.engage, room.floor_want, room.dry_state
             if zone.climate_id in self._vane_kicks:
                 continue  # mid vane-kick: leave the head alone until it finishes
             if self._head_change_settling(zone.climate_id):
@@ -2723,7 +2706,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # if they changed them during the run (P15).
                 keep = max if floor == MODE_HEAT else min
                 low, high = keep(low, taken[1]), keep(high, taken[2])
-            shown = plan[f"{zone.slug}_temp"]
+            shown = room.temp
             # How far the room sits outside its range (off its target, for a
             # single target, where the range is the target itself).
             delta = 0.0 if shown is None else range_delta(
@@ -2743,7 +2726,7 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.deliveries.async_wait(tasks)
         await self.openings.async_restore_vanes()
 
-    def _write_back_mode(self, plan: dict[str, Any], engages: list[str]) -> None:
+    def _write_back_mode(self, plan: Plan, engages: list[str]) -> None:
         """The plan's mode becomes the shared mode, stamped and recorded.
 
         Called with the heads' commands queued and none of them run yet. Stamp
@@ -2755,18 +2738,16 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         to the resting bias) starts no dwell either, but leaves a mode that
         owes the vote nothing: a run there is no flip.
         """
-        state = plan["state"]
+        state = plan.state
         if state != self.current_shared_mode:
             self.current_shared_mode = state
-            self._mode_by_votes = (
-                bool(plan.get("mode_by_hands_off")) and state != self._resting_bias()
-            )
-            if not plan.get("mode_by_hands_off"):
+            self._mode_by_votes = plan.mode_by_hands_off and state != self._resting_bias()
+            if not plan.mode_by_hands_off:
                 self._stamp_mode_change()
             self.async_update_listeners()  # let the shared-mode select re-render
             self._record_mode()
         elif self._mode_by_votes and state in (
-            *engages, *(plan[f"{zone.slug}_demand"] for zone in self.zones)
+            *engages, *(room.demand for room in plan.rooms)
         ):
             self._mode_by_votes = False
             self._stamp_mode_change()
@@ -2780,11 +2761,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         there would turn each head attribute-only update into a state event and
         recorder row; the head entity already shows its own time.
         """
-        views = (self.data or {}).get("zones", ())
+        rooms = self.data.rooms if self.data else []
         heads = [self.hass.states.get(zone.climate_id) for zone in self.zones]
         return [
             {
-                **(views[i] if i < len(views) else {"name": zone.name}),
+                **(rooms[i].to_attributes() if i < len(rooms) else {"name": zone.name}),
                 **self.deliveries.attributes(zone.climate_id),
                 "head_state_updated_at": head.last_updated.isoformat() if head else "not yet recorded",
                 "control_reasons": self._control_reasons(zone),
@@ -2799,13 +2780,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         both change together on the recompute a settings change requests. Each
         key reads None until a plan exists.
         """
-        views = (self.data or {}).get("zones", ())
-        view: dict[str, Any] = next(
-            (views[i] for i, known in enumerate(self.zones)
-             if known is zone and i < len(views)),
+        rooms = self.data.rooms if self.data else []
+        points: dict[str, Any] = next(
+            (rooms[i].start_points for i, known in enumerate(self.zones)
+             if known is zone and i < len(rooms)),
             {},
         )
-        return {key: view.get(key) for key in START_POINT_KEYS}
+        return {key: points.get(key) for key in START_POINT_KEYS}
 
     @callback
     def redraw_rooms(self) -> None:
@@ -2826,11 +2807,11 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Publish changed diagnostics immediately, without another decision."""
         for plan in (self.data, self._applying_plan):
             if plan:
-                for view, zone in zip(plan.get("zones", ()), self.zones):
-                    view.update(self.deliveries.attributes(zone.climate_id))
-                    view.update(self._floor_attributes(zone))
-                    view.update(self.heads.attributes(zone))
-                    view["control_reasons"] = self._control_reasons(zone)
+                for room, zone in zip(plan.rooms, self.zones):
+                    room.delivery = self.deliveries.attributes(zone.climate_id)
+                    room.floor = self._floor_attributes(zone)
+                    room.head = self.heads.attributes(zone)
+                    room.control_reasons = self._control_reasons(zone)
         for listener in tuple(self._delivery_listeners):
             listener()
         successor = getattr(self.config_entry, "runtime_data", None)
@@ -2951,13 +2932,13 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             zone.climate_id == entity_id and self.openings.paused(zone) for zone in self.zones
         ):
             return MODE_OFF  # a paused room's head is off by plan, never drift
-        data = self._applying_plan if self._applying_plan is not None else self.data or {}
-        state = data.get("state")
-        if state not in (MODE_COOL, MODE_HEAT):
+        plan = self._applying_plan if self._applying_plan is not None else self.data
+        if not plan or plan.state not in (MODE_COOL, MODE_HEAT):
             return None
-        for zone in self.zones:
+        state = plan.state
+        for zone, room in zip(self.zones, plan.rooms):
             if zone.climate_id == entity_id:
-                engage = data.get(f"{zone.slug}_engage")
+                engage = room.engage
                 if engage not in (MODE_COOL, MODE_HEAT, ENGAGE_SATISFIED, MODE_OFF):
                     return None
                 idle = self._idle_act_for(entity_id)
@@ -3930,28 +3911,21 @@ class MXZCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         return safety or (status != VOTE_EXPIRED and not cloud_out)
 
-    def _held_calls(self, plan: dict[str, Any]) -> tuple[list[str], list[str]]:
+    def _held_calls(self, plan: Plan) -> tuple[list[str], list[str]]:
         """Each room's (demand, engage) from a computed plan, as arbitration counts them.
 
-        Replays _compute's rule from the plan's own rows, so the dwell wakeup
+        Replays _compute's rule from the plan's own rooms, so the dwell wakeup
         weighs exactly what that compute arbitrated.
         """
-        views = plan.get("zones", ())
         demands: list[str] = []
         engages: list[str] = []
-        for zone, view in zip(self.zones, views):
-            demand = plan[f"{zone.slug}_demand"]
-            engage = plan[f"{zone.slug}_engage"]
-            if self._holds(
-                view.get("vote_status"), bool(view.get("safety_priority")),
-                view.get("cloud_status") == CLOUD_NOT_CONTROLLABLE,
-            ):
-                demands.append(demand)
-                engages.append(engage)
+        for room in plan.rooms:
+            if self._holds(room.vote_status, room.safety_priority, room.cloud_out):
+                demands.append(room.demand)
+                engages.append(room.engage)
             else:
                 demands.append(DEMAND_NEUTRAL)
-                floor = view.get("floor_want")
-                engages.append(engage if floor is not None else ENGAGE_SATISFIED)
+                engages.append(room.engage if room.floor_want is not None else ENGAGE_SATISFIED)
         return demands, engages
 
     def _sync_lost_timer(self) -> None:
