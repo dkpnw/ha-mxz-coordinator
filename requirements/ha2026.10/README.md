@@ -68,7 +68,8 @@ This recipe's newer Python archive and generated plugin build are distinct artif
 shared package versions alone do not make them identical to earlier local runtimes.
 Genuine hosted .10 validation remains pending. MXZ raises `reconfigure_successful`
 without the central domain and ships its own string; the real 2026.10 frontend rendered
-it as "Reconfiguration was successful." (README screenshot). The retained floor has
+it as "Reconfiguration was successful." (seen when the 3.12 screenshots were taken; the
+current screenshot is from 2026.9.4). The retained floor has
 local `already_configured` fallback text; floor rendering was not captured. Normal RestoreEntity and Voluptuous are exercised;
 HA 2026.11 restore changes are outside this target. If your platform cannot run these
 exact artifacts, use the locked local floor recipe in `docs/DEVELOPMENT.md` and label the

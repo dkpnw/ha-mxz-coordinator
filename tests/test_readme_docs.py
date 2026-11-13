@@ -15,6 +15,7 @@
   a report needs. Tested by users lists only reports with a public GitHub link.
 - RELEASING.md states the release cadence, and its step references point at the right steps.
 - Each screenshot the docs show is in the theme SETUP.md's note says (the pixels are the oracle).
+- No screenshot's file name carries a version, so a page's link outlives the release it shows.
 - The Quick start installs from the Marketplace (Home Assistant 2026.11 or newer) and links to
   SETUP.md's HACS steps for older versions, which keep search, Download, restart and Add
   integration. The README's main badge opens the Marketplace.
@@ -243,10 +244,10 @@ def _shown_images() -> set[str]:
 
 
 def _stated_theme(name: str) -> str:
-    """Setup's "About the screenshots": -dark/-light copies as named; mxz-3.12-* dark; retakes light."""
+    """Setup's "About the screenshots": -dark/-light copies as named; the rest light."""
     if name.endswith(("-dark.png", "-light.png")):
         return name.rsplit("-", 1)[1].removesuffix(".png")
-    return "dark" if name.startswith("mxz-3.12-") else "light"
+    return "light"
 
 
 def _wrong_themes(paths: list[Path]) -> list[str]:
@@ -264,23 +265,42 @@ def test_setup_note_states_each_screenshot_s_theme() -> None:
     """The pixels are the oracle for SETUP.md's note on which screenshots are dark."""
     shown = _shown_images()
     assert {_stated_theme(name) for name in shown} == {"light", "dark"}
-    assert any(name.startswith("mxz-3.12-") for name in shown)
     assert _wrong_themes([Path("images") / name for name in sorted(shown)]) == []
 
 
 def test_theme_check_reports_a_screenshot_in_the_wrong_theme(tmp_path: Path) -> None:
-    """Negative: a light 3.12 shot, a dark retake and a light -dark copy are reported."""
+    """Negative: a dark shot without a -dark name and a light -dark copy are reported."""
     white, black = (255, 255, 255), (0, 0, 0)
     shots = {
-        "mxz-3.12-setup-heads.png": white, "mxz-setup-heads.png": black,
-        "mxz-dashboard-dark.png": white, "mxz-3.12-reconfigure-heads.png": black,
-        "mxz-configure-room.png": white, "mxz-dashboard-light.png": white,
+        "mxz-setup-heads.png": black, "mxz-dashboard-dark.png": white,
+        "mxz-reconfigure-heads.png": black, "mxz-configure-room.png": white,
+        "mxz-dashboard-light.png": white, "mxz-configure-menu-dark.png": black,
     }
     for name, colour in shots.items():
         Image.new("RGB", (8, 8), colour).save(tmp_path / name)
     assert _wrong_themes([tmp_path / name for name in shots]) == [
-        "mxz-3.12-setup-heads.png", "mxz-setup-heads.png", "mxz-dashboard-dark.png",
+        "mxz-setup-heads.png", "mxz-dashboard-dark.png", "mxz-reconfigure-heads.png",
     ]
+
+
+VERSION_IN_NAME = re.compile(r"\d+\.\d+")
+
+
+def _versioned_names(names: set[str]) -> list[str]:
+    """Image file names that carry a version number."""
+    return sorted(name for name in names if VERSION_IN_NAME.search(name))
+
+
+def test_screenshot_names_carry_no_version() -> None:
+    """Every image in images/ and every screenshot the docs show."""
+    names = {path.name for path in Path("images").iterdir()} | _shown_images()
+    assert _versioned_names(names) == []
+
+
+def test_version_check_reports_a_versioned_name() -> None:
+    """Negative: the 3.12-era names are reported; version-free ones are not."""
+    names = {"mxz-3.12-setup-heads.png", "mxz-setup-heads.png", "mxz-v3.22.0-plan.png", "demo-stock-vs-mxz-light.gif"}
+    assert _versioned_names(names) == ["mxz-3.12-setup-heads.png", "mxz-v3.22.0-plan.png"]
 
 
 def _diagnostics_section(readme: str) -> str:
