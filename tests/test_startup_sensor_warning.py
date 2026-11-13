@@ -141,8 +141,8 @@ async def test_still_unusable_after_startup_warns_once(
         coord: MXZCoordinator = entry.runtime_data
         slug = _zone_b(coord)
         # Behaviour is not deferred: the room is out of demand and parked at once.
-        assert coord.data[f"{slug}_sensor_health"] == HEALTH_INVALID
-        assert coord.data["sensors_ok"] is False
+        assert coord.data.room(slug).sensor_health == HEALTH_INVALID
+        assert coord.data.sensors_ok is False
         assert hass.states.get(head_b).state == MODE_FAN_ONLY
         assert not _warnings(caplog)
         assert [r.levelno for r in _unusable(caplog)] == [logging.DEBUG]
@@ -155,7 +155,7 @@ async def test_still_unusable_after_startup_warns_once(
         await coord.async_refresh()  # a compute inside the grace stays quiet
         await hass.async_block_till_done()
         assert not _warnings(caplog), "still inside the startup grace"
-        assert coord.data[f"{slug}_sensor_health"] == HEALTH_INVALID
+        assert coord.data.room(slug).sensor_health == HEALTH_INVALID
 
         await _later(hass, STARTUP_RECOVER_DELAY + 1)
         warned = _unusable(caplog)
@@ -173,7 +173,7 @@ async def test_still_unusable_after_startup_warns_once(
         await _set_temp(hass, SENSOR_B, 70)
         await coord.async_refresh()
         await hass.async_block_till_done()
-        assert coord.data[f"{slug}_sensor_health"] == HEALTH_CADENCE_UNKNOWN
+        assert coord.data.room(slug).sensor_health == HEALTH_CADENCE_UNKNOWN
         assert sum("reporting again" in r.getMessage() for r in caplog.records) == 1
 
 
@@ -187,7 +187,7 @@ async def test_sensor_that_loads_during_startup_never_warns(
         entry, head_b = await _setup(hass, running=False)
         coord: MXZCoordinator = entry.runtime_data
         slug = _zone_b(coord)
-        assert coord.data[f"{slug}_sensor_health"] == HEALTH_INVALID
+        assert coord.data.room(slug).sensor_health == HEALTH_INVALID
         assert hass.states.get(head_b).state == MODE_FAN_ONLY
         await _start(hass)
         await _later(hass, 10)
@@ -195,7 +195,7 @@ async def test_sensor_that_loads_during_startup_never_warns(
         await _set_temp(hass, SENSOR_B, 70)
         await coord.async_refresh()
         await hass.async_block_till_done()
-        assert coord.data[f"{slug}_sensor_health"] == HEALTH_CADENCE_UNKNOWN
+        assert coord.data.room(slug).sensor_health == HEALTH_CADENCE_UNKNOWN
 
         await _later(hass, STARTUP_RECOVER_DELAY + 1)
         await _later(hass, 20 * 60)
@@ -211,7 +211,7 @@ async def test_reload_while_running_warns_at_once(
     with caplog.at_level(logging.DEBUG, logger=LOGGER):
         entry, head_b = await _setup(hass, running=True)
         coord: MXZCoordinator = entry.runtime_data
-        assert coord.data[f"{_zone_b(coord)}_sensor_health"] == HEALTH_INVALID
+        assert coord.data.room(_zone_b(coord)).sensor_health == HEALTH_INVALID
         assert hass.states.get(head_b).state == MODE_FAN_ONLY
         assert [r.levelno for r in _unusable(caplog)] == [logging.WARNING]
         await _later(hass, STARTUP_RECOVER_DELAY + 1)

@@ -22,6 +22,8 @@ SOURCE = Path(__file__).resolve().parents[1] / "custom_components" / "mxz_coordi
 LAYERS = (
     ("constants", {"const"}),
     ("helpers", {"logic", "cloud", "capabilities", "host"}),
+    # The plan one compute decides and the attributes it is shown as.
+    ("plan", {"plan"}),
     # Concerns split out of the coordinator. Each reaches it through a Protocol it declares.
     # A controller another one calls sits below it: the door/window pause puts back a Dry
     # and snapshots the fan hold.
@@ -38,7 +40,7 @@ LAYERS = (
 )
 
 # Kept free of Home Assistant so their math is tested directly (docs/DEVELOPMENT.md).
-STDLIB_ONLY = {"const", "logic", "cloud"}
+STDLIB_ONLY = {"const", "logic", "cloud", "plan"}
 
 # (importer, imported, type_only): why. Each one is an architecture decision. A runtime
 # exception also covers type-only imports; one that no longer matches an import of its own

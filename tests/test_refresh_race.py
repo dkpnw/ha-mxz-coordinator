@@ -107,7 +107,7 @@ async def test_band_change_during_service_delivery_publishes_newer_plan_last(
     refresh = hass.async_create_task(start())
     try:
         await asyncio.wait_for(entered.wait(), 3)
-        assert coord.data["zones"][0]["drift"] == wide  # the plan in flight
+        assert coord.data.rooms[0].drift == wide  # the plan in flight
         await _set_band(hass, entry, action, narrow)
     finally:
         release.set()
@@ -311,7 +311,7 @@ async def test_coalesced_followup_preserves_dwell_and_coast_latch(
     zone = _zone0(hass, entry)
     assert zone["demand"] == "heat"
     assert zone["engage"] == "satisfied"  # coast; never same-compute whiplash
-    assert coord.data["state"] == MODE_COOL  # the original dwell still holds
+    assert coord.data.state == MODE_COOL  # the original dwell still holds
     await assert_not_restamped(hass, entry)
     assert armed(coord, "dwell")
     assert armed(coord, "coast")
@@ -325,7 +325,7 @@ def _record_computes(coord: MXZCoordinator, monkeypatch: pytest.MonkeyPatch):
 
     def compute():
         plan = original()
-        snapshots.append(plan["zones"][0]["drift"])
+        snapshots.append(plan.rooms[0].drift)
         return plan
 
     monkeypatch.setattr(coord, "_compute", compute)
@@ -567,7 +567,7 @@ async def test_interrupted_active_refresh_keeps_requested_followup(
     await _drain_refreshes(hass, coord)
     assert snapshots == [wide, narrow]
     assert coord.last_update_success
-    assert coord.data["zones"][0]["drift"] == narrow
+    assert coord.data.rooms[0].drift == narrow
     assert coord._applying_plan is None
     assert not coord.deliveries._lock.locked()
     assert not armed(coord, "refresh_followup")
@@ -738,7 +738,7 @@ async def test_two_active_windows_each_coalesce_once(
     await hass.async_block_till_done()
     await _drain_refreshes(hass, coord)
     assert snapshots == [wide, narrow, 2.0]
-    assert coord.data["zones"][0]["drift"] == 2.0
+    assert coord.data.rooms[0].drift == 2.0
     assert not coord.deliveries._pending
     assert not armed(coord, "refresh_followup")
 

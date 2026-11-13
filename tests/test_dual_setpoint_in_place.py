@@ -632,10 +632,10 @@ async def test_a_mid_run_switch_takes_a_fresh_decision_and_spares_the_other_room
     await _start(hass, entry)
     await _run(hass, entry, 68, 68)
     plan = entry.runtime_data.data
-    assert (plan["primary_engage"], plan["secondary_engage"]) == ("heat", "heat")
+    assert (plan.room("primary").engage, plan.room("secondary").engage) == ("heat", "heat")
     await _run(hass, entry, 70.5, 71.5)  # inside the drift: only the latch says heat
     await _room_page(hass, entry, 1, dual_setpoint=True)
     assert _pair(entry) == (71.0, 73.0)
     await _compute(hass, entry)
     plan = entry.runtime_data.data
-    assert (plan["primary_engage"], plan["secondary_engage"]) == ("satisfied", "heat")
+    assert (plan.room("primary").engage, plan.room("secondary").engage) == ("satisfied", "heat")

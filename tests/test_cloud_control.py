@@ -90,7 +90,7 @@ async def _standoff(hass: HomeAssistant, *, safety: bool = False) -> tuple[Any, 
         extra[ZONE_SAFETY_PRIORITY_ENTITY] = SAFETY
     entry = await setup_rooms(hass, [(heads[0], extra), (heads[1], CLOUD)], temps=(18, 24))
     await past_startup(hass, entry)
-    assert entry.runtime_data.data["state"] == "heat"  # first priority wins
+    assert entry.runtime_data.data.state == "heat"  # first priority wins
     return heads[0], heads[1], entry
 
 
@@ -123,14 +123,14 @@ async def test_unavailable_for_15_minutes_is_not_controllable(
     assert writes(calls, a.entity_id) == []
     # Its room's heat no longer holds the outdoor unit; with Safety priority
     # on, it still does, from the room sensor.
-    assert entry.runtime_data.data["state"] == ("heat" if safety else "cool")
+    assert entry.runtime_data.data.state == ("heat" if safety else "cool")
 
     a.go_unavailable(False)
     await hass.async_block_till_done()
     await recompute(hass, entry)
     assert row(hass, entry, 0)["cloud_status"] != "not_controllable"
     assert _issue(hass, entry, a.entity_id) is None
-    assert entry.runtime_data.data["state"] == "heat"
+    assert entry.runtime_data.data.state == "heat"
 
 
 async def test_a_silent_head_goes_out_and_one_unchanged_report_brings_it_back(
@@ -148,7 +148,7 @@ async def test_a_silent_head_goes_out_and_one_unchanged_report_brings_it_back(
     await recompute(hass, entry)
     assert row(hass, entry, 0)["cloud_status"] == "not_controllable"
     assert _issue(hass, entry, a.entity_id).translation_placeholders["minutes"] == "35"
-    assert entry.runtime_data.data["state"] == "cool"
+    assert entry.runtime_data.data.state == "cool"
     assert _issue(hass, entry, a.entity_id) is not None
 
     a.poll()  # the same state again: a report, not a change
@@ -157,7 +157,7 @@ async def test_a_silent_head_goes_out_and_one_unchanged_report_brings_it_back(
     await _advance(hass, freezer, REQUEST_REFRESH_DEFAULT_COOLDOWN + 1)
     assert row(hass, entry, 0)["cloud_status"] != "not_controllable"
     assert _issue(hass, entry, a.entity_id) is None
-    assert entry.runtime_data.data["state"] == "heat"
+    assert entry.runtime_data.data.state == "heat"
 
 
 async def test_the_wakeup_finds_a_silent_head_by_itself(
@@ -336,4 +336,4 @@ async def test_a_head_polled_every_15_minutes_stays_controllable(
         await recompute(hass, entry)
         assert row(hass, entry, 0)["cloud_status"] != "not_controllable"
         assert _issue(hass, entry, a.entity_id) is None
-    assert entry.runtime_data.data["state"] == "heat"
+    assert entry.runtime_data.data.state == "heat"

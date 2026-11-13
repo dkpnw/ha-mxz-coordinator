@@ -97,7 +97,7 @@ async def test_cached_valid_return_cannot_close_invalid_episode(
         await _settle(hass, freezer)
         observed = {
             "health": _health(c),
-            "demand": c.data["primary_demand"],
+            "demand": c.data.room("primary").demand,
             "head": hass.states.get(head).state,
             "marker": c._sample_marker["primary"],
             "evidence_unchanged": c._evidence_ts["primary"] == evidence,
@@ -242,21 +242,21 @@ async def test_stale_priority_loss_preserves_opposite_mode_dwell(
     await _report(hass, SENSOR_A, HOT[False])
     await _report(hass, SENSOR_B, 65)
     await _settle(hass, freezer)
-    assert c.data["primary_demand"] == "cool"
-    assert c.data["secondary_demand"] == "heat"
-    assert c.data["state"] == "cool"
+    assert c.data.room("primary").demand == "cool"
+    assert c.data.room("secondary").demand == "heat"
+    assert c.data.state == "cool"
     await _exact(hass, freezer, timedelta(seconds=190))
     await _settle(hass, freezer)
     assert _health(c) == "stale"
-    assert c.data["primary_demand"] == "neutral"
-    assert c.data["secondary_demand"] == "heat"
-    assert c.data["state"] == "cool"
-    assert c.data["mode_change_allowed"] is False
+    assert c.data.room("primary").demand == "neutral"
+    assert c.data.room("secondary").demand == "heat"
+    assert c.data.state == "cool"
+    assert c.data.mode_change_allowed is False
     assert hass.states.get(a).state == "fan_only"
     assert hass.states.get(b).state != "heat"
     await _exact(hass, freezer, timedelta(seconds=610))
     await _settle(hass, freezer)
-    assert c.data["state"] == "heat"
+    assert c.data.state == "heat"
     assert hass.states.get(b).state == "heat"
 
 
@@ -288,8 +288,8 @@ async def test_different_cadences_then_all_unhealthy_park(
     )
     await _settle(hass, freezer)
     assert _health(c) == _health(c, "secondary") == "stale"
-    assert c.data["primary_demand"] == c.data["secondary_demand"] == "neutral"
-    assert c.data["state"] == "cool"
+    assert c.data.room("primary").demand == c.data.room("secondary").demand == "neutral"
+    assert c.data.state == "cool"
     assert hass.states.get(a).state == hass.states.get(b).state == "fan_only"
 
 
@@ -309,7 +309,7 @@ async def test_unknown_source_contract_never_enforces(
     await _settle(hass, freezer)
     c = entry.runtime_data
     assert _health(c) == HEALTH_CADENCE_UNKNOWN
-    assert c.data["primary_demand"] == "cool"
+    assert c.data.room("primary").demand == "cool"
 
 
 async def test_first_unchanged_report_exits_provisional_without_external_refresh(
@@ -489,7 +489,7 @@ async def test_new_unchanged_report_reconsiders_previously_future_marker(
         await _settle(hass, freezer)
         observed = {
             "health": _health(c),
-            "demand": c.data["primary_demand"],
+            "demand": c.data.room("primary").demand,
             "head": hass.states.get(head).state,
             "accepted": c._sample_marker["primary"],
             "marker": sample_time,
@@ -568,11 +568,11 @@ async def test_guards_across_unhealthy_subtypes(
     await hass.async_block_till_done()
     await _settle(hass, freezer)
     assert _health(c) == ("stale" if subtype == "stale" else "invalid")
-    assert c.data["primary_demand"] == "neutral"
-    assert c.data["primary_temp"] == (HOT[False] if subtype == "stale" else None)
-    assert c.data["secondary_temp"] == HOT[False]
+    assert c.data.room("primary").demand == "neutral"
+    assert c.data.room("primary").temp == (HOT[False] if subtype == "stale" else None)
+    assert c.data.room("secondary").temp == HOT[False]
     assert _health(c, "secondary") == "healthy"
-    assert c.data["secondary_demand"] == ("neutral" if guard == "eco" else "cool")
+    assert c.data.room("secondary").demand == ("neutral" if guard == "eco" else "cool")
     before_recovery = list(_head_calls(calls, head))
     if guard == "fan":
         assert not c.fan.auto_is_on(head)
@@ -589,7 +589,7 @@ async def test_guards_across_unhealthy_subtypes(
     if subtype != "stale":
         await _report_marker(hass, HOT[False], 43, attribute=SEQUENCE_ATTR)
         await _settle(hass, freezer)
-        assert _health(c) == "stale" and c.data["primary_demand"] == "neutral"
+        assert _health(c) == "stale" and c.data.room("primary").demand == "neutral"
     await _report_marker(hass, HOT[False], 45, attribute=SEQUENCE_ATTR)
     await _settle(hass, freezer)
     assert _health(c) == "healthy"
@@ -648,7 +648,7 @@ async def test_reload_existing_sample_or_sequence_mid_episode(
     assert _health(c) == "awaiting_report", (
         "accepted no-retention tradeoff grants provisional grace"
     )
-    assert c.data["primary_demand"] == "cool"
+    assert c.data.room("primary").demand == "cool"
 
 
 @pytest.mark.parametrize("baseline", [2**53, 2**63])

@@ -714,8 +714,8 @@ async def _retained_apply(
     assert hass.states.get(heads[0].entity_id).state == "cool"
 
     plan = coord._compute()
-    assert plan["state"] == "cool"
-    assert plan["primary_engage"] == "cool"
+    assert plan.state == "cool"
+    assert plan.room("primary").engage == "cool"
     # Not awaited: this only constructs the coroutine object. Its body — and
     # so the retirement guard at the top of it — does not run until a caller
     # below schedules this reference.

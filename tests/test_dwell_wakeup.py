@@ -467,7 +467,7 @@ async def test_wakeup_decides_on_the_inputs_at_expiry_not_at_arming(
     coord = await _defer_a_heat_flip(hass, entry)
 
     coord.zones[0].target = COLD[False] - 5  # 60 °F room, target now 55 °F
-    assert coord.data["primary_demand"] == MODE_HEAT  # the plan that armed it
+    assert coord.data.room("primary").demand == MODE_HEAT  # the plan that armed it
     _age_out_dwell(coord)
     await _fire_due(hass, coord.hysteresis + 5)
 
@@ -646,10 +646,10 @@ async def test_dwell_that_expires_during_a_head_command_is_not_lost(
         await asyncio.wait_for(entered.wait(), 5)
 
         # Parked inside _apply, on a plan that defers the flip to heat.
-        assert coord.data["primary_demand"] == MODE_HEAT
-        assert coord.data["secondary_demand"] == MODE_COOL
-        assert coord.data["state"] == MODE_COOL
-        assert coord.data["mode_change_allowed"] is False
+        assert coord.data.room("primary").demand == MODE_HEAT
+        assert coord.data.room("secondary").demand == MODE_COOL
+        assert coord.data.state == MODE_COOL
+        assert coord.data.mode_change_allowed is False
 
         pass_time(coord, 3)  # the dwell runs out during the await
         release.set()
@@ -688,7 +688,7 @@ async def test_a_refresh_finishing_after_retirement_arms_nothing(
         _defer_a_flip_without_a_pending_refresh(coord)
         refresh = hass.async_create_task(coord.async_refresh())
         await asyncio.wait_for(entered.wait(), 5)
-        assert coord.data["mode_change_allowed"] is False
+        assert coord.data.mode_change_allowed is False
 
         if retire == "unload":
             assert await asyncio.wait_for(

@@ -190,7 +190,7 @@ async def _run(hass: HomeAssistant, entry: MockConfigEntry, a: float, b: float) 
 
 
 def _row(entry: MockConfigEntry, index: int) -> dict[str, Any]:
-    return entry.runtime_data.data["zones"][index]
+    return entry.runtime_data.data.rooms[index].to_attributes()
 
 
 def _zone(entry: MockConfigEntry, index: int):
@@ -329,15 +329,15 @@ async def test_toggling_on_mid_run_resets_the_engage_latch(hass: HomeAssistant) 
     await _set(hass, entry, "primary_target", 72)
     await _start(hass, entry)
     await _run(hass, entry, 68, 70)
-    assert entry.runtime_data.data["primary_engage"] == "heat"
+    assert entry.runtime_data.data.room("primary").engage == "heat"
     await _run(hass, entry, 70.5, 70)  # below 71: the latch says heat, and so does a fresh start
-    assert entry.runtime_data.data["primary_engage"] == "heat"
+    assert entry.runtime_data.data.room("primary").engage == "heat"
     assert hass.states.get(head_a).state == "heat"
 
     await room_page_pass(hass, entry, 1, {"dual_setpoint": True})
     assert _pair(entry) == (71.0, 73.0)
     await _compute(hass, entry)
-    assert entry.runtime_data.data["primary_engage"] == "satisfied"
+    assert entry.runtime_data.data.room("primary").engage == "satisfied"
 
 
 async def test_toggling_off_mid_run_resets_the_engage_latch(hass: HomeAssistant) -> None:
@@ -349,16 +349,16 @@ async def test_toggling_off_mid_run_resets_the_engage_latch(hass: HomeAssistant)
     await _set(hass, entry, "primary_drift", 3)
     await _start(hass, entry)
     await _run(hass, entry, 66, 70)
-    assert entry.runtime_data.data["primary_engage"] == "heat"
+    assert entry.runtime_data.data.room("primary").engage == "heat"
     await _run(hass, entry, 69.5, 70)
-    assert entry.runtime_data.data["primary_engage"] == "heat"
+    assert entry.runtime_data.data.room("primary").engage == "heat"
     assert hass.states.get(head_a).state == "heat"
 
     await room_page_pass(hass, entry, 1, {"dual_setpoint": False})
     assert _zone(entry, 0).target == 71
     assert _zone(entry, 0).dual is False
     await _compute(hass, entry)
-    assert entry.runtime_data.data["primary_engage"] == "satisfied"
+    assert entry.runtime_data.data.room("primary").engage == "satisfied"
 
 
 async def test_an_untouched_room_page_keeps_a_dual_room_as_it_is(hass: HomeAssistant) -> None:
@@ -388,10 +388,10 @@ async def test_head_setpoints_come_from_heat_to_and_cool_to(
     rec = Recorder(hass, (head_a, head_b))
     await _start(hass, entry)
     await _run(hass, entry, cold, 21 if unit == "C" else 70)
-    assert entry.runtime_data.data["state"] == "heat"
+    assert entry.runtime_data.data.state == "heat"
     assert _last_setpoints(rec, head_a) == ("heat", *heat_sent)
     await _run(hass, entry, hot, 21 if unit == "C" else 70)
-    assert entry.runtime_data.data["state"] == "cool"
+    assert entry.runtime_data.data.state == "cool"
     assert _last_setpoints(rec, head_a) == ("cool", *cool_sent)
 
 
@@ -415,7 +415,7 @@ async def test_runs_end_at_the_edge_and_start_points_are_the_edges_used(
         (74.0, "satisfied"),  # reached Cool to
     ):
         await _run(hass, entry, temp, 70)
-        assert entry.runtime_data.data["primary_engage"] == engage, temp
+        assert entry.runtime_data.data.room("primary").engage == engage, temp
     assert hass.states.get(head_a).state == "fan_only"
 
 
@@ -441,7 +441,7 @@ async def test_the_demand_vote_measures_from_each_edge_not_the_midpoint(
     ):
         await _run(hass, entry, temp, 70)
         plan = entry.runtime_data.data
-        assert (plan["primary_engage"], plan["primary_demand"]) == (engage, demand), temp
+        assert (plan.room("primary").engage, plan.room("primary").demand) == (engage, demand), temp
         # The shown switching points are the ones the vote just used.
         row = _row(entry, 0)
         assert (row["heat_demand_below"], row["cool_demand_above"]) == (65.0, 77.0), temp
@@ -488,7 +488,7 @@ async def test_eco_ignores_a_cool_to_above_the_eco_ceiling(
         row = _row(entry, 0)
         assert row["start_points_mode"] == "eco"
         assert (row["heat_start"], row["cool_start"]) == eco_band
-        assert entry.runtime_data.data["primary_engage"] == engage, temp
+        assert entry.runtime_data.data.room("primary").engage == engage, temp
 
 
 @pytest.mark.parametrize("dual_index", [0, 1])
@@ -504,18 +504,18 @@ async def test_standoff_and_arbitration_with_one_dual_and_one_single_room(
     cold_dual = {0: (64, 74), 1: (74, 64)}[dual_index]
     await _run(hass, entry, *cold_dual)
     plan = entry.runtime_data.data
-    assert plan["standoff"] is True
-    assert plan["state"] == ("heat" if dual_index == 0 else "cool")
-    assert plan[f"{slug}_demand"] == "heat"
+    assert plan.standoff is True
+    assert plan.state == ("heat" if dual_index == 0 else "cool")
+    assert plan.room(slug).demand == "heat"
     # Inside its range the dual room asks nothing, where a 71 target would
     # call cool at 72.5: the range is a deadband, so no standoff.
     inside = {0: (72.5, 64), 1: (64, 72.5)}[dual_index]
     await _run(hass, entry, *inside)
     plan = entry.runtime_data.data
-    assert plan[f"{slug}_demand"] == "neutral"
-    assert plan[f"{slug}_engage"] == "satisfied"
-    assert plan["standoff"] is False
-    assert plan["state"] == "heat"
+    assert plan.room(slug).demand == "neutral"
+    assert plan.room(slug).engage == "satisfied"
+    assert plan.standoff is False
+    assert plan.state == "heat"
 
 
 # --- validation ----------------------------------------------------------------
@@ -641,16 +641,16 @@ async def test_a_restart_restores_the_range(hass: HomeAssistant) -> None:
     await _range(hass, entry, "primary", 66, 76)
     await _start(hass, entry)
     await _run(hass, entry, 64, 70)
-    assert entry.runtime_data.data["primary_engage"] == "heat"
+    assert entry.runtime_data.data.room("primary").engage == "heat"
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert _pair(entry) == (66.0, 76.0)
     assert _value(hass, entry, "primary_target") == 71
     await _run(hass, entry, 65.5, 70)
     # The run resumes from the head's mode and still runs to Heat to.
-    assert entry.runtime_data.data["primary_engage"] == "heat"
+    assert entry.runtime_data.data.room("primary").engage == "heat"
     await _run(hass, entry, 66, 70)
-    assert entry.runtime_data.data["primary_engage"] == "satisfied"
+    assert entry.runtime_data.data.room("primary").engage == "satisfied"
 
 
 async def test_a_stale_restore_is_ignored_and_the_range_is_seeded(hass: HomeAssistant) -> None:

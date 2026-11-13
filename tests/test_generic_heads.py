@@ -121,7 +121,7 @@ async def test_a_feature_poor_head_alone_is_driven_by_mode_then_one_setpoint(
     plan = row(hass, entry, 0)
     assert plan["head_type"] == HEAD_TYPE_GENERIC
     assert (plan["write_interval"], plan["confirm_wait"]) == (30, 30)
-    assert entry.runtime_data.data["state"] == "heat"
+    assert entry.runtime_data.data.state == "heat"
 
     # The room sensor decides when it is done; then cool on the room's own
     # demand: a 1-head entry is its own outdoor unit.
@@ -131,7 +131,7 @@ async def test_a_feature_poor_head_alone_is_driven_by_mode_then_one_setpoint(
     past_window(entry, head.entity_id)
     await _driven(hass, entry, SENSORS[0], 75)
     assert head.device == {"mode": "cool", "temperature": 68.0}
-    assert entry.runtime_data.data["state"] == "cool"
+    assert entry.runtime_data.data.state == "cool"
     assert not [call for call in head.received if call[0] not in ("set_hvac_mode", "set_temperature")]
 
 
@@ -348,7 +348,7 @@ async def test_generic_heads_mapped_to_one_outdoor_unit_share_its_mode(
     await recompute(hass, entry)
     # Room 1 (first priority) wants heat, room 2 cool: heat wins, and room 2's
     # head is not run in cool against it.
-    assert entry.runtime_data.data["state"] == "heat"
+    assert entry.runtime_data.data.state == "heat"
     assert a.device["mode"] == "heat"
     assert b.device["mode"] != "cool"
 
@@ -371,11 +371,11 @@ async def test_a_hands_off_generic_room_votes_by_mode(hass: HomeAssistant) -> No
     await hass.async_block_till_done()
     past_window(entry, b.entity_id)
     await recompute(hass, entry)
-    assert entry.runtime_data.data["state"] == "cool"
+    assert entry.runtime_data.data.state == "cool"
     # An enabled room's call outranks the vote.
     past_window(entry, a.entity_id)
     await _driven(hass, entry, SENSORS[0], 65)
-    assert entry.runtime_data.data["state"] == "heat"
+    assert entry.runtime_data.data.state == "heat"
 
 
 async def test_a_stored_generic_esphome_head_stays_local(hass: HomeAssistant) -> None:

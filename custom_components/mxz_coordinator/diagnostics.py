@@ -274,7 +274,7 @@ def _ago(stamp: float | None, now: float) -> float | None:
 
 
 def _coordinator(coordinator: Any) -> dict[str, Any]:
-    plan = coordinator.data or {}
+    plan = coordinator.data.to_attributes() if coordinator.data else {}
     elapsed = coordinator._mode_change_elapsed()
     record = coordinator._mode_record
     return {

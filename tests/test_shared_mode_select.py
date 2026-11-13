@@ -343,7 +343,7 @@ async def test_no_time_based_release_of_a_selection_is_introduced(
     # Dwell elapsed: the answer is arbitration's own, on the same demands.
     expire_dwell(coord)
     expected = shared_mode(
-        demands=[coord.data[f"{zone.slug}_demand"] for zone in coord.zones],
+        demands=[coord.data.room(zone.slug).demand for zone in coord.zones],
         current="heat",
         allowed=True,
         resting=None,

@@ -648,8 +648,8 @@ async def test_malformed_unit_costs_the_neighbour_no_extra_refresh(
     await _recompute(hass, entry)
     malformed_ticks = await _refreshes_to_command(hass, entry, head_b, "heat")
 
-    assert coord.data["sensors_ok"] is False  # the malformed unit was in play
-    assert coord.data["standoff"] is False  # ...and neither run was a standoff
+    assert coord.data.sensors_ok is False  # the malformed unit was in play
+    assert coord.data.standoff is False  # ...and neither run was a standoff
     assert hass.states.get(head_a).state == "fan_only"
     assert malformed_ticks == healthy_ticks
     assert malformed_ticks <= 2

@@ -794,11 +794,11 @@ _TRANSCRIPTS: dict[str, list[Any]] = {}
 def _plan_view(rig: Any) -> dict[str, Any]:
     plan = rig.coord.data
     return {
-        "state": plan["state"],
-        "standoff": plan["standoff"],
+        "state": plan.state,
+        "standoff": plan.standoff,
         "rooms": [
-            (z["name"], z["demand"], z["engage"], z.get("vote_status"), z["sensor_health"])
-            for z in plan["zones"]
+            (room.name, room.demand, room.engage, room.vote_status, room.sensor_health)
+            for room in plan.rooms
         ],
     }
 
