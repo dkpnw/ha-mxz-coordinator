@@ -12,8 +12,11 @@ order kept.
 ``tests/plan_attributes.json`` was captured on main ``3bf558d`` before the plan
 became a typed ``Plan``, and the typed plan must render the same bytes. Only ISO
 times and the second counters (``seconds_since_mode_change``, ``*sensor_age``)
-are replaced, the same way on both sides. Run with ``MXZ_PLAN_CAPTURE=1`` to
-rewrite the file, only on a commit whose attributes are known to be right.
+are replaced, the same way on both sides. The thermostats leave out the keys in
+``HA_CORE_CLIMATE_KEYS``: HA's climate base class adds them on some supported
+HA versions and not others, and MXZ renders none of them. Run with
+``MXZ_PLAN_CAPTURE=1`` to rewrite the file, only on a commit whose attributes
+are known to be right.
 
 Every room, head and sensor is invented; nothing here is a hardware result.
 """
@@ -27,6 +30,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import pytest
 from homeassistant.components.climate import HVACMode
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
@@ -36,6 +40,7 @@ from pytest_homeassistant_custom_component.common import (
     async_mock_service,
 )
 
+from custom_components.mxz_coordinator.climate import MXZRoomClimate
 from custom_components.mxz_coordinator.const import (
     CONF_IDLE_ACTION,
     CONF_INHIBIT_ACTION,
@@ -83,6 +88,14 @@ SLUGS = ("primary", "secondary", "zone_3", "zone_4", "zone_5")
 _ISO = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:[+-]\d\d:\d\d|Z)?")
 _SECONDS_KEYS = re.compile(r"(^|_)(seconds_since_mode_change|sensor_age)$")
 
+# Thermostat attributes that HA core's ClimateEntity writes by itself, whose
+# presence or place depends on the HA version and not on MXZ.
+# - temperature_unit: the system unit (hass.config.units). HA 2026.10.4 and older
+#   do not write it; 2026.11 adds it to state_attributes after current_temperature;
+#   2026.12.0.dev moves it to the front of capability_attributes.
+# Leaving a key out keeps every other key and the order of the rest.
+HA_CORE_CLIMATE_KEYS = frozenset({"temperature_unit"})
+
 
 def _normal(value: Any, key: str = "") -> Any:
     """JSON-ready, key order kept, with only the wall-clock and uptime values replaced."""
@@ -117,6 +130,18 @@ class _House:
         assert state is not None, entity_id
         return {"state": state.state, "attributes": dict(state.attributes)}
 
+    def _thermostat(self, entity_id: str) -> dict[str, Any]:
+        """The thermostat's state without the HA-core keys MXZ does not render."""
+        own = _head(self.hass, entity_id).extra_state_attributes
+        assert not HA_CORE_CLIMATE_KEYS & set(own), f"{entity_id} renders {set(own)}"
+        record = self._state(entity_id)
+        record["attributes"] = {
+            key: value
+            for key, value in record["attributes"].items()
+            if key not in HA_CORE_CLIMATE_KEYS
+        }
+        return record
+
     async def snapshot(self, step: str) -> None:
         registry = er.async_get(self.hass)
         thermostats = {
@@ -130,7 +155,7 @@ class _House:
         diagnostics = await async_get_config_entry_diagnostics(self.hass, self.entry)
         record = {
             "plan_sensor": self._state(_eid(self.hass, self.entry, "_plan")),
-            "thermostats": {slug: self._state(eid) for slug, eid in thermostats.items()},
+            "thermostats": {slug: self._thermostat(eid) for slug, eid in thermostats.items()},
             "diagnostics_plan": diagnostics["coordinator"]["plan"],
         }
         self.steps[step] = json.dumps(_normal(record), indent=1)
@@ -243,12 +268,37 @@ async def test_the_plan_attributes_are_unchanged(hass: HomeAssistant, freezer) -
 
 
 async def test_the_recording_catches_a_reordered_key(hass: HomeAssistant, freezer) -> None:
-    """The comparison is by bytes: the same attributes in another order fail it."""
+    """The comparison is by bytes: the same attributes in another order fail it.
+
+    The walk as rendered matches first, so the reorder alone is what fails. The
+    thermostat is checked too, since its record leaves the HA-core keys out.
+    """
     steps = await _walk(hass, freezer)
     recorded = json.loads(GOLDEN.read_text())
-    first = json.loads(steps["start"])
-    attributes = first["plan_sensor"]["attributes"]
-    swapped = dict(reversed(list(attributes.items())))
-    assert swapped == attributes
-    first["plan_sensor"]["attributes"] = swapped
-    assert json.dumps(first, indent=1) != recorded["start"]
+    assert steps["start"] == recorded["start"]
+    for path in (("plan_sensor",), ("thermostats", "primary")):
+        first = json.loads(steps["start"])
+        record = first
+        for part in path:
+            record = record[part]
+        attributes = record["attributes"]
+        swapped = dict(reversed(list(attributes.items())))
+        assert swapped == attributes
+        assert list(swapped) != list(attributes)
+        record["attributes"] = swapped
+        assert json.dumps(first, indent=1) != recorded["start"], path
+
+
+async def test_mxz_cannot_hide_a_key_behind_the_ha_core_list(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A key on HA_CORE_CLIMATE_KEYS that MXZ renders itself fails the recording."""
+    house = await _house(hass)
+    rendered = MXZRoomClimate.extra_state_attributes.fget
+    monkeypatch.setattr(
+        MXZRoomClimate,
+        "extra_state_attributes",
+        property(lambda self: {**rendered(self), "temperature_unit": "°F"}),
+    )
+    with pytest.raises(AssertionError, match="renders"):
+        await house.snapshot("start")
