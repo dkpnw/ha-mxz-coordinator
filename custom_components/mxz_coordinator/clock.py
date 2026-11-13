@@ -12,7 +12,8 @@ A wait lives in memory only. A wait that must outlast a reload is timed from a s
 record and armed again when the next coordinator starts, as the mode-change hold is
 from the mode record.
 
-This is the one module that calls Home Assistant's ``async_call_later``.
+This is the one module that calls Home Assistant's ``async_call_later``
+(tools/raw_timers.py).
 """
 
 from __future__ import annotations

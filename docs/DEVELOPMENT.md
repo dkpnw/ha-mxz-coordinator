@@ -118,7 +118,8 @@ hand-back) is sent at once, by the same code.
 
 Which module may import which is checked in CI; a new module joins a layer in
 `tools/import_bounds.py`. A new wait goes on the clock (`coord.clock.call_later`, or
-`host.clock.call_later` in a controller). See [ARCHITECTURE-RULES.md](ARCHITECTURE-RULES.md).
+`host.clock.call_later` in a controller); `tools/raw_timers.py` refuses a raw
+`async_call_later` anywhere else. See [ARCHITECTURE-RULES.md](ARCHITECTURE-RULES.md).
 
 ## Restore, flow schemas, and abort text
 
