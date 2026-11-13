@@ -91,8 +91,9 @@ _SECONDS_KEYS = re.compile(r"(^|_)(seconds_since_mode_change|sensor_age)$")
 # Thermostat attributes that HA core's ClimateEntity writes by itself, whose
 # presence or place depends on the HA version and not on MXZ.
 # - temperature_unit: the system unit (hass.config.units). HA 2026.10.4 and older
-#   do not write it; 2026.11 adds it to state_attributes after current_temperature;
-#   2026.12.0.dev moves it to the front of capability_attributes.
+#   do not write it; 2026.11.0.dev0 adds it to state_attributes after
+#   current_temperature; 2026.12.0.dev0 moves it to the front of
+#   capability_attributes.
 # Leaving a key out keeps every other key and the order of the rest.
 HA_CORE_CLIMATE_KEYS = frozenset({"temperature_unit"})
 
