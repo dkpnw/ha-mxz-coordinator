@@ -421,7 +421,7 @@ The fan memory and `HeadWriteMemory` are two implementations of one rule (audit 
 
 Chart W1–W11, both specs. Additions:
 
-- It runs inside the compute and has effects there: a store write, a notice, a snapshot, and on a resume a scheduled Dry command (6011–6055, 6104–6108; audit M4).
+- It runs inside the compute, which takes the head's snapshot there. Its store write, its notice and, on a resume, its Dry command come back from the compute as effects, and the coordinator makes them right after it, in order (`OpeningPause.step`; audit M4, closed).
 - **Notices.** One pause notice per room per 600 seconds, and its resume notice only if the pause notice went out (6128–6158).
 - **Vanes owed.** A resume sends each vane the pause found, or one picked while paused, after the apply (6099–6103, 6196–6222).
 - **Wakeups.** One per room at the end of its delay, firing a refresh at once (6240–6292).
@@ -495,8 +495,9 @@ The apply takes the hand-backs with `take_handbacks`, queues one with `queue_han
 report calls `yield_to_person` (`_floor_yield_to_person`). The delivery queue calls `rejected`
 (`floor_rejected`) and the head drivers call `accepted` (`floor_accepted`), both through
 `delivery.FloorReports`. The enable switch calls `record` and `restore` (`floor_record`,
-`restore_floor`), and `tripped` is `floor_tripped`. The notices go through `_send`
-(`_floor_send`). The floor writes the hands-off release through the coordinator's
+`restore_floor`), and `tripped` is `floor_tripped`. The notices are decided in `_send`
+(`_floor_send`), which keeps the hourly limit and hands the send back: from `want` to the
+compute's effects, from `rejected` to be sent at once; `_deliver` sends it. The floor writes the hands-off release through the coordinator's
 `set_hands_off_released`, which stays the one writer of that set.
 
 **Modeled.** The arbitration tier is in `tests/test_modehold_properties.py`. The run is in tests

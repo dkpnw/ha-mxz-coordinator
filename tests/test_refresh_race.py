@@ -324,9 +324,9 @@ def _record_computes(coord: MXZCoordinator, monkeypatch: pytest.MonkeyPatch):
     original = coord._compute
 
     def compute():
-        plan = original()
+        plan, effects = original()
         snapshots.append(plan.rooms[0].drift)
-        return plan
+        return plan, effects
 
     monkeypatch.setattr(coord, "_compute", compute)
     return snapshots

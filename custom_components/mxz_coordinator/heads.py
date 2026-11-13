@@ -63,7 +63,7 @@ from .const import (
     VOTE_BASIS_MODE,
     WRITE_INTERVAL_BOUNDS,
 )
-from .host import ControllerHost
+from .host import ControllerHost, Effect
 from .logic import as_float, bounded
 
 if TYPE_CHECKING:
@@ -488,23 +488,24 @@ class CloudDriver:
             value = snap_to_step(value, CLOUD_STEP_C if host.celsius else CLOUD_STEP_F)
         return clamp(value, self._grid.safe_band(self.climate_id))
 
-    def watch(self, wall: float) -> bool:
+    def watch(self, wall: float, out: list[Effect]) -> bool:
         """Whether this head is out of MXZ's control now.
 
         Out once it has been unavailable (or has no state at all, timed from
         this coordinator's start) for CLOUD_STALE_SECONDS, or available but
         sending no report at all, not even an unchanged one, for
         CLOUD_SILENT_SECONDS (never, for a generic head). Each edge is logged
-        once, and a repair issue stands while it lasts.
+        once, and a repair issue stands while it lasts: its creation or
+        deletion goes to ``out``.
         """
         cloud = self.record
         zone = self.zone
         since, limit = self.seen()
-        out = limit is not None and wall - since >= limit
-        if out != cloud.unresponsive:
-            cloud.unresponsive = out
+        out_of_control = limit is not None and wall - since >= limit
+        if out_of_control != cloud.unresponsive:
+            cloud.unresponsive = out_of_control
             kind = "generic" if cloud.generic else "cloud"
-            if out:
+            if out_of_control:
                 minutes = (limit or 0) // 60
                 _LOGGER.warning(
                     "MXZ: %s head %s (%s) has been unavailable or silent for "
@@ -512,8 +513,8 @@ class CloudDriver:
                     "longer counts (unless its Safety priority sensor is on)",
                     kind, zone.climate_id, zone.name, minutes,
                 )
-                ir.async_create_issue(
-                    self._host.hass, DOMAIN, self.issue_id,
+                out.append(partial(
+                    ir.async_create_issue, self._host.hass, DOMAIN, self.issue_id,
                     is_fixable=False,
                     severity=ir.IssueSeverity.WARNING,
                     translation_key=f"{kind}_head_unresponsive",
@@ -522,14 +523,14 @@ class CloudDriver:
                         "head": zone.climate_id,
                         "minutes": str(minutes),
                     },
-                )
+                ))
             else:
                 _LOGGER.info(
                     "MXZ: %s head %s (%s) is reporting again; MXZ controls it again",
                     kind, zone.climate_id, zone.name,
                 )
-                ir.async_delete_issue(self._host.hass, DOMAIN, self.issue_id)
-        return out
+                out.append(partial(ir.async_delete_issue, self._host.hass, DOMAIN, self.issue_id))
+        return out_of_control
 
     def seen(self) -> tuple[float, int | None]:
         """When this head last showed it is there (wall clock), and the limit.
@@ -815,10 +816,13 @@ class HeadDrivers:
         driver = self._clouds.get(climate_id)
         return driver.record if driver is not None else None
 
-    def watch(self, zone: Zone, wall: float) -> bool:
-        """Whether a cloud room's head is out of MXZ's control now (never a local one)."""
+    def watch(self, zone: Zone, wall: float, out: list[Effect]) -> bool:
+        """Whether a cloud room's head is out of MXZ's control now (never a local one).
+
+        A repair issue it opens or closes goes to ``out``.
+        """
         driver = self._clouds.get(zone.climate_id)
-        return driver is not None and driver.watch(wall)
+        return driver is not None and driver.watch(wall, out)
 
     def stale_report(
         self, climate_id: str, *, mode: str | None = None, fan: str | None = None,

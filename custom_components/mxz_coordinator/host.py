@@ -3,6 +3,7 @@
 Each controller declares its own Protocol on top of this one, naming the rest of
 the coordinator members it uses. mypy checks that the coordinator satisfies each.
 ``HeadCommands`` is the part of the delivery queue a lower controller sends through.
+``Effect`` is one thing a compute decided that reaches outside MXZ's memory.
 """
 
 from __future__ import annotations
@@ -11,6 +12,11 @@ from collections.abc import Callable
 from typing import Any, Protocol
 
 from homeassistant.core import HomeAssistant
+
+# A notice, a head command, a store write or a repair issue that a compute
+# decided. The compute only collects them; the coordinator makes them right
+# after it, in the order they were decided, before the plan's own commands.
+type Effect = Callable[[], object]
 
 
 class ControllerHost(Protocol):

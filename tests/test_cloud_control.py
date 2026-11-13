@@ -33,6 +33,7 @@ from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.mxz_coordinator.const import (
+    CONF_MODE_HYSTERESIS,
     DOMAIN,
     HEAD_TYPE_CLOUD,
     VOTE_BASIS_ACTION,
@@ -79,7 +80,9 @@ async def _advance(hass: HomeAssistant, freezer: Any, seconds: float) -> None:
     await hass.async_block_till_done()
 
 
-async def _standoff(hass: HomeAssistant, *, safety: bool = False) -> tuple[Any, Any, Any]:
+async def _standoff(
+    hass: HomeAssistant, *, safety: bool = False, options: dict[str, Any] | None = None
+) -> tuple[Any, Any, Any]:
     """Room 1 (first priority) wants heat, room 2 wants cool, both cloud."""
     hass.config.units = METRIC_SYSTEM
     heads = [MelcloudHead("a", mode="fan_only"), MelcloudHead("b", mode="fan_only")]
@@ -88,7 +91,9 @@ async def _standoff(hass: HomeAssistant, *, safety: bool = False) -> tuple[Any, 
     if safety:
         hass.states.async_set(SAFETY, "on")
         extra[ZONE_SAFETY_PRIORITY_ENTITY] = SAFETY
-    entry = await setup_rooms(hass, [(heads[0], extra), (heads[1], CLOUD)], temps=(18, 24))
+    entry = await setup_rooms(
+        hass, [(heads[0], extra), (heads[1], CLOUD)], temps=(18, 24), options=options
+    )
     await past_startup(hass, entry)
     assert entry.runtime_data.data.state == "heat"  # first priority wins
     return heads[0], heads[1], entry
@@ -337,3 +342,30 @@ async def test_a_head_polled_every_15_minutes_stays_controllable(
         assert row(hass, entry, 0)["cloud_status"] != "not_controllable"
         assert _issue(hass, entry, a.entity_id) is None
     assert entry.runtime_data.data.state == "heat"
+
+
+async def test_an_out_of_control_heads_call_arms_no_mode_change_wakeup(
+    hass: HomeAssistant, freezer: Any
+) -> None:
+    """The wakeup for a change the mode-change wait holds back weighs the rooms
+    as that compute did: a room whose cloud head is out of MXZ's control asks
+    for nothing, so its heat arms no wakeup. Back in control, it does."""
+    a, b, entry = await _standoff(hass, options={CONF_MODE_HYSTERESIS: 600})
+    coordinator = entry.runtime_data
+    a.go_unavailable()
+    await hass.async_block_till_done()
+    await _advance(hass, freezer, 15 * 60)
+    b.poll()
+    await recompute(hass, entry)
+    assert row(hass, entry, 0)["cloud_status"] == "not_controllable"
+    assert row(hass, entry, 0)["demand"] == "heat"
+    assert coordinator.data.state == "cool"
+    assert coordinator.data.mode_change_allowed is False
+    assert coordinator._dwell_timer is None
+
+    a.go_unavailable(False)
+    await hass.async_block_till_done()
+    await recompute(hass, entry)
+    assert row(hass, entry, 0)["cloud_status"] != "not_controllable"
+    assert coordinator.data.state == "cool"  # the wait holds the change back
+    assert coordinator._dwell_timer is not None

@@ -209,6 +209,7 @@ from .dry import DryMode
 from .fan_hold import FanHold
 from .floor import FloorGuard
 from .heads import HeadDrivers
+from .host import Effect
 from .logic import (
     PRIORITY_DEMAND,
     PRIORITY_FLOOR_HEAT,
@@ -1165,7 +1166,10 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         # What moved at each head since its adopt timer was armed: "mode", "setpoint".
         self._adopt_moved: dict[str, set[str]] = {}
         # Seed data so entities have something to read before the first refresh.
-        self.data = self._compute()
+        # Only a cloud head already out of MXZ's control has an effect here.
+        self.data, effects = self._compute()
+        for effect in effects:
+            effect()
         if self._freshness:
             # That first compute classified every room from what HA holds
             # now; the notice reports its result rather than estimating it. A
@@ -1527,12 +1531,17 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             else None
         )
 
-    def _compute(self) -> Plan:
+    def _compute(self) -> tuple[Plan, list[Effect]]:
         """Recompute the plan from current inputs. Commands nothing.
 
         It advances the per-zone engage latch and any pending startup seed.
         Missing startup evidence is retained separately from a known idle run.
+        What it decides beyond the plan (door/window and floor notices, the
+        Dry a resume puts back, the door/window store write, a cloud head's
+        repair issue) comes back as effects, in the order decided, for the
+        caller to make.
         """
+        effects: list[Effect] = []
         common: dict[str, Any] = {
             "eco": self.eco_active(),
             "eco_cool_max": self.eco_cool_max,
@@ -1569,7 +1578,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             sight = self._watch_head(zone.climate_id, clock, now)
             status = sight.status(clock, self.lost_vote_ttl)
             # A cloud head out of MXZ's control (never a local one).
-            cloud_out = self.heads.watch(zone, now)
+            cloud_out = self.heads.watch(zone, now, effects)
             state: Any = self.hass.states.get(zone.sensor_id)
             valid, temp = _read_temp(state, self.target_default, self.temp_unit)
             health, age = self._sensor_health(zone, state, valid, now)
@@ -1662,7 +1671,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             # never votes, so it can neither keep nor turn the shared mode,
             # and it doesn't hold Resting mode off; its run starts afresh on
             # resume. (Evaluated before Dry: a resume can put a Dry back.)
-            paused = self.openings.step(zone, now)
+            paused = self.openings.step(zone, now, effects)
             if paused:
                 demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED
                 if zone.slug in self._engage_latch:
@@ -1684,7 +1693,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
                 coasted = True
             # A tripped floor is this disabled room's engage (the latch stays
             # untouched: it belongs to the room's own enabled runs).
-            floor = self.floor.want(zone, temp, ok, now)
+            floor = self.floor.want(zone, temp, ok, now, effects)
             if floor is not None:
                 engage = floor
             safety = self._zone_safety(zone)
@@ -1830,7 +1839,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
                 [zone.name for zone in self.zones if self.openings.paused(zone)]
                 if self.openings.any_room else None
             ),
-        )
+        ), effects
 
     def _control_reasons(self, zone: Zone) -> list[dict[str, str]]:
         """Room detail on the existing plan, including unavailable Fan-auto.
@@ -2213,8 +2222,13 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
 
     async def _async_update_data_once(self) -> Plan:
         """Recompute and apply one plan."""
-        plan = self._compute()
+        plan, effects = self._compute()
         self._applying_plan = plan
+        # Before the plan's commands, as the plan being applied: a head command
+        # an effect sends is published on its rooms, as theirs are, while the
+        # entities still show the last plan until this one is published below.
+        for effect in effects:
+            effect()
         # This is computed intent, not delivery confirmation. Per-head software
         # status accompanies it, and in-flight action ownership remains separate.
         self.data = plan

@@ -713,7 +713,8 @@ async def _retained_apply(
     await hass.async_block_till_done()
     assert hass.states.get(heads[0].entity_id).state == "cool"
 
-    plan = coord._compute()
+    plan, effects = coord._compute()
+    assert effects == []  # nothing this probe leaves unmade
     assert plan.state == "cool"
     assert plan.room("primary").engage == "cool"
     # Not awaited: this only constructs the coroutine object. Its body — and
