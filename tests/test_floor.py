@@ -666,7 +666,7 @@ async def test_p3_a_yield_drops_the_persons_earlier_run(hass: HomeAssistant) -> 
     await _remote(hass, f.b, "off")
     await f.compute()
     assert f.floor(1)[0] == "yielded"
-    assert "floor_prior" not in f.coord.floor_record("secondary")
+    assert "floor_prior" not in f.coord.floor.record("secondary")
     sent = _mode_commands(hass, f.b)
     await f.temp(SENSOR_B, 53)
     for _ in range(2):
@@ -975,13 +975,13 @@ def _setpoint_commands(hass: HomeAssistant, entity_id: str) -> list[tuple]:
 def _theirs(f: Floor) -> tuple[str, float, float] | None:
     """The person's setting MXZ will give back at the end of the run, as the
     enable switch persists it."""
-    prior = f.coord.floor_record("secondary").get("floor_prior")
+    prior = f.coord.floor.record("secondary").get("floor_prior")
     return None if prior is None else (prior["mode"], prior["low"], prior["high"])
 
 
 def _run_of(f: Floor, slug: str = "secondary") -> dict[str, Any] | None:
     """The room's floor run as the enable switch persists it; None without one."""
-    return f.coord.floor_record(slug).get("floor_run")
+    return f.coord.floor.record(slug).get("floor_run")
 
 
 @pytest.mark.parametrize(
@@ -1238,7 +1238,7 @@ async def test_p15_a_mode_change_after_a_followed_raise_is_still_a_yield(
     await _remote(hass, f.b, "fan_only")
     await f.compute()
     assert (f.floor(1)[0], _theirs(f)) == ("yielded", None)
-    assert "floor_prior" not in f.coord.floor_record("secondary")
+    assert "floor_prior" not in f.coord.floor.record("secondary")
     sent = _mode_commands(hass, f.b)
     await f.temp(SENSOR_B, 53)
     for _ in range(2):

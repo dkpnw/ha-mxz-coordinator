@@ -315,8 +315,8 @@ async def test_each_room_part_reads_its_own_key(hass: HomeAssistant, freezer) ->
     rig: Rig = await _setup(hass, freezer, study={})
     coord = rig.coord
     head = rig.heads[1]
-    coord._floor_rejecting["secondary"] = "refused"
-    coord._floor_yield["secondary"] = ("heat", 1_800_000_000.0)
+    coord.floor._rejecting["secondary"] = "refused"
+    coord.floor._yield["secondary"] = ("heat", 1_800_000_000.0)
     coord.dry._rooms["secondary"] = "held"
     coord.dry._released.add("secondary")
     coord._hands_off_released.add("secondary")

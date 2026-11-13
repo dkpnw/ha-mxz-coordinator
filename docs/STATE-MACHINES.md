@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Written | 2026-11-09 (America/Los_Angeles); updated 2026-11-10 after the second review (section 3.23, and the SM-3 and SM-6 fixes made whole) |
-| Base | `f21dffef5b012ace9b31cf51fd277292f3ffa5b7` (`docs: clean-copy strings and correct accept-at-head help (#114)`). Every line number below is at that commit; the fixes in this change move some by a few lines. Code this change added or changed has no line there and is cited by name (`_write_back_mode`, `_disown_waiting_command`, `CloudHead.refused`, `_watch_head_change`'s return). The door/window pause has since moved to `openings.py` (`OpeningPause`), Allow Dry to `dry.py` (`DryMode`), the fan hold to `fan_hold.py` (`FanHold`, `FanEcho`), the refresh serialization and the per-head delivery slot and command status to `delivery.py` (`DeliveryQueue`, `Delivery`), and each head's driver, its band and setpoint grid, and the cloud heads' records, batches and wakeup to `heads.py` (`HeadDrivers`, `LocalDriver`, `CloudDriver`, `HeadGrid`); their line numbers here are from before those moves. The Allow Dry table in section 3.14 cites `DryMode` by name, and section 3.12 names the `FanHold` method beside each old line range, sections 3.2 to 3.4 name the `DeliveryQueue` members, and section 3.16 names the `heads.py` members. The plan a compute returns is now typed (`Plan` and `RoomPlan` in `plan.py`); a "plan row" below is a `RoomPlan`, and its attribute names are unchanged. |
+| Base | `f21dffef5b012ace9b31cf51fd277292f3ffa5b7` (`docs: clean-copy strings and correct accept-at-head help (#114)`). Every line number below is at that commit; the fixes in this change move some by a few lines. Code this change added or changed has no line there and is cited by name (`_write_back_mode`, `_disown_waiting_command`, `CloudHead.refused`, `_watch_head_change`'s return). The door/window pause has since moved to `openings.py` (`OpeningPause`), Allow Dry to `dry.py` (`DryMode`), the fan hold to `fan_hold.py` (`FanHold`, `FanEcho`), the refresh serialization and the per-head delivery slot and command status to `delivery.py` (`DeliveryQueue`, `Delivery`), each head's driver, its band and setpoint grid, and the cloud heads' records, batches and wakeup to `heads.py` (`HeadDrivers`, `LocalDriver`, `CloudDriver`, `HeadGrid`), and the freeze floor to `floor.py` (`FloorGuard`); their line numbers here are from before those moves. The Allow Dry table in section 3.14 cites `DryMode` by name, and section 3.12 names the `FanHold` method beside each old line range, sections 3.2 to 3.4 name the `DeliveryQueue` members, section 3.16 names the `heads.py` members, and section 3.15 names the `FloorGuard` members. The plan a compute returns is now typed (`Plan` and `RoomPlan` in `plan.py`); a "plan row" below is a `RoomPlan`, and its attribute names are unchanged. |
 | How | The catalog and findings SM-1 to SM-9 come from a read-only review with scratch probes on invented heads (section 1). The fixes, the repros, the TLA+ extensions and SM-10 come from the change that added this file. Nothing ran on a real head, a real Home Assistant or a cloud account. |
 | Companion documents | The formal checks: [formal/README.md](formal/README.md), [formal/STATECHART.md](formal/STATECHART.md), [formal/PARKED-FINDINGS.md](formal/PARKED-FINDINGS.md), [formal/tla/MXZCoordinator.tla](formal/tla/MXZCoordinator.tla), `verification/modehold/MXZModeHold.tla`. IDs such as H1 or M1 are those of the whole-repo audit of the same date. |
 
@@ -101,7 +101,7 @@ a clean stop and every 15 minutes; `Store` is written at once.
 | 3.12 | A head's fan hold and the fan echo ledger | `fan_hold.FanHold`, `switch.py` | memory, carried in restore data | Chart F1–F11; `MXZCoordinator.tla` |
 | 3.13 | Door/window pause | `MXZCoordinator`, `logic.opening_state` | `Store` | Chart W1–W11; both specs |
 | 3.14 | Coil-dry idle, and Allow Dry | `MXZCoordinator` (coil-dry), `dry.DryMode` (Allow Dry) | memory | Tests only |
-| 3.15 | Freeze floor and overheat ceiling | `MXZCoordinator`, `logic.FloorRun` | memory, with the run in restore data | Arbitration tier in tests; the run nowhere |
+| 3.15 | Freeze floor and overheat ceiling | `floor.FloorGuard`, `logic.FloorRun` | memory, with the run in restore data | Arbitration tier in tests; the run nowhere |
 | 3.16 | Cloud head batching | `cloud.CloudHead`, `MXZCoordinator` | memory | Nowhere |
 | 3.17 | Seasons (lockouts) | `MXZCoordinator`, `logic.season_lockouts`, lockout switches | restore data | Nowhere |
 | 3.18 | Standby hold and eco | `MXZCoordinator` | memory, re-read from the entity | Nowhere |
@@ -350,7 +350,7 @@ the action filter are held by `tests/test_modehold_properties.py` and `tests/tes
 
 ### 3.9 Hands-off room
 
-**States** (`_hands_off_phase`, 5618–5625). Not hands-off (not opted in, or enabled); parking;
+**States** (`hands_off_phase`, was `_hands_off_phase`, 5618–5625). Not hands-off (not opted in, or enabled); parking;
 released; floor.
 
 | Event | From → to | Guard | Action | Code |
@@ -487,8 +487,20 @@ tried once more, then reported (6977–6996).
 **Persistence.** The run, the person's setting and a yield ride in the enable switch's extra
 restore data (7095–7152, `switch.py:279-288`). That is the 15-minute window of audit H2.
 
+**Code.** Since the split all of it is `FloorGuard`'s, in `floor.py`, and its dicts lost their
+`_floor` prefix (`_floor_runs` is `_runs`, `_floor_expect` is `_expect`). The compute calls `want`
+(was `_floor_want`) and `settle` (`_floor_settle`) and shows `attributes` (`_floor_attributes`).
+The apply takes the hand-backs with `take_handbacks`, queues one with `queue_handback`, and reads
+`clear` (`_floor_clear`), `taken_over` and `expect_command` (`_floor_expect_command`). A head's
+report calls `yield_to_person` (`_floor_yield_to_person`). The delivery queue calls `rejected`
+(`floor_rejected`) and the head drivers call `accepted` (`floor_accepted`), both through
+`delivery.FloorReports`. The enable switch calls `record` and `restore` (`floor_record`,
+`restore_floor`), and `tripped` is `floor_tripped`. The notices go through `_send`
+(`_floor_send`). The floor writes the hands-off release through the coordinator's
+`set_hands_off_released`, which stays the one writer of that set.
+
 **Modeled.** The arbitration tier is in `tests/test_modehold_properties.py`. The run is in tests
-only. `_floor_expect` (1165, 6808–6875) is a fourth "is this report my own write" mechanism
+only. `_floor_expect` (1165, 6808–6875; now `FloorGuard._expect`) is a fourth "is this report my own write" mechanism
 (audit M6).
 
 ### 3.16 Cloud head batching
@@ -800,7 +812,7 @@ trying at each update" (6932–6933, 6962–6963). Honest public state.
 **Evidence.**
 - `cloud.sent(...)` runs at 4026–4030, before the calls at 4043–4046. It sets the intent and opens a new confirm window (`cloud.py:154-159`).
 - If a call raises, the next compute finds `cloud.pending` true and the intent equal to what it wants, so it is "waiting" (3979–3982) and sends nothing (3983–3991, 4000–4018).
-- On that path it also calls `_floor_accepted` (now `floor_accepted`) (3990, 4013), which clears `_floor_rejecting` (6970–6972). A tripped floor's row then reads heat or cool, not held, though no command was accepted.
+- On that path it also calls `_floor_accepted` (now `FloorGuard.accepted`) (3990, 4013), which clears `_floor_rejecting` (now `FloorGuard._rejecting`) (6970–6972). A tripped floor's row then reads heat or cool, not held, though no command was accepted.
 - The fan memory and ladder index are committed at 4031–4040, also before the calls.
 
 **Probe.** Two cloud heads parked in fan_only and confirmed. Room 1 went cold; the head's

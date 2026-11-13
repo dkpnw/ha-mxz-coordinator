@@ -70,7 +70,7 @@ if TYPE_CHECKING:
     from homeassistant.core import EventStateReportedData, State
 
     from .coordinator import Zone
-    from .delivery import Delivery, DeliveryQueue
+    from .delivery import Delivery, DeliveryQueue, FloorReports
     from .fan_hold import FanHold
 
 _LOGGER = logging.getLogger(__package__)
@@ -109,9 +109,11 @@ class HeadsHost(ControllerHost, Protocol):
     deliveries: DeliveryQueue
     fan: FanHold
 
+    @property
+    def floor(self) -> FloorReports: ...
+
     def eco_active(self) -> bool: ...
     def publish_delivery(self) -> None: ...
-    def floor_accepted(self, climate_id: str, delivery: Delivery) -> None: ...
     def note_head_act(self, climate_id: str, act: str, at: float) -> None: ...
 
 
@@ -328,7 +330,7 @@ class LocalDriver:
         climate_id = self.climate_id
         if engage is None:  # fixed standby park or a floor, no fan machinery
             await self._async_apply(act, low, high)
-            host.floor_accepted(climate_id, delivery)
+            host.floor.accepted(climate_id, delivery)
             return
         host.note_head_act(climate_id, act, host.clock())
         handback = _hands_fan_back(host, act, engage, host.hass.states.get(climate_id))
@@ -337,7 +339,7 @@ class LocalDriver:
             if not host.deliveries.owned(delivery):
                 return
         await self._async_apply(act, low, high)
-        host.floor_accepted(climate_id, delivery)
+        host.floor.accepted(climate_id, delivery)
         if not host.deliveries.owned(delivery):
             return
         if handback:
@@ -624,7 +626,7 @@ class CloudDriver:
             # Sent, and waiting for the head to report it; or just started,
             # when MXZ can't know what it sent before (a batch a moment
             # before a reload is still pending at the head).
-            host.floor_accepted(climate_id, delivery)
+            host.floor.accepted(climate_id, delivery)
             return
         # Waiting on a heat or cool batch that sent no fan: the mode and
         # setpoint aren't sent again, but the fan is still decided, so a
@@ -650,7 +652,7 @@ class CloudDriver:
             # Before the off of a hand-back to auto, after everything else.
             calls.insert(0 if act == MODE_OFF else len(calls), ("set_fan_mode", {"fan_mode": fan}))
         if not calls:
-            host.floor_accepted(climate_id, delivery)
+            host.floor.accepted(climate_id, delivery)
             if not cloud.pending(clock) and not cloud.confirmed:
                 cloud.confirmed = True
                 cloud.confirmed_at = dt_util.utcnow().isoformat()
@@ -690,7 +692,7 @@ class CloudDriver:
             elif not host.retired:
                 host.hass.async_create_task(host.async_request_refresh())
             raise
-        host.floor_accepted(climate_id, delivery)
+        host.floor.accepted(climate_id, delivery)
 
 
 class HeadDrivers:

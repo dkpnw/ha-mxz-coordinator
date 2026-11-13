@@ -302,7 +302,7 @@ class MXZRoomClimate(MXZEntity, CoordinatorEntity[MXZCoordinator], ClimateEntity
         before the plan settles the room held; parked stays the plan's idle.
         """
         if not self._enabled and (
-            self._zone.hands_off or self.coordinator.floor_tripped(self._zone.slug)
+            self._zone.hands_off or self.coordinator.floor.tripped(self._zone.slug)
         ):
             return self._head_action()
         if not self.coordinator.coordinator_enable or not self._enabled:

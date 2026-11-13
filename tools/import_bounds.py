@@ -32,6 +32,9 @@ LAYERS = (
     # Each room's head driver sends through the delivery queue, which reaches it through
     # HeadSteps, a Protocol the queue declares.
     ("head drivers", {"heads"}),
+    # The freeze floor runs a head through the queue and reads its driver; the queue and
+    # the drivers report back to it through FloorReports, a Protocol the queue declares.
+    ("floor", {"floor"}),
     ("coordinator", {"coordinator"}),
     ("entity base", {"entity"}),
     ("surfaces", {"binary_sensor", "button", "climate", "config_flow", "diagnostics",
@@ -57,6 +60,9 @@ EXCEPTIONS = {
     ("heads", "coordinator", True):
         "Zone, the room's configuration, is defined in coordinator.py; "
         "the head drivers reach the coordinator itself only through HeadsHost",
+    ("floor", "coordinator", True):
+        "Zone, the room's configuration, is defined in coordinator.py; "
+        "the floor reaches the coordinator itself only through FloorHost",
 }
 
 

@@ -33,11 +33,12 @@ def test_every_module_on_disk_is_checked():
     assert {"coordinator", "openings", "__init__"} <= files
 
 
-def test_without_its_exceptions_the_tree_shows_exactly_the_four_known_edges(monkeypatch):
+def test_without_its_exceptions_the_tree_shows_exactly_the_five_known_edges(monkeypatch):
     monkeypatch.setattr(import_bounds, "EXCEPTIONS", {})
     assert violations(SOURCES) == [
         "climate.py:66: climate (layer surfaces) imports number (layer surfaces)" + LOWER,
         "dry.py:33: dry (layer lower controllers) type-only imports coordinator (layer coordinator)" + LOWER,
+        "floor.py:41: floor (layer floor) type-only imports coordinator (layer coordinator)" + LOWER,
         "heads.py:72: heads (layer head drivers) type-only imports coordinator (layer coordinator)" + LOWER,
         "openings.py:47: openings (layer controllers) type-only imports coordinator (layer coordinator)" + LOWER,
     ]
@@ -88,6 +89,12 @@ def test_without_its_exceptions_the_tree_shows_exactly_the_four_known_edges(monk
      "fan_hold (layer lower controllers) imports heads (layer head drivers)"),
     ("dry", "if TYPE_CHECKING:\n    from .heads import HeadDrivers\n",
      "dry (layer lower controllers) type-only imports heads (layer head drivers)"),
+    ("floor", "from .coordinator import Zone\n",
+     "floor (layer floor) imports coordinator (layer coordinator)"),
+    ("delivery", "if TYPE_CHECKING:\n    from .floor import FloorGuard\n",
+     "delivery (layer controllers) type-only imports floor (layer floor)"),
+    ("heads", "if TYPE_CHECKING:\n    from .floor import FloorGuard\n",
+     "heads (layer head drivers) type-only imports floor (layer floor)"),
     ("cloud", "import custom_components.mxz_coordinator.coordinator\n",
      "cloud (layer helpers) imports coordinator (layer coordinator)"),
     ("cloud", "from . import coordinator\n",
