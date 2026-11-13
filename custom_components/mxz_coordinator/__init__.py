@@ -55,6 +55,7 @@ from .coordinator import (
 )
 from .issues import async_clear_entry_issues, async_start_repair_monitor
 from .openings import async_load_openings, async_remove_openings
+from .settings import entry_config, one_home
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ MXZConfigEntry = ConfigEntry[MXZCoordinator]
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
-    """Migrate older entries to the current v2.2 shape.
+    """Migrate older entries to the current v2.3 shape.
 
     v1 -> v2: the flat primary/secondary entry becomes the zones list. Zones
     0/1 keep the primary/secondary slugs, so no entity unique_id changes —
@@ -72,6 +73,14 @@ async def async_migrate_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> boo
     v2.1 -> v2.2: the idle-action default changed from fan_only to
     off_after_dry. An entry that never stored a choice was running fan_only, so
     it is pinned there explicitly; a stored choice is left alone.
+
+    v2.2 -> v2.3: each key moves to its one home (``settings.one_home``): the
+    rooms, the drift-alert service and the saved-temperature unit in data,
+    every Configure setting in options, each with the value it was read as.
+    A flat vane key that still wired a room is folded into that room.
+
+    A major version above 2 is a downgrade from a future release: refused,
+    and the entry is left as it is.
     """
     if entry.version > 2:
         return False  # downgrade from a future version: bail
@@ -116,15 +125,21 @@ async def async_migrate_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> boo
         hass.config_entries.async_update_entry(
             entry, data=data, options=options, minor_version=2
         )
+    if entry.minor_version < 3:
+        data, options = one_home(entry.data, entry.options)
+        hass.config_entries.async_update_entry(
+            entry, data=data, options=options, minor_version=3
+        )
+        _LOGGER.info("Moved each MXZ Coordinator setting to its one store (entry v2.3)")
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
     """Set up MXZ Coordinator from a config entry."""
-    # Visibility: options should carry the tunables, but the options flow mirrors
-    # them into entry.data too (the coordinator reads {**data, **options}). If
-    # options is empty yet the data mirror holds tunables, disclose that source.
-    # The stored record does not establish why options are empty.
+    # Visibility: options carry the settings. If options is empty yet data
+    # holds settings (written there by something other than MXZ since the v2.3
+    # migration), they are read from data (settings.entry_config); disclose that
+    # source. The stored record does not establish why options are empty.
     if not entry.options and CONF_DEMAND_THRESHOLD in entry.data:
         _LOGGER.warning(
             "MXZ Coordinator options are empty but the data mirror has the config; "
@@ -191,7 +206,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: MXZConfigEntry) -> 
     """
     if await entry.runtime_data.async_switch_dual_in_place():
         return
-    entry.runtime_data.dry.option_turned_off({**entry.data, **entry.options}.get(CONF_ZONES))
+    entry.runtime_data.dry.option_turned_off(entry_config(entry).get(CONF_ZONES))
     await hass.config_entries.async_reload(entry.entry_id)
 
 

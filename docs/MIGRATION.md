@@ -1,5 +1,51 @@
 # Upgrading and migrating MXZ Coordinator
 
+## Each setting is stored in one place (entry v2.3, Unreleased)
+
+**Nothing to do.** The first start of this version moves the config entry from v2.2 to v2.3.
+No setting changes value, no entity changes, and nothing behaves differently apart from the
+two fixes below.
+
+Home Assistant keeps two stores for an entry, `data` and `options`. Until now every Configure
+save wrote each setting to both, and MXZ read the two as one, with `options` winning. From v2.3
+each key is stored in one of them:
+
+- `data`: the rooms (`zones`), **Notify on drift** (`notify_service`) and `saved_temp_unit`.
+- `options`: every Configure setting.
+
+The migration gives each key the value MXZ was running with. Rooms that an older store kept
+in `options` move to `data`. A flat vane key from 2.x Configure (`primary_vane_vertical` and the
+like) that still wired room 1 or 2 is folded into that room. The flat keys of entries from
+before 3.0.0 are dropped once read. A key MXZ does not know stays where it was.
+
+Two saves did not do what they said while a key could be in both stores. Both work now:
+
+- **Reconfigure** on an entry whose rooms were in `options` saved, and the old rooms stayed in
+  use. No release is known to have written the rooms to `options`, so this affects only an
+  entry an older or hand-edited store left that way.
+- **Saving any Configure page** on an entry that still had a flat vane key dropped that room's
+  vane wiring.
+
+**Rolling back to 3.22.0** reads a v2.3 entry the same. 3.22.0 accepts it unchanged, because
+its migration only converts v1 entries and v2.1 entries, and it reads both stores as one,
+which gives the same values. This was checked by running 3.22.0 on three entries: two saved by
+3.22.0 (one after a °F to °C switch) and one saved by 2.20.0, each loaded as saved and as this
+version migrates it. 3.22.0 kept the entry at v2.3 and gave the same settings, rooms, plan
+and head commands for both
+([`downgrade_check_on_3_22_0.py`](../tests/fixtures/migration/downgrade_check_on_3_22_0.py)).
+A Configure save on 3.22.0 writes both stores again. This version reads that the same way and
+keeps one store per key from its next save. A rollback to a release before 3.22.0 was not
+checked.
+
+A config entry with a higher major version than this release knows (v3) is refused with a
+migration error and left as it is.
+
+**Notify on drift is checked.** Setup and Reconfigure now refuse a drift-alert service Home
+Assistant does not have, as the room page already refuses one for door/window notices. An
+entry that stores one keeps it, and its notices still go to Home Assistant's notifications
+while the service is missing. Reconfigure asks for a service Home Assistant has, or an empty
+box, the next time that entry is saved.
+
 ## Changes made at a head are accepted (3.22.0)
 
 **Nothing to do, but a behavior changes for every install.** No config-entry version change, and

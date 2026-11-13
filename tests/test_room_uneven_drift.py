@@ -53,6 +53,7 @@ from tests.flow_pages import (
     submit,
     suggested,
 )
+from tests.one_home import assert_one_home
 from tests.restart import restart
 from tests.test_drive import (
     SENSOR_A,
@@ -722,7 +723,8 @@ def _assert_globals_kept(entry) -> None:
     and no room-page flow key was stored flat."""
     data, options = _stores(entry)
     assert ({**data, **options}[COOLER], {**data, **options}[WARMER]) == (3.0, 5.0)
-    assert (data[COOLER], data[WARMER]) == (3.0, 5.0)
+    assert (options[COOLER], options[WARMER]) == (3.0, 5.0)
+    assert_one_home(entry)
     for store in (data, options):
         assert not {FIELD_COOLER, FIELD_WARMER, SECTION} & set(store)
 

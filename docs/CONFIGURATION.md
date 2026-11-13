@@ -65,8 +65,10 @@ The outdoor-unit name and **Notify on drift** service are set in setup and Recon
 
 - Submitting a page saves that page and shows **Options successfully saved.**; **Finish**
   closes the dialog. Open Configure again for the next page.
-- A save merges the page's values into the existing options, mirrors them into entry
-  data, and reloads once. It never touches a setting on another page.
+- A save merges the page's values into the existing options and reloads once. It never
+  touches a setting on another page. Each setting is stored once: Configure settings in
+  options, the rooms and **Notify on drift** in entry data (see
+  [MIGRATION.md](MIGRATION.md#each-setting-is-stored-in-one-place-entry-v23-unreleased)).
 - A save that leaves entry data and options unchanged needs no reload.
 - A room page saved with only **Dual setpoint** turned on or off is applied without a
   reload; see
@@ -233,8 +235,9 @@ pass this check; availability alone does not determine it.
   other page can clear either.
 - Do not infer that every optional field has the same clearing behavior.
 
-**Recovered values.** The data mirror can recover tuned values when options are empty, but
-does not prove how they became empty. Review and save Configure if that warning appears.
+**Recovered values.** If options are empty while entry data holds settings, MXZ reads them
+from entry data and logs a warning. That does not prove how options became empty. Review and
+save Configure if that warning appears; the save stores them in options.
 
 ## Choose a sensor freshness contract
 

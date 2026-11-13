@@ -50,6 +50,7 @@ from tests.flow_pages import (
     submit,
     suggested,
 )
+from tests.one_home import DATA_KEYS, assert_one_home
 from tests.property_rig import HOLD, PURE, Rig, open_rig
 from tests.restore_store import replace_stored_state, stored_state
 from tests.test_changeover import _setup_mock_weather
@@ -132,12 +133,22 @@ UNIT_FREE = {
 
 
 def _store(rig: Rig, saved: dict[str, Any], *, options: bool = True) -> None:
-    """Save as the Configure pages do: into options, mirrored into data."""
+    """Save as Configure does: the rooms in data, every setting in options.
+
+    ``options=False`` stores the entry as a release before 2.3 could leave it when its
+    options were emptied: every setting in data, mirrored from options, and options empty.
+    """
     entry = rig.entry
+    if not options:
+        rig.hass.config_entries.async_update_entry(
+            entry, data={**entry.data, **entry.options, **saved}, options={}
+        )
+        return
+    rooms = {key: value for key, value in saved.items() if key in DATA_KEYS}
     rig.hass.config_entries.async_update_entry(
         entry,
-        data={**entry.data, **saved},
-        options={**entry.options, **saved} if options else entry.options,
+        data={**entry.data, **rooms},
+        options={**entry.options, **{k: v for k, v in saved.items() if k not in rooms}},
     )
 
 
@@ -154,22 +165,23 @@ async def _configured(
 
 
 def _assert_saved(rig: Rig, expected: dict[str, float], unit: str) -> None:
-    """The load in use, and both stores, hold these numbers in this unit."""
+    """The load in use and the entry hold these numbers in this unit, each in its one home."""
     entry = rig.entry
     for key, value in expected.items():
         assert getattr(rig.coord, ATTRIBUTES[key]) == value, key
-        assert entry.data[key] == value, key
         assert entry.options[key] == value, key
     assert entry.data[CONF_SAVED_TEMP_UNIT] == unit
-    assert entry.options[CONF_SAVED_TEMP_UNIT] == unit
+    assert_one_home(entry)
 
 
 def _convert(saved: dict[str, Any], saved_in: str, unit: str) -> dict[str, Any]:
-    """What one conversion writes to the store, with nothing else of Home Assistant."""
+    """What one conversion writes, both stores read as one, with nothing else of Home Assistant."""
     hass = MagicMock()
     entry = SimpleNamespace(data=saved, options={})
     _convert_saved_temps(hass, entry, saved_in, unit)
-    return hass.config_entries.async_update_entry.call_args.kwargs["data"]
+    written = hass.config_entries.async_update_entry.call_args.kwargs
+    assert not set(written["data"]) & set(written["options"])
+    return {**written["data"], **written["options"]}
 
 
 @pytest.mark.parametrize("switch", [_live, _offline], ids=["live", "while-down"])
@@ -214,8 +226,8 @@ async def test_nothing_else_in_the_entry_moves(hass: HomeAssistant, freezer: Any
     rig = await _configured(hass, freezer, {**SAVED_F, **UNIT_FREE})
     data, options = dict(rig.entry.data), dict(rig.entry.options)
     await _live(rig, C)
-    assert dict(rig.entry.data) == {**data, **AS_C, CONF_SAVED_TEMP_UNIT: C}
-    assert dict(rig.entry.options) == {**options, **AS_C, CONF_SAVED_TEMP_UNIT: C}
+    assert dict(rig.entry.data) == {**data, CONF_SAVED_TEMP_UNIT: C}
+    assert dict(rig.entry.options) == {**options, **AS_C}
     await rig.close()
 
 
@@ -244,14 +256,14 @@ async def test_lock_out_cool_at_50_f_doesnt_become_50_c(hass: HomeAssistant, fre
     assert await lockouts_at(59) == ("off", "off")
     await switch(rig, C)
     assert await lockouts_at(15) == ("off", "off")
-    assert rig.entry.data[CONF_CHANGEOVER_COOL_BELOW] == 10
+    assert rig.entry.options[CONF_CHANGEOVER_COOL_BELOW] == 10
     assert await lockouts_at(10) == ("off", "on")
     assert await lockouts_at(15) == ("off", "off")
     assert await lockouts_at(20) == ("on", "off")
     assert await lockouts_at(15) == ("off", "off")
     await switch(rig, F)
     assert await lockouts_at(59) == ("off", "off")
-    assert rig.entry.data[CONF_CHANGEOVER_COOL_BELOW] == 50
+    assert rig.entry.options[CONF_CHANGEOVER_COOL_BELOW] == 50
     assert await lockouts_at(50) == ("off", "on")
     await rig.close()
 
@@ -347,12 +359,14 @@ async def test_a_first_switch_rereads_them_in_the_same_load(hass: HomeAssistant,
 
 
 async def test_only_a_leftover_saved_is_enough_to_convert_and_record(hass: HomeAssistant, freezer: Any) -> None:
-    """No range and no floors saved, and in the data mirror only: empty options stay empty."""
+    """No range and no floors saved, and only in data, as a release before 2.3 could leave
+    it: it converts and is recorded, and the write puts it in its home, options."""
     rig = await _configured(hass, freezer, {CONF_CHANGEOVER_COOL_BELOW: 50.0}, options=False)
-    await _live(rig, C)
     assert rig.entry.options == {}
-    assert rig.entry.data[CONF_CHANGEOVER_COOL_BELOW] == 10
+    await _live(rig, C)
+    assert rig.entry.options[CONF_CHANGEOVER_COOL_BELOW] == 10
     assert rig.entry.data[CONF_SAVED_TEMP_UNIT] == C
+    assert_one_home(rig.entry)
     assert rig.coord.changeover_cool_below == 10
     await rig.close()
 
@@ -391,9 +405,9 @@ async def test_one_write_holds_the_values_and_their_unit(hass: HomeAssistant, fr
         await _offline(rig, F)
         writes = [call for call in update.call_args_list if call.args[0] is rig.entry]
     assert len(writes) == 1
-    for store in (writes[0].kwargs["data"], writes[0].kwargs["options"]):
-        assert store[CONF_SAVED_TEMP_UNIT] == F
-        assert {key: store[key] for key in SAVED_F} == SAVED_F
+    data, options = writes[0].kwargs["data"], writes[0].kwargs["options"]
+    assert data[CONF_SAVED_TEMP_UNIT] == F
+    assert {key: options[key] for key in SAVED_F} == SAVED_F
     await rig.close()
 
 
@@ -427,17 +441,18 @@ async def test_a_unit_on_record_moves_even_with_nothing_left_to_convert(hass: Ho
     entry = rig.entry
     await _live(rig, C)
     assert entry.data[CONF_SAVED_TEMP_UNIT] == C
+    assert_one_home(entry)
     hass.config_entries.async_update_entry(
-        entry, data={k: v for k, v in entry.data.items() if k != CONF_DRIFT_COOLER_BY}
+        entry, options={k: v for k, v in entry.options.items() if k != CONF_DRIFT_COOLER_BY}
     )
     await hass.async_block_till_done()
     await rig.reload()
     await _live(rig, F)
     assert entry.data[CONF_SAVED_TEMP_UNIT] == F
-    hass.config_entries.async_update_entry(entry, data={**entry.data, CONF_DRIFT_COOLER_BY: 3.0})
+    hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_DRIFT_COOLER_BY: 3.0})
     await hass.async_block_till_done()
     await rig.reload()
-    assert entry.data[CONF_DRIFT_COOLER_BY] == 3
+    assert entry.options[CONF_DRIFT_COOLER_BY] == 3
     assert rig.coord.drift_cooler_by == 3
     await rig.close()
 
@@ -600,14 +615,14 @@ async def test_a_rooms_own_uneven_drift_converts(hass: HomeAssistant, freezer: A
     zones[0] |= {ZONE_DRIFT_COOLER_BY: 2.0, ZONE_DRIFT_WARMER_BY: 1.5}
     # Something else saved, so the conversion runs whatever it makes of the room's sides.
     hass.config_entries.async_update_entry(
-        entry, data={**entry.data, CONF_ZONES: zones, CONF_ECO_HEAT_MIN: 50.0}
+        entry, data={**entry.data, CONF_ZONES: zones}, options={**entry.options, CONF_ECO_HEAT_MIN: 50.0}
     )
     await hass.async_block_till_done()
     await rig.reload()
     await _set_target(hass, rig.eid("_primary_target"), 59)
     await _live(rig, C)
     assert entry.data[CONF_SAVED_TEMP_UNIT] == C
-    assert entry.data[CONF_ECO_HEAT_MIN] == 10
+    assert entry.options[CONF_ECO_HEAT_MIN] == 10
     assert entry.data[CONF_ZONES][0][ZONE_DRIFT_COOLER_BY] == 1.125  # 1.11
     assert entry.data[CONF_ZONES][0][ZONE_DRIFT_WARMER_BY] == 0.875  # 0.83
     assert rig.coord.zones[0].drift_cooler_by == 1.125
@@ -645,12 +660,14 @@ async def _room_with_sides(
 
 
 def _assert_room_sides(rig: Rig, expected: dict[str, float], unit: str) -> None:
-    """Both stores, the load in use and what the room shows hold these sides in this unit."""
-    for store in (rig.entry.data, rig.entry.options):
-        for key, value in expected.items():
-            assert store[CONF_ZONES][0][key] == value, key
-        assert store[CONF_SAVED_TEMP_UNIT] == unit
-        assert not set(ROOM_SIDES) & set(store[CONF_ZONES][1])
+    """The entry (its rooms, in data), the load in use and what the room shows hold these
+    sides in this unit."""
+    store = rig.entry.data
+    for key, value in expected.items():
+        assert store[CONF_ZONES][0][key] == value, key
+    assert store[CONF_SAVED_TEMP_UNIT] == unit
+    assert not set(ROOM_SIDES) & set(store[CONF_ZONES][1])
+    assert_one_home(rig.entry)
     zone = rig.coord.zones[0]
     cooler, warmer = expected[ZONE_DRIFT_COOLER_BY], expected[ZONE_DRIFT_WARMER_BY]
     assert (zone.drift_cooler_by, zone.drift_warmer_by) == (cooler, warmer)
@@ -702,13 +719,14 @@ async def test_a_rooms_sides_saved_in_c_convert_to_f_first(hass: HomeAssistant, 
     await rig.close()
 
 
-@pytest.mark.parametrize("options", [True, False], ids=["both-stores", "data-mirror-only"])
+@pytest.mark.parametrize("options", [True, False], ids=["one-home", "data-only"])
 async def test_a_first_switch_with_only_a_rooms_sides_saved_converts_in_the_same_load(
     hass: HomeAssistant, freezer: Any, options: bool
 ) -> None:
     """Nothing else is saved, so only these can start the write, and no unit is on record, so
     the switch is found after the load has read them. That load must not run on the old
-    numbers, and a data mirror's empty options stay empty."""
+    numbers. An entry left with every setting in data and empty options (before 2.3) is
+    written to its homes."""
     rig = await _room_with_sides(hass, freezer, SIDES_F, options=options)
     assert CONF_SAVED_TEMP_UNIT not in rig.entry.data
     coord = rig.coord
@@ -721,10 +739,7 @@ async def test_a_first_switch_with_only_a_rooms_sides_saved_converts_in_the_same
     assert (zone.drift_cooler_by, zone.drift_warmer_by) == (1.125, 0.875)
     row = rig.row()
     assert (row["heat_start"], row["cool_start"]) == (13.875, 15.875)
-    if options:
-        _assert_room_sides(rig, SIDES_F_AS_C, C)
-    else:
-        assert rig.entry.options == {}
+    _assert_room_sides(rig, SIDES_F_AS_C, C)
     await rig.close()
 
 
@@ -816,10 +831,11 @@ async def test_comfort_and_a_rooms_sides_each_convert_once(hass: HomeAssistant, 
     )
     for unit, global_cooler, global_warmer, room_cooler in ((C, 1.625, 2.25, 1.125), (F, 3.0, 4.0, 2.0)):
         await _live(rig, unit)
-        for store in (rig.entry.data, rig.entry.options):
-            assert (store[CONF_DRIFT_COOLER_BY], store[CONF_DRIFT_WARMER_BY]) == (global_cooler, global_warmer)
-            assert store[CONF_ZONES][0][ZONE_DRIFT_COOLER_BY] == room_cooler
-            assert ZONE_DRIFT_WARMER_BY not in store[CONF_ZONES][0]
+        options, data = rig.entry.options, rig.entry.data
+        assert (options[CONF_DRIFT_COOLER_BY], options[CONF_DRIFT_WARMER_BY]) == (global_cooler, global_warmer)
+        assert data[CONF_ZONES][0][ZONE_DRIFT_COOLER_BY] == room_cooler
+        assert ZONE_DRIFT_WARMER_BY not in data[CONF_ZONES][0]
+        assert_one_home(rig.entry)
         row = rig.row()
         assert (row["drift_heat"], row["drift_heat_from"]) == (room_cooler, "room_cooler_by")
         assert (row["drift_cool"], row["drift_cool_from"]) == (global_warmer, "warmer_by")
@@ -853,10 +869,10 @@ async def test_nothing_else_in_a_room_moves(hass: HomeAssistant, freezer: Any) -
     rig = await _room_with_sides(hass, freezer, SIDES_F, **UNIT_FREE)
     data, options = dict(rig.entry.data), dict(rig.entry.options)
     await _live(rig, C)
-    for before, store in ((data, rig.entry.data), (options, rig.entry.options)):
-        first, second = before[CONF_ZONES]
-        zones = [{**first, **SIDES_F_AS_C}, second]
-        assert dict(store) == {**before, CONF_ZONES: zones, CONF_SAVED_TEMP_UNIT: C}
+    first, second = data[CONF_ZONES]
+    zones = [{**first, **SIDES_F_AS_C}, second]
+    assert dict(rig.entry.data) == {**data, CONF_ZONES: zones, CONF_SAVED_TEMP_UNIT: C}
+    assert dict(rig.entry.options) == options
     await rig.close()
 
 
@@ -894,9 +910,10 @@ async def test_one_write_holds_a_rooms_sides_and_their_unit(hass: HomeAssistant,
         await _offline(rig, F)
         writes = [call for call in update.call_args_list if call.args[0] is rig.entry]
     assert len(writes) == 1
-    for store in (writes[0].kwargs["data"], writes[0].kwargs["options"]):
-        assert store[CONF_SAVED_TEMP_UNIT] == F
-        assert {key: store[CONF_ZONES][0][key] for key in ROOM_SIDES} == SIDES_F
+    data, options = writes[0].kwargs["data"], writes[0].kwargs["options"]
+    assert data[CONF_SAVED_TEMP_UNIT] == F
+    assert {key: data[CONF_ZONES][0][key] for key in ROOM_SIDES} == SIDES_F
+    assert CONF_ZONES not in options
     await rig.close()
 
 
@@ -962,9 +979,9 @@ async def test_a_rooms_page_shows_them_converted_and_a_new_value_reads_in_the_ne
     await _live(rig, F)
     assert rig.coord.zones[0].drift_cooler_by == 2.75  # 2.7
     assert rig.coord.zones[0].drift_warmer_by is None
-    for store in (rig.entry.data, rig.entry.options):
-        assert store[CONF_ZONES][0][ZONE_DRIFT_COOLER_BY] == 2.75
-        assert ZONE_DRIFT_WARMER_BY not in store[CONF_ZONES][0]
+    assert rig.entry.data[CONF_ZONES][0][ZONE_DRIFT_COOLER_BY] == 2.75
+    assert ZONE_DRIFT_WARMER_BY not in rig.entry.data[CONF_ZONES][0]
+    assert_one_home(rig.entry)
     await rig.close()
 
 

@@ -28,14 +28,7 @@ from homeassistant.helpers.event import async_track_state_report_event
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
-from .cloud import (
-    CLOUD_PENDING,
-    CloudHead,
-    clamp,
-    drive_setpoint,
-    offset_in_unit,
-    snap_to_step,
-)
+from .cloud import CLOUD_PENDING, CloudHead, drive_setpoint
 from .const import (
     CLOUD_SILENT_SECONDS,
     CLOUD_STALE_SECONDS,
@@ -65,6 +58,7 @@ from .const import (
 )
 from .host import ControllerHost, Effect
 from .logic import as_float, bounded
+from .units import clamp, offset_in_unit, snap_to_step
 
 if TYPE_CHECKING:
     from homeassistant.core import EventStateReportedData, State

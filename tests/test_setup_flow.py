@@ -20,7 +20,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_mock_service,
+)
 
 from custom_components.mxz_coordinator.const import (
     CONF_CHANGEOVER_COOL_BELOW,
@@ -850,6 +853,8 @@ async def test_s23_summary_is_complete_and_nothing_is_written_until_confirmed(
     hass: HomeAssistant,
 ) -> None:
     """S23 / W6, W6c: everything on one screen; closing it creates nothing."""
+    # Setup takes a drift-alert service Home Assistant has (tests/test_entry_checks.py).
+    async_mock_service(hass, "notify", "mobile_app_phone")
     result = await _to_review(
         hass, title="Upstairs MXZ", notify="notify.mobile_app_phone"
     )
@@ -940,14 +945,22 @@ def _v2_entry(hass: HomeAssistant) -> MockConfigEntry:
 async def test_s25_an_existing_v2_entry_is_untouched_by_the_new_code(
     hass: HomeAssistant,
 ) -> None:
-    """S25 / M1: setting up the revamped code changes nothing already stored."""
+    """S25 / M1: setting up the revamped code changes no stored value.
+
+    The rooms stay byte for byte, every setting keeps its value, and identity is
+    untouched. The v2.3 step drops data's copy of the threshold, which options hold.
+    """
     entry = _v2_entry(hass)
-    before = (deepcopy(dict(entry.data)), deepcopy(dict(entry.options)), entry.unique_id)
+    stored = (deepcopy(dict(entry.data)), deepcopy(dict(entry.options)))
 
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert (dict(entry.data), dict(entry.options), entry.unique_id) == before
+    assert dict(entry.data) == {CONF_ZONES: stored[0][CONF_ZONES]}
+    assert dict(entry.options) == stored[1]
+    assert {**entry.data, **entry.options} == {**stored[0], **stored[1]}
+    assert entry.unique_id == f"{LIVING}|{BEDROOM}"
+    before = (deepcopy(dict(entry.data)), deepcopy(dict(entry.options)), entry.unique_id)
     assert entry.version == 2
     registry = er.async_get(hass)
     entities = {
@@ -972,7 +985,8 @@ async def test_s25_a_v1_flat_entry_still_migrates_exactly_as_before(
     """S25 / M2: the v1 -> v2 conversion is the pinned one, not a new one.
 
     The v2.2 step then stores the fan_only idle action the entry was running
-    under; nothing else in options moves.
+    under; nothing else in options moves. The v2.3 step keeps each key in its
+    home: the rooms in data (the flat keys go), the settings in options.
     """
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -992,13 +1006,13 @@ async def test_s25_a_v1_flat_entry_still_migrates_exactly_as_before(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert (entry.version, entry.minor_version) == (2, 2)
+    assert (entry.version, entry.minor_version) == (2, 3)
     assert entry.unique_id == f"{LIVING}|{BEDROOM}"
     assert dict(entry.options) == {
         **options_before,
         CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY,
     }
-    assert entry.data[CONF_IDLE_ACTION] == IDLE_ACTION_FAN_ONLY
+    assert set(entry.data) == {CONF_ZONES}
     zones = entry.data[CONF_ZONES]
     assert [zone[ZONE_CLIMATE] for zone in zones] == [LIVING, BEDROOM]
     assert [zone[ZONE_SENSOR] for zone in zones] == [LIVING_SENSOR, BEDROOM_SENSOR]

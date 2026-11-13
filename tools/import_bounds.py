@@ -21,9 +21,11 @@ SOURCE = Path(__file__).resolve().parents[1] / "custom_components" / "mxz_coordi
 # Lowest first. A new module joins a layer here, in the same change that adds it.
 LAYERS = (
     ("constants", {"const"}),
+    # How a saved temperature follows a °F/°C switch.
+    ("units", {"units"}),
     # Monotonic seconds and every wait; the one caller of async_call_later (tools/raw_timers.py).
     ("clock", {"clock"}),
-    ("helpers", {"logic", "cloud", "capabilities", "host"}),
+    ("helpers", {"logic", "cloud", "capabilities", "host", "settings"}),
     # The plan one compute decides and the attributes it is shown as.
     ("plan", {"plan"}),
     # Concerns split out of the coordinator. Each reaches it through a Protocol it declares.
@@ -45,7 +47,7 @@ LAYERS = (
 )
 
 # Kept free of Home Assistant so their math is tested directly (docs/DEVELOPMENT.md).
-STDLIB_ONLY = {"const", "logic", "cloud", "plan"}
+STDLIB_ONLY = {"const", "units", "logic", "cloud", "plan", "settings"}
 
 # (importer, imported, type_only): why. Each one is an architecture decision. A runtime
 # exception also covers type-only imports; one that no longer matches an import of its own

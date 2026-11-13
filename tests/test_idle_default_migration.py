@@ -69,33 +69,37 @@ async def _set_up(hass: HomeAssistant, entry: MockConfigEntry) -> None:
 
 
 async def test_entry_without_idle_action_keeps_fan_only(hass: HomeAssistant) -> None:
-    """(a) A pre-3.3 entry that never chose is pinned to fan_only in both stores."""
+    """(a) A pre-3.3 entry that never chose is pinned to fan_only, kept in options since v2.3."""
     entry = _entry(
         hass, {CONF_DEMAND_THRESHOLD: 3.0}, {CONF_DEMAND_THRESHOLD: 3.0}
     )
 
     await _set_up(hass, entry)
 
-    assert (entry.version, entry.minor_version) == (2, 2)
+    assert (entry.version, entry.minor_version) == (2, 3)
     assert dict(entry.options) == {CONF_DEMAND_THRESHOLD: 3.0, "idle_action": "fan_only"}
-    assert entry.data["idle_action"] == "fan_only"
-    assert entry.data[CONF_ZONES] == ZONES
+    assert dict(entry.data) == {CONF_ZONES: ZONES}
     assert entry.runtime_data.idle_action == "fan_only"
 
 
-async def test_data_only_entry_keeps_fan_only_and_its_disclosure(
+async def test_data_only_entry_keeps_fan_only_in_its_home(
     hass: HomeAssistant, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """(a) Options stay empty, so the data-mirror disclosure is still true."""
+    """(a) An entry running from data with empty options is pinned to fan_only too.
+
+    The v2.3 step then puts every setting in its home, options, with the value it
+    read as, so the entry no longer runs from data and nothing discloses that it does.
+    """
     entry = _entry(hass, {CONF_DEMAND_THRESHOLD: 3.0}, {})
 
     await _set_up(hass, entry)
 
-    assert entry.minor_version == 2
-    assert dict(entry.options) == {}
-    assert entry.data["idle_action"] == "fan_only"
+    assert entry.minor_version == 3
+    assert dict(entry.options) == {CONF_DEMAND_THRESHOLD: 3.0, "idle_action": "fan_only"}
+    assert dict(entry.data) == {CONF_ZONES: ZONES}
     assert entry.runtime_data.idle_action == "fan_only"
-    assert "options are empty but the data mirror has the config" in caplog.text
+    assert entry.runtime_data.demand_threshold == 3.0
+    assert "options are empty but the data mirror has the config" not in caplog.text
 
 
 @pytest.mark.parametrize("action", ["off", "off_after_dry", "fan_only"])
@@ -103,7 +107,8 @@ async def test_data_only_entry_keeps_fan_only_and_its_disclosure(
 async def test_explicit_choice_is_untouched(
     hass: HomeAssistant, action: str, store: str
 ) -> None:
-    """(b) A stored choice, in either store, survives the migration byte-for-byte."""
+    """(b) A stored choice, in either store, survives the migrations unchanged; since
+    v2.3 it is kept in options."""
     data = {CONF_DEMAND_THRESHOLD: 3.0}
     options = {CONF_DEMAND_THRESHOLD: 3.0}
     (options if store == "options" else data)["idle_action"] = action
@@ -112,22 +117,24 @@ async def test_explicit_choice_is_untouched(
 
     await _set_up(hass, entry)
 
-    assert entry.minor_version == 2
-    assert dict(entry.data) == data_before
-    assert dict(entry.options) == options_before
+    assert entry.minor_version == 3
+    assert dict(entry.data) == {CONF_ZONES: data_before[CONF_ZONES]}
+    assert dict(entry.options) == {CONF_DEMAND_THRESHOLD: 3.0, "idle_action": action}
+    assert {**entry.data, **entry.options} == {**data_before, **options_before}
     assert entry.runtime_data.idle_action == action
 
 
 async def test_new_setup_defaults_to_off_after_dry(hass: HomeAssistant) -> None:
-    """(c) A fresh entry stores off_after_dry, is born v2.2 and runs it."""
+    """(c) A fresh entry stores off_after_dry in options, is born v2.3 and runs it."""
 
     options = await _skip_advanced_options(hass)
     await hass.async_block_till_done()
 
     assert options["idle_action"] == "off_after_dry"
     entry = hass.config_entries.async_entries(DOMAIN)[0]
-    assert (entry.version, entry.minor_version) == (2, 2)
-    assert entry.data["idle_action"] == entry.options["idle_action"] == "off_after_dry"
+    assert (entry.version, entry.minor_version) == (2, 3)
+    assert entry.options["idle_action"] == "off_after_dry"
+    assert "idle_action" not in entry.data
     assert entry.runtime_data.idle_action == "off_after_dry"
 
 
@@ -152,11 +159,12 @@ async def test_current_entry_without_idle_action_is_not_pinned(
 async def test_future_minor_is_accepted_untouched_and_major_refused(
     hass: HomeAssistant,
 ) -> None:
-    """A newer minor (2.3) is compatible and left alone; v3 is still refused."""
-    newer = _entry(hass, {CONF_DEMAND_THRESHOLD: 3.0}, {CONF_DEMAND_THRESHOLD: 3.0}, 3)
+    """A newer minor (2.4) is compatible and left alone; v3 is still refused."""
+    newer = _entry(hass, {CONF_DEMAND_THRESHOLD: 3.0}, {CONF_DEMAND_THRESHOLD: 3.0}, 4)
+    before = (dict(newer.data), dict(newer.options))
     assert await async_migrate_entry(hass, newer)
-    assert newer.minor_version == 3
-    assert "idle_action" not in {**newer.data, **newer.options}
+    assert newer.minor_version == 4
+    assert (dict(newer.data), dict(newer.options)) == before
 
     future = MockConfigEntry(domain=DOMAIN, data={}, version=3)
     future.add_to_hass(hass)

@@ -48,6 +48,7 @@ from tests.flow_pages import (
     submit,
     suggested,
 )
+from tests.one_home import assert_one_home
 from tests.test_configure_menu import HEADS, SENSORS, _entry, _head, _setup_review
 from tests.test_drive import (
     SENSOR_A,
@@ -409,11 +410,12 @@ async def test_an_untouched_comfort_save_stores_no_key(
     data, options = _stores(entry)
     for store in (data, options):
         assert COOLER not in store and WARMER not in store
-    # Unrelated keys are untouched.
+    # Unrelated keys keep their values, each now in its one home.
     for key, value in options_before.items():
         assert options[key] == value, key
-    for key, value in data_before.items():
-        assert data[key] == value, key
+    for key, value in {**data_before, **options_before}.items():
+        assert {**data, **options}[key] == value, key
+    assert_one_home(entry)
 
 
 async def test_setting_one_side_stores_only_that_side(
@@ -427,7 +429,7 @@ async def test_setting_one_side_stores_only_that_side(
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     data, options = _stores(entry)
-    assert options[WARMER] == data[WARMER] == 4.0
+    assert options[WARMER] == 4.0 and WARMER not in data
     assert COOLER not in options and COOLER not in data
 
 
@@ -445,13 +447,14 @@ async def test_submitting_blank_clears_a_saved_side(hass: HomeAssistant, house) 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     data, options = _stores(entry)
     assert COOLER not in options and COOLER not in data
-    assert options[WARMER] == data[WARMER] == 4.0
+    assert options[WARMER] == 4.0 and WARMER not in data
     for key, value in options_before.items():
         if key != COOLER:
             assert options[key] == value, key
-    for key, value in data_before.items():
+    for key, value in {**data_before, **options_before}.items():
         if key != COOLER:
-            assert data[key] == value, key
+            assert {**data, **options}[key] == value, key
+    assert_one_home(entry)
 
     # Clearing the other side leaves neither behind.
     result = await open_options_page(hass, entry, "comfort")
@@ -487,8 +490,8 @@ async def test_saving_another_page_keeps_saved_sides(hass: HomeAssistant, house)
     result = await submit(hass.config_entries.options, result, prefilled(result))
     assert result["type"] is FlowResultType.CREATE_ENTRY
     data, options = _stores(entry)
-    assert options[COOLER] == data[COOLER] == 3.0
-    assert options[WARMER] == data[WARMER] == 4.0
+    assert options[COOLER] == 3.0 and COOLER not in data
+    assert options[WARMER] == 4.0 and WARMER not in data
 
 
 @pytest.mark.parametrize(

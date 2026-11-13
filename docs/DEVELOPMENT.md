@@ -72,6 +72,20 @@ plugin loading, replace failed phases with collection, or infer hardware results
 mock entities.
 
 
+## Adding a setting
+
+Every Configure setting is one `Setting` row in `settings.py`, and every field on a room's
+page is one `RoomField` row. A row gives the key, the page and section that show it, the kind
+of field, its default, unit and bounds, and how it is checked and stored. The setup pages,
+Configure and the room page are built from the rows, so a new setting is one row, its label
+and help text in `strings.json` and `translations/en.json`, and the code that reads it.
+`tests/test_settings.py` holds the rows and `strings.json` to each other.
+
+`settings.HOME` says which store keeps each key: options for every setting, entry data for the
+rooms, the notify service and the saved-temperature unit. Read an entry through
+`settings.entry_config`, and write it with each key in its home (`settings.one_home`). A change
+to where a key lives is a config-entry migration (`async_migrate_entry`).
+
 ## How the coordinator is split
 
 `coordinator.py` still runs most of the control loop. Concerns are moving out of it one at
@@ -81,6 +95,7 @@ a time. Each moves into a module that owns its state, its wakeups and its stored
 | --- | --- |
 | `logic.py` | The decision math: room calls, arbitration, door/window states, floors, setpoints. No Home Assistant. |
 | `cloud.py` | A cloud or generic head's write record and its setpoint math. No Home Assistant. |
+| `units.py` | How a saved temperature or difference follows a °F/°C switch (`offset_in_unit`, `target_in_unit`), and the rounding and bounding they use (`snap_to_step`, `clamp`). No Home Assistant. |
 | `plan.py` | The plan one compute decides (`Plan`, and a `RoomPlan` per room), which the apply, the mode's writeback, the dwell wakeup and the room thermostat read back as typed fields. `to_attributes()` renders it as the plan sensor, the room rows and diagnostics show it. A room row also carries what other controllers render for it (delivery, head, floor, Dry, door/window), kept as each one renders it. No Home Assistant. |
 | `openings.py` | The door/window pause: each room's record and its store, the delay wakeups, the notices, and the vanes a resume owes. |
 | `dry.py` | Allow Dry: which rooms are held or parked in dry, a Dry picked on a thermostat and its wakeup, a room released from dry, and the Dry notices. In memory only. |

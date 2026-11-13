@@ -24,7 +24,6 @@ from custom_components.mxz_coordinator.config_flow import (
     _detect_stage,
     _detect_vanes,
     _tunables_schema,
-    _validate_tunables,
 )
 from custom_components.mxz_coordinator.const import (
     CONF_CHANGEOVER_COOL_BELOW,
@@ -66,6 +65,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_VANE_VERTICAL,
     unit_profile,
 )
+from custom_components.mxz_coordinator.settings import tunable_errors
 from tests.flow_pages import (
     SECTION_FIELDS,
     fields,
@@ -81,6 +81,7 @@ from tests.flow_pages import (
     submit,
     suggested,
 )
+from tests.one_home import DATA_KEYS, assert_one_home
 
 _VALID = {
     CONF_PRIMARY_CLIMATE: "climate.primary",
@@ -520,9 +521,10 @@ async def test_user_flow_creates_entry(hass: HomeAssistant) -> None:
         "climate.primary", "climate.secondary", "climate.office",
     ]
     assert zones[2][ZONE_SENSOR] == "sensor.office_temp"
-    # defaults flowed into options (and mirrored into data)
+    # defaults flowed into options, their one home
     assert result["options"][CONF_DEMAND_THRESHOLD] == 3.0
-    assert result["data"][CONF_DEMAND_THRESHOLD] == 3.0
+    assert set(result["data"]) <= DATA_KEYS
+    assert not set(result["options"]) & DATA_KEYS
 
 
 async def test_setup_tuning_accepts_overrides(hass: HomeAssistant) -> None:
@@ -625,7 +627,7 @@ async def test_setup_requires_explicit_supported_idle_alternative(
     )
     result = await _press(hass, await _press(hass, result, "review"), "finish")
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_IDLE_ACTION] == IDLE_ACTION_OFF
+    assert CONF_IDLE_ACTION not in result["data"]
     assert result["options"][CONF_IDLE_ACTION] == IDLE_ACTION_OFF
 
 
@@ -1522,11 +1524,11 @@ async def test_options_flow_preserves_incompatible_stored_idle_until_explicit_ch
 
 
 async def test_options_flow_merges_and_mirrors_to_data(hass: HomeAssistant) -> None:
-    """A save merges onto existing options and mirrors the config into entry.data.
+    """A save merges onto existing options and keeps each key in its one home.
 
     Resilience: a field left out of the submit (here changeover_entity) is
-    PRESERVED, and entry.data ends up holding the config so an out-of-band
-    options wipe self-recovers (the coordinator reads {**data, **options}).
+    PRESERVED. The settings are stored in options only; entry.data keeps the
+    rooms (here built from this v1 entry's flat keys) and nothing else.
     """
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -1541,9 +1543,13 @@ async def test_options_flow_merges_and_mirrors_to_data(hass: HomeAssistant) -> N
     # merge: the un-submitted changeover_entity survives; the new value applies.
     assert result["data"][CONF_CHANGEOVER_ENTITY] == "weather.home"
     assert result["data"][CONF_DEMAND_THRESHOLD] == 5.0
-    # mirror: entry.data now carries the config for out-of-band recovery.
-    assert entry.data[CONF_CHANGEOVER_ENTITY] == "weather.home"
-    assert entry.data[CONF_DEMAND_THRESHOLD] == 5.0
+    # one home: the settings are in options, and data holds no copy of them.
+    assert entry.options[CONF_CHANGEOVER_ENTITY] == "weather.home"
+    assert entry.options[CONF_DEMAND_THRESHOLD] == 5.0
+    assert_one_home(entry)
+    assert [zone[ZONE_CLIMATE] for zone in entry.data[CONF_ZONES]] == [
+        "climate.primary", "climate.secondary",
+    ]
 
 
 async def test_options_flow_zone_override_folds_into_zones(hass: HomeAssistant) -> None:
@@ -1610,7 +1616,8 @@ async def test_options_flow_clears_inhibit_entity(hass: HomeAssistant) -> None:
     )  # inhibit field cleared
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_INHIBIT_ENTITY] is None
-    assert entry.data[CONF_INHIBIT_ENTITY] is None  # mirror cleared too
+    assert entry.options[CONF_INHIBIT_ENTITY] is None
+    assert_one_home(entry)  # no copy left behind in data
     assert result["data"]["inhibit_active_state"] == "off"
     assert result["data"][CONF_DEMAND_THRESHOLD] == 3.0  # merge still merges
 
@@ -2136,11 +2143,13 @@ async def test_options_profile_in_options_saves_and_reaches_consumer(
         ZONE_STARTUP_GRACE: 2.0,
         ZONE_EVIDENCE_BASIS: "ha_state_write",
     }
-    for zones in (entry.data[CONF_ZONES], entry.options[CONF_ZONES]):
-        assert {key: zones[0][key] for key in expected} == expected
-        assert zones[0]["data_state"] == "kept"
-        assert zones[0]["option_state"] == "kept"
-        assert zones[1] == peer
+    # The rooms options held are the ones saved, now in their home, data.
+    zones = entry.data[CONF_ZONES]
+    assert {key: zones[0][key] for key in expected} == expected
+    assert zones[0]["data_state"] == "kept"
+    assert zones[0]["option_state"] == "kept"
+    assert zones[1] == peer
+    assert CONF_ZONES not in entry.options
     assert entry.options["unrelated_option"] == "kept"
     assert entry.options[CONF_DEMAND_THRESHOLD] == 4.5
     assert MXZCoordinator(hass, entry)._freshness["primary"] == (180.0, 120.0)
@@ -2189,10 +2198,11 @@ async def test_options_profile_in_options_clears_and_reaches_consumer(
         ZONE_SAMPLE_TIMESTAMP_ATTR,
         ZONE_SAMPLE_SEQUENCE_ATTR,
     }
-    for zones in (entry.data[CONF_ZONES], entry.options[CONF_ZONES]):
-        assert not freshness_keys.intersection(zones[0])
-        assert zones[0]["option_state"] == "kept"
-        assert zones[1] == peer
+    zones = entry.data[CONF_ZONES]
+    assert not freshness_keys.intersection(zones[0])
+    assert zones[0]["option_state"] == "kept"
+    assert zones[1] == peer
+    assert CONF_ZONES not in entry.options
     assert entry.options["unrelated_option"] == "kept"
     assert "primary" not in MXZCoordinator(hass, entry)._freshness
 
@@ -2486,11 +2496,11 @@ def test_validate_tunables_covers_a_field_its_selector_already_bounds() -> None:
     schema = _tunables_schema({}, engage_min, engage_max)
     with pytest.raises(vol.Invalid):
         schema({CONF_ENGAGE_DEADBAND: -1.0})
-    assert _validate_tunables({CONF_ENGAGE_DEADBAND: -1.0}) == {
+    assert tunable_errors({CONF_ENGAGE_DEADBAND: -1.0}) == {
         CONF_ENGAGE_DEADBAND: "must_not_be_negative"
     }
     # A value problem outranks an ordering it would make meaningless.
-    assert _validate_tunables(
+    assert tunable_errors(
         {CONF_CLAMP_MIN: float("nan"), CONF_CLAMP_MAX: 50.0}
     ) == {CONF_CLAMP_MIN: "not_a_number"}
 
@@ -2523,7 +2533,7 @@ async def test_migration_does_not_revalidate_stored_tuning(hass: HomeAssistant) 
     assert dict(entry.options) == {**stored, CONF_IDLE_ACTION: IDLE_ACTION_FAN_ONLY}
     assert entry.data[CONF_ZONES][0][ZONE_CLIMATE] == _VALID[CONF_PRIMARY_CLIMATE]
     # The same combination IS rejected when a human resubmits it.
-    assert _validate_tunables(stored) == {
+    assert tunable_errors(stored) == {
         CONF_ECO_HEAT_MIN: "eco_band_inverted",
         CONF_ECO_COOL_MAX: "eco_band_inverted",
     }
@@ -2693,7 +2703,7 @@ async def test_reconfigure_unenforced_profile_matches_consumer(
     assert _entry_snapshot(entry) == before
 
 
-_FLOW_SOURCES = ("config_flow.py", "capabilities.py")
+_FLOW_SOURCES = ("config_flow.py", "capabilities.py", "settings.py")
 _FLOW_SECTIONS = (
     ("config", "abort"),
     ("config", "error"),
@@ -2708,10 +2718,10 @@ def _flow_reasons(sources: dict[str, str]) -> dict[tuple[str, str], set[str]]:
     Direct sites inside a ConfigFlow/OptionsFlow class: ``async_abort(reason=)``,
     ``AbortFlow(...)``, ``_abort_if_unique_id_configured()`` (HA's
     ``already_configured``), ``errors[...] = "..."`` and ``errors={...}``.
-    Indirect sites: every module-level ``*_problem``/``*_error``/``_validate_*``
+    Indirect sites: every module-level ``*_problem``/``*_error(s)``/``_validate_*``
     helper the class names contributes the literals it returns or stores in
     ``errors`` — including those unpacked from a constant table such as
-    ``_ORDERED_PAIRS``.
+    ``settings.ORDERED_PAIRS``.
     """
     import ast
     import re
@@ -2741,7 +2751,7 @@ def _flow_reasons(sources: dict[str, str]) -> dict[tuple[str, str], set[str]]:
                 if isinstance(node.target, ast.Name):
                     constants[node.target.id] = node.value
             elif isinstance(node, ast.FunctionDef) and re.search(
-                r"(_problem|_error)$|^_validate_", node.name
+                r"(_problem|_errors?)$|^_validate_", node.name
             ):
                 helpers[node.name] = node
             elif isinstance(node, ast.ClassDef):
@@ -2826,12 +2836,23 @@ def _flow_reasons(sources: dict[str, str]) -> dict[tuple[str, str], set[str]]:
         aborts, errors = direct(flow)
         reasons[section, "abort"] |= aborts
         reasons[section, "error"] |= errors
-        for name in {
+        # Each helper the class names, and each helper those name in turn.
+        pending = [
             node.id
             for node in ast.walk(flow)
             if isinstance(node, ast.Name) and node.id in helpers
-        }:
+        ]
+        reached: set[str] = set()
+        while pending:
+            if (name := pending.pop()) in reached:
+                continue
+            reached.add(name)
             reasons[section, "error"] |= helper_reasons(helpers[name])
+            pending += [
+                node.id
+                for node in ast.walk(helpers[name])
+                if isinstance(node, ast.Name) and node.id in helpers
+            ]
     return reasons
 
 
@@ -2871,7 +2892,13 @@ _PAIRS = (("low", "high", "pair_error"),)
 
 
 def _thing_problem():
-    return "tuple_error", {}
+    if _inner_error():
+        return "tuple_error", {}
+    return None
+
+
+def _inner_error():
+    return "nested_error"
 
 
 def _unused_problem():
@@ -2887,7 +2914,7 @@ def _validate_input(data):
     reasons = _flow_reasons({"flow.py": source})
     assert reasons == {
         ("config", "abort"): {"already_configured", "raised_abort", "never_translated"},
-        ("config", "error"): {"literal_error", "tuple_error"},
+        ("config", "error"): {"literal_error", "tuple_error", "nested_error"},
         ("options", "abort"): set(),
         ("options", "error"): {"options_literal", "pair_error"},
     }
@@ -2923,6 +2950,8 @@ def test_every_flow_reason_has_a_local_string() -> None:
         "idle_action_unsupported",
         "must_not_be_negative",
         "changeover_inverted",
+        "opening_notify_service_invalid",
+        "single_head_needs_generic",
     } <= reasons["options", "error"]
 
     paths = [folder / "strings.json", *sorted((folder / "translations").glob("*.json"))]

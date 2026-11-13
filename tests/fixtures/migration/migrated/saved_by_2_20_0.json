@@ -1,0 +1,45 @@
+{
+ "data": {
+  "notify_service": "notify.phone",
+  "zones": [
+   {
+    "climate": "climate.living",
+    "name": "Primary",
+    "sensor": "sensor.living_temp",
+    "stage_sensor": null,
+    "vane_horizontal": null,
+    "vane_vertical": "select.living_vane_vertical"
+   },
+   {
+    "climate": "climate.bedroom",
+    "name": "Secondary",
+    "sensor": "sensor.bedroom_temp",
+    "stage_sensor": "sensor.bedroom_stage",
+    "vane_horizontal": "select.bedroom_vane_horizontal",
+    "vane_vertical": null
+   }
+  ]
+ },
+ "minor_version": 3,
+ "options": {
+  "changeover_cool_below": 50.0,
+  "changeover_heat_above": 68.0,
+  "clamp_max": 88.0,
+  "clamp_min": 61.0,
+  "cool_lockout_ceiling": 80.0,
+  "demand_threshold": 2.0,
+  "eco_cool_max": 78.0,
+  "eco_heat_min": 50.0,
+  "engage_deadband": 1.5,
+  "fan_boost_enable": true,
+  "fan_boost_max": "medium",
+  "heat_lockout_floor": 58.0,
+  "idle_action": "fan_only",
+  "mode_hysteresis": 300.0,
+  "resting_mode_bias": "heat"
+ },
+ "saved_by": "2.20.0, migrated to v2.3",
+ "title": "MXZ Coordinator",
+ "unique_id": "climate.living|climate.bedroom",
+ "version": 2
+}

@@ -5,8 +5,10 @@ with ``MXZ_PIN_CAPTURE=1`` (see ``tests/pin_scenario.py`` for what each step
 does and records). Replaying it here pins, in °F and °C: every climate
 entity's features, hvac modes, and full attribute dict; every plan sensor
 attribute and zones row; every number, switch, button, and select; the entity
-registry's unique IDs; the stored entry data and options, including after an
-options-flow pass over both room pages; and every head service call.
+registry's unique IDs; what the stored entry data and options mean, read as
+``{**data, **options}`` (since entry v2.3 each key is kept in one of them),
+including after an options-flow pass over both room pages; and every head
+service call.
 
 Requires pytest-homeassistant-custom-component (Python 3.12+).
 """
@@ -16,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -24,6 +27,7 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.core import HomeAssistant
 
+from tests.one_home import assert_one_home
 from tests.pin_scenario import (
     COMFORT_OFF_ROW,
     climate_units,
@@ -32,6 +36,7 @@ from tests.pin_scenario import (
     run_scenario,
     take_climate_units,
     take_comfort,
+    take_entry,
     take_mode_hold,
     take_vote_rows,
 )
@@ -55,6 +60,11 @@ async def test_all_single_install_is_3_9_0(hass: HomeAssistant, unit: str) -> No
         pytest.skip("captured")
     pinned = _pinned(unit)
     assert [s["step"] for s in steps] == [s["step"] for s in pinned]
+    # Since v2.3 the untouched room pages also leave both stores exactly as they
+    # were (3.9.0 mirrored options into data there).
+    ran = {s["step"]: s for s in steps}
+    assert ran["room_pages"]["data"] == ran["boot"]["data"]
+    assert ran["room_pages"]["options"] == ran["boot"]["options"]
     for seen, want in zip(steps, pinned, strict=True):
         # No head is ever lost in this scenario: both rows are live every step.
         seen, votes = take_vote_rows(seen)
@@ -69,6 +79,11 @@ async def test_all_single_install_is_3_9_0(hass: HomeAssistant, unit: str) -> No
         want_holds, want_since = mode_hold(want)
         assert (holds, since) == (want_holds, want_since), seen["step"]
         want = take_mode_hold(want)[0]
+        # The entry means what 3.9.0's meant; each key is now kept in its one home.
+        seen, meant, stores = take_entry(seen)
+        want, want_meant, _ = take_entry(want)
+        assert meant == want_meant, seen["step"]
+        assert_one_home(SimpleNamespace(**stores))
         assert seen == want, seen["step"]
 
 
