@@ -27,7 +27,7 @@ from .const import (
     MODE_HEAT,
     UNAVAILABLE_STATES,
 )
-from .host import ControllerHost
+from .host import ControllerHost, Effect
 from .logic import (
     FloorRun,
     as_float,
@@ -161,7 +161,9 @@ class FloorGuard:
             return float(cast("float", zone.floor_low)) + self.margin
         return float(cast("float", zone.floor_high)) - self.margin
 
-    def want(self, zone: Zone, temp: float, ok: bool, now: float) -> str | None:
+    def want(
+        self, zone: Zone, temp: float, ok: bool, now: float, out: list[Effect]
+    ) -> str | None:
         """Advance this room's floor by one compute; return its want, if any.
 
         Only a disabled room with a floor or ceiling configured can have one.
@@ -172,7 +174,8 @@ class FloorGuard:
         well, until the room clears or reaches a new low (decision 11). The
         clock is charged only for time the LAST compute found the head being
         driven (see :meth:`settle`), so a wait, a standoff loss,
-        Coordinator off or Home Assistant downtime costs nothing.
+        Coordinator off or Home Assistant downtime costs nothing. The notices
+        it decides go to ``out``, for the coordinator to send after the compute.
         """
         host = self._host
         slug = zone.slug
@@ -192,7 +195,7 @@ class FloorGuard:
             # The seed compute: nothing is restored yet, so nothing is decided.
             self._view[slug] = ("armed" if configured else "none", None)
             return None
-        self._flush_handback(zone, host.hass.states.get(zone.climate_id))
+        self._flush_handback(zone, host.hass.states.get(zone.climate_id), out)
         if not configured or zone.enable:
             self._end(slug)
             self._yield.pop(slug, None)
@@ -214,19 +217,19 @@ class FloorGuard:
                     "again. A sensor that reports only when its reading "
                     "changes goes quiet in a steady room: clear Maximum age "
                     f"(Configure → Rooms → {zone.name} → Sensor freshness), "
-                    "or use a sensor that reports periodically."
+                    "or use a sensor that reports periodically.", out,
                 )
                 return None
             self._blind(
                 zone, "Room sensor unavailable, invalid or stale: no floor "
-                "protection until it reports a usable reading."
+                "protection until it reports a usable reading.", out,
             )
             return None
         if head is None or head.state in UNAVAILABLE_STATES:
             self._end(slug, hand_back=True)
             self._blind(
                 zone, f"Head {zone.climate_id} unavailable: no floor protection "
-                "until it reports again."
+                "until it reports again.", out,
             )
             return None
         if (yielded := self._yield.get(slug)) is not None:
@@ -267,13 +270,13 @@ class FloorGuard:
                 self._view[slug] = ("armed", None)
                 return None
             run = FloorRun(direction=want, mark=temp, worst=temp)
-            self._notify_trip(zone, want, temp)
+            self._notify_trip(zone, want, temp, out)
         elif was_stalled and not run.stalled:
-            self._notify_trip(zone, run.direction, temp)  # a new low re-armed it
+            self._notify_trip(zone, run.direction, temp, out)  # a new low re-armed it
         elif (
             not run.stalled
             and (held := self._trip_held.get(slug)) is not None
-            and self._send(zone, "trip", held)  # the hour is up (P8)
+            and self._send(zone, "trip", held, out)  # the hour is up (P8)
         ):
             del self._trip_held[slug]
         self._runs[slug] = run
@@ -284,7 +287,7 @@ class FloorGuard:
                 zone, f"Stalled: {FLOOR_STALL_SECONDS // 3600} h of driving the head "
                 f"without {step} of progress. Re-arms when the room reaches its "
                 f"clear line or a new {'low' if run.direction == MODE_HEAT else 'high'}.",
-                kind="stalled",
+                out, kind="stalled",
             )
             return None
         self._blind_noticed.discard(slug)
@@ -499,7 +502,9 @@ class FloorGuard:
             )
         return task
 
-    def _blind(self, zone: Zone, reason: str, kind: str = "blind") -> None:
+    def _blind(
+        self, zone: Zone, reason: str, out: list[Effect], kind: str = "blind"
+    ) -> None:
         """Show the room ``blind``; notify once per episode (decision 7).
 
         A configured room can be blind before anything tripped: it has no
@@ -513,11 +518,13 @@ class FloorGuard:
         if zone.slug in self._blind_noticed or self._host.startup_quiet:
             return
         if self._send(
-            zone, kind, f"{zone.name}: the freeze/overheat floor is blind. {reason}"
+            zone, kind, f"{zone.name}: the freeze/overheat floor is blind. {reason}", out
         ):
             self._blind_noticed.add(zone.slug)
 
-    def _notify_trip(self, zone: Zone, direction: str, temp: float) -> None:
+    def _notify_trip(
+        self, zone: Zone, direction: str, temp: float, out: list[Effect]
+    ) -> None:
         """Notify a trip (decision 7). One the hourly limit holds back is kept
         and sent at the first compute after the hour while the run is still
         going (P8); a run that ends or stalls first never sends it."""
@@ -532,7 +539,7 @@ class FloorGuard:
             f"{zone.name} is at {temp:g} {unit}, {what}. MXZ is {act} this disabled "
             f"room until it reaches {self.clear(zone, direction):g} {unit}."
         )
-        if self._send(zone, "trip", message):
+        if self._send(zone, "trip", message, out):
             self._trip_held.pop(zone.slug, None)
         else:
             self._trip_held[zone.slug] = message
@@ -566,11 +573,12 @@ class FloorGuard:
         notice the rate limit holds back goes out at the first rejection
         after the hour is up. A refused hand-back: see
         :meth:`_handback_refused`."""
+        out: list[Effect] = []
         for zone in self._zones:
             sending = self._handing_back.get(zone.slug)
             if sending is not None and sending[3] is delivery:
                 del self._handing_back[zone.slug]
-                self._handback_refused(zone, sending, err)
+                self._handback_refused(zone, sending, err, out)
                 continue
             if (
                 zone.climate_id == climate_id
@@ -584,8 +592,11 @@ class FloorGuard:
                     zone, "rejected",
                     f"{zone.name}: the floor's command to {climate_id} was rejected "
                     f"({err}). MXZ keeps trying at each update.",
+                    out,
                 ):
                     self._reject_noticed.add(zone.slug)
+        for effect in out:
+            effect()
 
     def accepted(self, climate_id: str, delivery: Delivery) -> None:
         """A command to this head returned (or was not needed): it is no
@@ -598,7 +609,7 @@ class FloorGuard:
                     del self._handing_back[zone.slug]
 
     def _handback_refused(
-        self, zone: Zone, sending: tuple[Any, ...], err: Exception
+        self, zone: Zone, sending: tuple[Any, ...], err: Exception, out: list[Effect]
     ) -> None:
         """The head refused the command handing it back to its person (P3).
         It is tried once more at the next apply, if the room is still theirs
@@ -616,9 +627,9 @@ class FloorGuard:
             "It keeps MXZ's floor setting; MXZ sends it nothing more for this."
         )
         self._handback_note[zone.slug] = (message, seen)
-        self._flush_handback(zone, self._host.hass.states.get(zone.climate_id))
+        self._flush_handback(zone, self._host.hass.states.get(zone.climate_id), out)
 
-    def _flush_handback(self, zone: Zone, head: Any) -> None:
+    def _flush_handback(self, zone: Zone, head: Any, out: list[Effect]) -> None:
         """Send a refused hand-back's notice; one the hourly limit holds back
         goes out at the first compute after the hour (P5, P8), but only while
         the room is still released and the head still shows MXZ's command."""
@@ -629,11 +640,11 @@ class FloorGuard:
             _head_setting(head) != seen
         ):
             del self._handback_note[zone.slug]  # no longer true
-        elif self._send(zone, "handback", message):
+        elif self._send(zone, "handback", message, out):
             del self._handback_note[zone.slug]
 
-    def _send(self, zone: Zone, kind: str, message: str) -> bool:
-        """Log one floor notice and send it; return whether it went out.
+    def _send(self, zone: Zone, kind: str, message: str, out: list[Effect]) -> bool:
+        """Log one floor notice and decide it; return whether it goes out.
 
         At most one floor notice per room per hour, whatever its kind (trip,
         blind, stalled, rejected), so a flapping sensor or head cannot flood
@@ -641,7 +652,8 @@ class FloorGuard:
         It goes to the integration's notification service; with none set, one
         that names no service, or one Home Assistant does not have (a removed
         app, a typo), it becomes a Home Assistant notification instead (P2,
-        P11), one per room and kind, so a repeat replaces the last.
+        P11), one per room and kind, so a repeat replaces the last. The send
+        itself goes to ``out``.
         """
         host = self._host
         slug = zone.slug
@@ -661,33 +673,32 @@ class FloorGuard:
             return False
         self._notice_at[slug] = now
         self._held_back.pop(slug, None)
-        domain, _, service = (host.notify_service or "").partition(".")
-
-        async def _send() -> None:
-            try:
-                if domain and service:
-                    try:
-                        await host.notify(message)
-                        return
-                    except ServiceNotFound:
-                        pass  # not registered: a Home Assistant notification
-                await host.hass.services.async_call(
-                    "persistent_notification",
-                    "create",
-                    {
-                        "title": "HVAC Update",
-                        "message": message,
-                        "notification_id": (
-                            f"{DOMAIN}_{self._entry_id}_floor_{slug}_{kind}"
-                        ),
-                    },
-                    blocking=False,
-                )
-            except HomeAssistantError as err:
-                _LOGGER.error("MXZ floor: the notice could not be sent: %s", err)
-
-        host.hass.async_create_task(_send())
+        out.append(lambda: host.hass.async_create_task(self._deliver(slug, kind, message)))
         return True
+
+    async def _deliver(self, slug: str, kind: str, message: str) -> None:
+        """Send one floor notice :meth:`_send` decided; a failure is only logged."""
+        host = self._host
+        domain, _, service = (host.notify_service or "").partition(".")
+        try:
+            if domain and service:
+                try:
+                    await host.notify(message)
+                    return
+                except ServiceNotFound:
+                    pass  # not registered: a Home Assistant notification
+            await host.hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": "HVAC Update",
+                    "message": message,
+                    "notification_id": f"{DOMAIN}_{self._entry_id}_floor_{slug}_{kind}",
+                },
+                blocking=False,
+            )
+        except HomeAssistantError as err:
+            _LOGGER.error("MXZ floor: the notice could not be sent: %s", err)
 
     def _unit_symbol(self) -> str:
         return "°C" if self._host.celsius else "°F"

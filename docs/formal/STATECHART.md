@@ -119,7 +119,7 @@ stateDiagram-v2
 | Id | What happens | Code |
 | --- | --- | --- |
 | W1, W2, W3 | The delay counts from the reading, or from this coordinator's start if that is later. A start can lengthen a delay, never shorten it. No reading never starts a pause. | `OpeningPause.step`, `opening_state`, `opening_reading` |
-| W3 | Entering the pause: the head goes straight to off, with no coil-dry run and no fan, setpoint or vane write. A speed picked on the off head is read and held. The state is stored at once. | `OpeningPause._transition`, `_apply`, `FanHold.read`, `OpeningPause._save` |
+| W3 | Entering the pause: the head goes straight to off, with no coil-dry run and no fan, setpoint or vane write. A speed picked on the off head is read and held. The state is stored right after the compute that decides it. | `OpeningPause._transition`, `_apply`, `FanHold.read`, `OpeningPause._store_write` |
 | W4, W5, W6 | A closed reading counts down the close delay. Opening again starts it over. No reading doesn't end a pause. | `opening_state`, `opening_due` |
 | W7 | A real mode change on a paused head, to anything but off, not MXZ's own, takes the room over at once. So does the Window Override switch. The room is coordinated normally: MXZ doesn't turn the head back off. | `_on_head_change`, `OpeningPause.take_over`, `OpeningPause.async_set_override` |
 | W8 | With the window already closed and the close delay running, a change on the head is recorded, and the closed reading ends it at the next compute: the room goes on closing and the head is sent off again. This is the documented "until the window closes", at its edge. | `_on_head_change`, `OpeningPause.step` |
@@ -196,7 +196,7 @@ stateDiagram-v2
 | Id | What happens | Code |
 | --- | --- | --- |
 | L1, L2 | The Fan auto switch's state goes to restore data at a reload or a stop, and every 15 minutes by Home Assistant. | `extra_restore_state_data`, `FanHold.command_memory` |
-| L3 | The mode record and the door/window store were written at every change, so they survive. The Fan auto truth is as last dumped. | `_record_mode`, `OpeningPause._save` |
+| L3 | The mode record and the door/window store were written at every change, so they survive. The Fan auto truth is as last dumped. | `_record_mode`, `OpeningPause._store_write` |
 | L4 | The record gives the mode, whether votes set it, and what is left of the hold; the store gives each room's door/window state and override; each room resumes from its head. | `async_load_mode_record`, `mode_change_stamp`, `restore_shared_mode`, `async_load_openings`, `OpeningRecord.restored` |
 
 ## User flows, drawn from the model

@@ -32,7 +32,7 @@ from .const import (
     OPENING_REASON_PAUSED,
     UNAVAILABLE_STATES,
 )
-from .host import ControllerHost
+from .host import ControllerHost, Effect
 from .logic import (
     CLOSED_READ,
     finite_number,
@@ -245,13 +245,14 @@ class OpeningPause:
             and record.state in OPENING_PAUSED_STATES
         )
 
-    def step(self, zone: Zone, now: float) -> bool:
+    def step(self, zone: Zone, now: float, out: list[Effect]) -> bool:
         """Evaluate this room's door/window state; return whether it is paused.
 
-        Part of the compute (it commands nothing): it advances the room's
+        Part of the compute (it performs nothing): it advances the room's
         state (logic.opening_state) and, on a change, snapshots the head for
-        a pause or restores it on a resume, sends the notice, and saves the
-        record at once. A reading held since before this coordinator started
+        a pause or restores it on a resume. The notice, a Dry put back and the
+        record's store write go to ``out``, for the coordinator to make right
+        after the compute. A reading held since before this coordinator started
         counts from the start, so a reload or restart can only lengthen a
         delay, never shorten it. The seed compute in the coordinator's
         __init__ only shows the stored state.
@@ -285,14 +286,15 @@ class OpeningPause:
             )
             if new != old:
                 record.state = new
-                self._transition(zone, record, old, new, now)
+                self._transition(zone, record, old, new, now, out)
                 changed = True
-            if changed:
-                self._save()
+            if changed and (write := self._store_write()) is not None:
+                out.append(write)
         return self.paused(zone)
 
     def _transition(
-        self, zone: Zone, record: OpeningRecord, old: str, new: str, now: float
+        self, zone: Zone, record: OpeningRecord, old: str, new: str, now: float,
+        out: list[Effect],
     ) -> None:
         """One change of a room's door/window state: snapshot, restore, notice."""
         was_paused = old in OPENING_PAUSED_STATES
@@ -307,6 +309,7 @@ class OpeningPause:
                 zone, record, "pause",
                 f"{zone.name} paused: {what} open for "
                 f"{_delay_text(zone.opening_open_delay)}. Heat/cool off in this room.",
+                out,
             )
             return
         if was_paused == is_paused:
@@ -321,11 +324,13 @@ class OpeningPause:
             self._notice(
                 zone, record, "override",
                 f"{zone.name}: {OPENING_REASON_OVERRIDDEN}.",
+                out,
             )
         else:
             self._notice(
                 zone, record, "resume",
                 f"{zone.name} resumed: closed for {_delay_text(zone.opening_close_delay)}.",
+                out,
             )
         if manual:
             return  # a person's own change on the head stands
@@ -342,7 +347,7 @@ class OpeningPause:
             snapshot.get("dry") is True and zone.enable
             and self._host.dry.pick_refusal(zone) is None and self._host.dry.start_pick(zone)
         ):
-            self._hass.async_create_task(self._send_dry(zone))
+            out.append(lambda: self._hass.async_create_task(self._send_dry(zone)))
 
     def _snapshot(self, zone: Zone) -> dict[str, Any]:
         """The head as a pause found it: mode, fan, whether the fan was held,
@@ -363,9 +368,10 @@ class OpeningPause:
         }
 
     def _notice(
-        self, zone: Zone, record: OpeningRecord, kind: str, message: str
+        self, zone: Zone, record: OpeningRecord, kind: str, message: str,
+        out: list[Effect],
     ) -> None:
-        """Send one door/window notice, if the room asks for them, rate limited.
+        """Decide one door/window notice, if the room asks for them, rate limited.
 
         A pause notice goes out at most once per OPENING_NOTIFY_SECONDS per
         room; its resume (or override) notice goes out only when the pause
@@ -390,9 +396,8 @@ class OpeningPause:
             if not record.notified:
                 return
             record.notified = False
-        self._hass.async_create_task(
-            self._send_notice(message, zone.opening_notify_service)
-        )
+        target = zone.opening_notify_service
+        out.append(lambda: self._hass.async_create_task(self._send_notice(message, target)))
 
     async def _send_notice(self, message: str, target: str | None) -> None:
         """A notice that fails is logged; it never holds up control."""
@@ -450,9 +455,15 @@ class OpeningPause:
                     )
 
     def _save(self) -> None:
-        """Write every room's door/window record at once (never on a retired one)."""
+        """Write every room's door/window record now."""
+        if (write := self._store_write()) is not None:
+            write()
+
+    def _store_write(self) -> Effect | None:
+        """The write of every room's door/window record as it stands now;
+        none on a retired coordinator."""
         if self._host.retired:
-            return
+            return None
         data = {
             OPENINGS_ROOMS_KEY: {
                 zone.climate_id: self._records[zone.slug].stored()
@@ -460,7 +471,7 @@ class OpeningPause:
                 if zone.slug in self._records
             }
         }
-        self._store.async_delay_save(lambda: data, 0)
+        return lambda: self._store.async_delay_save(lambda: data, 0)
 
     @callback
     def on_change(self, event: Event[EventStateChangedData]) -> None:

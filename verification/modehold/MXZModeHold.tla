@@ -322,8 +322,9 @@ NewCoordinator(newBoot, selMode, selAt, newRestore, newRestoreAt) ==
     /\ UNCHANGED <<real, skew, pos, head, vote, stored, applied, lastChange,
                    steppedSince, voteOwned, picked, lastStamp,
                    steppedSinceStamp, holdBroken, runBroken>>
-    \* The door/window record is stored at once on every change
-    \* (OpeningPause._save) and read by the next start (async_load_openings).
+    \* The door/window record is stored right after the compute of every
+    \* change (OpeningPause._store_write) and read by the next start
+    \* (async_load_openings).
     /\ UNCHANGED openings
 
 \* __init__.async_reload: same process. The Store instance is shared
