@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 from .const import (
     COMFORT_DOMAINS,
@@ -42,7 +42,20 @@ from .const import (
     CONF_INHIBIT_ENTITY,
     CONF_LOST_VOTE_TTL,
     CONF_MODE_HYSTERESIS,
+    CONF_NOTIFY_SERVICE,
+    CONF_PRIMARY_CLIMATE,
+    CONF_PRIMARY_SENSOR,
+    CONF_PRIMARY_STAGE,
+    CONF_PRIMARY_VANE_HORIZONTAL,
+    CONF_PRIMARY_VANE_VERTICAL,
     CONF_RESTING_MODE_BIAS,
+    CONF_SAVED_TEMP_UNIT,
+    CONF_SECONDARY_CLIMATE,
+    CONF_SECONDARY_SENSOR,
+    CONF_SECONDARY_STAGE,
+    CONF_SECONDARY_VANE_HORIZONTAL,
+    CONF_SECONDARY_VANE_VERTICAL,
+    CONF_ZONES,
     CONFIRM_WAIT_BOUNDS,
     DEFAULT_ACCEPT_HEAD_CHANGES,
     DEFAULT_CHANGEOVER_COOL_BELOW,
@@ -75,6 +88,7 @@ from .const import (
     IDLE_ACTION_OPTIONS,
     INHIBIT_ACTION_OPTIONS,
     LOST_VOTE_TTL_BOUNDS,
+    MAX_ZONES,
     OPENING_CLOSE_DELAY_BOUNDS,
     OPENING_OPEN_DELAY_BOUNDS,
     RESTING_BIAS_OPTIONS,
@@ -82,6 +96,7 @@ from .const import (
     VOTE_BASIS_MODE,
     WRITE_INTERVAL_BOUNDS,
     ZONE_ALLOW_DRY,
+    ZONE_CLIMATE,
     ZONE_COMFORT_PRIORITY_ENTITY,
     ZONE_CONFIRM_WAIT,
     ZONE_DRIFT_COOLER_BY,
@@ -95,6 +110,7 @@ from .const import (
     ZONE_HANDS_OFF_VOTE_BASIS,
     ZONE_HEAD_TYPE,
     ZONE_MAX_AGE,
+    ZONE_NAME,
     ZONE_OPENING_CLOSE_DELAY,
     ZONE_OPENING_ENTITY,
     ZONE_OPENING_NOTIFY,
@@ -105,12 +121,14 @@ from .const import (
     ZONE_SAFETY_PRIORITY_ENTITY,
     ZONE_SAMPLE_SEQUENCE_ATTR,
     ZONE_SAMPLE_TIMESTAMP_ATTR,
+    ZONE_SENSOR,
     ZONE_STAGE_SENSOR,
     ZONE_STARTUP_GRACE,
     ZONE_VANE_HORIZONTAL,
     ZONE_VANE_VERTICAL,
     ZONE_WRITE_INTERVAL,
     unit_profile,
+    zone_slug,
 )
 
 # A setting's kind: what its field is and what it stores.
@@ -612,3 +630,127 @@ def store_room(zone: dict[str, Any], values: Mapping[str, Any], *, dry: bool) ->
             zone.pop(field.zone_key, None)
         else:
             zone[field.zone_key] = keep
+
+
+# --- Where each key lives -------------------------------------------------------
+# The entry keeps two stores. Data holds what setup and Reconfigure answer (the
+# rooms, the drift-alert service) and the unit the saved temperatures were last
+# converted to; options hold every Configure setting. Each key has one home.
+DATA = "data"
+OPTIONS = "options"
+HOME: dict[str, str] = {
+    CONF_ZONES: DATA,
+    CONF_NOTIFY_SERVICE: DATA,
+    CONF_SAVED_TEMP_UNIT: DATA,
+    **{setting.key: OPTIONS for setting in SETTINGS},
+}
+
+# The v1 entry's flat rooms (before 3.0.0 made them the zones list), in slot order.
+_V1_SLOTS = (
+    (CONF_PRIMARY_CLIMATE, CONF_PRIMARY_SENSOR, CONF_PRIMARY_VANE_VERTICAL,
+     CONF_PRIMARY_VANE_HORIZONTAL, CONF_PRIMARY_STAGE, "Primary"),
+    (CONF_SECONDARY_CLIMATE, CONF_SECONDARY_SENSOR, CONF_SECONDARY_VANE_VERTICAL,
+     CONF_SECONDARY_VANE_HORIZONTAL, CONF_SECONDARY_STAGE, "Secondary"),
+)
+
+# The setup flow's per-slot head type field, and its generic (beta) opt-in.
+SETUP_HEAD_TYPE = "head_type_{}"
+GENERIC_FIELD = "generic_heads"
+# Keys that are flow input only and never mean anything stored: the room
+# page's fields, every page section, setup's per-slot head type and generic
+# opt-in, and each room key with a slot prefix (``primary_vane_vertical`` …,
+# which also covers the v1 entry's flat vane and airflow keys).
+FLOW_ONLY_KEYS: frozenset[str] = frozenset(
+    {field.key for field in ROOM_FIELDS}
+    | {name for page in PAGES.values() for name in page.sections}
+    | set(ROOM_SECTIONS)
+    | {SETUP_HEAD_TYPE.format(index + 1) for index in range(MAX_ZONES)}
+    | {GENERIC_FIELD}
+    | {
+        f"{zone_slug(index)}_{field.key}"
+        for index in range(MAX_ZONES)
+        for field in ROOM_FIELDS
+    }
+)
+# What a stored entry may still carry from an older layout, and drops once read.
+_LEGACY_KEYS = FLOW_ONLY_KEYS | {key for slot in _V1_SLOTS for key in slot[:5]}
+
+
+def _rooms(merged: Mapping[str, Any]) -> Any:
+    """The rooms an entry means, as a fresh list.
+
+    The zones list, else the v1 flat rooms. A flat vane key that is set still
+    wires slot 0 or 1 over the list, as every release since 3.0.0 read it.
+    Anything else stored under the key is returned as it is (None: no key).
+    """
+    raw = merged.get(CONF_ZONES)
+    if isinstance(raw, list) and raw:
+        rooms = [dict(zone) if isinstance(zone, Mapping) else zone for zone in raw]
+    elif not raw and all(slot[0] in merged and slot[1] in merged for slot in _V1_SLOTS):
+        rooms = [
+            {
+                ZONE_NAME: name,
+                ZONE_CLIMATE: merged[climate],
+                ZONE_SENSOR: merged[sensor],
+                ZONE_VANE_VERTICAL: merged.get(vertical),
+                ZONE_VANE_HORIZONTAL: merged.get(horizontal),
+                ZONE_STAGE_SENSOR: merged.get(stage),
+            }
+            for climate, sensor, vertical, horizontal, stage, name in _V1_SLOTS
+        ]
+    else:
+        return raw
+    for index, (*_, vertical, horizontal, _stage, _name) in enumerate(_V1_SLOTS):
+        if index < len(rooms) and isinstance(rooms[index], dict):
+            if merged.get(vertical):
+                rooms[index][ZONE_VANE_VERTICAL] = merged[vertical]
+            if merged.get(horizontal):
+                rooms[index][ZONE_VANE_HORIZONTAL] = merged[horizontal]
+    return rooms
+
+
+def one_home(
+    data: Mapping[str, Any], options: Mapping[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """(data, options) with every key in its home, meaning what it meant.
+
+    A key's value is the one Home Assistant's two stores gave it when read as
+    ``{**data, **options}`` (options win), which is how every release up to
+    3.22.0 read them. The rooms keep any flat v1 vane wiring that applied to
+    them; the flat keys and any flow-only key are dropped. A key this table
+    doesn't know stays in the store it was found in. Applied to its own
+    result it changes nothing.
+    """
+    merged = {**data, **options}
+    out: dict[str, dict[str, Any]] = {DATA: {}, OPTIONS: {}}
+    for home, store in ((DATA, data), (OPTIONS, options)):
+        for key, value in store.items():
+            if key not in HOME and key not in _LEGACY_KEYS:
+                out[home][key] = value
+    for key, home in HOME.items():
+        if key in merged and key != CONF_ZONES:
+            out[home][key] = merged[key]
+    rooms = _rooms(merged)
+    if rooms is not None or CONF_ZONES in merged:
+        out[DATA][CONF_ZONES] = rooms
+    return out[DATA], out[OPTIONS]
+
+
+class StoredEntry(Protocol):
+    """What the accessor reads of a config entry."""
+
+    @property
+    def data(self) -> Mapping[str, Any]: ...
+
+    @property
+    def options(self) -> Mapping[str, Any]: ...
+
+
+def entry_config(entry: StoredEntry) -> dict[str, Any]:
+    """Every setting an entry stores, each read from its home: the one way to read them.
+
+    Read through ``one_home``, so an entry not yet migrated (or written by a
+    release that mirrored its settings) reads exactly as it did then.
+    """
+    stores = dict(zip((DATA, OPTIONS), one_home(entry.data, entry.options), strict=True))
+    return {key: stores[home][key] for key, home in HOME.items() if key in stores[home]}

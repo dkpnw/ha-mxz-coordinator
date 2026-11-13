@@ -10,6 +10,15 @@ on your equipment.
 
 ## Unreleased
 
+- **Each setting is stored once (config entry v2.3).** Configure settings live in the entry's
+  options and the rooms, **Notify on drift** and the saved-temperature unit in its data, where
+  every Configure save used to write each setting to both. The first start migrates an entry
+  with every value unchanged. A rollback to 3.22.0 reads it the same, which was checked by
+  running 3.22.0. See [MIGRATION.md](docs/MIGRATION.md).
+- Fix: Reconfigure on an entry whose rooms were stored in options now takes effect. Before, it
+  saved and the rooms in options stayed in use.
+- Fix: saving a Configure page on an entry that still had a 2.x flat vane key (such as
+  `primary_vane_vertical`) no longer drops that room's vane wiring.
 - Tooling only: `python3 tools/revert_rate.py` reports the share of landings on main that
   were reverts, month by month in Pacific time, and lists each revert with the commit it
   names. It only reads git. Nothing changes in the integration, `hacs.json` or CI.

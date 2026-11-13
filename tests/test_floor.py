@@ -250,7 +250,8 @@ async def test_d1_no_floor_configured_a_cold_held_off_room_stays_off(hass: HomeA
 
 async def test_d1_a_3_7_0_entry_loads_unchanged(hass: HomeAssistant) -> None:
     """Decision 1 / storage: an entry stored by 3.7.0 (no floor keys) loads
-    with no migration and no floor; its stored data is untouched."""
+    with no floor and gains no floor key; every stored value is untouched (the
+    v2.3 migration only moves its idle action to options)."""
     hass.config.units = US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(hass)
     await _set_temp(hass, SENSOR_A, 70)
@@ -270,7 +271,8 @@ async def test_d1_a_3_7_0_entry_loads_unchanged(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
     await _switch(hass, _eid(hass, entry, "_coordinator_enable"), True)
     await _recompute(hass, entry)
-    assert dict(entry.data) == stored
+    assert {**entry.data, **entry.options} == stored
+    assert entry.data[CONF_ZONES] == stored[CONF_ZONES]
     assert entry.version == 2
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert [z["floor_state"] for z in plan.attributes["zones"]] == ["none", "none"]

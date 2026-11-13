@@ -985,8 +985,10 @@ def test_coil_dry_label_is_renamed_and_the_key_is_kept() -> None:
 
 
 async def test_a_stored_off_after_dry_loads_unchanged(hass: HomeAssistant) -> None:
-    """Nothing migrates: the stored key is still the idle action in use."""
+    """No value migrates: the stored key, kept in options since v2.3, is still the idle
+    action in use."""
     rig = await _setup(hass, idle=IDLE_ACTION_OFF_AFTER_DRY)
-    assert rig.entry.data[CONF_IDLE_ACTION] == "off_after_dry"
+    assert rig.entry.options[CONF_IDLE_ACTION] == "off_after_dry"
+    assert CONF_IDLE_ACTION not in rig.entry.data
     assert rig.coord.idle_action == "off_after_dry"
     assert rig.plan().attributes["idle_action"] == "off_after_dry"

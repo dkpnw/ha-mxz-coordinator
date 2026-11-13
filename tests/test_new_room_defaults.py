@@ -326,10 +326,12 @@ async def test_reconfigure_keeping_the_same_rooms_adds_no_defaults(hass: HomeAss
 async def test_a_2_2_entry_with_blank_rooms_loads_unchanged_and_no_save_adds_defaults(
     hass: HomeAssistant,
 ) -> None:
-    """No migration and no runtime fallback: the entry loads byte for byte,
-    the coordinator has no floor and no cutoff for either room (a disabled
-    room at 30 °F stays off), and saving every Configure page, and each room
-    page untouched, adds none of the keys."""
+    """No new-room default by migration or runtime fallback: the entry loads
+    with its rooms byte for byte and every value unchanged (the v2.3 step only
+    drops the data copy of its idle action, which options already hold), the
+    coordinator has no floor and no cutoff for either room (a disabled room at
+    30 °F stays off), and saving every Configure page, and each room page
+    untouched, adds none of the keys."""
     hass.config.units = US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(hass)
     for sensor in (SENSOR_A, SENSOR_B):
@@ -338,8 +340,10 @@ async def test_a_2_2_entry_with_blank_rooms_loads_unchanged_and_no_save_adds_def
     before = (deepcopy(dict(entry.data)), deepcopy(dict(entry.options)))
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert (dict(entry.data), dict(entry.options)) == before
-    assert (entry.version, entry.minor_version) == (2, 2)
+    assert dict(entry.data) == {CONF_ZONES: before[0][CONF_ZONES]}
+    assert dict(entry.options) == before[1]
+    assert {**entry.data, **entry.options} == {**before[0], **before[1]}
+    assert (entry.version, entry.minor_version) == (2, 3)
     coord = entry.runtime_data
     assert [(z.floor_low, z.max_age, z.evidence_basis) for z in coord.zones] == [(None, None, None)] * 2
     assert coord._freshness == {}
@@ -364,7 +368,7 @@ async def test_a_2_2_entry_with_blank_rooms_loads_unchanged_and_no_save_adds_def
         assert entry.data[CONF_ZONES] == old_zones, page
         stored = {**entry.data, **entry.options}
         assert not [k for k in stored if k in (*DEFAULT_KEYS, ZONE_FLOOR_HIGH)], page
-    assert (entry.version, entry.minor_version) == (2, 2)
+    assert (entry.version, entry.minor_version) == (2, 3)
 
 
 async def test_editing_a_2_2_room_stores_only_the_edit_and_adds_no_defaults(
@@ -398,7 +402,7 @@ async def test_editing_a_2_2_room_stores_only_the_edit_and_adds_no_defaults(
     coord = entry.runtime_data
     assert [(z.floor_low, z.max_age, z.evidence_basis) for z in coord.zones] == [(None, None, None)] * 2
     assert coord._freshness == {}
-    assert (entry.version, entry.minor_version) == (2, 2)
+    assert (entry.version, entry.minor_version) == (2, 3)
 
 
 # ---------------------------------------------------------------------------

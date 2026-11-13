@@ -27,6 +27,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_FLOOR_LOW,
 )
 from custom_components.mxz_coordinator.units import target_in_unit
+from tests.one_home import assert_one_home
 from tests.property_rig import PURE, TARGET, Rig, open_rig
 from tests.restore_store import replace_stored_state, stored_state
 from tests.test_drive import _set_target
@@ -229,8 +230,11 @@ async def _saved_rig(hass: HomeAssistant, freezer: Any) -> Rig:
     zones = [{**zone} for zone in entry.data[CONF_ZONES]]
     zones[0] |= {ZONE_FLOOR_LOW: 45.0, ZONE_FLOOR_HIGH: 100.0}
     zones[1] |= {ZONE_FLOOR_LOW: 35.0}
-    saved = {CONF_ZONES: zones, CONF_CLAMP_MIN: 59.0, CONF_CLAMP_MAX: 88.0}
-    hass.config_entries.async_update_entry(entry, data={**entry.data, **saved}, options=saved)
+    hass.config_entries.async_update_entry(
+        entry,
+        data={**entry.data, CONF_ZONES: zones},
+        options={**entry.options, CONF_CLAMP_MIN: 59.0, CONF_CLAMP_MAX: 88.0},
+    )
     await hass.async_block_till_done()
     await rig.reload()
     await _set_target(hass, rig.eid("_primary_target"), 59)
@@ -250,9 +254,9 @@ async def test_a_saved_range_doesnt_undo_the_conversion(hass: HomeAssistant, fre
     await _live(rig, F)
     assert (rig.coord.clamp_min, rig.coord.clamp_max) == (59, 88)
     assert rig.coord.zones[0].target == 59
-    for store in (rig.entry.data, rig.entry.options):
-        assert store[CONF_SAVED_TEMP_UNIT] == F
-        assert store[CONF_CLAMP_MIN] == 59
+    assert rig.entry.data[CONF_SAVED_TEMP_UNIT] == F
+    assert rig.entry.options[CONF_CLAMP_MIN] == 59
+    assert_one_home(rig.entry)
     await rig.close()
 
 
@@ -295,7 +299,7 @@ async def test_a_stale_dump_after_a_crash_doesnt_convert_the_range_again(hass: H
     coord.note_saved_unit(F)
     assert (coord.clamp_min, coord.clamp_max) == (15, 31)
     assert coord.zones[0].floor_low == 7
-    assert rig.entry.data[CONF_CLAMP_MIN] == 15
+    assert rig.entry.options[CONF_CLAMP_MIN] == 15
     await rig.close()
 
 
@@ -311,16 +315,34 @@ async def test_a_first_switch_found_with_nothing_saved_stores_nothing(hass: Home
     await rig.close()
 
 
+async def _data_only(rig: Rig) -> None:
+    """The entry as a release before 2.3 could leave it: every setting in data, options empty."""
+    entry = rig.entry
+    rig.hass.config_entries.async_update_entry(
+        entry, data={**entry.data, **entry.options}, options={}
+    )
+    await rig.hass.async_block_till_done()
+    await rig.reload()
+
+
 async def test_nothing_saved_stores_nothing_and_empty_options_stay_empty(hass: HomeAssistant, freezer: Any) -> None:
     rig = await open_rig(hass, freezer)
+    await _data_only(rig)
     await _live(rig, C)
     assert CONF_SAVED_TEMP_UNIT not in rig.entry.data
     assert rig.entry.options == {}
     await rig.close()
 
 
-async def test_a_saved_floor_in_the_data_mirror_leaves_empty_options_empty(hass: HomeAssistant, freezer: Any) -> None:
+async def test_a_saved_floor_in_a_data_only_entry_converts_and_puts_settings_home(
+    hass: HomeAssistant, freezer: Any
+) -> None:
+    """Before 2.3 an entry could run with every setting in data and options empty. The write
+    that converts its floor puts each setting in its home, with the value it read as."""
     rig = await open_rig(hass, freezer)
+    settings = dict(rig.entry.options)
+    assert settings
+    await _data_only(rig)
     zones = [{**zone} for zone in rig.entry.data[CONF_ZONES]]
     zones[0][ZONE_FLOOR_LOW] = 45.0
     hass.config_entries.async_update_entry(rig.entry, data={**rig.entry.data, CONF_ZONES: zones})
@@ -328,9 +350,10 @@ async def test_a_saved_floor_in_the_data_mirror_leaves_empty_options_empty(hass:
     await rig.reload()
     await _set_target(hass, rig.eid("_primary_target"), 59)
     await _live(rig, C)
-    assert rig.entry.options == {}
+    assert dict(rig.entry.options) == settings
     assert rig.entry.data[CONF_SAVED_TEMP_UNIT] == C
     assert rig.entry.data[CONF_ZONES][0][ZONE_FLOOR_LOW] == 7
+    assert_one_home(rig.entry)
     await rig.close()
 
 

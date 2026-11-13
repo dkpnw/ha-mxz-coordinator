@@ -955,7 +955,9 @@ async def test_an_untouched_options_pass_changes_no_stored_option(
         "resting_mode_bias": "last",
     }
     assert not shown.keys() & before[0].keys() and not shown.keys() & before[1].keys()
-    assert data == {**before[0], **shown}
+    # Since v2.3 the save keeps each key in its home: the rooms in data, every
+    # setting (the earlier data mirror's included) in options.
+    assert data == {"zones": before[0]["zones"]}
     assert options == {**before[1], **shown}
 
 
@@ -966,7 +968,8 @@ async def test_a_custom_value_is_stored_and_used(hass: HomeAssistant, house) -> 
     result = await submit(hass.config_entries.options, result, {**prefilled(result), TTL: 45})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     data, options = _stores(entry)
-    assert options[TTL] == data[TTL] == 45
+    assert options[TTL] == 45
+    assert TTL not in data
     # Shown again as the stored value.
     result = await open_options_page(hass, entry, "comfort")
     assert suggested(result, TTL) == 45
@@ -1014,7 +1017,8 @@ async def test_saving_another_page_keeps_a_saved_value(hass: HomeAssistant, hous
     result = await submit(hass.config_entries.options, result, prefilled(result))
     assert result["type"] is FlowResultType.CREATE_ENTRY
     data, options = _stores(entry)
-    assert options[TTL] == data[TTL] == 90
+    assert options[TTL] == 90
+    assert TTL not in data
 
 
 @pytest.mark.parametrize("value", [0, 0.5, 241, -5, float("inf")])

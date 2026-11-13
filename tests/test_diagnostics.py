@@ -137,7 +137,9 @@ async def _secret_entry(hass: HomeAssistant) -> MockConfigEntry:
             **SECRETS,
         },
         options={
-            CONF_ZONES: [{**ZONES[0]}],
+            # The rooms the entry reads (options win over data before v2.3); the
+            # migration keeps these, in data.
+            CONF_ZONES: [{**ZONES[0], **SECRETS}],
             "nested": {"deeper": [{"deepest": dict(SECRETS)}, (dict(SECRETS),)]},
             # Secrets under keys that say nothing, in free text.
             "note": "login person@example.invalid from 192.0.2.55 mac AA:BB:CC:DD:EE:01",

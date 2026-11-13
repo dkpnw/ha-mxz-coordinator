@@ -72,6 +72,20 @@ plugin loading, replace failed phases with collection, or infer hardware results
 mock entities.
 
 
+## Adding a setting
+
+Every Configure setting is one `Setting` row in `settings.py`, and every field on a room's
+page is one `RoomField` row. A row gives the key, the page and section that show it, the kind
+of field, its default, unit and bounds, and how it is checked and stored. The setup pages,
+Configure and the room page are built from the rows, so a new setting is one row, its label
+and help text in `strings.json` and `translations/en.json`, and the code that reads it.
+`tests/test_settings.py` holds the rows and `strings.json` to each other.
+
+`settings.HOME` says which store keeps each key: options for every setting, entry data for the
+rooms, the notify service and the saved-temperature unit. Read an entry through
+`settings.entry_config`, and write it with each key in its home (`settings.one_home`). A change
+to where a key lives is a config-entry migration (`async_migrate_entry`).
+
 ## How the coordinator is split
 
 `coordinator.py` still runs most of the control loop. Concerns are moving out of it one at

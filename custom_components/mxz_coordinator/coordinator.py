@@ -90,18 +90,8 @@ from .const import (
     CONF_LOST_VOTE_TTL,
     CONF_MODE_HYSTERESIS,
     CONF_NOTIFY_SERVICE,
-    CONF_PRIMARY_CLIMATE,
-    CONF_PRIMARY_SENSOR,
-    CONF_PRIMARY_STAGE,
-    CONF_PRIMARY_VANE_HORIZONTAL,
-    CONF_PRIMARY_VANE_VERTICAL,
     CONF_RESTING_MODE_BIAS,
     CONF_SAVED_TEMP_UNIT,
-    CONF_SECONDARY_CLIMATE,
-    CONF_SECONDARY_SENSOR,
-    CONF_SECONDARY_STAGE,
-    CONF_SECONDARY_VANE_HORIZONTAL,
-    CONF_SECONDARY_VANE_VERTICAL,
     CONF_ZONES,
     DEFAULT_ACCEPT_HEAD_CHANGES,
     DEFAULT_COIL_DRY_MINUTES,
@@ -235,6 +225,7 @@ from .logic import (
 )
 from .openings import OpeningPause
 from .plan import Plan, RoomPlan
+from .settings import entry_config, one_home
 from .units import clamp, offset_in_unit, snap_to_step, target_in_unit
 
 if TYPE_CHECKING:
@@ -470,34 +461,12 @@ def _parse_zones(
     target_default: float,
     engage_bounds: tuple[float, float],
 ) -> list[Zone]:
-    """Build the ordered Zone list from entry config.
+    """Build the ordered Zone list from the entry's rooms (``settings.entry_config``).
 
-    Prefers the v2 ``zones`` list; falls back to the legacy flat
-    primary_*/secondary_* keys (pre-migration entries and old tests). Legacy
-    flat vane keys still override zones 0/1 when present (v2.9 options-flow
-    overrides live there on migrated entries). ``engage_bounds`` clamps a
-    room's own uneven drift, exactly as it clamps the global sides.
+    List order is standoff priority. ``engage_bounds`` clamps a room's own
+    uneven drift, exactly as it clamps the global sides.
     """
-    raw = conf.get(CONF_ZONES)
-    if not raw:
-        raw = [
-            {
-                ZONE_NAME: "Primary",
-                ZONE_CLIMATE: conf[CONF_PRIMARY_CLIMATE],
-                ZONE_SENSOR: conf[CONF_PRIMARY_SENSOR],
-                ZONE_VANE_VERTICAL: conf.get(CONF_PRIMARY_VANE_VERTICAL),
-                ZONE_VANE_HORIZONTAL: conf.get(CONF_PRIMARY_VANE_HORIZONTAL),
-                ZONE_STAGE_SENSOR: conf.get(CONF_PRIMARY_STAGE),
-            },
-            {
-                ZONE_NAME: "Secondary",
-                ZONE_CLIMATE: conf[CONF_SECONDARY_CLIMATE],
-                ZONE_SENSOR: conf[CONF_SECONDARY_SENSOR],
-                ZONE_VANE_VERTICAL: conf.get(CONF_SECONDARY_VANE_VERTICAL),
-                ZONE_VANE_HORIZONTAL: conf.get(CONF_SECONDARY_VANE_HORIZONTAL),
-                ZONE_STAGE_SENSOR: conf.get(CONF_SECONDARY_STAGE),
-            },
-        ]
+    raw = conf.get(CONF_ZONES) or []
     zones = [
         Zone(
             index=i,
@@ -564,17 +533,6 @@ def _parse_zones(
         )
         for i, z in enumerate(raw)
     ]
-    # Legacy flat vane overrides (options-flow writes on migrated entries).
-    _legacy_vanes = (
-        (0, CONF_PRIMARY_VANE_VERTICAL, CONF_PRIMARY_VANE_HORIZONTAL),
-        (1, CONF_SECONDARY_VANE_VERTICAL, CONF_SECONDARY_VANE_HORIZONTAL),
-    )
-    for idx, vkey, hkey in _legacy_vanes:
-        if idx < len(zones):
-            if conf.get(vkey):
-                zones[idx].vane_vertical_id = conf[vkey]
-            if conf.get(hkey):
-                zones[idx].vane_horizontal_id = conf[hkey]
     return zones
 
 
@@ -780,7 +738,8 @@ def _convert_saved_temps(
             out[CONF_ZONES] = [room(zone) for zone in out[CONF_ZONES]]
         return out
 
-    conf = {**entry.data, **entry.options}
+    data, options = one_home(entry.data, entry.options)
+    conf = {**data, **options}
     zones = conf.get(CONF_ZONES)
     if (
         CONF_SAVED_TEMP_UNIT not in conf
@@ -796,10 +755,7 @@ def _convert_saved_temps(
     ):
         return
     hass.config_entries.async_update_entry(
-        entry,
-        data={**section(entry.data), CONF_SAVED_TEMP_UNIT: unit},
-        # Empty options stay empty: setup discloses running from the data mirror.
-        options={**section(entry.options), CONF_SAVED_TEMP_UNIT: unit} if entry.options else {},
+        entry, data={**section(data), CONF_SAVED_TEMP_UNIT: unit}, options=section(options)
     )
 
 
@@ -810,7 +766,7 @@ def async_keep_saved_temps_in_unit(hass: HomeAssistant, entry: ConfigEntry) -> N
     An entry that hasn't has no unit on record. Its first switch is found when a
     room's target restores (``MXZCoordinator.note_saved_unit``).
     """
-    saved_in = {**entry.data, **entry.options}.get(CONF_SAVED_TEMP_UNIT)
+    saved_in = entry_config(entry).get(CONF_SAVED_TEMP_UNIT)
     unit = str(hass.config.units.temperature_unit)
     if saved_in in (UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT) and saved_in != unit:
         _convert_saved_temps(hass, entry, saved_in, unit)
@@ -857,7 +813,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         # The one clock every hold, wait, time limit and rate limit reads, and
         # every wait is armed on (see clock.py).
         self.clock = Clock(hass)
-        conf: dict[str, Any] = {**entry.data, **entry.options}
+        conf: dict[str, Any] = entry_config(entry)
 
         # Operate in the HA system temperature unit. The °F profile reproduces
         # every legacy default exactly; a °C system gets clean metric defaults,
@@ -1384,11 +1340,11 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         if (
             saved_in not in (UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT)
             or saved_in == self.temp_unit
-            or CONF_SAVED_TEMP_UNIT in {**entry.data, **entry.options}
+            or CONF_SAVED_TEMP_UNIT in entry_config(entry)
         ):
             return
         _convert_saved_temps(self.hass, entry, saved_in, self.temp_unit)
-        conf = {**entry.data, **entry.options}
+        conf = entry_config(entry)
         defaults = self._profile["defaults"]
         self.clamp_min = float(conf.get(CONF_CLAMP_MIN, defaults[CONF_CLAMP_MIN]))
         self.clamp_max = float(conf.get(CONF_CLAMP_MAX, defaults[CONF_CLAMP_MAX]))
@@ -1869,7 +1825,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         if not entry.options and CONF_DEMAND_THRESHOLD in entry.data:
             add("Options are empty; settings are read from the data mirror.",
                 "Review and save Configure to repopulate options.")
-        conf = {**entry.data, **entry.options}
+        conf = entry_config(entry)
         absent = [label for key, label in (
             (CONF_FAN_BOOST_ENABLE, "fan boost"), (CONF_FAN_BOOST_MAX, "maximum fan speed"),
         ) if key not in conf]
@@ -4052,7 +4008,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         else differs, or no room was switched, it returns None.
         """
         entry = self.config_entry
-        new = {**entry.data, **entry.options}
+        new = entry_config(entry)
         if _without_dual(new) != _without_dual(self._built_conf):
             return None
         raw = new.get(CONF_ZONES)
@@ -4106,7 +4062,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             # still resuming from startup).
             self._startup_resume.pop(zone.slug, None)
             self._engage_latch[zone.slug] = ""
-        self._built_conf = copy.deepcopy({**entry.data, **entry.options})
+        self._built_conf = entry_config(entry)
         # One state write per entity: the thermostat's new features, range,
         # and target together.
         self.async_update_listeners()

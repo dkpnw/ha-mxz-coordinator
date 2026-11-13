@@ -337,7 +337,12 @@ async def test_final_sensor_recheck_and_correction(hass: HomeAssistant) -> None:
 
 @pytest.mark.parametrize("version", [1, 2])
 async def test_migration_exact_and_reload(hass: HomeAssistant, version: int) -> None:
-    """Control: v1 migrates to exactly this dictionary, and v2 is untouched."""
+    """Control: v1 and v2 migrate to exactly these dictionaries.
+
+    Entry v2.3 keeps the rooms and the alert service in data and every setting in
+    options; the flat v1 keys go once read, and a key MXZ doesn't know stays where
+    it was.
+    """
     old = {
         "primary_climate": HEADS[0],
         "secondary_climate": HEADS[1],
@@ -369,6 +374,7 @@ async def test_migration_exact_and_reload(hass: HomeAssistant, version: int) -> 
     ]
     expected = {**old, "zones": zones}
     data = old if version == 1 else expected
+    migrated = {"zones": zones, "notify_service": None, "extra_existing": "retained"}
     options = {
         "demand_threshold": 4.0,
         "idle_action": "fan_only",
@@ -386,7 +392,7 @@ async def test_migration_exact_and_reload(hass: HomeAssistant, version: int) -> 
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert dict(entry.data) == expected
+    assert dict(entry.data) == migrated
     assert dict(entry.options) == options
     assert entry.unique_id == "|".join(HEADS)
     assert entry.version == 2
@@ -403,7 +409,7 @@ async def test_migration_exact_and_reload(hass: HomeAssistant, version: int) -> 
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert snapshot() == before
-    assert dict(entry.data) == expected
+    assert dict(entry.data) == migrated
     assert dict(entry.options) == options
     assert entry.unique_id == "|".join(HEADS)
     assert entry.version == 2

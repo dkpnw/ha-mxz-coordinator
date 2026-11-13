@@ -491,6 +491,18 @@ HOLD_KEYS = ("mode_change_hold_remaining", "mode_change_hold_until")
 BEFORE_ANY_MODE_CHANGE = ("boot", "room_pages", "coordinator_on")
 
 
+def take_entry(step: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """``step`` without its stored data and options, what they mean, and the stores themselves.
+
+    What they mean is how every release up to 3.22.0 read them: ``{**data, **options}``.
+    From entry v2.3 each key is stored in one of the two (tests/one_home.py), so a replay
+    of a record captured before that compares what the entry means, not where it is kept.
+    """
+    step = deepcopy(step)
+    data, options = step.pop("data"), step.pop("options")
+    return step, {**data, **options}, {"data": data, "options": options}
+
+
 def take_mode_hold(step: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], Any]:
     """``step`` without the hold attributes and the plan's seconds since a change.
 

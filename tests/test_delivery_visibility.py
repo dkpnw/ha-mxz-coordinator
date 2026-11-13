@@ -204,11 +204,15 @@ async def test_real_absent_plan_is_disclosed_on_existing_surfaces(delivery, miss
     {CONF_FAN_BOOST_MAX: "invented_invalid"},
 ], indirect=True)
 async def test_settings_absence_mirror_invalid_and_recovery(delivery):
+    """The fixture's entry is a v1 entry with every setting in data. Migration puts each in
+    its home, options, with its value, so nothing is read from a data mirror."""
     r = delivery
-    conf = r.entry.data
+    conf = {**r.entry.data, **r.entry.options}
     text = reasons(r)
+    assert "data mirror" not in text
     if CONF_DEMAND_THRESHOLD in conf:
-        assert "data mirror" in text
+        assert r.entry.options[CONF_DEMAND_THRESHOLD] == 1.0
+        assert r.coord.demand_threshold == 1.0
     if conf.get(CONF_FAN_BOOST_MAX) == "invented_invalid":
         assert "Stored fan settings are invalid" in text
     else:

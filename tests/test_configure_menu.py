@@ -42,6 +42,7 @@ from tests.flow_pages import (
     sections,
     submit,
 )
+from tests.one_home import assert_one_home
 
 HEADS = ("climate.rec_room", "climate.bedroom", "climate.office")
 SENSORS = ("sensor.rec_room_temp", "sensor.bedroom_temp", "sensor.office_temp")
@@ -184,7 +185,7 @@ async def test_saving_a_page_without_the_hold_field_keeps_the_hold_entity(
     3.4.0 read a missing inhibit_entity as a clear because its one form always
     rendered it. Comfort, Fan and idle, Seasons, Away and setpoint limits and
     every room page never render it, so saving them must leave the configured
-    standby hold exactly where it was, in options and in the data mirror.
+    standby hold exactly as it was, in options, and with no copy left in data.
     """
     entry = _entry(hass)
     result = await open_options_page(hass, entry, page)
@@ -194,7 +195,7 @@ async def test_saving_a_page_without_the_hold_field_keeps_the_hold_entity(
 
     assert result["type"] is FlowResultType.CREATE_ENTRY, result
     assert entry.options["inhibit_entity"] == HOLD
-    assert entry.data["inhibit_entity"] == HOLD
+    assert_one_home(entry)
 
 
 async def test_standby_page_still_clears_the_hold_entity(hass: HomeAssistant) -> None:
@@ -208,7 +209,7 @@ async def test_standby_page_still_clears_the_hold_entity(hass: HomeAssistant) ->
 
     assert result["type"] is FlowResultType.CREATE_ENTRY, result
     assert entry.options["inhibit_entity"] is None
-    assert entry.data["inhibit_entity"] is None
+    assert_one_home(entry)
 
 
 # The weather source follows the same rule on Seasons, the page that shows it.
@@ -226,7 +227,7 @@ async def test_saving_a_page_without_the_weather_field_keeps_the_weather_source(
 
     assert result["type"] is FlowResultType.CREATE_ENTRY, result
     assert entry.options["changeover_entity"] == WEATHER
-    assert entry.data["changeover_entity"] == WEATHER
+    assert_one_home(entry)
 
 
 async def test_untouched_seasons_save_keeps_the_weather_source(hass: HomeAssistant) -> None:
@@ -238,13 +239,13 @@ async def test_untouched_seasons_save_keeps_the_weather_source(hass: HomeAssista
 
     assert result["type"] is FlowResultType.CREATE_ENTRY, result
     assert entry.options["changeover_entity"] == WEATHER
-    assert entry.data["changeover_entity"] == WEATHER
+    assert_one_home(entry)
 
 
 async def test_seasons_page_clears_the_weather_source(hass: HomeAssistant) -> None:
-    """Clearing Weather source on Seasons clears it in both stores, and the
-    coordinator then runs without forecast lockouts. The hold entity, which
-    Seasons does not show, is kept."""
+    """Clearing Weather source on Seasons clears it, with no copy left in data,
+    and the coordinator then runs without forecast lockouts. The hold entity,
+    which Seasons does not show, is kept."""
     from custom_components.mxz_coordinator.coordinator import MXZCoordinator
 
     entry = _entry(hass, options={"changeover_entity": WEATHER})
@@ -257,7 +258,7 @@ async def test_seasons_page_clears_the_weather_source(hass: HomeAssistant) -> No
 
     assert result["type"] is FlowResultType.CREATE_ENTRY, result
     assert entry.options["changeover_entity"] is None
-    assert entry.data["changeover_entity"] is None
+    assert_one_home(entry)
     assert entry.options["changeover_heat_above"] == 72.0
     assert entry.options["inhibit_entity"] == HOLD
     assert MXZCoordinator(hass, entry).changeover_entity is None
@@ -318,10 +319,8 @@ async def test_saving_one_room_keeps_every_other_rooms_wiring(
     expected = deepcopy(before)
     expected[1]["stage_sensor"] = "sensor.bedroom_new_stage"
     assert entry.data["zones"] == expected
-    if options_own_zones:
-        assert entry.options["zones"] == expected
-    else:
-        assert "zones" not in entry.options
+    # The rooms are saved in their one home, data, whichever store held them.
+    assert "zones" not in entry.options
 
 
 async def test_a_room_page_follows_its_room_through_a_reorder(

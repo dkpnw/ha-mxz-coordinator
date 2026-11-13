@@ -27,8 +27,6 @@ from .const import (
     CONF_DRIFT_WARMER_BY,
     CONF_IDLE_ACTION,
     CONF_NOTIFY_SERVICE,
-    CONF_PRIMARY_CLIMATE,
-    CONF_SECONDARY_CLIMATE,
     CONF_ZONES,
     DEFAULT_CONFIRM_WAIT,
     DEFAULT_DRIVE_OFFSET_C,
@@ -91,19 +89,23 @@ from .settings import (
     ENGAGE,
     ENTITY,
     FLAG,
+    FLOW_ONLY_KEYS,
+    GENERIC_FIELD,
     NUMBER,
     PAGES,
     ROOM_FIELD,
-    ROOM_FIELDS,
     ROOM_SECTIONS,
     SETTINGS,
+    SETUP_HEAD_TYPE,
     TEMPERATURE,
     TEXT,
     RoomField,
     Setting,
     blank,
+    entry_config,
     finite,
     number_bounds,
+    one_home,
     page_fields,
     page_layout,
     room_fields,
@@ -235,24 +237,17 @@ DEFAULT_ENTRY_TITLE = "MXZ Coordinator"
 
 
 def _entry_head_order(entry: ConfigEntry) -> list[str]:
-    """Heads explicitly stored by one v1 or v2 entry, in PRIORITY order.
+    """Heads one entry stores (v1 or v2, migrated or not), in PRIORITY order.
 
     The order is the slot order, and the slot is where a room's entity
     unique_ids come from (``zone_slug``), so a reorder needs the sequence and
     not just the membership.
     """
-    zones = entry.data.get(CONF_ZONES)
-    if isinstance(zones, list) and zones:
-        return [
-            climate_id
-            for zone in zones
-            if isinstance(zone, dict)
-            and isinstance((climate_id := zone.get(ZONE_CLIMATE)), str)
-        ]
+    zones = entry_config(entry).get(CONF_ZONES)
     return [
         climate_id
-        for key in (CONF_PRIMARY_CLIMATE, CONF_SECONDARY_CLIMATE)
-        if isinstance((climate_id := entry.data.get(key)), str)
+        for zone in (zones if isinstance(zones, list) else ())
+        if isinstance(zone, dict) and isinstance((climate_id := zone.get(ZONE_CLIMATE)), str)
     ]
 
 
@@ -569,7 +564,7 @@ def _user_schema(
                 if default_generic is None
                 else {
                     vol.Optional(
-                        _GENERIC_FIELD, default=default_generic
+                        GENERIC_FIELD, default=default_generic
                     ): selector.BooleanSelector()
                 }
             ),
@@ -614,36 +609,6 @@ def _sensors_schema(count: int, suggestions: list[str] | None = None) -> vol.Sch
     )
 
 
-# The setup flow's head type fields, one per priority slot that suggests cloud.
-_SETUP_HEAD_TYPE = "head_type_{}"
-# The setup flow's first-step opt-in: every picked head is generic (beta).
-_GENERIC_FIELD = "generic_heads"
-def _flow_only_keys() -> frozenset[str]:
-    """Every key that is flow input only and must never be stored flat.
-
-    The section keys and the room-page keys of this flow, plus the 3.4.0
-    per-slot keys (``primary_vane_vertical`` …): those fold into the zones
-    list too, and a stale flat copy — still present in some old entries —
-    would shadow it in the coordinator's {**data, **options} merge.
-    """
-    room_keys = {field.key for field in ROOM_FIELDS}
-    section_keys = {name for page in PAGES.values() for name in page.sections}
-    slot_keys = {
-        f"{zone_slug(index)}_{key}"
-        for index in range(MAX_ZONES)
-        for key in room_keys
-    }
-    return frozenset(
-        room_keys
-        | section_keys
-        | slot_keys
-        | set(ROOM_SECTIONS)
-        | {_SETUP_HEAD_TYPE.format(index + 1) for index in range(MAX_ZONES)}
-        | {_GENERIC_FIELD}
-    )
-
-
-_FLOW_ONLY_KEYS = _flow_only_keys()
 
 
 def _flatten(user_input: dict[str, Any]) -> dict[str, Any]:
@@ -654,7 +619,7 @@ def _flatten(user_input: dict[str, Any]) -> dict[str, Any]:
     """
     flat: dict[str, Any] = {}
     for key, value in user_input.items():
-        if isinstance(value, dict) and key in _FLOW_ONLY_KEYS:
+        if isinstance(value, dict) and key in FLOW_ONLY_KEYS:
             flat.update(value)
         else:
             flat[key] = value
@@ -1083,9 +1048,8 @@ def _floor_summary(zone: dict[str, Any], temperature_unit: str) -> str | None:
 
 
 def _effective_zones(entry: ConfigEntry) -> list[dict[str, Any]]:
-    """Copy the zone list the coordinator reads after options precedence."""
-    conf = {**entry.data, **entry.options}
-    return [dict(zone) for zone in conf.get(CONF_ZONES, [])]
+    """Copy the zone list the coordinator reads (``settings.entry_config``)."""
+    return [dict(zone) for zone in entry_config(entry).get(CONF_ZONES) or []]
 
 
 def _minutes(value: float) -> str:
@@ -1344,8 +1308,9 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 2
     # 2: an entry that never stored an idle action is pinned to fan_only, the
-    # default it was running under (see async_migrate_entry).
-    MINOR_VERSION = 2
+    # default it was running under. 3: each key in its one home (data or
+    # options, settings.HOME). See async_migrate_entry.
+    MINOR_VERSION = 3
 
     def __init__(self) -> None:
         self._heads: list[str] = []
@@ -1381,7 +1346,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         placeholders: dict[str, str] | None = None
         if user_input is not None:
             heads: list[str] = user_input.get(_CONF_HEADS) or []
-            generic = user_input.get(_GENERIC_FIELD) is True
+            generic = user_input.get(GENERIC_FIELD) is True
             esphome = [
                 head for head in heads if _platform(self.hass, head) == "esphome"
             ]
@@ -1445,7 +1410,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                     user_input.get(_CONF_ENTRY_TITLE) if user_input else self._title
                 ),
                 default_generic=(
-                    user_input.get(_GENERIC_FIELD) is True
+                    user_input.get(GENERIC_FIELD) is True
                     if user_input
                     else self._generic
                 ),
@@ -1516,7 +1481,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             self._head_types = {
                 self._heads[index]: (
                     answer
-                    if (answer := user_input.get(_SETUP_HEAD_TYPE.format(index + 1)))
+                    if (answer := user_input.get(SETUP_HEAD_TYPE.format(index + 1)))
                     in OFFSET_HEAD_TYPES
                     else HEAD_TYPE_LOCAL
                 )
@@ -1528,7 +1493,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        _SETUP_HEAD_TYPE.format(index + 1),
+                        SETUP_HEAD_TYPE.format(index + 1),
                         default=self._head_types.get(self._heads[index], HEAD_TYPE_CLOUD),
                     ): _room_selector(ROOM_FIELD["head_type"], self._system_unit())
                     for index in slots
@@ -1811,11 +1776,11 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             return self._show_setup_page(
                 "fan_idle", tunables, {CONF_IDLE_ACTION: error}, placeholders
             )
-        data: dict[str, Any] = {CONF_ZONES: self._zones, **tunables}
+        data: dict[str, Any] = {CONF_ZONES: self._zones}
         if self._notify:
             data[CONF_NOTIFY_SERVICE] = self._notify
-        # Tunables live in options (with the data mirror above), exactly as
-        # an options-flow save would leave them.
+        # Each key in its home (settings.HOME): the rooms and the alert
+        # service in data, the settings in options.
         return self.async_create_entry(
             title=self._title, data=data, options=dict(tunables)
         )
@@ -1955,9 +1920,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             elif problem := head_mode_problem(
                 self.hass,
                 heads,
-                {**entry.data, **entry.options}.get(
-                    CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION
-                ),
+                entry_config(entry).get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION),
             ):
                 error, placeholders = problem
                 errors[_CONF_HEADS] = error
@@ -1981,7 +1944,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
                 return await self.async_step_reconfigure_rooms()
 
-        current = entry.data.get(CONF_ZONES, [])
+        current = _effective_zones(entry)
         # Also the way the reconfigure review screen goes back, so in-flight
         # answers win over the stored ones when there are any.
         return self.async_show_form(
@@ -2003,7 +1966,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                     # the title below already uses.
                     else self._notify
                     if self._heads
-                    else entry.data.get(CONF_NOTIFY_SERVICE)
+                    else entry_config(entry).get(CONF_NOTIFY_SERVICE)
                 ),
                 default_title=(
                     user_input.get(_CONF_ENTRY_TITLE)
@@ -2019,8 +1982,8 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def _stored_room_name(self, entry: ConfigEntry, head: str) -> str:
         """The name this entry already stores for ``head``, else the head's."""
-        for zone in entry.data.get(CONF_ZONES, []):
-            if isinstance(zone, dict) and zone.get(ZONE_CLIMATE) == head:
+        for zone in _effective_zones(entry):
+            if zone.get(ZONE_CLIMATE) == head:
                 name = zone.get(ZONE_NAME)
                 if isinstance(name, str) and name:
                     return name
@@ -2108,8 +2071,8 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def _stored_zone(self, entry: ConfigEntry, head: str) -> dict[str, Any]:
         """The zone dict this entry already stores for ``head``, else empty."""
-        for zone in entry.data.get(CONF_ZONES, []):
-            if isinstance(zone, dict) and zone.get(ZONE_CLIMATE) == head:
+        for zone in _effective_zones(entry):
+            if zone.get(ZONE_CLIMATE) == head:
                 return zone
         return {}
 
@@ -2193,7 +2156,7 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         if problem := head_mode_problem(
             self.hass,
             self._heads,
-            {**entry.data, **entry.options}.get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION),
+            entry_config(entry).get(CONF_IDLE_ACTION, DEFAULT_IDLE_ACTION),
         ):
             error, placeholders = problem
             return self._back_to_reconfigure(error, placeholders)
@@ -2232,13 +2195,12 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             # ZONE_NAME; the field itself is flow-input-only.
             zone[ZONE_NAME] = self._room_names[index]
             zones.append(zone)
-        # Notify is always written (None included): data_updates merges
-        # and can't delete a key, so clearing the field in the form must
-        # store an explicit None to actually turn the alerts off.
-        data_updates: dict[str, Any] = {
-            CONF_ZONES: zones,
-            CONF_NOTIFY_SERVICE: self._notify,
-        }
+        # Notify is always written (None included), so clearing the field in
+        # the form stores an explicit None and turns the alerts off. Both
+        # stores are written in their one-home layout, so no older copy of
+        # the rooms in options can shadow this save.
+        data, options = one_home(entry.data, entry.options)
+        data.update({CONF_ZONES: zones, CONF_NOTIFY_SERVICE: self._notify})
         # Move each reordered room's entity records onto its new slot
         # BEFORE the entry is written: the update below triggers the
         # reload that rebuilds the entities, and they must find the
@@ -2255,7 +2217,8 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
         self.hass.config_entries.async_update_entry(
             entry,
             title=self._title,
-            data={**entry.data, **data_updates},
+            data=data,
+            options=options,
             unique_id="|".join(self._heads),
         )
         return self.async_abort(reason="reconfigure_successful")
@@ -2321,7 +2284,7 @@ class MXZOptionsFlow(OptionsFlow):
         if problem := head_mode_problem(self.hass, heads):
             error, placeholders = problem
             return self._blocked(error, placeholders)
-        conf = {**self.config_entry.data, **self.config_entry.options}
+        conf = entry_config(self.config_entry)
         return self.async_show_menu(
             step_id="init",
             menu_options=[*PAGES, *(["rooms"] if zones else [])],
@@ -2358,13 +2321,13 @@ class MXZOptionsFlow(OptionsFlow):
     async def _async_page(
         self, page: str, user_input: dict[str, Any] | None
     ) -> ConfigFlowResult:
-        zones, heads = self._zones_and_heads()
+        _, heads = self._zones_and_heads()
         placeholders: dict[str, str] | None
         if problem := head_mode_problem(self.hass, heads):
             error, placeholders = problem
             return self._blocked(error, placeholders)
         idle_options = supported_idle_actions(self.hass, heads)
-        conf = {**self.config_entry.data, **self.config_entry.options}
+        conf = entry_config(self.config_entry)
         values = _flatten(user_input or {})
         errors: dict[str, str] = {}
         placeholders = None
@@ -2407,7 +2370,7 @@ class MXZOptionsFlow(OptionsFlow):
                 )
                 for key in cleared:
                     tunables.pop(key, None)
-                return self._save(tunables, zones, cleared)
+                return self._save(tunables, cleared=cleared)
         schema, page_errors = _page_form(
             self.hass, page, {**conf, **values}, idle_options, errors
         )
@@ -2473,13 +2436,9 @@ class MXZOptionsFlow(OptionsFlow):
     async def async_step_room(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """One room's vanes, airflow sensor, hands-off opt-in and vote basis,
-        uneven drift, sensor freshness, and freeze floor / overheat ceiling.
-
-        These are flow-input only: they fold into this room's record in the
-        zones list, never into flat keys (a stale flat key would shadow the
-        zones list in the coordinator's {**data, **options} merge), and no
-        other room's record is touched.
+        """One room's page: its fields (settings.ROOM_FIELDS) fold into this
+        room's record in the zones list, never into flat keys, and no other
+        room's record is touched.
         """
         zones, heads = self._zones_and_heads()
         problem: tuple[str, Any] | None
@@ -2526,7 +2485,7 @@ class MXZOptionsFlow(OptionsFlow):
         if (zone.get(ZONE_DUAL_SETPOINT) is True) != was_dual:
             self._hand_off_dual(zone, now_dual=not was_dual)
         _store_head_type(self.hass, zone, values, unit)
-        return self._save({}, zones)
+        return self._save({}, zones=zones)
 
     def _hand_off_dual(self, zone: dict[str, Any], *, now_dual: bool) -> None:
         """Leave the reload this save may trigger a one-shot note for this room.
@@ -2564,42 +2523,30 @@ class MXZOptionsFlow(OptionsFlow):
     def _save(
         self,
         tunables: dict[str, Any],
-        zones: list[dict[str, Any]],
+        *,
+        zones: list[dict[str, Any]] | None = None,
         cleared: frozenset[str] = frozenset(),
     ) -> ConfigFlowResult:
-        """Store one page: merge onto options, mirror into data, one update.
+        """Store one page with one entry update: its settings, or its rooms.
 
         Resilience: MERGE onto the existing options (a page must never wipe
-        what it doesn't show) and refuse to persist an empty set. Also MIRROR
-        the tuned config into entry.data — the coordinator reads
-        {**data, **options}, so if anything clears options out-of-band the
-        config self-recovers from the data mirror instead of silently reverting
-        to defaults. Flow-only keys are scrubbed from both stores (the zones
-        list is authoritative), and so are the ``cleared`` keys the page's
-        user emptied.
+        what it doesn't show) and refuse to persist an empty set. Both stores
+        are written in their one-home layout (``settings.one_home``): the
+        settings in options, the rooms in data. The ``cleared`` keys the
+        page's user emptied are removed.
         """
         entry = self.config_entry
-        merged = {
-            k: v
-            for k, v in {**entry.options, **tunables}.items()
-            if k not in _FLOW_ONLY_KEYS and k not in cleared
+        data, options = one_home(entry.data, entry.options)
+        options = {
+            k: v for k, v in {**options, **tunables}.items() if k not in cleared
         }
-        # If options already owns the effective zones list, update that
-        # mirror too so its old copy cannot shadow this save.
-        if zones and CONF_ZONES in entry.options:
-            merged[CONF_ZONES] = [dict(zone) for zone in zones]
-        if not merged and not zones:
+        if not options and not zones:
             return self.async_abort(reason="empty_options")
-        data = {
-            k: v
-            for k, v in {**entry.data, **merged}.items()
-            if k not in _FLOW_ONLY_KEYS and k not in cleared
-        }
         if zones:
             data[CONF_ZONES] = zones
         # ONE combined update: writing data and options separately fired the
         # update listener twice -> two full back-to-back entry reloads per
         # options save (#14's compute-burst trigger). With options already set
         # here, the create_entry below is a no-change update and fires nothing.
-        self.hass.config_entries.async_update_entry(entry, data=data, options=merged)
-        return self.async_create_entry(title="", data=merged)
+        self.hass.config_entries.async_update_entry(entry, data=data, options=options)
+        return self.async_create_entry(title="", data=options)

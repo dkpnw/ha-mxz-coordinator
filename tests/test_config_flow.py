@@ -81,6 +81,7 @@ from tests.flow_pages import (
     submit,
     suggested,
 )
+from tests.one_home import DATA_KEYS, assert_one_home
 
 _VALID = {
     CONF_PRIMARY_CLIMATE: "climate.primary",
@@ -520,9 +521,10 @@ async def test_user_flow_creates_entry(hass: HomeAssistant) -> None:
         "climate.primary", "climate.secondary", "climate.office",
     ]
     assert zones[2][ZONE_SENSOR] == "sensor.office_temp"
-    # defaults flowed into options (and mirrored into data)
+    # defaults flowed into options, their one home
     assert result["options"][CONF_DEMAND_THRESHOLD] == 3.0
-    assert result["data"][CONF_DEMAND_THRESHOLD] == 3.0
+    assert set(result["data"]) <= DATA_KEYS
+    assert not set(result["options"]) & DATA_KEYS
 
 
 async def test_setup_tuning_accepts_overrides(hass: HomeAssistant) -> None:
@@ -625,7 +627,7 @@ async def test_setup_requires_explicit_supported_idle_alternative(
     )
     result = await _press(hass, await _press(hass, result, "review"), "finish")
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_IDLE_ACTION] == IDLE_ACTION_OFF
+    assert CONF_IDLE_ACTION not in result["data"]
     assert result["options"][CONF_IDLE_ACTION] == IDLE_ACTION_OFF
 
 
@@ -1522,11 +1524,11 @@ async def test_options_flow_preserves_incompatible_stored_idle_until_explicit_ch
 
 
 async def test_options_flow_merges_and_mirrors_to_data(hass: HomeAssistant) -> None:
-    """A save merges onto existing options and mirrors the config into entry.data.
+    """A save merges onto existing options and keeps each key in its one home.
 
     Resilience: a field left out of the submit (here changeover_entity) is
-    PRESERVED, and entry.data ends up holding the config so an out-of-band
-    options wipe self-recovers (the coordinator reads {**data, **options}).
+    PRESERVED. The settings are stored in options only; entry.data keeps the
+    rooms (here built from this v1 entry's flat keys) and nothing else.
     """
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -1541,9 +1543,13 @@ async def test_options_flow_merges_and_mirrors_to_data(hass: HomeAssistant) -> N
     # merge: the un-submitted changeover_entity survives; the new value applies.
     assert result["data"][CONF_CHANGEOVER_ENTITY] == "weather.home"
     assert result["data"][CONF_DEMAND_THRESHOLD] == 5.0
-    # mirror: entry.data now carries the config for out-of-band recovery.
-    assert entry.data[CONF_CHANGEOVER_ENTITY] == "weather.home"
-    assert entry.data[CONF_DEMAND_THRESHOLD] == 5.0
+    # one home: the settings are in options, and data holds no copy of them.
+    assert entry.options[CONF_CHANGEOVER_ENTITY] == "weather.home"
+    assert entry.options[CONF_DEMAND_THRESHOLD] == 5.0
+    assert_one_home(entry)
+    assert [zone[ZONE_CLIMATE] for zone in entry.data[CONF_ZONES]] == [
+        "climate.primary", "climate.secondary",
+    ]
 
 
 async def test_options_flow_zone_override_folds_into_zones(hass: HomeAssistant) -> None:
@@ -1610,7 +1616,8 @@ async def test_options_flow_clears_inhibit_entity(hass: HomeAssistant) -> None:
     )  # inhibit field cleared
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_INHIBIT_ENTITY] is None
-    assert entry.data[CONF_INHIBIT_ENTITY] is None  # mirror cleared too
+    assert entry.options[CONF_INHIBIT_ENTITY] is None
+    assert_one_home(entry)  # no copy left behind in data
     assert result["data"]["inhibit_active_state"] == "off"
     assert result["data"][CONF_DEMAND_THRESHOLD] == 3.0  # merge still merges
 
@@ -2136,11 +2143,13 @@ async def test_options_profile_in_options_saves_and_reaches_consumer(
         ZONE_STARTUP_GRACE: 2.0,
         ZONE_EVIDENCE_BASIS: "ha_state_write",
     }
-    for zones in (entry.data[CONF_ZONES], entry.options[CONF_ZONES]):
-        assert {key: zones[0][key] for key in expected} == expected
-        assert zones[0]["data_state"] == "kept"
-        assert zones[0]["option_state"] == "kept"
-        assert zones[1] == peer
+    # The rooms options held are the ones saved, now in their home, data.
+    zones = entry.data[CONF_ZONES]
+    assert {key: zones[0][key] for key in expected} == expected
+    assert zones[0]["data_state"] == "kept"
+    assert zones[0]["option_state"] == "kept"
+    assert zones[1] == peer
+    assert CONF_ZONES not in entry.options
     assert entry.options["unrelated_option"] == "kept"
     assert entry.options[CONF_DEMAND_THRESHOLD] == 4.5
     assert MXZCoordinator(hass, entry)._freshness["primary"] == (180.0, 120.0)
@@ -2189,10 +2198,11 @@ async def test_options_profile_in_options_clears_and_reaches_consumer(
         ZONE_SAMPLE_TIMESTAMP_ATTR,
         ZONE_SAMPLE_SEQUENCE_ATTR,
     }
-    for zones in (entry.data[CONF_ZONES], entry.options[CONF_ZONES]):
-        assert not freshness_keys.intersection(zones[0])
-        assert zones[0]["option_state"] == "kept"
-        assert zones[1] == peer
+    zones = entry.data[CONF_ZONES]
+    assert not freshness_keys.intersection(zones[0])
+    assert zones[0]["option_state"] == "kept"
+    assert zones[1] == peer
+    assert CONF_ZONES not in entry.options
     assert entry.options["unrelated_option"] == "kept"
     assert "primary" not in MXZCoordinator(hass, entry)._freshness
 
