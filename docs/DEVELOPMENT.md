@@ -88,6 +88,7 @@ a time. Each moves into a module that owns its state, its wakeups and its stored
 | `delivery.py` | The delivery queue: one plan decided at a time, each head's commands in turn (`Delivery`), across reloads, the one follow-up refresh owed to a request made during a plan, and what each software call to a head returned. On Home Assistant before 2025.11 it makes up for two gaps in the request debouncer; that code goes when the minimum version reaches 2025.11. |
 | `heads.py` | Each room's head driver behind one interface (`HeadDriver`): `LocalDriver` for a local head and `CloudDriver` for a cloud or generic one, with its `CloudHead` record, its batches, whether it is out of control, and its repair issue. `HeadGrid` reads what a head accepts: its native band and its setpoint grid. `HeadDrivers` settles each room's head type at the start, runs a delivery through the head's driver, and keeps the one wakeup the cloud heads share. |
 | `floor.py` | The freeze floor and overheat ceiling of each disabled room that sets one (`FloorGuard`): the run and its no-progress clock, a person's setting a hands-off run took over and the hand-back that returns it, a yield to a person, the floor notices and their hourly limit, and the record the room's enable switch restores. |
+| `clock.py` | MXZ's clock (`Clock`): the monotonic seconds every hold and limit reads, and every wait. `call_later` arms one wait per name (and per head or room), so arming it again replaces it; `retire` cancels them all when the coordinator is unloaded or replaced. It is the only module that calls Home Assistant's `async_call_later`. Nothing in it is stored: a wait that must outlast a reload is timed from a stored record, as the mode-change hold is. |
 | `host.py` | `ControllerHost`, the coordinator members every controller uses: Home Assistant, the clock, `retired`, `notify`, `redraw_rooms` and the two recomputes. `HeadCommands`: the delivery queue's `async_send`, for a controller below it. `Effect`: one thing a compute decided that reaches outside MXZ's memory. |
 
 A module that moved out reaches the coordinator only through a `Protocol` it declares on top of
@@ -116,7 +117,9 @@ awaited in between. A floor notice decided while a delivery runs (a rejected com
 hand-back) is sent at once, by the same code.
 
 Which module may import which is checked in CI; a new module joins a layer in
-`tools/import_bounds.py`. See [ARCHITECTURE-RULES.md](ARCHITECTURE-RULES.md).
+`tools/import_bounds.py`. A new wait goes on the clock (`coord.clock.call_later`, or
+`host.clock.call_later` in a controller); `tools/raw_timers.py` refuses a raw
+`async_call_later` anywhere else. See [ARCHITECTURE-RULES.md](ARCHITECTURE-RULES.md).
 
 ## Restore, flow schemas, and abort text
 

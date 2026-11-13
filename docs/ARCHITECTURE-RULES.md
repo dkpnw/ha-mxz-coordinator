@@ -1,7 +1,8 @@
 # Architecture rules
 
 Three rules for changes to `custom_components/mxz_coordinator`. A reviewer holds each PR
-to them; the import check below holds the module boundaries in CI.
+to them; the import check below holds the module boundaries in CI, and the timer check holds
+every wait on the clock.
 
 1. **Each durable value has one obvious writer.** A stored record, restore data, or an
    option has one module and one function that writes it; everything else reads it or
@@ -10,7 +11,7 @@ to them; the import check below holds the module boundaries in CI.
 2. **New work adds isolated files rather than branches in shared roots.** A new concern
    goes in its own module, which owns its state, its wakeups and its stored record, and
    reaches the coordinator through a `Protocol` it declares (as `openings.py` does with
-   `OpeningHost`). It does not grow `coordinator.py`, `config_flow.py` or `logic.py` with
+   `OpeningHost`). Its wakeups are named waits on the clock (`host.clock.call_later`). It does not grow `coordinator.py`, `config_flow.py` or `logic.py` with
    another set of branches. See [How the coordinator is split](DEVELOPMENT.md#how-the-coordinator-is-split).
 3. **Exceptions are narrow, explicit, and reviewed as architecture changes.** An exception
    names one importer and one imported module, says whether it is for type hints only,
@@ -39,5 +40,19 @@ bound `tests/` or `tools/`.
 (ordinary and fresh-boot, on every lane) and the Quality coverage job. A forbidden import
 turns those jobs red. To run it alone, with no
 Home Assistant installed: `python3 tools/import_bounds.py`.
+
+## The timer check
+
+`tools/raw_timers.py` fails when any module of the integration other than `clock.py` names
+Home Assistant's `async_call_later`: an import, an alias, an attribute or a call, at module
+level or inside a function. Its message says to schedule the wait on `coord.clock.call_later`
+instead. A wait there has a name and is cancelled when the coordinator retires; tests read it
+and run it on the coordinator's clock without patching Home Assistant; and a wait that must
+outlast a reload is timed from a stored record and armed again at the start, as the mode-change
+hold is (PR #64). It does not see a name built at run time (`getattr` with a string), and it
+does not bound `tests/` or `tools/`.
+
+`tests/test_raw_timers.py` runs it in the same jobs as the import check. To run it alone:
+`python3 tools/raw_timers.py`.
 
 Rules 1 and 2 are not checked by a machine; review holds them.

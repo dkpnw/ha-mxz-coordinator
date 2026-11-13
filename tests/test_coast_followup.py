@@ -10,7 +10,7 @@ back and asked for a refresh; a valid dual-setpoint head with no ``FAN_MODE``
 capability emits no echo, so the room stayed parked until an unrelated sensor
 event, the 15-min heartbeat, an ``mxz_recompute`` event or a manual call.
 
-The follow-up is one cancellable ``async_call_later`` (the dwell-expiry wakeup
+The follow-up is one cancellable wait on the clock (the dwell-expiry wakeup
 in ``test_dwell_wakeup`` is the model) that carries NO decision: it asks for a
 recompute of the inputs as they are when it fires.
 
@@ -23,7 +23,6 @@ from __future__ import annotations
 
 from datetime import timedelta
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
@@ -61,6 +60,7 @@ from custom_components.mxz_coordinator.const import (
     MODE_HEAT,
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+from tests.clocks import Armed
 from tests.peek import armed, debug_view
 from tests.test_drive import (
     INHIBIT,
@@ -222,32 +222,13 @@ async def _settle(hass: HomeAssistant, seconds: float) -> None:
     await hass.async_block_till_done()
 
 
-def _count_coast_fires(coord: MXZCoordinator) -> list[Any]:
-    """Count every ACTUAL firing of the coast wakeup's callback.
+def _coast_fires(coord: MXZCoordinator, since: int) -> int:
+    """How often a coast wakeup armed at or after ``since`` (in the clock's log) ACTUALLY ran.
 
-    The interception is scoped to the body of ``_arm_coast_timer``, so only the
-    coast's own ``async_call_later`` is wrapped and a dwell, heal or debounce
-    timer can never be miscounted as a coast wakeup. The delay, the returned
-    cancel handle and the callback's own work are all unchanged.
+    Read by the wait's name, so a dwell, heal or debounce timer can never be
+    miscounted as a coast wakeup.
     """
-    fires: list[Any] = []
-    real_arm = coord._arm_coast_timer
-    real_call_later = coordinator_module.async_call_later
-
-    def _arm() -> None:
-        def _spy(hass: HomeAssistant, delay: float, action: Any) -> Any:
-            @callback
-            def _counted(now: Any) -> None:
-                fires.append(now)
-                action(now)
-
-            return real_call_later(hass, delay, _counted)
-
-        with patch.object(coordinator_module, "async_call_later", _spy):
-            real_arm()
-
-    coord._arm_coast_timer = _arm
-    return fires
+    return sum(wait.fired for wait in coord.clock.log[since:] if wait.name == "coast")
 
 
 async def _engage_then_flip(
@@ -360,26 +341,26 @@ async def test_an_echo_head_is_still_commanded_exactly_once(
     entry, _a, head_b = await _setup_coast(
         hass, cls=MockHead, **{CONF_FAN_BOOST_ENABLE: True}
     )
-    fires = _count_coast_fires(entry.runtime_data)
+    since = len(entry.runtime_data.clock.log)
     tokens = _fan_tokens(hass, head_b)
     coord = await _engage_then_flip(hass, entry, head_b)
 
     # PRECONDITION, asserted so this can never silently become a second no-echo
     # case: the fan token really did move, ladder -> auto, across the coast.
     assert tokens[-2:] == [FAN_HIGH, FAN_AUTO]
-    assert coord._coast_timer is not None
+    assert armed(coord, "coast")
 
     calls = _record_calls(hass)
     await _advance(hass, REQUEST_REFRESH_DEFAULT_COOLDOWN)  # past 10 s, not past 11
 
     # The echo's own refresh did the work, before the coast's deadline.
     assert hass.states.get(head_b).state == MODE_HEAT
-    assert coord._coast_timer is None  # that compute dropped the wakeup...
-    assert fires == []  # ...so it never fired
+    assert not armed(coord, "coast")  # that compute dropped the wakeup...
+    assert _coast_fires(entry.runtime_data, since) == 0  # ...so it never fired
 
     # And its deadline passing changes nothing.
     await _advance(hass, coordinator_module.COAST_FOLLOWUP_DELAY + 5)
-    assert fires == []
+    assert _coast_fires(entry.runtime_data, since) == 0
 
     heat_commands = [
         (service, extra)
@@ -388,7 +369,7 @@ async def test_an_echo_head_is_still_commanded_exactly_once(
     ]
     assert len(heat_commands) == 1
     assert hass.states.get(head_b).state == MODE_HEAT
-    assert coord._coast_timer is None
+    assert not armed(coord, "coast")
 
 
 async def test_a_fan_capable_head_with_the_boost_off_still_needs_the_wakeup(
@@ -403,20 +384,20 @@ async def test_a_fan_capable_head_with_the_boost_off_still_needs_the_wakeup(
     here too, so a duplicate command cannot hide on this path either.
     """
     entry, _a, head_b = await _setup_coast(hass, cls=MockHead)  # boost off
-    fires = _count_coast_fires(entry.runtime_data)
+    since = len(entry.runtime_data.clock.log)
     tokens = _fan_tokens(hass, head_b)
     coord = await _engage_then_flip(hass, entry, head_b)
 
     assert tokens == []  # no fan write at all, so no echo
-    assert coord._coast_timer is not None
+    assert armed(coord, "coast")
 
     calls = _record_calls(hass)
     await _advance(hass, REQUEST_REFRESH_DEFAULT_COOLDOWN)
-    assert fires == []  # nothing is due in the echo's window
+    assert _coast_fires(entry.runtime_data, since) == 0  # nothing is due in the echo's window
     assert hass.states.get(head_b).state == MODE_FAN_ONLY  # still parked
 
     await _settle(hass, coordinator_module.COAST_FOLLOWUP_DELAY + 1)
-    assert len(fires) == 1  # the coast wakeup, exactly once
+    assert _coast_fires(entry.runtime_data, since) == 1  # the coast wakeup, exactly once
 
     heat_commands = [
         (service, extra)
@@ -425,7 +406,7 @@ async def test_a_fan_capable_head_with_the_boost_off_still_needs_the_wakeup(
     ]
     assert len(heat_commands) == 1
     assert hass.states.get(head_b).state == MODE_HEAT
-    assert coord._coast_timer is None
+    assert not armed(coord, "coast")
 
 
 # --- arming, replacement and no-ops --------------------------------------------
@@ -459,43 +440,30 @@ async def test_a_second_coast_replaces_the_pending_followup(
     coord = entry.runtime_data
     await _quiesce(hass, coord)
 
-    callbacks: list[Any] = []
-    cancelled: list[Any] = []
-    original_call_later = coordinator_module.async_call_later
+    since = len(coord.clock.log)
 
-    def capturing(hass_: HomeAssistant, delay: float, action: Any) -> Any:
-        cancel = original_call_later(hass_, delay, action)
-        if "_arm_coast_timer" not in getattr(action, "__qualname__", ""):
-            return cancel
-        callbacks.append(action)
+    def coasts() -> list[Armed]:
+        return [wait for wait in coord.clock.log[since:] if wait.name == "coast"]
 
-        def cancel_and_record() -> None:
-            cancelled.append(action)
-            cancel()
+    await _set_temp(hass, SENSOR_A, HOT[False])
+    await _set_temp(hass, SENSOR_B, HOT[False])
+    await _drain(hass, coord)
+    assert await _latch(hass, entry, "primary") == MODE_COOL
+    assert await _latch(hass, entry, "secondary") == MODE_COOL
+    assert not armed(coord, "coast")
 
-        return cancel_and_record
+    await _set_temp(hass, SENSOR_B, COLD[False])  # the flip: coast one
+    assert await _latch(hass, entry, "secondary") == ""
+    assert armed(coord, "coast")
+    assert [wait.cancelled for wait in coasts()] == [False]
 
-    with patch.object(coordinator_module, "async_call_later", capturing):
-        await _set_temp(hass, SENSOR_A, HOT[False])
-        await _set_temp(hass, SENSOR_B, HOT[False])
-        await _drain(hass, coord)
-        assert await _latch(hass, entry, "primary") == MODE_COOL
-        assert await _latch(hass, entry, "secondary") == MODE_COOL
-        assert not armed(coord, "coast")
+    await _set_temp(hass, SENSOR_A, NEUTRAL[False])  # primary satisfied...
+    await _recompute(hass, entry)  # ...coast two, first follow-up still pending
+    assert await _latch(hass, entry, "primary") == ""
+    assert hass.states.get(head_a).state == MODE_FAN_ONLY
 
-        await _set_temp(hass, SENSOR_B, COLD[False])  # the flip: coast one
-        assert await _latch(hass, entry, "secondary") == ""
-        assert armed(coord, "coast")
-        assert len(callbacks) == 1
-        assert cancelled == []
-
-        await _set_temp(hass, SENSOR_A, NEUTRAL[False])  # primary satisfied...
-        await _recompute(hass, entry)  # ...coast two, first follow-up still pending
-        assert await _latch(hass, entry, "primary") == ""
-        assert hass.states.get(head_a).state == MODE_FAN_ONLY
-
-    assert len(callbacks) == 2  # the second coast armed its own...
-    assert cancelled == [callbacks[0]]  # ...and cancelled the first
+    # The second coast armed its own, and cancelled the first.
+    assert [wait.cancelled for wait in coasts()] == [True, False]
     assert armed(coord, "coast")  # the second coast's own
 
     with _count_refresh_requests(coord) as requests:
@@ -600,23 +568,14 @@ async def test_reload_cancels_the_old_followup(hass: HomeAssistant) -> None:
     assert requests == []
 
 
-async def test_a_followup_firing_after_retirement_asks_for_nothing(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_a_followup_firing_after_retirement_asks_for_nothing(hass: HomeAssistant) -> None:
     """Cancelling a handle cannot recall a callback the loop already picked up."""
     entry, _a, head_b = await _setup_coast(hass)
-    callbacks: list[Any] = []
-    original_call_later = coordinator_module.async_call_later
-
-    def capturing(hass_: HomeAssistant, delay: float, action: Any) -> Any:
-        if "_arm_coast_timer" in getattr(action, "__qualname__", ""):
-            callbacks.append(action)
-        return original_call_later(hass_, delay, action)
-
-    monkeypatch.setattr(coordinator_module, "async_call_later", capturing)
+    since = len(entry.runtime_data.clock.log)
     coord = await _engage_then_flip(hass, entry, head_b)
-    assert callbacks  # the coast armed a follow-up...
-    fire = callbacks[-1]  # ...and the last one armed owns the live handle
+    waits = [wait for wait in coord.clock.log[since:] if wait.name == "coast"]
+    assert waits  # the coast armed a follow-up...
+    taken = waits[-1]  # ...and the last one armed owns the live handle
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
@@ -624,7 +583,7 @@ async def test_a_followup_firing_after_retirement_asks_for_nothing(
 
     calls = _record_calls(hass)
     with _count_refresh_requests(coord) as requests:
-        fire(dt_util.utcnow())  # the callback the loop had already taken
+        taken.fire()  # the callback the loop had already taken
         await hass.async_block_till_done()
         await _settle(hass, coordinator_module.COAST_FOLLOWUP_DELAY + 1)
     assert requests == []

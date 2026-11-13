@@ -29,6 +29,7 @@ from custom_components.mxz_coordinator.const import (
 )
 from tests.clocks import jump_wall_clock, pass_time
 from tests.dwell import RESTAMP_TOLERANCE
+from tests.peek import armed
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -53,12 +54,12 @@ async def test_dwell_after_cooling_then_off(hass: HomeAssistant) -> None:
     await _set_temp(hass, SENSOR_A, 70)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "fan_only"  # dwelling, coil drying
-    assert head_a in coord._dry_timers  # nudge armed
+    assert armed(coord, "dry", head_a)  # nudge armed
 
     pass_time(coord, coord.coil_dry_seconds + 5)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "off"
-    assert head_a not in coord._dry_timers  # nudge cancelled with the park
+    assert not armed(coord, "dry", head_a)  # nudge cancelled with the park
 
 
 async def test_heat_leaves_no_wet_coil_immediate_off(hass: HomeAssistant) -> None:
@@ -91,12 +92,12 @@ async def test_reengage_mid_dwell_cancels_the_nudge(hass: HomeAssistant) -> None
     await _set_temp(hass, SENSOR_A, 70)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "fan_only"
-    assert head_a in coord._dry_timers
+    assert armed(coord, "dry", head_a)
 
     await _set_temp(hass, SENSOR_A, 75)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "cool"
-    assert head_a not in coord._dry_timers
+    assert not armed(coord, "dry", head_a)
 
 
 async def test_nudge_timer_flips_the_head_without_another_trigger(
@@ -153,7 +154,7 @@ async def test_restart_seed_observed_fan_only_restarts_dwell(
     assert hass.states.get(head_a).state == "fan_only"
 
     coord._last_active.clear()
-    coord._cancel_dry_timer(head_a)
+    coord.clock.cancel("dry", head_a)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "fan_only"  # dwell running again
 
@@ -177,7 +178,7 @@ async def test_restart_seed_observed_off_stays_off(hass: HomeAssistant) -> None:
     coord._last_active.clear()
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "off"
-    assert head_a not in coord._dry_timers
+    assert not armed(coord, "dry", head_a)
 
 
 async def test_mode_flip_cool_then_heat_owes_no_dwell(hass: HomeAssistant) -> None:
@@ -203,7 +204,9 @@ async def test_mode_flip_cool_then_heat_owes_no_dwell(hass: HomeAssistant) -> No
 
 def _nudge_in(hass: HomeAssistant, coord, head: str) -> float:
     """Seconds until the head's coil-dry nudge fires, on the event loop's clock."""
-    return coord._dry_timers[head].__self__.when() - hass.loop.time()
+    assert armed(coord, "dry", head)
+    nudge = [wait for wait in coord.clock.armed("dry") if wait.key == head][-1]
+    return nudge.at + nudge.delay - hass.loop.time()
 
 
 async def _dwelling(hass: HomeAssistant, origin: str):
@@ -218,7 +221,7 @@ async def _dwelling(hass: HomeAssistant, origin: str):
     assert hass.states.get(head_a).state == "fan_only"
     if origin == "seeded":
         coord._last_active.clear()
-        coord._cancel_dry_timer(head_a)
+        coord.clock.cancel("dry", head_a)
         await _recompute(hass, entry)
         assert hass.states.get(head_a).state == "fan_only"
     return entry, coord, head_a
@@ -234,7 +237,7 @@ async def test_the_coil_dry_wait_counts_on_the_monotonic_clock(hass: HomeAssista
     assert now - RESTAMP_TOLERANCE < stamp <= now, (stamp, now)
 
     pass_time(coord, coord.coil_dry_seconds - 60)
-    coord._cancel_dry_timer(head_a)
+    coord.clock.cancel("dry", head_a)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "fan_only"
     assert 61 - RESTAMP_TOLERANCE < _nudge_in(hass, coord, head_a) <= 61
@@ -242,7 +245,7 @@ async def test_the_coil_dry_wait_counts_on_the_monotonic_clock(hass: HomeAssista
     pass_time(coord, 60)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "off"
-    assert head_a not in coord._dry_timers
+    assert not armed(coord, "dry", head_a)
 
 
 @pytest.mark.parametrize("origin", ["live", "seeded"])
@@ -256,7 +259,7 @@ async def test_a_wall_clock_step_neither_cuts_nor_stretches_the_coil_dry_wait(
     monotonic clock, not on the wall clock."""
     entry, coord, head_a = await _dwelling(hass, origin)
     jump_wall_clock(monkeypatch, step * (coord.coil_dry_seconds + 3600))
-    coord._cancel_dry_timer(head_a)
+    coord.clock.cancel("dry", head_a)
     await _recompute(hass, entry)
     assert hass.states.get(head_a).state == "fan_only", "the step did not end the wait"
     left = _nudge_in(hass, coord, head_a)

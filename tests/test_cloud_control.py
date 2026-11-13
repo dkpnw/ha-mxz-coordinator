@@ -62,6 +62,7 @@ from tests.cloud_heads import (
     setup_rooms,
     writes,
 )
+from tests.peek import armed
 from tests.test_drive import _eid
 
 CLOUD = {ZONE_HEAD_TYPE: HEAD_TYPE_CLOUD}
@@ -361,11 +362,11 @@ async def test_an_out_of_control_heads_call_arms_no_mode_change_wakeup(
     assert row(hass, entry, 0)["demand"] == "heat"
     assert coordinator.data.state == "cool"
     assert coordinator.data.mode_change_allowed is False
-    assert coordinator._dwell_timer is None
+    assert not armed(coordinator, "dwell")
 
     a.go_unavailable(False)
     await hass.async_block_till_done()
     await recompute(hass, entry)
     assert row(hass, entry, 0)["cloud_status"] != "not_controllable"
     assert coordinator.data.state == "cool"  # the wait holds the change back
-    assert coordinator._dwell_timer is not None
+    assert armed(coordinator, "dwell")

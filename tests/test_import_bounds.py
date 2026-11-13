@@ -37,10 +37,10 @@ def test_without_its_exceptions_the_tree_shows_exactly_the_five_known_edges(monk
     monkeypatch.setattr(import_bounds, "EXCEPTIONS", {})
     assert violations(SOURCES) == [
         "climate.py:66: climate (layer surfaces) imports number (layer surfaces)" + LOWER,
-        "dry.py:33: dry (layer lower controllers) type-only imports coordinator (layer coordinator)" + LOWER,
+        "dry.py:32: dry (layer lower controllers) type-only imports coordinator (layer coordinator)" + LOWER,
         "floor.py:41: floor (layer floor) type-only imports coordinator (layer coordinator)" + LOWER,
         "heads.py:72: heads (layer head drivers) type-only imports coordinator (layer coordinator)" + LOWER,
-        "openings.py:47: openings (layer controllers) type-only imports coordinator (layer coordinator)" + LOWER,
+        "openings.py:46: openings (layer controllers) type-only imports coordinator (layer coordinator)" + LOWER,
     ]
 
 

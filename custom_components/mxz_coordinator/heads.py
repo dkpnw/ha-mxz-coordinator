@@ -24,7 +24,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity_component import DATA_INSTANCES
-from homeassistant.helpers.event import async_call_later, async_track_state_report_event
+from homeassistant.helpers.event import async_track_state_report_event
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
@@ -721,7 +721,6 @@ class HeadDrivers:
         self._drivers: dict[str, HeadDriver] = {}
         # Cloud heads (beta), by head. A local head is never in here.
         self._clouds: dict[str, CloudDriver] = {}
-        self._timer: Callable[[], None] | None = None
         clock = host.clock()
         for zone in zones:
             self._resolve(zone, entry_id, started, clock)
@@ -853,8 +852,8 @@ class HeadDrivers:
         so without this each would wait for an unrelated update.
         """
         host = self._host
-        self._cancel_timer()
         if host.retired or not self._clouds:
+            host.clock.cancel("cloud")
             return
         clock = host.clock()
         wall = dt_util.utcnow().timestamp()
@@ -871,21 +870,15 @@ class HeadDrivers:
                     waits.append(since + limit - wall)
         waits = [wait for wait in waits if wait > 0]
         if not waits:
+            host.clock.cancel("cloud")
             return
 
         @callback
-        def _fire(_now: Any) -> None:
-            self._timer = None
-            if host.retired:
-                return  # cancelling cannot recall a callback already in flight
-            host.hass.async_create_task(host.async_request_refresh())
+        def _fire() -> None:
+            if not host.retired:
+                host.hass.async_create_task(host.async_request_refresh())
 
-        self._timer = async_call_later(host.hass, min(waits), _fire)
-
-    def _cancel_timer(self) -> None:
-        if self._timer is not None:
-            self._timer()
-            self._timer = None
+        host.clock.call_later(min(waits), _fire, name="cloud")
 
     def track_reports(self) -> Callable[[], None] | None:
         """Listen for every report from a cloud head, changed or not; None with no cloud head.
@@ -907,11 +900,10 @@ class HeadDrivers:
             self._host.hass.async_create_task(self._host.async_request_refresh())
 
     def retire(self) -> None:
-        """Cancel the wakeup and clear each cloud head's repair issue.
+        """Clear each cloud head's repair issue (the clock cancels the wakeup).
 
         A stale head's issue is raised again by the next setup, if it is still
         stale then; a removed entry leaves none behind.
         """
-        self._cancel_timer()
         for driver in self._clouds.values():
             ir.async_delete_issue(self._host.hass, DOMAIN, driver.issue_id)

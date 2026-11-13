@@ -91,6 +91,7 @@ from tests.cloud_heads import (
 )
 from tests.dwell import expire_dwell
 from tests.flow_pages import default, fields, open_options_page, prefilled, submit
+from tests.peek import armed
 from tests.test_drive import MockHead, _eid, _set_target, _set_temp
 from tests.test_startup_continuity import _head, _shutdown, _startup
 
@@ -267,7 +268,7 @@ async def test_option_off_dry_is_still_healed(hass: HomeAssistant, stored: Any) 
     rig = await _setup(hass, zones=({}, {} if stored is None else {ZONE_ALLOW_DRY: stored}))
     assert [zone.allow_dry for zone in rig.coord.zones] == [False, False]
     await rig.person(1, "dry")
-    assert (rig.heads[1], "band") in rig.coord._heal_timers
+    assert armed(rig.coord, "heal", (rig.heads[1], "band"))
     await rig.later(BAND_DRIFT_DELAY + 1)
     assert rig.state(1) == "fan_only"  # the plan's idle action, re-applied
     assert rig.notices() == [
@@ -309,7 +310,7 @@ async def test_an_own_remote_rooms_dry_still_has_no_vote(hass: HomeAssistant) ->
     rig.forget()
     await rig.person(1, "dry")
     await rig.recompute()
-    assert (rig.heads[1], "band") not in rig.coord._heal_timers
+    assert not armed(rig.coord, "heal", (rig.heads[1], "band"))
     assert (rig.row(1)["dry"], rig.row(1)["dry_vote"], rig.row(1)["hands_off_vote"]) == (
         None, None, None,
     )
@@ -370,7 +371,7 @@ async def test_allow_dry_leaves_a_persons_dry_alone(hass: HomeAssistant) -> None
     rig = await _setup(hass)
     assert [zone.allow_dry for zone in rig.coord.zones] == [False, True]
     await rig.person(1, "dry")
-    assert (rig.heads[1], "band") not in rig.coord._heal_timers
+    assert not armed(rig.coord, "heal", (rig.heads[1], "band"))
     await rig.later(BAND_DRIFT_DELAY + 30)  # past the band wait and any refresh cooldown
     assert rig.row(1)["dry"] == "held"  # the head's change asked for a recompute
     for temp in (80, 60, 70):  # a cool call, a heat call, at target: all paused
@@ -408,7 +409,7 @@ async def test_a_band_wait_armed_before_the_room_was_enabled_heals_nothing(
     rig = await _setup(hass, enabled=(True, False))
     await rig.switch("_coordinator_enable", False)
     await rig.person(1, "dry")
-    assert (rig.heads[1], "band") in rig.coord._heal_timers
+    assert armed(rig.coord, "heal", (rig.heads[1], "band"))
     await rig.switch("_secondary_enable", True)
     await rig.switch("_coordinator_enable", True)
     await rig.recompute()
@@ -533,7 +534,7 @@ async def test_resting_heat_inside_the_wait_parks_nothing(hass: HomeAssistant) -
     assert rig.plan().state == "heat"
     assert rig.row(1)["dry"] == "held"
     assert rig.state(1) == "dry" and rig.sent(1) == []
-    assert rig.coord._dwell_timer is not None
+    assert armed(rig.coord, "dwell")
     expire_dwell(rig.coord)
     await rig.recompute()
     assert rig.plan().state == "cool"
@@ -854,7 +855,7 @@ async def test_cloud_dry_is_left_alone_then_parked_for_heat(hass: HomeAssistant)
     b.device["mode"] = "dry"  # its own remote
     b.poll()
     await hass.async_block_till_done()
-    assert (b.entity_id, "band") not in coord._heal_timers
+    assert not armed(coord, "heal", (b.entity_id, "band"))
     await coord.async_refresh()
     await hass.async_block_till_done()
     row = hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][1]
@@ -878,7 +879,7 @@ async def test_cloud_dry_is_left_alone_then_parked_for_heat(hass: HomeAssistant)
     calls.clear()
     b.report(mode="dry")
     await hass.async_block_till_done()
-    assert (b.entity_id, "band") not in coord._heal_timers
+    assert not armed(coord, "heal", (b.entity_id, "band"))
     await coord.async_refresh()
     await hass.async_block_till_done()
     row = hass.states.get(_eid(hass, entry, "_plan")).attributes["zones"][1]
@@ -892,7 +893,7 @@ async def test_cloud_dry_without_the_option_is_healed(hass: HomeAssistant) -> No
     b.device["mode"] = "dry"
     b.poll()
     await hass.async_block_till_done()
-    assert (b.entity_id, "band") in entry.runtime_data._heal_timers
+    assert armed(entry.runtime_data, "heal", (b.entity_id, "band"))
 
 
 # ---------------------------------------------------------------------------

@@ -8,14 +8,14 @@ reads it there, so the reading survives any move of the field behind it.
 cannot wait for the download.
 
 ``armed`` is the one thing diagnostics does not publish: whether a wakeup is
-waiting. Its names are the private timer fields of the coordinator and its
-controllers, and this is the only module that reads them. A test asserts a wakeup only where firing
+waiting. It reads the coordinator's clock by the wait's name (``tests/clocks.py``),
+and the delivery queue's follow-up, which is a task on current Home Assistant and
+a wait on the clock only on the oldest. A test asserts a wakeup only where firing
 it cannot tell the difference, such as a wakeup that would do nothing yet.
 """
 
 from __future__ import annotations
 
-from operator import attrgetter
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -24,25 +24,27 @@ from custom_components.mxz_coordinator.diagnostics import (
     async_get_config_entry_diagnostics,
 )
 
-# Each wakeup, by what it is for: the field that holds it, from the coordinator.
+# Each wakeup, by its name on the clock: what it is for.
 _WAKEUPS = {
-    "dwell": "_dwell_timer",  # a flip the mode-change hold deferred
-    "hold_end": "_hold_end_timer",  # the thermostats' re-render as the hold ends
-    "coast": "_coast_timer",  # the follow-up after a room let go of its run
-    "lost": "_lost_timer",  # the nearest lost head's vote running out
-    "settle": "_settle_timer",  # the nearest end of a head's settle window
-    "comfort": "_comfort_timer",  # the nearest Comfort priority "on" going stale
-    "cloud": "heads._timer",  # the nearest cloud head's write or stale window
-    "fresh": "_fresh_timer",  # the nearest room sensor going stale
-    "refresh_followup": "deliveries._followup_timer",  # a refresh asked for during one
+    "dwell": "a flip the mode-change hold deferred",
+    "hold_end": "the thermostats' re-render as the hold ends",
+    "coast": "the follow-up after a room let go of its run",
+    "lost": "the nearest lost head's vote running out",
+    "settle": "the nearest end of a head's settle window",
+    "comfort": 'the nearest Comfort priority "on" going stale',
+    "cloud": "the nearest cloud head's write or stale window",
+    "fresh": "the nearest room sensor going stale",
+    "startup": "the recompute once Home Assistant has settled after its start",
 }
 # Wakeups kept per head or per room, by key.
 _WAKEUP_MAPS = {
-    "dry": "_dry_timers",  # a head's coil-dry run ending, by head
-    "dry_pick": "dry._picks",  # a room's Dry pick taking effect, by room
-    "heal": "_heal_timers",  # a head's put-back or adoption, by (head, kind)
-    "opening": "openings._timers",  # a room's door/window delay, by room
+    "dry": "a head's coil-dry run ending, by head",
+    "dry_pick": "a room's Dry pick taking effect, by room",
+    "heal": "a head's put-back or adoption, by (head, kind)",
+    "opening": "a room's door/window delay, by room",
 }
+# A refresh asked for during one: the delivery queue holds it, a task or a wait.
+_FOLLOWUP = "refresh_followup"
 
 
 async def debug_view(hass: HomeAssistant, entry: Any) -> dict[str, Any]:
@@ -70,13 +72,23 @@ def armed(coord: Any, wakeup: str, key: Any = None) -> bool:
 
     A per-head or per-room wakeup with no ``key`` reads True when any is waiting.
     """
-    if wakeup in _WAKEUPS:
+    if wakeup == _FOLLOWUP or wakeup in _WAKEUPS:
         assert key is None, f"{wakeup} is one wakeup, not one per key"
-        return attrgetter(_WAKEUPS[wakeup])(coord) is not None
-    waiting = attrgetter(_WAKEUP_MAPS[wakeup])(coord)
-    return bool(waiting) if key is None else key in waiting
+        if wakeup == _FOLLOWUP:
+            return coord.deliveries._followup_timer is not None
+        return coord.clock.waiting(wakeup)
+    keys = armed_keys(coord, wakeup)
+    return bool(keys) if key is None else key in keys
+
+
+def armed_keys(coord: Any, wakeup: str) -> set[Any]:
+    """The heads or rooms a per-head or per-room wakeup is waiting for."""
+    assert wakeup in _WAKEUP_MAPS, f"{wakeup} is not a per-head or per-room wakeup"
+    return coord.clock.keys(wakeup)
 
 
 def armed_wakeups(coord: Any) -> set[str]:
     """Every wakeup waiting now, by name."""
-    return {name for name in (*_WAKEUPS, *_WAKEUP_MAPS) if armed(coord, name)}
+    names = coord.clock.names()
+    assert names <= {*_WAKEUPS, *_WAKEUP_MAPS}, f"unknown wakeup in {names}"
+    return names | ({_FOLLOWUP} if armed(coord, _FOLLOWUP) else set())

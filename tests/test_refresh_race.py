@@ -21,10 +21,9 @@ from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COO
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
-from custom_components.mxz_coordinator import delivery as delivery_module
 from custom_components.mxz_coordinator.const import MODE_COOL
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
-from tests.clocks import pass_time
+from tests.clocks import Armed, pass_time
 from tests.dwell import RESTAMP_TOLERANCE, assert_not_restamped
 from tests.peek import armed
 from tests.test_drive import SENSOR_A, SENSOR_B, MockHead, _eid, _set_temp
@@ -611,6 +610,11 @@ async def test_cancelled_direct_waiter_does_not_consume_followup(
     assert snapshots == [wide, narrow]
 
 
+def _followups(coord: MXZCoordinator, since: int) -> list[Armed]:
+    """The current-input follow-ups armed on the clock since ``since`` (only on the oldest HA)."""
+    return [wait for wait in coord.clock.log[since:] if wait.name == "refresh_followup"]
+
+
 @pytest.mark.parametrize("phase", ["active", "scheduled", "picked"])
 @pytest.mark.parametrize("operation", ["unload", "reload"])
 async def test_retirement_cancels_completion_followup(
@@ -623,21 +627,9 @@ async def test_retirement_cancels_completion_followup(
     entry, _head_a, _head_b, wide, narrow = await _prepare_race(hass, False)
     coord: MXZCoordinator = entry.runtime_data
     snapshots = _record_computes(coord, monkeypatch)
-    captured = []
-    original_later = delivery_module.async_call_later
-
-    def later(hass, delay, action):
-        if delay == 0:
-            record = {"action": action, "cancelled": False}
-            captured.append(record)
-
-            def cancel():
-                record["cancelled"] = True
-
-            return cancel
-        return original_later(hass, delay, action)
-
-    monkeypatch.setattr(delivery_module, "async_call_later", later)
+    # Held: a follow-up runs only when this test fires it.
+    coord.clock.held.add("refresh_followup")
+    since = len(coord.clock.log)
     entered = asyncio.Event()
     release = asyncio.Event()
     original_apply = coord._apply
@@ -656,7 +648,7 @@ async def test_retirement_cancels_completion_followup(
         release.set()
         await asyncio.wait_for(first, 3)
         if coord.deliveries.legacy:
-            assert len(captured) == 1
+            assert len(_followups(coord, since)) == 1
     if operation == "unload":
         assert await hass.config_entries.async_unload(entry.entry_id)
     else:
@@ -665,14 +657,15 @@ async def test_retirement_cancels_completion_followup(
     if phase == "active":
         release.set()
         await asyncio.wait_for(first, 3)
+    captured = _followups(coord, since)
     if phase == "picked":
-        for record in captured:
-            record["action"](dt_util.utcnow())
+        for wait in captured:
+            wait.fire()
     await hass.async_block_till_done()
     assert coord.retired
     assert not coord.deliveries._pending
     assert not armed(coord, "refresh_followup")
-    assert all(record["cancelled"] for record in captured)
+    assert all(wait.cancelled for wait in captured)
     assert snapshots == [wide]
 
 

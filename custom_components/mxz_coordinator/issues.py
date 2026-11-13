@@ -33,15 +33,13 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_STATE_CHANGED, STATE_UNAVAILABLE
-from homeassistant.core import Event, HassJob, HomeAssistant, callback
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
-from homeassistant.helpers.event import (
-    async_call_later,
-    async_track_entity_registry_updated_event,
-)
+from homeassistant.helpers.event import async_track_entity_registry_updated_event
 from homeassistant.helpers.start import async_at_started
 
+from .clock import Clock
 from .const import DOMAIN, HEAD_TYPE_LOCAL
 
 if TYPE_CHECKING:
@@ -131,7 +129,8 @@ class RepairMonitor:
         self._entry_id = entry_id
         self._references = references
         self._unsubs: list[Callable[[], None]] = []
-        self._timers: dict[str, Callable[[], None]] = {}
+        # Its own clock, so the waits end with the monitor and nothing else.
+        self._clock = Clock(hass)
         self._raised: dict[str, str] = {}
 
     @callback
@@ -163,9 +162,7 @@ class RepairMonitor:
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
-        for cancel in self._timers.values():
-            cancel()
-        self._timers.clear()
+        self._clock.retire()
         self._raised.clear()
         async_clear_entry_issues(self._hass, self._entry_id)
 
@@ -207,8 +204,7 @@ class RepairMonitor:
         fault = self._fault(entity_id)
         raised = self._raised.get(entity_id)
         if fault is None:
-            if cancel := self._timers.pop(entity_id, None):
-                cancel()
+            self._clock.cancel("repair", entity_id)
             if raised is not None:
                 del self._raised[entity_id]
                 ir.async_delete_issue(
@@ -222,20 +218,17 @@ class RepairMonitor:
                     self._hass, DOMAIN, issue_id(raised, self._entry_id, entity_id)
                 )
                 self._raise(entity_id, fault)
-        elif entity_id not in self._timers:
-            self._timers[entity_id] = async_call_later(
-                self._hass,
-                REPAIR_DEBOUNCE,
-                HassJob(
-                    partial(self._on_debounced, entity_id),
-                    "MXZ repair issue wait",
-                    cancel_on_shutdown=True,
-                ),
+        elif not self._clock.waiting("repair", entity_id):
+            self._clock.call_later(
+                REPAIR_DEBOUNCE.total_seconds(),
+                partial(self._on_debounced, entity_id),
+                name="repair",
+                key=entity_id,
+                cancel_on_shutdown=True,
             )
 
     @callback
-    def _on_debounced(self, entity_id: str, _now: object) -> None:
-        self._timers.pop(entity_id, None)
+    def _on_debounced(self, entity_id: str) -> None:
         if (fault := self._fault(entity_id)) is not None:
             self._raise(entity_id, fault)
 

@@ -19,7 +19,6 @@ import copy
 import logging
 import math
 import operator
-import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
@@ -42,7 +41,6 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import (
-    async_call_later,
     async_track_state_change_event,
     async_track_state_report_event,
     async_track_time_interval,
@@ -58,6 +56,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .capabilities import head_has_fan_auto
+from .clock import Clock
 from .cloud import (
     clamp,
     offset_in_unit,
@@ -248,20 +247,6 @@ if TYPE_CHECKING:
     from homeassistant.core import EventStateChangedData, EventStateReportedData, State
 
 _LOGGER = logging.getLogger(__name__)
-
-# Seconds on a clock that only counts up: an NTP step or a clock set by hand
-# never moves it, so no hold or wait is cut short or stretched by one.
-Clock = Callable[[], float]
-
-
-def monotonic() -> float:
-    """MXZ's clock: ``time.monotonic``, looked up at each read.
-
-    A coordinator takes this as its ``clock`` when it is built; a test stands
-    its own in here before setup to make time pass.
-    """
-    return time.monotonic()
-
 
 # What MXZ remembers of its head writes (logic.HeadWriteMemory), by service field.
 _HEAD_WRITE_MODE = "hvac_mode"
@@ -874,8 +859,9 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             config_entry=entry,
             request_refresh_debouncer=debouncer,
         )
-        # The one clock every hold, wait, time limit and rate limit reads.
-        self.clock: Clock = monotonic
+        # The one clock every hold, wait, time limit and rate limit reads, and
+        # every wait is armed on (see clock.py).
+        self.clock = Clock(hass)
         conf: dict[str, Any] = {**entry.data, **entry.options}
 
         # Operate in the HA system temperature unit. The °F profile reproduces
@@ -972,7 +958,6 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         # Monotonic, like the mode-change dwell: a wall-clock step must not
         # cut the coil-dry wait short or stretch it. In memory only.
         self._last_active: dict[str, tuple[str, float]] = {}
-        self._dry_timers: dict[str, Any] = {}
         # Delta-proportional fan boost (overrides the firmware's weak "auto").
         # Adopt a setpoint or on/off set at a head instead of writing over it.
         self.accept_head_changes: bool = bool(
@@ -1040,7 +1025,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         # a wall-clock step must not shorten or stretch the time limit (the
         # wall-clock copy is display only). In memory only: after a restart or
         # a reload a head is unknown until it is seen, timed from that start.
-        # One wakeup for the nearest expiry (see _sync_lost_timer), and one
+        # One wait for the nearest expiry (see _sync_lost_timer), and one
         # for the nearest end of a settle window (see _sync_settle_timer).
         started = self.clock()
         started_wall = dt_util.utcnow().timestamp()
@@ -1048,12 +1033,6 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             zone.climate_id: HeadSight(started, started_wall, ACTION_VOTE_SETTLE)
             for zone in self.zones
         }
-        self._lost_timer: Any | None = None
-        self._lost_retired = False
-        self._settle_timer: Any | None = None
-        # One wakeup for the moment the nearest Comfort priority "on" goes
-        # stale (see _sync_comfort_timer). Nothing about it is stored.
-        self._comfort_timer: Any | None = None
 
         # Helper values (owned by the switch/select entities; seeded on
         # restore, mutated on user action). Kill-switch defaults OFF for safety.
@@ -1088,21 +1067,10 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         if record.mode is not None:
             self.current_shared_mode = record.mode
             self._mode_by_votes = record.by_votes
-        # One-shot re-render when the hold ends, so the thermostats' hold
-        # attributes reach 0 then even if nothing else refreshes them.
-        self._hold_end_timer: Any | None = None
-        # One-shot wakeup at dwell expiry, armed only while the dwell is
-        # holding a flip back (see _sync_dwell_timer). Retirement is one-way
-        # for this incarnation: a reload builds a new coordinator.
-        self._dwell_timer: Any | None = None
-        self._dwell_retired = False
-        # One-shot wakeup after a compute disengaged an engage latch, so a room
-        # that coasts through a direction flip is re-evaluated on a head that
-        # echoes nothing back (see _sync_coast_timer). Retirement is one-way for
-        # this incarnation, exactly as for the dwell wakeup above.
+        # Whether the last compute let go of an engage latch, so a room that
+        # coasts through a direction flip is re-evaluated on a head that echoes
+        # nothing back (see _sync_coast_timer).
         self._coasted = False
-        self._coast_timer: Any | None = None
-        self._coast_retired = False
         # Allow Dry mode, per room (see dry.DryMode).
         self.dry = DryMode(self, self.zones)
         # Door/window pause, per room (see openings.OpeningPause).
@@ -1144,11 +1112,8 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         # logs it then if it still applies. A reload while running warns at once.
         self._startup_quiet = hass.state is not CoreState.running
         self._quiet_unusable: set[str] = set()
-        self._fresh_timer: Any | None = None
-        self._fresh_retired = False
         self._arm_freshness(self._started_ts)
         self._unsubs: list[Any] = []
-        self._heal_timers: dict[tuple[str, str], Any] = {}
         # When each head's last heal notice went out (monotonic), for the hourly limit.
         self._heal_notice_at: dict[str, float] = {}
         # State callbacks may run inside a service call or one loop turn later.
@@ -1475,40 +1440,20 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         """Retire this context, then cancel its listeners, timers, and kick tasks.
 
         ``retired`` first, so nothing this incarnation already scheduled can
-        write a head again. Every pending self-heal, dry, dwell, coast,
-        lost-vote and settle timer is cancelled here. Retiring kicks is last: the existing
-        own-wake guard parks a head still reporting fan_only (see
-        _restore_woken_heads).
+        write a head again. Every wait on the clock is cancelled here, and the
+        clock arms none again: a refresh still in flight re-syncs its waits on
+        the way out, and a callback the loop already took does nothing. Retiring
+        kicks is last: the existing own-wake guard parks a head still reporting
+        fan_only (see _restore_woken_heads).
         """
         self.retired = True
         self.deliveries.retire()
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
-        # Retire the dwell before cancelling it: a refresh still in flight runs
-        # its own _sync_dwell_timer on the way out, and a callback the loop has
-        # already picked up cannot be cancelled at all.
-        self._dwell_retired = True
-        self._cancel_dwell_timer()
-        self._cancel_hold_end_timer()
-        self._coast_retired = True
-        self._cancel_coast_timer()
+        self.clock.retire()
         self.deliveries.drop_followup()
-        self._fresh_retired = True
-        self._cancel_fresh_timer()
-        self._lost_retired = True
-        self._cancel_lost_timer()
-        self._cancel_settle_timer()
-        self._cancel_comfort_timer()
         self.heads.retire()
-        self.openings.cancel_timers()
-        for cancel in self._heal_timers.values():
-            cancel()
-        self._heal_timers.clear()
-        for cancel in self._dry_timers.values():
-            cancel()
-        self._dry_timers.clear()
-        self.dry.cancel_timers()
         await self._async_retire_vane_kicks()
 
     # -- decision (mirrors sensor.mxz_plan) ---------------------------------
@@ -2175,17 +2120,9 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         report landing at the boundary wins by having moved its own deadline,
         and a recovery or a config reload in between is simply what gets seen.
         """
-        self._cancel_fresh_timer()
-        if self._fresh_retired or not self._fresh_deadline:
+        if not self._fresh_deadline:
+            self.clock.cancel("fresh")
             return
-
-        @callback
-        def _fire(_now: Any) -> None:
-            self._fresh_timer = None
-            if self._fresh_retired:
-                return  # cancelling cannot recall a callback already in flight
-            self.hass.async_create_task(self.async_request_refresh())
-
         # The boundary itself, with no allowance added: the deadline IS the
         # third due instant, and a room that is stale at it must not keep
         # steering the house for another second by construction. The comparison
@@ -2193,12 +2130,12 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         # stale — and a report that landed at the boundary has already moved
         # its own deadline, so re-reading is what lets it win.
         remaining = min(self._fresh_deadline.values()) - dt_util.utcnow().timestamp()
-        self._fresh_timer = async_call_later(self.hass, max(remaining, 0.0), _fire)
+        self.clock.call_later(max(remaining, 0.0), self._wake, name="fresh")
 
-    def _cancel_fresh_timer(self) -> None:
-        if self._fresh_timer is not None:
-            self._fresh_timer()
-            self._fresh_timer = None
+    @callback
+    def _wake(self) -> None:
+        """A wait ran out: ask for the ordinary recompute, which re-reads everything."""
+        self.hass.async_create_task(self.async_request_refresh())
 
     async def async_request_refresh(self) -> None:
         """Retain current inputs independently of HA's debounce timer."""
@@ -2236,7 +2173,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         # Resolve an existing coast wakeup as soon as the decision resolves it;
         # an unrelated pending transport must not postpone its cancellation.
         if not self._coasted:
-            self._cancel_coast_timer()
+            self.clock.cancel("coast")
         try:
             await self._apply(plan)
             # _apply is what settles the manual-fan latch (it reads each head's
@@ -2284,14 +2221,14 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         elapsed = self._mode_change_elapsed()
         remaining = -math.inf if elapsed is None else self.hysteresis - elapsed
         if (
-            self._dwell_retired
+            self.clock.retired
             or not self.coordinator_enable
             or self.parked_by_standby()
         ):
-            self._cancel_dwell_timer()
+            self.clock.cancel("dwell")
             return
         if remaining <= 0 and plan.mode_change_allowed:
-            self._cancel_dwell_timer()  # this plan already had its free hand
+            self.clock.cancel("dwell")  # this plan already had its free hand
             return
         current = self._arbitration_mode()
         held_demands, held_engages = self._held_calls(plan)
@@ -2314,7 +2251,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             resting=self._resting_bias(), running=current in held_engages,
         ).direction
         if would_flip_to == current:
-            self._cancel_dwell_timer()  # nothing is waiting on this dwell
+            self.clock.cancel("dwell")  # nothing is waiting on this dwell
             return
         self._arm_dwell_timer(remaining)
 
@@ -2324,24 +2261,8 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         ``remaining <= 0`` is a dwell that ran out while the last decision was
         being applied: that one wakes up at the first opportunity.
         """
-        self._cancel_dwell_timer()
-        if self._dwell_retired:
-            return
-
-        @callback
-        def _fire(_now: Any) -> None:
-            self._dwell_timer = None
-            if self._dwell_retired:
-                return  # cancelling cannot recall a callback already in flight
-            self.hass.async_create_task(self.async_request_refresh())
-
         delay = remaining + 1 if remaining > 0 else 0
-        self._dwell_timer = async_call_later(self.hass, delay, _fire)
-
-    def _cancel_dwell_timer(self) -> None:
-        if self._dwell_timer is not None:
-            self._dwell_timer()
-            self._dwell_timer = None
+        self.clock.call_later(delay, self._wake, name="dwell")
 
     # -- the mode-change hold: clock, record, display -------------------------
     def _mode_change_elapsed(self) -> float | None:
@@ -2442,23 +2363,17 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         has the dwell wakeup for that. This only keeps the hold attributes
         honest when nothing else would write them at the end.
         """
-        self._cancel_hold_end_timer()
         remaining = self.mode_hold_remaining()
         if self.retired or remaining <= 0:
+            self.clock.cancel("hold_end")
             return
 
         @callback
-        def _fire(_now: Any) -> None:
-            self._hold_end_timer = None
+        def _fire() -> None:
             if not self.retired:
                 self.async_update_listeners()
 
-        self._hold_end_timer = async_call_later(self.hass, remaining + 1, _fire)
-
-    def _cancel_hold_end_timer(self) -> None:
-        if self._hold_end_timer is not None:
-            self._hold_end_timer()
-            self._hold_end_timer = None
+        self.clock.call_later(remaining + 1, _fire, name="hold_end")
 
     # -- engage-latch coast follow-up ----------------------------------------
     def _sync_coast_timer(self) -> None:
@@ -2487,34 +2402,13 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         let go, so that compute coasts nothing.
         """
         if (
-            self._coast_retired
-            or not self.coordinator_enable
+            not self.coordinator_enable
             or self.parked_by_standby()
             or not self._coasted
         ):
-            self._cancel_coast_timer()
+            self.clock.cancel("coast")
             return
-        self._arm_coast_timer()
-
-    def _arm_coast_timer(self) -> None:
-        """Replace the pending follow-up with one for this coast."""
-        self._cancel_coast_timer()
-        if self._coast_retired:
-            return
-
-        @callback
-        def _fire(_now: Any) -> None:
-            self._coast_timer = None
-            if self._coast_retired:
-                return  # cancelling cannot recall a callback already in flight
-            self.hass.async_create_task(self.async_request_refresh())
-
-        self._coast_timer = async_call_later(self.hass, COAST_FOLLOWUP_DELAY, _fire)
-
-    def _cancel_coast_timer(self) -> None:
-        if self._coast_timer is not None:
-            self._coast_timer()
-            self._coast_timer = None
+        self.clock.call_later(COAST_FOLLOWUP_DELAY, self._wake, name="coast")
 
     # -- actuator (mirrors script.mxz_coordinate) ---------------------------
     async def _apply(self, plan: Plan) -> None:
@@ -2609,7 +2503,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
                     self._last_active[zone.climate_id] = (MODE_COOL, self.clock())
                 if dry == "held":
                     # A person's dry: no mode, setpoint, fan or vane write.
-                    self._cancel_dry_timer(zone.climate_id)
+                    self.clock.cancel("dry", zone.climate_id)
                     self.fan.read(zone.climate_id, MODE_DRY)
                     continue
                 # Another room won heat: park it at its idle action below,
@@ -2817,7 +2711,8 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         remaining = self.coil_dry_seconds - (self.clock() - rec[1])
         if remaining <= 0:
             return MODE_OFF
-        self._arm_dry_timer(climate_id, remaining)
+        if not self.clock.waiting("dry", climate_id):  # the stamp doesn't move while idle
+            self.clock.call_later(remaining + 1, self._wake, name="dry", key=climate_id)
         return MODE_FAN_ONLY
 
     def _seed_last_active(self, climate_id: str) -> tuple[str, float] | None:
@@ -2837,25 +2732,6 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             return rec
         return None
 
-    def _arm_dry_timer(self, climate_id: str, remaining: float) -> None:
-        """One-shot refresh nudge at dwell expiry (idempotent per head)."""
-        if climate_id in self._dry_timers:
-            return  # the stamped timestamp doesn't move while idle
-
-        @callback
-        def _fire(_now: Any) -> None:
-            self._dry_timers.pop(climate_id, None)
-            self.hass.async_create_task(self.async_request_refresh())
-
-        self._dry_timers[climate_id] = async_call_later(
-            self.hass, remaining + 1, _fire
-        )
-
-    def _cancel_dry_timer(self, climate_id: str) -> None:
-        cancel = self._dry_timers.pop(climate_id, None)
-        if cancel is not None:
-            cancel()
-
     def note_head_act(self, climate_id: str, act: str, at: float) -> None:
         """A head driver is sending this head ``act`` for the plan, at ``at``.
 
@@ -2865,7 +2741,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         if act in (MODE_COOL, MODE_HEAT):
             self._last_active[climate_id] = (act, at)
         if act != MODE_FAN_ONLY:
-            self._cancel_dry_timer(climate_id)
+            self.clock.cancel("dry", climate_id)
 
     def _planned_act_for(self, entity_id: str) -> str | None:
         """The action owning this head's writes, else the current plan's action.
@@ -3172,12 +3048,10 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     @callback
     def _on_ha_start(self, _hass: HomeAssistant) -> None:
         """After HA start, recompute once entities have had time to settle."""
-        self._unsubs.append(
-            async_call_later(self.hass, STARTUP_RECOVER_DELAY, self._on_startup_timer)
-        )
+        self.clock.call_later(STARTUP_RECOVER_DELAY, self._on_startup_timer, name="startup")
 
     @callback
-    def _on_startup_timer(self, _now: Any) -> None:
+    def _on_startup_timer(self) -> None:
         # Startup has settled: this recompute logs any room still unusable.
         self._startup_quiet = False
         self.hass.async_create_task(self.async_request_refresh())
@@ -3377,19 +3251,16 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     def _arm_or_cancel(
         self, entity_id: str, kind: str, condition: bool, delay: int
     ) -> None:
-        """(Re)arm a debounce timer for a drift condition, or cancel it if cleared."""
+        """(Re)arm a debounce wait for a drift condition, or cancel it if cleared."""
         key = (entity_id, kind)
-        if (existing := self._heal_timers.pop(key, None)) is not None:
-            existing()
         if condition:
-            self._heal_timers[key] = async_call_later(
-                self.hass, delay, partial(self._on_heal_timer, key)
-            )
+            self.clock.call_later(delay, partial(self._on_heal_timer, key), name="heal", key=key)
+        else:
+            self.clock.cancel("heal", key)
 
     @callback
-    def _on_heal_timer(self, key: tuple[str, str], _now: Any) -> None:
+    def _on_heal_timer(self, key: tuple[str, str]) -> None:
         """A drift condition persisted past its debounce window."""
-        self._heal_timers.pop(key, None)
         entity_id, kind = key
         if kind == "adopt":
             self.hass.async_create_task(self._async_adopt_head_change(entity_id))
@@ -3581,7 +3452,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             return False
         moved |= self._adopt_moved.get(climate_id, set())
         if not self._head_adoption(climate_id, moved):
-            held = (climate_id, "adopt") in self._heal_timers
+            held = self.clock.waiting("heal", (climate_id, "adopt"))
             self.drop_head_change(climate_id)
             return held
         self._adopt_moved[climate_id] = moved
@@ -3597,7 +3468,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
 
         Only a change with a target or an enable in it: an empty one protects nothing.
         """
-        return (climate_id, "adopt") in self._heal_timers and bool(
+        return self.clock.waiting("heal", (climate_id, "adopt")) and bool(
             self._head_adoption(climate_id, self._adopt_moved.get(climate_id, set()))
         )
 
@@ -3668,7 +3539,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             # later re-enable is read from the head's next report, not from
             # this timer. A refused adopt leaves it running, as with the option off.
             head = self.hass.states.get(climate_id)
-            if (climate_id, "off") in self._heal_timers and not self._off_while_enabled(
+            if self.clock.waiting("heal", (climate_id, "off")) and not self._off_while_enabled(
                 climate_id, head.state if head is not None else None
             ):
                 self._arm_or_cancel(climate_id, "off", False, OFF_WHILE_ENABLED_DELAY)
@@ -3886,9 +3757,6 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         callback only asks for a refresh, which re-reads every head as it is
         then, so a head back in sight by then is simply live again.
         """
-        self._cancel_lost_timer()
-        if self._lost_retired:
-            return
         clock = self.clock()
         waits = [
             wait
@@ -3908,23 +3776,11 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             ) is not None
         ]
         if not waits:
+            self.clock.cancel("lost")
             return
-
-        @callback
-        def _fire(_now: Any) -> None:
-            self._lost_timer = None
-            if self._lost_retired:
-                return  # cancelling cannot recall a callback already in flight
-            self.hass.async_create_task(self.async_request_refresh())
-
         # The boundary itself, as for freshness: expiry is half-open, so the
         # refresh this fires reads the vote as expired.
-        self._lost_timer = async_call_later(self.hass, min(waits), _fire)
-
-    def _cancel_lost_timer(self) -> None:
-        if self._lost_timer is not None:
-            self._lost_timer()
-            self._lost_timer = None
+        self.clock.call_later(min(waits), self._wake, name="lost")
 
     def _sync_settle_timer(self) -> None:
         """Keep one wakeup armed for the nearest end of a settle window.
@@ -3938,8 +3794,8 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         mode change or a lost head cancels or moves it. Votes by mode and
         Safety priority votes never wait on it: they don't read the run.
         """
-        self._cancel_settle_timer()
         if self.retired:
+            self.clock.cancel("settle")
             return
         clock = self.clock()
         waits = [
@@ -3950,21 +3806,15 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             and (wait := self._sight[zone.climate_id].settles_in(clock)) is not None
         ]
         if not waits:
+            self.clock.cancel("settle")
             return
 
         @callback
-        def _fire(_now: Any) -> None:
-            self._settle_timer = None
-            if self.retired:
-                return  # cancelling cannot recall a callback already in flight
-            self.hass.async_create_task(self.async_refresh_now())
+        def _fire() -> None:
+            if not self.retired:
+                self.hass.async_create_task(self.async_refresh_now())
 
-        self._settle_timer = async_call_later(self.hass, min(waits), _fire)
-
-    def _cancel_settle_timer(self) -> None:
-        if self._settle_timer is not None:
-            self._settle_timer()
-            self._settle_timer = None
+        self.clock.call_later(min(waits), _fire, name="settle")
 
     @staticmethod
     def _zone_arbitration_pair(
@@ -4061,8 +3911,8 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         vote wakeup, nothing is captured: the callback only asks for a
         refresh, which re-reads every entity as it is then.
         """
-        self._cancel_comfort_timer()
         if self.retired or self.comfort_stale_after is None:
+            self.clock.cancel("comfort")
             return
         now = dt_util.utcnow().timestamp()
         waits = []
@@ -4074,21 +3924,15 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             if wait is not None:
                 waits.append(wait)
         if not waits:
+            self.clock.cancel("comfort")
             return
 
         @callback
-        def _fire(_now: Any) -> None:
-            self._comfort_timer = None
-            if self.retired:
-                return  # cancelling cannot recall a callback already in flight
-            self.hass.async_create_task(self.async_request_refresh())
+        def _fire() -> None:
+            if not self.retired:
+                self.hass.async_create_task(self.async_request_refresh())
 
-        self._comfort_timer = async_call_later(self.hass, min(waits), _fire)
-
-    def _cancel_comfort_timer(self) -> None:
-        if self._comfort_timer is not None:
-            self._comfort_timer()
-            self._comfort_timer = None
+        self.clock.call_later(min(waits), _fire, name="comfort")
 
     def restore_hands_off(self, slug: str) -> None:
         """The enable switch restored a released hands-off room (see switch.py)."""

@@ -39,6 +39,7 @@ from custom_components.mxz_coordinator.const import (
 from custom_components.mxz_coordinator.coordinator import COAST_FOLLOWUP_DELAY
 from tests.clocks import jump_wall_clock, pass_time
 from tests.dwell import RESTAMP_TOLERANCE, expire_dwell
+from tests.peek import armed
 from tests.restart import restart
 from tests.test_drive import SENSOR_A, _eid, _recompute, _set_temp
 from tests.test_dwell_wakeup import (
@@ -230,7 +231,7 @@ async def test_restart_mid_hold_keeps_the_mode_then_changes_when_the_hold_ends(
     assert coord.current_shared_mode == first
     since = plan.attributes["seconds_since_mode_change"]
     assert 400 <= since < 400 + RESTAMP_TOLERANCE, since
-    assert coord._dwell_timer is not None  # the restart armed the wakeup for the rest
+    assert armed(coord, "dwell")  # the restart armed the wakeup for the rest
 
     # 10 s short of the window: the wakeup has fired, the hold still holds.
     _let_time_pass(monkeypatch, coord, 190)
@@ -238,7 +239,7 @@ async def test_restart_mid_hold_keeps_the_mode_then_changes_when_the_hold_ends(
     plan = _plan(hass, entry)
     assert (plan.state, plan.attributes["mode_change_allowed"]) == (first, False)
     assert _stored(hass_storage, entry) == stored
-    assert coord._dwell_timer is not None  # re-armed for the 10 s left
+    assert armed(coord, "dwell")  # re-armed for the 10 s left
 
     # Past the window: the change goes through on the wakeup, no manual recompute.
     _let_time_pass(monkeypatch, coord, 10 + 2)
@@ -409,16 +410,16 @@ async def test_the_hold_end_rewrites_the_attributes_and_decides_nothing(
     assert _hold(hass, entry, "secondary") == (0, None)
     assert requests == []
     assert _head_calls(calls, head_a) == [] and _head_calls(calls, head_b) == []
-    assert coord._hold_end_timer is None
+    assert not armed(coord, "hold_end")
 
 
 async def test_unload_cancels_the_hold_end_wakeup(hass: HomeAssistant) -> None:
     entry, _a, _b = await _setup_dwell(hass)  # a change just now: the wakeup is armed
     coord = entry.runtime_data
-    assert coord._hold_end_timer is not None
+    assert armed(coord, "hold_end")
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    assert coord._hold_end_timer is None
+    assert not armed(coord, "hold_end")
 
 
 # --- a person's choice, and removing the entry -------------------------------------

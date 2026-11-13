@@ -142,7 +142,7 @@ VARIABLES
     spShown,            \* the setpoint the head shows
     spQueue,            \* MXZ's writes the head hasn't shown yet, oldest first, with ghost kinds
     spMem,              \* logic.HeadWriteMemory for it, in hass.data: oldest first
-    holding,            \* the adopt hold is armed (_heal_timers "adopt")
+    holding,            \* the adopt hold is armed (the clock's heal wait, kind "adopt")
     quiet,              \* coordinator._startup_quiet
     shownKind,          \* ghost: what put spShown there: "person", or a queued write's kind
     adopted,            \* ghost: the kinds of MXZ's own writes the target took

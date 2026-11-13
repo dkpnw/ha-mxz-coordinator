@@ -34,7 +34,7 @@ from custom_components.mxz_coordinator.const import (
 )
 from tests.clocks import pass_time
 from tests.cloud_heads import past_window, recompute, record, writes
-from tests.peek import cloud_record
+from tests.peek import armed, cloud_record
 from tests.property_rig import TARGET, Rig, open_rig
 from tests.test_accept_head_changes import (
     HELD,
@@ -91,7 +91,7 @@ def _until_hour(rig: Rig) -> float:
 
 
 def _off_timer(rig: Rig) -> bool:
-    return (HEAD, "off") in rig.coord._heal_timers
+    return armed(rig.coord, "heal", (HEAD, "off"))
 
 
 # ---------------------------------------------------------------------------
@@ -407,7 +407,7 @@ async def test_a_stale_cloud_setpoint_in_its_window_starts_no_adopt(
     coordinator = entry.runtime_data
     head.report(temperature=before)  # the cloud still had the old setpoint on this poll
     await hass.async_block_till_done()
-    assert (head.entity_id, "adopt") not in coordinator._heal_timers
+    assert not armed(coordinator, "heal", (head.entity_id, "adopt"))
     assert coordinator._head_change_settling(head.entity_id) is False
     await _elapse(hass, HELD)
     assert _cloud_target(hass, entry) == 72.0
@@ -435,7 +435,7 @@ async def test_a_cloud_setpoint_the_head_never_had_is_still_adopted_in_its_windo
     head.device["temperature"] = 66.0
     head.poll()
     await hass.async_block_till_done()
-    assert (head.entity_id, "adopt") in entry.runtime_data._heal_timers
+    assert armed(entry.runtime_data, "heal", (head.entity_id, "adopt"))
     await _elapse(hass, HELD)
     assert _cloud_target(hass, entry) == 66.0
 

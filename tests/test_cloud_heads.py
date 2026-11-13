@@ -59,7 +59,7 @@ from tests.cloud_heads import (
     setup_rooms,
     writes,
 )
-from tests.peek import cloud_record
+from tests.peek import armed, cloud_record
 from tests.test_drive import _eid
 
 CLOUD = {ZONE_HEAD_TYPE: HEAD_TYPE_CLOUD}
@@ -851,7 +851,7 @@ async def test_a_held_back_step_wakes_the_plan_by_itself(
         {"entity_id": _eid(hass, entry, "_primary_target"), "value": 72}, blocking=True,
     )
     await hass.async_block_till_done()
-    assert entry.runtime_data.heads._timer is not None
+    assert armed(entry.runtime_data, "cloud")
     for _ in range(4):  # 4 x 31 s: past the 60 s interval and the refresh cooldown
         freezer.tick(timedelta(seconds=31))
         async_fire_time_changed(hass, dt_util.utcnow())
@@ -934,14 +934,14 @@ async def test_a_stale_off_report_starts_no_heal_but_a_real_one_does(
     coordinator = entry.runtime_data
     a.report(mode="off")  # a poll from before the batch
     await hass.async_block_till_done()
-    assert (a.entity_id, "off") not in coordinator._heal_timers
+    assert not armed(coordinator, "heal", (a.entity_id, "off"))
     a.poll()
     await hass.async_block_till_done()
     past_window(entry, a.entity_id)
     a.device["mode"] = "off"  # someone turned it off at the wall
     a.poll()
     await hass.async_block_till_done()
-    assert (a.entity_id, "off") in coordinator._heal_timers
+    assert armed(coordinator, "heal", (a.entity_id, "off"))
 
 
 async def test_a_reload_starts_pending_and_sends_nothing_for_one_wait(
@@ -964,7 +964,7 @@ async def test_a_reload_starts_pending_and_sends_nothing_for_one_wait(
     await recompute(hass, entry)
     assert len(writes(calls, a.entity_id)) == 2
     assert coordinator.fan.auto_is_on(a.entity_id)
-    assert (a.entity_id, "off") not in coordinator._heal_timers
+    assert not armed(coordinator, "heal", (a.entity_id, "off"))
     a.poll()
     await hass.async_block_till_done()
     past_window(entry, a.entity_id)

@@ -21,6 +21,8 @@ SOURCE = Path(__file__).resolve().parents[1] / "custom_components" / "mxz_coordi
 # Lowest first. A new module joins a layer here, in the same change that adds it.
 LAYERS = (
     ("constants", {"const"}),
+    # Monotonic seconds and every wait; the one caller of async_call_later (tools/raw_timers.py).
+    ("clock", {"clock"}),
     ("helpers", {"logic", "cloud", "capabilities", "host"}),
     # The plan one compute decides and the attributes it is shown as.
     ("plan", {"plan"}),

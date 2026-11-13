@@ -67,15 +67,17 @@ def auto_enable_custom_integrations(request):
 
 @pytest.fixture
 def mxz_clock(monkeypatch: pytest.MonkeyPatch):
-    """The clock every coordinator set up in this test reads (``coord.clock``).
+    """The time every coordinator set up in this test reads on ``coord.clock``.
 
-    It reads the production clock, ``coordinator.monotonic``, plus whatever
-    time the test makes pass on it, so a test that never does sees exactly
-    the clock a real coordinator reads.
+    Each coordinator's clock (``tests.clocks.Clock``) reads the production
+    clock plus whatever time the test makes pass, so a test that never does
+    sees exactly the clock a real coordinator reads, and it logs every wait.
     """
-    from custom_components.mxz_coordinator import coordinator
-    from tests.clocks import Clock
+    from functools import partial
 
-    clock = Clock(coordinator.monotonic)
-    monkeypatch.setattr(coordinator, "monotonic", clock)
-    return clock
+    from custom_components.mxz_coordinator import coordinator
+    from tests.clocks import Clock, Time
+
+    time = Time()
+    monkeypatch.setattr(coordinator, "Clock", partial(Clock, time=time))
+    return time

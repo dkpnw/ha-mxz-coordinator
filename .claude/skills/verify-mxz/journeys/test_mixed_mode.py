@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from mxz_journey import entity
 
 from tests.dwell import expire_dwell
+from tests.peek import armed
 from tests.test_drive import SENSOR_A, SENSOR_B, _recompute, _set_temp
 from tests.test_dwell_wakeup import _fire_due
 from tests.test_hands_off import _setup
@@ -48,7 +49,7 @@ async def test_priority_room_wins_then_the_waiting_room_resumes(
     assert (plan["state"], plan["mode_change_allowed"]) == ("cool", False)  # the wait holds
     assert shown["heads"][head_b]["state"] == "fan_only"
     assert shown["thermostats"][tile_a]["mode_change_hold_remaining"] > 0
-    assert coord._dwell_timer is not None  # the wait's end will wake the plan
+    assert armed(coord, "dwell")  # the wait's end will wake the plan
 
     expire_dwell(coord)  # the wait runs out (the suite's clock idiom)
     await _fire_due(hass, coord.hysteresis + 2)

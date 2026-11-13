@@ -53,6 +53,7 @@ from custom_components.mxz_coordinator.issues import (
     LEARN_MORE_URL,
     issue_id,
 )
+from tests.clocks import Armed, Clock, Time
 from tests.test_door_window import _setup as _setup_rig
 from tests.test_startup_continuity import _head
 
@@ -148,28 +149,41 @@ def _register(hass: HomeAssistant, entity_id: str) -> None:
     assert entry.entity_id == entity_id
 
 
-class _Timers:
-    """Stands in for ``async_call_later`` with a clock that adds up.
+class _Timers(Clock):
+    """The repair monitor's clock, with waits that run on a clock that adds up.
 
     ``async_fire_time_changed`` is not cumulative: a timer armed after a jump is
     still timed from the loop's real now, so the jump counts against it too. Telling
     a restarted wait from one that kept running needs a clock that really moves.
+    Every wait is held off the loop; ``advance`` runs each one that has come due.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, hass: HomeAssistant) -> None:
+        super().__init__(hass, time=Time())
+        self.held.add("repair")
         self.now = 0.0
-        self.pending: list[list[Any]] = []
+        self._due: dict[Armed, float] = {}
 
-    def call_later(self, _hass: HomeAssistant, delay: timedelta, job: Any) -> Any:
-        timer = [self.now + delay.total_seconds(), job]
-        self.pending.append(timer)
-        return lambda: self.pending.remove(timer)
+    @property
+    def pending(self) -> list[Armed]:
+        return [wait for wait in self.log if not (wait.cancelled or wait.fired)]
 
     def advance(self, seconds: float) -> None:
+        for wait in self.pending:
+            self._due.setdefault(wait, self.now + wait.delay)
         self.now += seconds
-        for timer in [t for t in self.pending if t[0] <= self.now]:
-            self.pending.remove(timer)
-            timer[1].target(None)
+        for wait in [w for w in self.pending if self._due[w] <= self.now]:
+            wait.fire()
+
+
+def _monitor_clock(timers: list[_Timers]):
+    """Stands in for the repair monitor's ``Clock``, keeping each one it builds."""
+
+    def build(hass: HomeAssistant) -> _Timers:
+        timers.append(_Timers(hass))
+        return timers[-1]
+
+    return build
 
 
 # -- a. a head, missing or unavailable ------------------------------------------
@@ -211,13 +225,14 @@ async def test_a_flapping_head_raises_nothing_and_each_recovery_restarts_the_wai
     hass: HomeAssistant,
 ) -> None:
     await _setup(hass)
-    timers = _Timers()
+    built: list[_Timers] = []
     entry = _entry_of(hass)
     # Restart the monitor on the clock that adds up.
     assert await hass.config_entries.async_unload(entry.entry_id)
-    with patch.object(issues_module, "async_call_later", timers.call_later):
+    with patch.object(issues_module, "Clock", _monitor_clock(built)):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
+        (timers,) = built
 
         # Down 80% of the wait, up a moment, for many times the wait in total.
         for _ in range(6):
@@ -240,12 +255,13 @@ async def test_a_flapping_head_raises_nothing_and_each_recovery_restarts_the_wai
 async def test_unavailable_then_missing_is_one_unbroken_wait(hass: HomeAssistant) -> None:
     """Still not there, only in a different way: that is no recovery."""
     await _setup(hass)
-    timers = _Timers()
+    built: list[_Timers] = []
     entry = _entry_of(hass)
     assert await hass.config_entries.async_unload(entry.entry_id)
-    with patch.object(issues_module, "async_call_later", timers.call_later):
+    with patch.object(issues_module, "Clock", _monitor_clock(built)):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
+        (timers,) = built
 
         await _set(hass, HEAD, "unavailable")
         timers.advance(WAIT * 0.6)
