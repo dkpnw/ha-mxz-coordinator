@@ -10,6 +10,8 @@ on your equipment.
 
 ## Unreleased
 
+- The freeze floor and overheat ceiling range error drops its closing sentence about nothing
+  being saved, as the other errors already had. The ranges it gives are unchanged.
 - Fix: a room's `command_error` is cleared when a later command to its head returns, so an old
   error no longer sits beside `command_status: returned`. `command_failed_at` still shows the
   time of the last failure.

@@ -2864,6 +2864,12 @@ def test_config_floor_copy_is_in_both_english_files() -> None:
         assert floor["data_description"]["floor_low"].startswith(
             "Heats this room when it is turned off and drops below this. Clear to turn off."
         )
-        assert "Nothing was saved" in options["error"]["floor_out_of_range"]
-        copies.append((floor, options["error"]["floor_out_of_range"]))
+        error = options["error"]["floor_out_of_range"]
+        assert error == (
+            "The freeze floor must be 35-65 °F (2-18 °C) and the overheat ceiling"
+            " 75-100 °F (24-38 °C), in your Home Assistant unit. Leave a field empty"
+            " for none."
+        )
+        assert "Nothing was saved" not in error
+        copies.append((floor, error))
     assert copies[0] == copies[1]
