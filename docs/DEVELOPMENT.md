@@ -11,65 +11,74 @@ patch of that line; 2024.12.0 itself is no longer run. The full test suite runs 
 exact targets with invented entities; it covers software behavior, not physical behavior
 on equipment.
 
-| Python | Home Assistant | Dependency setup |
+| Python | Home Assistant | Lock |
 | --- | --- | --- |
 | 3.12.14 | 2024.12.5 | `requirements/constraints-py312-ha2024.12.5.txt` |
-| 3.13.16 | 2026.2.3 | `requirements/constraints-py313-ha2026.2.3.txt` |
-| 3.14.8 | 2026.9.4 | `requirements/constraints-py314-ha2026.9.4.txt` |
-| 3.14.8 | 2026.10.0 | [Exact generated stable test environment](../requirements/ha2026.10/README.md) |
+| 3.13 | 2026.2.3 | `requirements/constraints-py313-ha2026.2.3.txt` |
+| 3.14 | 2026.9.4 | `requirements/constraints-py314-ha2026.9.4.txt` |
+| 3.14 | 2026.10.4 | `requirements/constraints-py314-ha2026.10.4.txt` |
 
-- The first three locks belong to the existing CI lanes. Each lane, and the .10
-  qualification, also runs the full suite a second time (the 2024.12.5 and 2026.9.4
-  lanes in a separate parallel job) with `-p tools.fakeboot` and
-  `FAKE_UPTIME=120`, on a clock that reads as if the runner had booted two minutes ago.
-  The mode-change wait, the coil-dry wait, and the floor's own clocks are timed on the
-  monotonic clock, which counts from boot, so a test that only passes on a long-running
-  host fails there.
-- The .10 recipe uses public immutable core/plugin inputs, a pinned Python archive, and
-  actual locally built artifact hashes. Public plugin `0.13.370` requires beta4;
-  installing it by version alone does not reproduce the stable .10 environment.
-- Use the linked recipe on Linux x86-64 with glibc 2.41 or newer. Its local evidence
-  does not establish genuine hosted qualification.
-- The form screenshots were captured on HA 2026.9.4 (earlier ones on 2026.10.0 were
-  replaced); the floor's rendering of the forms was not captured.
-- This source does not implement the separate HA 2026.11 restore changes, and no .11
-  support claim follows from .10 results.
+- Each lane is one lock and one row of the `pytest` job in `.github/workflows/ci.yml`; a
+  contract test fails if a lock has no lane or a lane names the wrong lock. Each lane
+  runs the full suite, then runs it again with `-p tools.fakeboot` and `FAKE_UPTIME=120`,
+  on a clock that reads as if the runner had booted two minutes ago. The mode-change
+  wait, the coil-dry wait, and the floor's own clocks are timed on the monotonic clock,
+  which counts from boot, so a test that only passes on a long-running host fails there.
+- Both passes run on every CPU with `-n auto --dist loadfile` (pytest-xdist, which each
+  lane's test plugin installs). `loadfile` keeps a file's tests in one worker and in file
+  order, as a serial run does.
+- Coverage (96% branch floor, `pyproject.toml`) and strict mypy run on the 2026.9.4 lane
+  in `.github/workflows/quality.yml`.
+- No lane runs HA 2026.11 yet. `pytest-homeassistant-custom-component` has no release
+  for it. Its test plugin is Home Assistant's own `pytest-homeassistant`, whose module
+  the tests do not import yet. No 2026.11 support claim follows from the 2026.10.4 lane.
+- The form screenshots were captured on HA 2026.9.4; the floor's rendering of the forms
+  was not captured.
 
 The property tests (`tests/test_properties_*.py`) need Hypothesis, which each lock pins. A
 lane without it fails at collection. [docs/formal](formal/README.md) explains them and the
 TLA+ model.
 
-## Run the floor lane (HA 2024.12.5) locally
+### Make or refresh a lane lock
 
-For a small local floor environment, use a new work directory outside the checkout
-and an installed Python 3.12.14. This command is for your development machine; it does
-not impersonate GitHub runner context or run the CI-only installer.
+A lock is `pip freeze` of a fresh venv on the lane's Python, unedited. The venv holds the
+`pytest-homeassistant-custom-component` release that pins that exact Home Assistant, and
+`requirements_test.txt`. Hypothesis and sortedcontainers keep the versions every lock
+shares (`tests/test_formal_contract.py` checks them):
+
+```bash
+python3.14 -m venv /tmp/lane
+/tmp/lane/bin/python -m pip install --index-url https://pypi.org/simple \
+  pytest-homeassistant-custom-component==0.13.375 hypothesis==6.170.15 -r requirements_test.txt
+/tmp/lane/bin/python -m pip check
+/tmp/lane/bin/python -m pip freeze --all --exclude pip > requirements/constraints-py314-ha2026.10.4.txt
+```
+
+Then add the lane's row to the `pytest` matrix and the table above.
+
+## Run a lane locally
+
+Use a new work directory outside the checkout and the lane's Python. This is the floor
+lane; any lane works the same way with its own lock and Python.
 
 ```bash
 work="$HOME/mxz-floor-work"
-mkdir -p "$work/home" "$work/tmp" "$work/cache"
-export HOME="$work/home" TMPDIR="$work/tmp" XDG_CACHE_HOME="$work/cache"
-export PYTHONDONTWRITEBYTECODE=1 PIP_CONFIG_FILE=/dev/null
-export PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
-unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL PIP_TRUSTED_HOST PYTHONPATH
 python3.12 -m venv "$work/venv"
 "$work/venv/bin/python" -m pip install --index-url https://pypi.org/simple \
   -c requirements/constraints-py312-ha2024.12.5.txt \
   -r requirements/constraints-py312-ha2024.12.5.txt -r requirements_test.txt
 "$work/venv/bin/python" -m pip check
-"$work/venv/bin/python" tools/check_lock.py \
-  requirements/constraints-py312-ha2024.12.5.txt \
-  21c7f4507efdfacb8489a8b6e044dcc2598c9ccd470d93646ae3883c7b5ec501 3.12.14
-"$work/venv/bin/python" -m pytest -p tools.pytest_phases tests/ -q -s -p no:cacheprovider
+"$work/venv/bin/python" tools/check_lock.py requirements/constraints-py312-ha2024.12.5.txt 3.12.14
+"$work/venv/bin/python" -m pytest -p tools.pytest_phases tests/ -q -n auto --dist loadfile
 FAKE_UPTIME=120 "$work/venv/bin/python" -m pytest -p tools.fakeboot -p tools.pytest_phases \
-  tests/ -q -s -p no:cacheprovider
-"$work/venv/bin/ruff" check --no-cache .
+  tests/ -q -n auto --dist loadfile
 ```
 
-Use the floor when your platform cannot run the exact .10 bundle, and label the result
-with its actual floor versions. It does not validate .10. Do not disable ordinary HA
-plugin loading, replace failed phases with collection, or infer hardware results from
-mock entities.
+Each pass must end `PHASES_VALID=true` with exit 0. `tools/pytest_phases.py` fails a run
+that skipped, deselected or xfailed any collected test, or lost one of its phases. Lint
+with the pinned tools: `pip install --require-hashes -r requirements_ci.txt`, then
+`ruff check .`. Label a local result with the lane's versions, and do not infer hardware
+results from mock entities.
 
 
 ## Adding a setting

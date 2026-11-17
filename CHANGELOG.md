@@ -29,6 +29,12 @@ on your equipment.
 - Tooling only: `python3 tools/revert_rate.py` reports the share of landings on main that
   were reverts, month by month in Pacific time, and lists each revert with the commit it
   names. It only reads git. Nothing changes in the integration, `hacs.json` or CI.
+- CI only: one plain `CI` workflow. It runs on pushes to `main`, on every pull request and by
+  hand. A newer push to a pull request cancels its older run, and re-runs work. The HA 2026.10
+  lane is now an ordinary lock (2026.10.4), replacing the generated bundle and its own
+  workflow, and each lane runs the suite and the fresh-boot suite in one job, on every CPU.
+  The issue #25 comparison harness, the first-time-contributor admission job and the
+  5 MiB log budget are gone. Nothing changes in the integration or `hacs.json`.
 - Docs only: Home Assistant 2026.11 replaced HACS with the built-in Marketplace, so the README
   Quick start and [SETUP.md](docs/SETUP.md#install) now install from **Settings → Marketplace**,
   and the README's one-click badge opens the Marketplace. The HACS steps stay in

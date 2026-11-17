@@ -12,12 +12,14 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
+from tests.test_ci_contract import trigger_violations
+
 ROOT = Path(__file__).parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
 LANE = "py3.14-ha2026.9.4"
 # Raising the floor needs only pyproject.toml; lowering it has to come through here too.
 COVERAGE_FLOOR = 96
-COVERAGE_RUN = "python -m pytest -p tools.pytest_phases tests/ -q --cov --cov-report=term"
+COVERAGE_RUN = "python -m pytest -p tools.pytest_phases tests/ -q -n auto --dist loadfile --cov --cov-report=term"
 MYPY_RUN = '"$RUNNER_TEMP/mypy-venv/bin/mypy" --python-executable "$RUNNER_TEMP/mxz-venv/bin/python"'
 HASH_INSTALL = re.compile(r"pip install --require-hashes -r requirements_ci\.txt$")
 PINNED_ACTION = re.compile(r"[\w./-]+@[0-9a-f]{40}")
@@ -34,13 +36,13 @@ def named_step(job, name):
 
 def workflow_violations(quality, lane):
     """What this workflow must keep; lane is the ci.yml matrix entry it shares a lock with."""
-    errors = []
+    errors = trigger_violations(quality, "quality")
     if quality.get("permissions") != {"contents": "read"}:
         errors.append("token permissions")
     jobs = quality.get("jobs", {})
     if set(jobs) != {"coverage", "mypy"}:
         errors.append("missing or extra job")
-    install = f"tools/ci-install.sh {lane['constraints']} {lane['sha256']} {lane['python-version']} "
+    install = f"tools/ci-install.sh {lane['constraints']} {lane['python-version']}"
     for job in jobs.values():
         if {"permissions", "secrets", "environment", "continue-on-error", "if"} & set(job):
             errors.append("job override")
@@ -56,7 +58,7 @@ def workflow_violations(quality, lane):
                 step["with"] != {"python-version": lane["python-version"]}
             ):
                 errors.append("python differs from the lane")
-        if install not in named_step(job, "Exact locked installation").get("run", ""):
+        if named_step(job, "Exact locked installation").get("run", "").strip() != install:
             errors.append("lock differs from the lane")
     if COVERAGE_RUN not in named_step(jobs.get("coverage", {}), "Full suite with the coverage floor").get(
         "run", ""
@@ -97,7 +99,8 @@ def lock_violations(source, lock, test_requirements):
     locked = pins(lock)
     if not wanted or any(locked.get(name) != version for name, version in wanted.items()):
         errors.append("lock differs from its source")
-    if pins(test_requirements).get("ruff") != wanted.get("ruff"):
+    # CI's ruff comes from this lock alone; a second pin could drift from it.
+    if "ruff" in pins(test_requirements):
         errors.append("two ruff versions")
     # Each requirement is a pin followed by its own hash lines.
     lines = lock.splitlines()
@@ -172,7 +175,11 @@ WORKFLOW_FAULTS = {
     "unpinned action": lambda q: _job(q, "mypy")["steps"][0].update(uses="actions/checkout@v7"),
     "persistent checkout": lambda q: _job(q, "mypy")["steps"][0]["with"].update({"persist-credentials": "true"}),
     "python differs from the lane": lambda q: _job(q, "mypy")["steps"][1]["with"].update({"python-version": "3.13"}),
-    "lock differs from the lane": lambda q: _replace_run(q, "coverage", "Exact locked installation", "c170656", "0170656"),
+    "lock differs from the lane": lambda q: _replace_run(
+        q, "coverage", "Exact locked installation", "py314-ha2026.9.4", "py313-ha2026.2.3"),
+    "push filter": lambda q: q["on"]["push"].update(paths=["custom_components/**"]),
+    "pull request or manual filter": lambda q: q["on"].update(pull_request={"paths": ["custom_components/**"]}),
+    "concurrency": lambda q: q["concurrency"].update({"cancel-in-progress": "true"}),
     "coverage run": lambda q: _replace_run(q, "coverage", COVERAGE_STEP, " tests/ ", " tests/test_climate.py "),
     "mypy run": lambda q: _replace_run(q, "mypy", MYPY_STEP, "--python-executable", "--ignore-errors --python-executable"),
 }
@@ -213,7 +220,7 @@ def test_a_raised_floor_is_accepted(config):
 @pytest.mark.parametrize(("change", "expected"), [
     (lambda s, k, t: (s.replace("mypy==2.4.1", "mypy==2.4.0"), k, t), "lock differs from its source"),
     (lambda s, k, t: (s, k.replace("ruff==0.17.4", "ruff==0.16.0"), t), "lock differs from its source"),
-    (lambda s, k, t: (s, k, t.replace("ruff==0.17.4", "ruff==0.16.0")), "two ruff versions"),
+    (lambda s, k, t: (s, k, t + "ruff==0.17.4\n"), "two ruff versions"),
     (lambda s, k, t: (s, re.sub(r"(ruff==\S+)(?: \\\n\s+--hash=\S+)+", r"\1", k), t), "requirement without a hash"),
 ])
 def test_a_drifted_tool_lock_is_refused(change, expected):
@@ -257,7 +264,7 @@ def lane_locks():
 
 def test_test_requirements_install_under_every_lane_lock():
     locks = lane_locks()
-    assert len(locks) == 3
+    assert locks == sorted(path.relative_to(ROOT).as_posix() for path in (ROOT / "requirements").glob("constraints-*.txt"))
     test_requirements = (ROOT / "requirements_test.txt").read_text()
     for lock in locks:
         assert floor_violations(test_requirements, (ROOT / lock).read_text()) == [], lock
@@ -271,7 +278,7 @@ FLOOR_LOCK = "requirements/constraints-py312-ha2024.12.5.txt"
     ("pytest>=9.2.0\npytest-asyncio>=1.4.1.post1\npytest-homeassistant-custom-component>=0.13.375\n",
      ["pytest>=9.2.0 refuses 8.3.3", "pytest-asyncio>=1.4.1.post1 refuses 0.24.0",
       "pytest-homeassistant-custom-component>=0.13.375 refuses 0.13.195"]),
-    ("ruff==0.16.0\n", ["ruff==0.16.0 refuses 0.17.4"]),
+    ("pytest-asyncio==0.23.0\n", ["pytest-asyncio==0.23.0 refuses 0.24.0"]),
     ("hypothesis>=6.170.16  # one above the lock\n", ["hypothesis>=6.170.16 refuses 6.170.15"]),
     ("invented-plugin>=1\n", ["invented-plugin not in the lock"]),
     # Names compare normalized, and a floor equal to the pin is admitted.
@@ -312,26 +319,29 @@ def pre_commit_text():
 
 def test_the_ruff_hook_runs_the_ci_ruff():
     ruff = pins((ROOT / "requirements_ci.in").read_text())["ruff"]
-    assert ruff == "0.17.4"
     assert hook_violations(pre_commit_text(), ruff) == []
 
 
-FROZEN = "c0f278f1254ccc8fb09676bcdb8d847e7db493e5  # frozen: v0.17.4"
+# The hook's frozen line as the file holds it today, so a ruff bump touches only the
+# pins themselves.
+CI_RUFF = pins((ROOT / "requirements_ci.in").read_text())["ruff"]
+FROZEN = re.search(r"[0-9a-f]{40}  # frozen: v\S+", pre_commit_text()).group(0)
+FROZEN_SHA = FROZEN.split()[0]
 
 
 @pytest.mark.parametrize(("old", "new", "expected"), [
-    # The pin this PR replaced.
+    # An older ruff, at its own commit.
     (FROZEN, "cb8c523fd4835aba42af70f4cad5568db4df0b6c  # frozen: v0.16.0", ["ruff hook differs from CI"]),
-    (FROZEN, "v0.17.4", ["ruff hook not frozen to a commit", "ruff hook differs from CI"]),
-    (FROZEN, "c0f278f1254ccc8fb09676bcdb8d847e7db493e5", ["ruff hook differs from CI"]),
-    (FROZEN, "c0f278f1254ccc8fb09676bcdb8d847e7db493e5  # frozen: v0.17.40", ["ruff hook differs from CI"]),
+    (FROZEN, f"v{CI_RUFF}", ["ruff hook not frozen to a commit", "ruff hook differs from CI"]),
+    (FROZEN, FROZEN_SHA, ["ruff hook differs from CI"]),
+    (FROZEN, f"{FROZEN_SHA}  # frozen: v{CI_RUFF}0", ["ruff hook differs from CI"]),
     ("id: ruff-check", "id: ruff-format", ["ruff hook does not check"]),
     (RUFF_HOOK, "https://github.com/invented/ruff-pre-commit", ["no single ruff hook"]),
 ])
 def test_a_drifted_ruff_hook_is_refused(old, new, expected):
     text = pre_commit_text()
     assert text.count(old) == 1
-    assert hook_violations(text.replace(old, new), "0.17.4") == expected
+    assert hook_violations(text.replace(old, new), CI_RUFF) == expected
 
 
 def ruff_paths(ci_text):
