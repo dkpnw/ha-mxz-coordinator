@@ -722,7 +722,9 @@ class FloorGuard:
         )
 
     def record(self, slug: str) -> dict[str, Any]:
-        """What the enable switch persists for this room's floor (may be empty).
+        """What a start needs back of this room's floor (may be empty).
+
+        The room state store keeps it, and the enable switch's restore data too.
 
         A record exists only while a run or a yield does, so a room with no
         floor stores exactly what it stored before floors existed.
@@ -741,15 +743,20 @@ class FloorGuard:
         return record
 
     def restore(self, slug: str, data: dict[str, Any]) -> None:
-        """The enable switch restored a disabled room's floor record.
+        """A start restored a disabled room's floor record, replacing any restored before.
 
-        Only a well-formed record for a floor still configured is taken; any
-        other is dropped, and the room's first compute decides afresh (a
+        It comes from the room state store or the enable switch's restore data,
+        whichever is newer. Only a well-formed record for a floor still
+        configured is taken; any other is dropped, and the room's first compute
+        decides afresh (a
         hands-off room then parks, since a run had un-released it). Downtime
         is not charged to the no-progress clock. A run without a readable
         ``window`` (as 3.7.0 betas before P9 stored it) restarts its re-arm
         window from the next reading.
         """
+        self._runs.pop(slug, None)
+        self._prior.pop(slug, None)
+        self._yield.pop(slug, None)
         zone = next((z for z in self._zones if z.slug == slug), None)
         if zone is None:
             return

@@ -55,6 +55,12 @@ from .coordinator import (
 )
 from .issues import async_clear_entry_issues, async_start_repair_monitor
 from .openings import async_load_openings, async_remove_openings
+from .room_state import (
+    SECTION_MODE,
+    SECTION_OPENINGS,
+    async_load_room_state,
+    async_remove_room_state,
+)
 from .settings import entry_config, one_home
 
 _LOGGER = logging.getLogger(__name__)
@@ -148,13 +154,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
 
     async_keep_saved_temps_in_unit(hass, entry)
 
-    # The last real cool/heat change, so a reload or restart continues its hold
-    # instead of starting a new one, and the shared mode as last written (read
-    # before the first plan is computed).
-    # And each room's door/window pause, so a pause outlives both too.
+    # Each room's state (room_state.py), read before the first plan is
+    # computed: the last real cool/heat change, so a reload or restart
+    # continues its hold instead of starting a new one, the shared mode as last
+    # written, each room's door/window pause, and every room's values. The mode
+    # and door/window records come from their own files while those are kept.
+    saved = await async_load_room_state(hass, entry.entry_id)
     coordinator = MXZCoordinator(
-        hass, entry, await async_load_mode_record(hass, entry.entry_id),
-        await async_load_openings(hass, entry.entry_id),
+        hass,
+        entry,
+        await async_load_mode_record(hass, entry.entry_id, saved.section(SECTION_MODE)),
+        await async_load_openings(hass, entry.entry_id, saved.section(SECTION_OPENINGS)),
+        saved,
     )
     entry.runtime_data = coordinator
 
@@ -162,9 +173,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool:
     # dropped zones so they don't linger as unavailable ghosts.
     _async_prune_stale_entities(hass, entry, coordinator)
 
-    # Build the helper entities first; the coordinator reads their (restored)
-    # values, so it must not start applying until they exist. The kill-switch
-    # defaults OFF, so the first refresh is a safe no-op regardless.
+    # Build the helper entities first; each takes its restore data where that
+    # is newer than the store, so the coordinator must not start applying until
+    # they exist. The kill-switch defaults OFF, so with nothing stored the
+    # first refresh is a safe no-op regardless.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     await coordinator.async_setup()
@@ -188,7 +200,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> bool
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: MXZConfigEntry) -> None:
-    """Delete what the entry kept: its mode-change and door/window records, and its issues."""
+    """Delete what the entry kept: its room state, mode-change and door/window records, and its issues."""
+    await async_remove_room_state(hass, entry.entry_id)
     await async_remove_last_mode_change(hass, entry.entry_id)
     await async_remove_openings(hass, entry.entry_id)
     async_clear_entry_issues(hass, entry.entry_id)

@@ -52,6 +52,7 @@ from tests.ha_test import (
 )
 from tests.restart import restart, stopped
 from tests.restore_store import set_stored_states
+from tests.room_state_store import forget_room_state
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -331,6 +332,7 @@ async def test_a_previous_incarnation_is_still_ignored(
     await hass.async_block_till_done()
 
     stamp = entry.created_at + timedelta(days=-3 if stale else 3)
+    await forget_room_state(hass, entry)  # this restore data is all that was saved
     set_stored_states(hass, {
         switch_id: rs.StoredState(
             State(switch_id, "unavailable", last_updated=stamp),

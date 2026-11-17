@@ -1,10 +1,11 @@
 """On/off helpers: per-zone enables, eco-idle, lockouts, and the kill-switch.
 
 Replaces the input_boolean.* helpers from the YAML package. All default OFF on a
-fresh install (matching the package, where `initial` was omitted) and restore their
-last state across restarts. The per-zone Fan auto switches render live from the
-coordinator's latch, but restore one bool of their own — held or not — which is how
-the seed tells boost residue from a deliberate hold after a restart.
+fresh install (matching the package, where `initial` was omitted). Each shows and sets
+a coordinator value that the room state store keeps across restarts; for one release
+they also keep their restore data, which a start takes where it is newer. The per-zone
+Fan auto switches render live from the coordinator's latch, whose held-or-not bool is
+how the seed tells boost residue from a deliberate hold after a restart.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from typing import Any, cast
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
@@ -29,6 +30,16 @@ from .const import (
 )
 from .coordinator import MXZCoordinator, Zone
 from .entity import MXZEntity
+from .fan_hold import (
+    ATTR_FAN_ON_PENDING,
+    ATTR_LAST_FAN_COMMAND,
+    ATTR_OLDER_FAN_COMMANDS,
+    ATTR_PRIOR_FAN_COMMAND,
+    FanHoldRestoreData,
+    older_tokens,
+    pending_handback,
+    stored_token,
+)
 
 _GLOBAL_ICONS = {
     KEY_COORDINATOR_ENABLE: "mdi:hvac",
@@ -37,104 +48,6 @@ _GLOBAL_ICONS = {
     KEY_COOL_LOCKOUT: "mdi:snowflake-off",
 }
 _ZONE_ICONS = ("mdi:bed", "mdi:sofa")  # legacy zone-0/1 icons; generic beyond
-
-
-# Echo baselines, including adopted observations and held user tokens; these
-# historical attribute names do NOT prove command delivery or token ownership.
-# Dual-channel persistence is a workaround for the frozen lifecycle read oracle:
-# clean states must not read extra data. Unavailable states use extra data.
-# Publish memory changes synchronously to keep clean/extra snapshots coherent.
-# Neither channel is a delivery journal or an arbitrary-crash guarantee.
-ATTR_LAST_FAN_COMMAND = "last_fan_command"
-ATTR_PRIOR_FAN_COMMAND = "prior_fan_command"
-ATTR_OLDER_FAN_COMMANDS = "older_fan_commands"
-ATTR_FAN_ON_PENDING = "fan_on_pending"
-
-
-def _token(value: Any) -> str | None:
-    """A restored fan token, or None for anything that is not one."""
-    return value if isinstance(value, str) else None
-
-
-def _older_tokens(value: Any) -> tuple[str, ...]:
-    """Restored older echo baselines; anything but a list of tokens is none."""
-    if not isinstance(value, list) or not all(isinstance(token, str) for token in value):
-        return ()
-    return tuple(value)
-
-
-def _pending_handback(data: Any, held: bool) -> bool:
-    """Only a well-formed explicit instruction can override token inference."""
-    return (
-        held is False and data.get(ATTR_FAN_ON_PENDING) is True
-        and all(data.get(key) is None or isinstance(data.get(key), str)
-                for key in (ATTR_LAST_FAN_COMMAND, ATTR_PRIOR_FAN_COMMAND))
-    )
-
-
-@dataclass(frozen=True)
-class FanHoldRestoreData(ExtraStoredData):
-    """What a Fan auto switch carries across a restart beside its state.
-
-    ``held`` is the one bool that decides a restart: the switch's own state
-    cannot always carry it. The switch is unavailable while the head is
-    missing from the state machine, so a head whose integration is unloaded
-    or failed at shutdown leaves ``unavailable`` persisted — not an answer to
-    "was this room held?". HA stores extra restore data beside the state
-    whatever the state says, so the hold survives the outage that hid it.
-
-    ``last``/``prior`` are the coordinator's echo memory for the head, the
-    last two commanded or adopted tokens (None before any baseline). They
-    permit bounded echo tolerance, not proof that a token came from us.
-    Readers before this field ignore it; a record without it restores the
-    bool alone.
-
-    ``older`` is that memory's older end, only while the head was behind at the
-    stop, oldest first. Absent otherwise, so most records keep their old shape.
-
-    ``on_pending`` is earned only by explicit ON with no usable speed. It
-    survives a saved restart and is consumed once by the first usable report,
-    or cancelled by later OFF. It is not own-command or delivery provenance.
-    Legacy/malformed instructions are absent; held truth always takes priority.
-    """
-
-    held: bool
-    last: str | None = None
-    prior: str | None = None
-    on_pending: bool = False
-    older: tuple[str, ...] = ()
-
-    def as_dict(self) -> dict[str, Any]:
-        """Serialize for the restore store."""
-        data: dict[str, Any] = {
-            "held": self.held,
-            ATTR_LAST_FAN_COMMAND: self.last,
-            ATTR_PRIOR_FAN_COMMAND: self.prior,
-        }
-        # Absent means false, preserving the legacy payload when no explicit
-        # handback awaits a report. Contradictory held truth always wins.
-        if self.on_pending is True and self.held is False:
-            data[ATTR_FAN_ON_PENDING] = True
-        if self.older:
-            data[ATTR_OLDER_FAN_COMMANDS] = list(self.older)
-        return data
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> FanHoldRestoreData | None:
-        """Rebuild from the store; anything but a clean bool is no answer.
-
-        A token that is not a string is no memory, not a different answer.
-        """
-        held = data.get("held")
-        if not isinstance(held, bool):
-            return None
-        return cls(
-            held,
-            _token(data.get(ATTR_LAST_FAN_COMMAND)),
-            _token(data.get(ATTR_PRIOR_FAN_COMMAND)),
-            _pending_handback(data, held),
-            _older_tokens(data.get(ATTR_OLDER_FAN_COMMANDS)),
-        )
 
 
 async def async_setup_entry(
@@ -160,31 +73,49 @@ async def async_setup_entry(
 
 
 class MXZBaseSwitch(MXZEntity, SwitchEntity, RestoreEntity):
-    """A restorable on/off helper that seeds coordinator state."""
+    """A restorable on/off helper: a view of a coordinator value, which it sets."""
 
     def __init__(self, coordinator: MXZCoordinator, key: str) -> None:
         super().__init__(coordinator, key)
         self._attr_is_on = False
 
     async def async_added_to_hass(self) -> None:
-        """Restore last state and seed the coordinator.
+        """Show the value the start resumed, or restore it from this entity's record.
 
-        Restores from a PREVIOUS entry incarnation are ignored (#7) — the
-        dangerous case is a deleted entry's kill-switch ON resurrecting onto a
-        freshly re-added entry. A rename's re-add neither restores nor seeds:
-        seeding as restored would mark the coordinator and its rooms as
-        resuming from an HA start (see ``_readded``).
+        The room state store resumed it unless this entity's restore record is
+        newer (``MXZCoordinator.store_resumes``). Restores from a PREVIOUS entry
+        incarnation are ignored (#7) — the dangerous case is a deleted entry's
+        kill-switch ON resurrecting onto a freshly re-added entry. A rename's
+        re-add neither restores nor seeds: seeding as restored would mark the
+        coordinator and its rooms as resuming from an HA start (see
+        ``_readded``).
         """
         await super().async_added_to_hass()
         if self._readded:
             return
-        if (
-            last := await self.async_get_last_state()
-        ) is not None and not self._restored_state_is_stale(last):
+        last = await self.async_get_last_state()
+        if self.coordinator.store_resumes(*self._stored_as, self._recorded_at(last)):
+            self._attr_is_on = self._resumed()
+            return
+        if last is not None and not self._restored_state_is_stale(last):
             self._attr_is_on = last.state == "on"
-        self._seed(restored=True)
+        await self._async_restore(last)
 
-    def _seed(self, *, restored: bool = False) -> None:
+    @property
+    def _stored_as(self) -> tuple[str, str]:
+        """How ``MXZCoordinator.store_resumes`` names this value."""
+        raise NotImplementedError
+
+    def _resumed(self) -> bool:
+        """The value the start resumed from the store."""
+        raise NotImplementedError
+
+    async def _async_restore(self, last: State | None) -> None:
+        """Hand ``_attr_is_on``, restored from ``last`` or the default, to the coordinator."""
+        raise NotImplementedError
+
+    def _set_value(self, on: bool) -> None:
+        """A person turned it on or off."""
         raise NotImplementedError
 
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -195,7 +126,7 @@ class MXZBaseSwitch(MXZEntity, SwitchEntity, RestoreEntity):
 
     async def _set(self, value: bool) -> None:
         self._attr_is_on = value
-        self._seed()
+        self._set_value(value)
         self.async_write_ha_state()
         await self.coordinator.async_user_changed()
 
@@ -208,15 +139,18 @@ class MXZSwitch(MXZBaseSwitch):
         self._key = key
         self._attr_icon = _GLOBAL_ICONS[key]
 
-    def _seed(self, *, restored: bool = False) -> None:
-        was_enabled = getattr(self.coordinator, self._key)
-        setattr(self.coordinator, self._key, self._attr_is_on)
-        if self._key == KEY_COORDINATOR_ENABLE:
-            if restored:
-                self.coordinator.restored_coordinator_on = cast("bool", self._attr_is_on)
-            elif not was_enabled or not self._attr_is_on:
-                self.coordinator.restored_coordinator_on = False
-                self.coordinator._startup_resume.clear()
+    @property
+    def _stored_as(self) -> tuple[str, str]:
+        return ("switch", self._key)
+
+    def _resumed(self) -> bool:
+        return cast("bool", getattr(self.coordinator, self._key))
+
+    async def _async_restore(self, last: State | None) -> None:
+        self.coordinator.restore_switch(self._key, cast("bool", self._attr_is_on))
+
+    def _set_value(self, on: bool) -> None:
+        self.coordinator.set_switch(self._key, on)
 
 
 @dataclass(frozen=True)
@@ -255,28 +189,33 @@ class MXZZoneEnableSwitch(MXZBaseSwitch):
         self._attr_translation_key = "zone_enable"
         self._attr_translation_placeholders = {"zone": zone.name}
 
-    async def async_added_to_hass(self) -> None:
-        """Restore the state, then a hands-off room's landed park and a
+    @property
+    def _stored_as(self) -> tuple[str, str]:
+        return ("enable", self._zone.slug)
+
+    def _resumed(self) -> bool:
+        return self._zone.enable
+
+    async def _async_restore(self, last: State | None) -> None:
+        """Restore the room's enable, then a hands-off room's landed park and a
         disabled room's floor run.
 
         Only for a room restored disabled from THIS entry (#7), still opted in
         (hands-off) or still setting that floor: anything else parks, as a
-        newly disabled room does, and its floor decides afresh. A rename's
-        re-add restores neither (see ``_readded``).
+        newly disabled room does, and its floor decides afresh.
         """
-        await super().async_added_to_hass()
+        data: dict[str, Any] = {}
         floor = self._zone.floor_low is not None or self._zone.floor_high is not None
-        if self._readded or self._attr_is_on or not (self._zone.hands_off or floor):
-            return
-        last = await self.async_get_last_state()
-        if last is None or self._restored_state_is_stale(last) or last.state != "off":
-            return
-        extra = await self.async_get_last_extra_data()
-        data = extra.as_dict() if extra is not None else {}
-        if self._zone.hands_off and data.get("hands_off_released") is True:
-            self.coordinator.restore_hands_off(self._zone.slug)
-        if floor:
-            self.coordinator.floor.restore(self._zone.slug, data)
+        if (
+            not self._attr_is_on
+            and (self._zone.hands_off or floor)
+            and last is not None
+            and not self._restored_state_is_stale(last)
+            and last.state == "off"
+            and (extra := await self.async_get_last_extra_data()) is not None
+        ):
+            data = extra.as_dict()
+        self.coordinator.restore_room_enable(self._zone, cast("bool", self._attr_is_on), data)
 
     @property
     def extra_restore_state_data(self) -> ZoneEnableRestoreData:
@@ -286,20 +225,8 @@ class MXZZoneEnableSwitch(MXZBaseSwitch):
             self.coordinator.floor.record(self._zone.slug) or None,
         )
 
-    def _seed(self, *, restored: bool = False) -> None:
-        was_enabled = self._zone.enable
-        self._zone.enable = cast("bool", self._attr_is_on)
-        if self._attr_is_on:
-            # Enabled: the plan drives the head again, and the next
-            # disablement parks afresh.
-            self.coordinator._hands_off_released.discard(self._zone.slug)
-        if restored and self._attr_is_on:
-            self.coordinator._startup_resume[self._zone.slug] = None
-        elif restored or not was_enabled or not self._attr_is_on:
-            self.coordinator._startup_resume.pop(self._zone.slug, None)
-            self.coordinator._engage_latch[self._zone.slug] = ""
-        if not restored:
-            self.coordinator.drop_head_change(self._zone.climate_id)
+    def _set_value(self, on: bool) -> None:
+        self.coordinator.set_room_enable(self._zone, on)
 
 
 class MXZZoneFanAutoSwitch(
@@ -360,34 +287,34 @@ class MXZZoneFanAutoSwitch(
         A rename's re-add hands nothing over (see ``_readded``): the
         coordinator's live hold and echo memory are current, and a restored
         hold would be reconciled again as if after a restart.
+
+        The room state store resumed the same record at the start; this
+        record replaces it only where it is newer
+        (``MXZCoordinator.store_resumes``). Where the store holds none, a
+        record that can't be used is a problem the room reports.
         """
         await super().async_added_to_hass()
         cid = self._zone.climate_id
         last = None if self._readded else await self.async_get_last_state()
-        if last is not None and self._restored_state_is_stale(last):
-            self.coordinator.fan.restore_failed(cid, "Previous fan hold belongs to an older entry.")
+        stored: FanHoldRestoreData | None = None
         if last is not None and not self._restored_state_is_stale(last):
-            stored: FanHoldRestoreData | None = None
             if last.state in ("on", "off"):
                 stored = FanHoldRestoreData(
                     last.state == "off",
-                    _token(last.attributes.get(ATTR_LAST_FAN_COMMAND)),
-                    _token(last.attributes.get(ATTR_PRIOR_FAN_COMMAND)),
-                    _pending_handback(last.attributes, last.state == "off"),
-                    _older_tokens(last.attributes.get(ATTR_OLDER_FAN_COMMANDS)),
+                    stored_token(last.attributes.get(ATTR_LAST_FAN_COMMAND)),
+                    stored_token(last.attributes.get(ATTR_PRIOR_FAN_COMMAND)),
+                    pending_handback(last.attributes, last.state == "off"),
+                    older_tokens(last.attributes.get(ATTR_OLDER_FAN_COMMANDS)),
                 )
             elif (extra := await self.async_get_last_extra_data()) is not None:
                 stored = FanHoldRestoreData.from_dict(extra.as_dict())
+        recorded_at = last.last_updated if stored is not None and last is not None else None
+        if not self.coordinator.store_resumes("fan", cid, recorded_at):
             if stored is not None:
-                self.coordinator.fan.restore(
-                    self._zone.climate_id,
-                    held=stored.held,
-                    last=stored.last,
-                    prior=stored.prior,
-                    older=stored.older,
-                    on_pending=stored.on_pending and self.coordinator.config_entry.created_at is not None,
-                )
-            else:
+                self.coordinator.fan.restore_record(cid, stored)
+            elif last is not None and self._restored_state_is_stale(last):
+                self.coordinator.fan.restore_failed(cid, "Previous fan hold belongs to an older entry.")
+            elif last is not None:
                 self.coordinator.fan.restore_failed(cid, "Previous fan hold is missing or malformed.")
         self.async_on_remove(self.coordinator.fan.attach(cid, self.async_write_ha_state))
         self.async_on_remove(
@@ -431,14 +358,7 @@ class MXZZoneFanAutoSwitch(
     @property
     def extra_restore_state_data(self) -> FanHoldRestoreData:
         """Persist the hold truth and echo memory beside the state, available or not."""
-        last, prior = self.coordinator.fan.command_memory(self._zone.climate_id)
-        return FanHoldRestoreData(
-            held=not self.coordinator.fan.auto_is_on(self._zone.climate_id),
-            last=last,
-            prior=prior,
-            on_pending=self.coordinator.fan.on_pending(self._zone.climate_id),
-            older=tuple(self.coordinator.fan.older_record(self._zone.climate_id)),
-        )
+        return self.coordinator.fan.record(self._zone.climate_id)
 
     @property
     def available(self) -> bool:

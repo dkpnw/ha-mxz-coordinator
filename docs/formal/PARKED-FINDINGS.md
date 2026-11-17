@@ -77,8 +77,8 @@ counts as its earliest write left. When the last write is all that's left, the h
 up, and that write stays as the memory (`_fan_caught_up`, now `FanEcho.caught_up`), so the next write can't bring back a
 speed the head has passed. A hold or a hand-back empties the memory. A report of `_fan_prev` drops
 nothing, which is wider than it has to be, and lasts only while the head is one write behind. The
-memory rides a reload or restart in the Fan auto switch's restore data, limited to speeds boost
-could write.
+memory rides a reload or restart in the room state store (and the Fan auto switch's restore
+data), limited to speeds boost could write.
 
 An independent review found the first version of this rule emptied the memory on that report, and
 the next write put back the speed before the last. A head that reported every write then read that

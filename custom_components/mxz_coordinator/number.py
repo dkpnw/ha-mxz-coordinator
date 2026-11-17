@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from homeassistant.components.number import NumberMode, RestoreNumber
 from homeassistant.config_entries import ConfigEntry
@@ -16,6 +16,9 @@ from .coordinator import MXZCoordinator, Zone
 from .entity import MXZEntity
 from .logic import RangeError, resolve_range, shift_range
 from .units import offset_in_unit, snap_to_step, target_in_unit
+
+if TYPE_CHECKING:
+    from homeassistant.core import State
 
 
 def range_error(coordinator: MXZCoordinator, zone: Zone, err: RangeError) -> ServiceValidationError:
@@ -115,19 +118,26 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
         A room just switched back from a dual setpoint takes the options
         flow's handoff instead: the range's snapped midpoint.
 
+        The room state store resumed the target at the start unless this
+        number's restore record is newer (``MXZCoordinator.store_resumes``).
+
         A rename's re-add keeps the target it holds (see ``_readded``).
         """
         await super().async_added_to_hass()
         if self._readded:
             return
         last_state = await self.async_get_last_state()
+        last = (
+            None if self._restored_state_is_stale(last_state)
+            else await self.async_get_last_number_data()
+        )
+        saved = None if last is None else last.native_value
+        recorded_at = self._recorded_at(last_state) if saved is not None else None
         if (handoff := self._zone.handoff) is not None and "target" in handoff:
             self._attr_native_value = handoff["target"]
-        elif (
-            not self._restored_state_is_stale(last_state)
-            and (last := await self.async_get_last_number_data())
-            and last.native_value is not None
-        ):
+        elif self.coordinator.store_resumes("target", self._zone.slug, recorded_at):
+            self._attr_native_value = self._zone.target
+        elif last is not None and saved is not None:
             # Clamp the restored value into the current bounds: a pre-narrowing
             # install can hand back a target the head would reject (a restored
             # 79 °F on a 26.0 °C-native head, #10), and it would otherwise sit
@@ -139,7 +149,7 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
             # the unit it was in, so this happens once per °F/°C switch.
             self.coordinator.note_saved_unit(last.native_unit_of_measurement)
             restored = target_in_unit(
-                last.native_value, last.native_unit_of_measurement,
+                saved, last.native_unit_of_measurement,
                 self.coordinator.temp_unit, self.coordinator.target_step,
             )
             self._attr_native_value = min(
@@ -236,6 +246,9 @@ class MXZDriftNumber(MXZEntity, RestoreNumber):
     async def async_added_to_hass(self) -> None:
         """Restore the last per-room drift; absent/stale/not set -> the global.
 
+        The room state store resumed it at the start unless this number's
+        restore record is newer (``MXZCoordinator.store_resumes``).
+
         Only a state marked ``override`` restores: an untouched room's saved
         state is just yesterday's global, and writing it back would freeze the
         room on a copy. A restored value is clamped into the profile bounds
@@ -247,27 +260,31 @@ class MXZDriftNumber(MXZEntity, RestoreNumber):
         """
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if (
-            not self._readded
-            and not self._restored_state_is_stale(last_state)
-            and last_state is not None
-            and last_state.attributes.get("override")
-            and (last := await self.async_get_last_number_data())
-            and last.native_value is not None
+        if not self._readded and not self.coordinator.store_resumes(
+            "drift", self._zone.slug, self._recorded_at(last_state)
         ):
-            restored = last.native_value
-            # Only a real change of unit: same unit or none stored is as it was.
-            scaled = offset_in_unit(
-                restored, last.native_unit_of_measurement, self.coordinator.celsius
-            )
-            if scaled != restored:
-                restored = snap_to_step(scaled, self._attr_native_step)
-            self._zone.drift = min(
-                max(restored, self._attr_native_min_value),
-                self._attr_native_max_value,
-            )
+            self._zone.drift = await self._async_restored_drift(last_state)
         self._last_published_state = self._state_signature()
         self.async_on_remove(self.coordinator.async_add_listener(self._sync))
+
+    async def _async_restored_drift(self, last_state: State | None) -> float | None:
+        """The override in ``last_state``, in this unit and bounds; None follows the global."""
+        if (
+            last_state is None
+            or self._restored_state_is_stale(last_state)
+            or not last_state.attributes.get("override")
+            or (last := await self.async_get_last_number_data()) is None
+            or last.native_value is None
+        ):
+            return None
+        restored = last.native_value
+        # Only a real change of unit: same unit or none stored is as it was.
+        scaled = offset_in_unit(
+            restored, last.native_unit_of_measurement, self.coordinator.celsius
+        )
+        if scaled != restored:
+            restored = snap_to_step(scaled, self._attr_native_step)
+        return min(max(restored, self._attr_native_min_value), self._attr_native_max_value)
 
     def _state_signature(self) -> tuple[float, bool, float, float]:
         """Return the displayed value, the override flag, and the sides in use."""
@@ -413,8 +430,9 @@ class MXZRangeNumber(MXZEntity, RestoreNumber):
 
         A room just switched on takes the options flow's handoff (the range
         seeded around its target). Otherwise a restore that isn't stale is
-        offered as it was saved; with none, the pair is seeded around the
-        target at the minimum gap. The coordinator then re-checks the pair
+        offered as it was saved, unless the room state store resumed a newer
+        pair (``MXZCoordinator.store_resumes``); with neither, the pair is
+        seeded around the target at the minimum gap. The coordinator then re-checks the pair
         against the current bounds (``finish_range_restore``). A number added
         when the room is switched on in place finds the range already seeded
         and restores nothing. Nor does a rename's re-add: its range is set.
@@ -428,6 +446,9 @@ class MXZRangeNumber(MXZEntity, RestoreNumber):
                 not self._restored_state_is_stale(last_state)
                 and (last := await self.async_get_last_number_data())
                 and last.native_value is not None
+                and not self.coordinator.store_resumes(
+                    "range", zone.slug, self._recorded_at(last_state)
+                )
             ):
                 self.coordinator.note_saved_unit(last.native_unit_of_measurement)
                 restored = target_in_unit(

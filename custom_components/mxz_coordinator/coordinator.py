@@ -132,6 +132,8 @@ from .const import (
     INHIBIT_ACTION_FAN_ONLY,
     INHIBIT_ACTION_OFF,
     KEY_COOL_LOCKOUT,
+    KEY_COORDINATOR_ENABLE,
+    KEY_ECO_IDLE,
     KEY_HEAT_LOCKOUT,
     LOST_VOTE_TTL_BOUNDS,
     MODE_COOL,
@@ -189,7 +191,7 @@ from .const import (
 )
 from .delivery import DeliveryQueue
 from .dry import DryMode
-from .fan_hold import FanHold
+from .fan_hold import FanHold, FanHoldRestoreData
 from .floor import FloorGuard
 from .heads import HeadDrivers
 from .host import Effect
@@ -223,8 +225,18 @@ from .logic import (
     shift_range,
     snapped_midpoint,
 )
-from .openings import OpeningPause
+from .openings import OpeningPause, openings_store
 from .plan import Plan, RoomPlan
+from .room_state import (
+    SECTION_FAN,
+    SECTION_FLOOR,
+    SECTION_MODE,
+    SECTION_OPENINGS,
+    SECTION_ROOMS,
+    SECTION_SWITCHES,
+    RoomStateStore,
+    SavedState,
+)
 from .settings import entry_config, one_home
 from .units import clamp, offset_in_unit, snap_to_step, target_in_unit
 
@@ -330,8 +342,8 @@ class Zone:
 
     ``index`` is the standoff priority (0 = highest); ``slug`` is the stable
     unique-id fragment ("primary"/"secondary" for zones 0/1, zone_N beyond).
-    ``target``/``enable`` are owned by the zone's number/switch entities (seeded
-    on restore, mutated on user action).
+    ``target``/``enable`` are kept in the room state store (resumed at a start,
+    set through the zone's number/switch entities).
     """
 
     index: int
@@ -345,8 +357,8 @@ class Zone:
     target: float = 70.0
     enable: bool = field(default=False)
     # Per-room re-engage drift override (#18). None = use the global
-    # engage_deadband. Owned by the zone's drift number entity, exactly like
-    # target/enable; automations write it (presence tiers etc.).
+    # engage_deadband. Kept like target/enable and set through the zone's drift
+    # number entity; automations write it (presence tiers etc.).
     drift: float | None = None
     # Hands-off opt-in (ZONE_HANDS_OFF), from config; only a stored True opts in.
     hands_off: bool = False
@@ -384,9 +396,10 @@ class Zone:
     drift_cooler_by: float | None = None
     drift_warmer_by: float | None = None
     # Dual setpoint (ZONE_DUAL_SETPOINT), from config; only a stored True opts
-    # in. Then target_low / target_high are its Heat to and Cool to, owned by
-    # the room's heat-to and cool-to numbers (None until they restore), and
-    # target is their midpoint, kept in step by every range write.
+    # in. Then target_low / target_high are its Heat to and Cool to, set
+    # through the room's heat-to and cool-to numbers (None until the pair
+    # settles at a start), and target is their midpoint, kept in step by every
+    # range write.
     dual: bool = False
     target_low: float | None = None
     target_high: float | None = None
@@ -549,9 +562,10 @@ COAST_FOLLOWUP_DELAY = REQUEST_REFRESH_DEFAULT_COOLDOWN + 1  # s
 # ---------------------------------------------------------------------------
 # The last real mode change, kept across reloads and restarts
 # ---------------------------------------------------------------------------
-# One small storage file per config entry, written whenever the shared mode
-# changes (and when a room's run takes over a mode votes chose) and read once
-# per setup. A Store, not the shared mode select's restore data: restore data
+# The room state store's ``mode`` section, and for one release also its own
+# small storage file per config entry as before, written whenever the shared
+# mode changes (and when a room's run takes over a mode votes chose) and read
+# once per setup. A Store, not the shared mode select's restore data: restore data
 # reaches disk only at shutdown and every 15 minutes, so a crash soon after a
 # change would forget it; a disabled select restores nothing at all; and it
 # restores only after the first plan has been computed. Times are wall-clock
@@ -583,6 +597,15 @@ class ModeRecord:
     mode_at: float = 0.0
     by_votes: bool = False
 
+    def stored(self) -> dict[str, Any] | None:
+        """The record as it is written; None for no record."""
+        data: dict[str, Any] = {}
+        if self.mode is not None:
+            data = {MODE_KEY: self.mode, MODE_AT_KEY: self.mode_at, MODE_BY_VOTES_KEY: self.by_votes}
+        if self.changed_at is not None:
+            data[MODE_CHANGE_KEY] = self.changed_at
+        return data or None
+
 
 def _mode_change_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
     """This entry's store, one instance per Home Assistant run.
@@ -600,8 +623,14 @@ def _mode_change_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, An
     return stores[entry_id]
 
 
-async def async_load_mode_record(hass: HomeAssistant, entry_id: str) -> ModeRecord:
+async def async_load_mode_record(
+    hass: HomeAssistant, entry_id: str, fallback: dict[str, Any] | None = None
+) -> ModeRecord:
     """The entry's record of the shared mode and its last real change.
+
+    The record's own file, or ``fallback`` (the room state store's copy) when
+    there is no file: for one release the file is written beside the store, so
+    an earlier release finds it after a rollback and its writes win here.
 
     No change time means no change was ever recorded (a fresh install, the
     first start on a version that did not keep it, or a record that so far
@@ -611,6 +640,8 @@ async def async_load_mode_record(hass: HomeAssistant, entry_id: str) -> ModeReco
     before this was kept. A mode that is not readable is no mode on record.
     """
     stored = await _mode_change_store(hass, entry_id).async_load()
+    if stored is None:
+        stored = fallback
     if stored is None:
         return ModeRecord()
     data: Any = stored if isinstance(stored, dict) else {}
@@ -772,6 +803,10 @@ def async_keep_saved_temps_in_unit(hass: HomeAssistant, entry: ConfigEntry) -> N
         _convert_saved_temps(hass, entry, saved_in, unit)
 
 
+# The switches the room state store keeps; each is a coordinator attribute of that name.
+_SWITCH_KEYS = (KEY_COORDINATOR_ENABLE, KEY_ECO_IDLE, KEY_HEAT_LOCKOUT, KEY_COOL_LOCKOUT)
+
+
 # ---------------------------------------------------------------------------
 # Coordinator
 # ---------------------------------------------------------------------------
@@ -786,6 +821,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         entry: ConfigEntry,
         record: ModeRecord | None = None,
         openings: dict[str, Any] | None = None,
+        saved: SavedState | None = None,
     ) -> None:
         """Initialise from the config entry (data) and options (tunables).
 
@@ -793,6 +829,8 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         the wall-clock time of the last real mode change, and the shared mode
         as last written. None is no record. ``openings`` is the entry's stored
         door/window record (``openings.async_load_openings``), by head.
+        ``saved`` is the rest of the entry's room state store
+        (``room_state.async_load_room_state``); None is none.
         """
         # Home Assistant's own request debouncer, made here so the delivery
         # queue holds it without reaching into the base class.
@@ -831,7 +869,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         self.fan_down_at: tuple[float, ...] = self._profile["fan_down_at"]
 
         # Ordered zone list (index 0 = highest standoff priority). Each zone
-        # carries its head/sensor/vane ids plus the entity-owned target/enable.
+        # carries its head/sensor/vane ids plus its target/enable.
         self.zones: list[Zone] = _parse_zones(
             conf, self.target_default, self._profile["engage_bounds"]
         )
@@ -985,9 +1023,9 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             for zone in self.zones
         }
 
-        # Helper values (owned by the switch/select entities; seeded on
-        # restore, mutated on user action). Kill-switch defaults OFF for safety.
-        # Per-zone target/enable live on the Zone objects.
+        # Helper values (kept in the room state store and resumed at a start,
+        # set through the switch/select entities). Kill-switch defaults OFF for
+        # safety. Per-zone target/enable live on the Zone objects.
         self.coordinator_enable: bool = False
         self.eco_idle: bool = False
         self.heat_lockout: bool = False
@@ -1009,7 +1047,8 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         )
         # The same change on the wall clock, written back with every record.
         self._last_mode_change_at: float | None = record.changed_at
-        self._mode_change_store = _mode_change_store(hass, entry.entry_id)
+        # The record as last written, for the room state store.
+        self._mode_data: dict[str, Any] | None = record.stored()
         # The shared mode resumes from the record (written at each change),
         # unless the select's restore data is newer (restore_shared_mode). So
         # does whether votes alone set it: a room's run in that mode then
@@ -1025,7 +1064,27 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         # Allow Dry mode, per room (see dry.DryMode).
         self.dry = DryMode(self, self.zones)
         # Door/window pause, per room (see openings.OpeningPause).
-        self.openings = OpeningPause(self, entry.entry_id, self.zones, openings, self._started_ts)
+        self.openings = OpeningPause(self, self.zones, openings, self._started_ts)
+        # Each room's state in one store (see room_state.py). What it held at
+        # this start resumes after the seed compute below; each entity's
+        # restore data then wins where it is newer (store_resumes).
+        saved = saved or SavedState()
+        self.saved = saved
+        self._resumed: set[tuple[str, str]] = set()
+        self._saved_ranges: dict[str, tuple[float, float]] = {}
+        self.room_state = RoomStateStore(
+            hass, entry.entry_id, self.temp_unit, writable=saved.readable
+        )
+        self.room_state.track(SECTION_ROOMS, self._rooms_record)
+        self.room_state.track(SECTION_SWITCHES, self._switches_record)
+        self.room_state.track(SECTION_FAN, self._fan_record)
+        self.room_state.track(SECTION_FLOOR, self._floor_record)
+        self.room_state.track(
+            SECTION_MODE, lambda: self._mode_data, _mode_change_store(hass, entry.entry_id)
+        )
+        self.room_state.track(
+            SECTION_OPENINGS, self.openings.stored, openings_store(hass, entry.entry_id)
+        )
         # Per-sensor freshness. NOTHING about sensor health survives a reload:
         # a new coordinator re-derives each room's validity, last write time
         # and sample marker from HA state, and a write it did not witness is
@@ -1086,6 +1145,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         self.data, effects = self._compute()
         for effect in effects:
             effect()
+        self._resume(saved)
         if self._freshness:
             # That first compute classified every room from what HA holds
             # now; the notice reports its result rather than estimating it. A
@@ -1170,8 +1230,6 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     # -- lifecycle ----------------------------------------------------------
     async def async_setup(self) -> None:
         """Wire up listeners and run the first compute/apply."""
-        self.floor.start()  # the switches have restored by now
-        self.openings.start()
         for zone in self.zones:
             if zone.dual and zone.target_low is None:
                 # An edge that never restored (its number disabled in the
@@ -1184,6 +1242,11 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
                 # restored by now, so this sees the room's real state).
                 self.reset_engage_latch(zone.slug)
                 zone.handoff = None
+        # Every value is settled now: the store writes it, and each change after.
+        self.room_state.go_live()
+        self._unsubs.append(self.async_add_listener(self.room_state.changed))
+        self.floor.start()  # the switches have restored by now
+        self.openings.start()
         self._unsubs.append(
             async_track_state_change_event(
                 self.hass,
@@ -1384,6 +1447,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             self.temp_unit, self.hass.config.units.temperature_unit,
         )
         self.retired = True
+        self.room_state.retire()
         self.deliveries.retire()
         self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
 
@@ -1398,6 +1462,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         fan_only (see _restore_woken_heads).
         """
         self.retired = True
+        self.room_state.retire()
         self.deliveries.retire()
         for unsub in self._unsubs:
             unsub()
@@ -2275,7 +2340,8 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         }
         if self._last_mode_change_at is not None:
             data[MODE_CHANGE_KEY] = self._last_mode_change_at
-        self._mode_change_store.async_delay_save(lambda: data, 0)
+        self._mode_data = data
+        self.room_state.save_now(SECTION_MODE)
 
     def restore_shared_mode(self, restored: str | None, restored_at: float | None) -> str:
         """The shared mode a start resumes in; the select calls this once.
@@ -3885,9 +3951,162 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
 
         self.clock.call_later(min(waits), _fire, name="comfort")
 
-    def restore_hands_off(self, slug: str) -> None:
-        """The enable switch restored a released hands-off room (see switch.py)."""
-        self._hands_off_released.add(slug)
+    # -- room state: what a start resumes, and what the store keeps ----------
+    def _resume(self, saved: SavedState) -> None:
+        """Resume every value the room state store holds.
+
+        Through the same methods an entity's restore data uses, so either one
+        replaces what the other set; an entity whose restore data is newer
+        then takes its value (``store_resumes``). Temperatures saved in the
+        other unit are converted, as a restored target number's are, and a
+        target is held to its head's bounds.
+        """
+        if saved.unit is not None:
+            self.note_saved_unit(saved.unit)
+        switches = saved.section(SECTION_SWITCHES) or {}
+        for key in _SWITCH_KEYS:
+            if isinstance(on := switches.get(key), bool):
+                self.restore_switch(key, on)
+                self._resumed.add(("switch", key))
+        for zone in self.zones:
+            cid = zone.climate_id
+            room = saved.item(SECTION_ROOMS, cid) or {}
+            if (target := self._saved_temperature(room.get("target"), saved.unit)) is not None:
+                lo, hi = self.heads.grid.target_bounds(cid)
+                zone.target = min(max(target, lo), hi)
+                self._resumed.add(("target", zone.slug))
+            low = self._saved_temperature(room.get("target_low"), saved.unit)
+            high = self._saved_temperature(room.get("target_high"), saved.unit)
+            if low is not None and high is not None:
+                self._saved_ranges[zone.slug] = (low, high)
+                self._resumed.add(("range", zone.slug))
+            drift = room.get("drift")
+            if (drift is None and "drift" in room) or finite_number(drift):
+                zone.drift = self._saved_drift(drift, saved.unit)
+                self._resumed.add(("drift", zone.slug))
+            if isinstance(enable := room.get("enable"), bool):
+                floor = saved.item(SECTION_FLOOR, cid) or {}
+                released = room.get("hands_off_released") is True
+                self.restore_room_enable(zone, enable, {**floor, "hands_off_released": released})
+                self._resumed.add(("enable", zone.slug))
+            fan = saved.item(SECTION_FAN, cid)
+            if fan is not None and (record := FanHoldRestoreData.from_dict(fan)) is not None:
+                self.fan.restore_record(cid, record)
+                self._resumed.add(("fan", cid))
+
+    def _saved_temperature(self, value: Any, unit: str | None) -> float | None:
+        """A stored temperature in this unit, on the target step; None if it isn't one."""
+        if not finite_number(value):
+            return None
+        return target_in_unit(float(value), unit, self.temp_unit, self.target_step)
+
+    def _saved_drift(self, value: float | None, unit: str | None) -> float | None:
+        """A stored drift override in this unit, held to the bounds; None follows the global.
+
+        A band is a difference, so it only scales, onto the drift number's step.
+        """
+        if value is None:
+            return None
+        lo, hi = cast("tuple[float, float]", self._profile["engage_bounds"])
+        scaled = offset_in_unit(float(value), unit, self.celsius)
+        if scaled != value:
+            scaled = snap_to_step(scaled, lo / 2)
+        return min(max(scaled, lo), hi)
+
+    def store_resumes(self, kind: str, key: str, recorded_at: datetime | None) -> bool:
+        """Whether the room state store, not an entity's restore data, resumes this value.
+
+        ``kind`` and ``key`` name the value ("target", "drift", "range", "enable"
+        by room slug; "fan" by head; "switch" by key). ``recorded_at`` is when
+        the entity's usable restore record was last updated (None: it has
+        none). The store resumes a value it holds unless that record is as new
+        as the store or newer: every start writes every entity's state, so a
+        record from a later run, an earlier release's after a rollback among
+        them, is newer than the store, and one from before a crash is older.
+        """
+        return (kind, key) in self._resumed and self.saved.outranks(recorded_at)
+
+    def restore_switch(self, key: str, on: bool) -> None:
+        """A start resumed the Coordinator, eco or a lockout switch."""
+        setattr(self, key, on)
+        if key == KEY_COORDINATOR_ENABLE:
+            self.restored_coordinator_on = on
+
+    def set_switch(self, key: str, on: bool) -> None:
+        """A person (or the seasonal changeover) set the Coordinator, eco or a lockout switch.
+
+        Turning the Coordinator on, or off, ends any resume from the start.
+        """
+        was_on = getattr(self, key)
+        setattr(self, key, on)
+        if key == KEY_COORDINATOR_ENABLE and (not was_on or not on):
+            self.restored_coordinator_on = False
+            self._startup_resume.clear()
+
+    def restore_room_enable(self, zone: Zone, on: bool, saved: dict[str, Any]) -> None:
+        """A start resumed a room's enable, and a disabled room's release and floor.
+
+        ``saved`` holds ``hands_off_released`` and the floor record
+        (``FloorGuard.record``). An enabled room resumes a run its head
+        shows; a disabled one has no run. A disabled hands-off room is released
+        only if its off had landed, and a disabled room's floor run or yield
+        comes back only for a floor it still sets.
+        """
+        zone.enable = on
+        if on:
+            self._startup_resume[zone.slug] = None
+        else:
+            self._startup_resume.pop(zone.slug, None)
+            self._engage_latch[zone.slug] = ""
+        self.set_hands_off_released(
+            zone.slug, not on and zone.hands_off and saved.get("hands_off_released") is True
+        )
+        self.floor.restore(zone.slug, {} if on else saved)
+
+    def set_room_enable(self, zone: Zone, on: bool) -> None:
+        """A person enabled or disabled a room.
+
+        Enabled, the plan drives the head again and the next disablement parks
+        afresh. Turning a room on from off, or off, is a fresh decision.
+        """
+        was_on = zone.enable
+        zone.enable = on
+        if on:
+            self._hands_off_released.discard(zone.slug)
+        if not was_on or not on:
+            self._startup_resume.pop(zone.slug, None)
+            self._engage_latch[zone.slug] = ""
+        self.drop_head_change(zone.climate_id)
+
+    def _rooms_record(self) -> dict[str, Any]:
+        """Each room's values, by head (``room_state.SECTION_ROOMS``)."""
+        return {
+            zone.climate_id: {
+                "target": zone.target,
+                "target_low": zone.target_low,
+                "target_high": zone.target_high,
+                "drift": zone.drift,
+                "enable": zone.enable,
+                "hands_off_released": zone.slug in self._hands_off_released,
+            }
+            for zone in self.zones
+        }
+
+    def _switches_record(self) -> dict[str, Any]:
+        """The Coordinator, eco and lockout switches (``room_state.SECTION_SWITCHES``)."""
+        return {key: getattr(self, key) for key in _SWITCH_KEYS}
+
+    def _fan_record(self) -> dict[str, Any]:
+        """Each head's fan hold and echo memory (``room_state.SECTION_FAN``)."""
+        return {zone.climate_id: self.fan.record(zone.climate_id).as_dict() for zone in self.zones}
+
+    def _floor_record(self) -> dict[str, Any]:
+        """Each disabled room's floor run or yield, by head (``room_state.SECTION_FLOOR``)."""
+        return {
+            zone.climate_id: record
+            for zone in self.zones
+            if (record := self.floor.record(zone.slug))
+        }
 
     def hands_off_released(self, slug: str) -> bool:
         """Whether this room's park landed (what the enable switch persists)."""
@@ -4087,8 +4306,9 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         The pair is decided as a whole, so a range never mixes one restored
         edge with one seeded edge: both restored edges, unless the room was
         just switched on (the options flow's handoff) or either is missing;
-        then a range seeded around the (already restored) target at the
-        minimum gap, never one an earlier opt-in left in the restore data.
+        then the pair the room state store resumed, or with none a range
+        seeded around the (already restored) target at the minimum gap, never
+        one an earlier opt-in left in the restore data.
         :meth:`finish_range_restore` then re-checks it, and the room's
         entities redraw.
         """
@@ -4098,11 +4318,17 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             self._settle_range(zone)
 
     def _settle_range(self, zone: Zone) -> None:
-        """Decide a dual room's pair from the edges offered so far (see above)."""
+        """Decide a dual room's pair from the edges offered so far (see above).
+
+        Two offered edges, else the pair the room state store resumed, else seeded.
+        """
         offers: dict[bool, Any] = self._range_offers.pop(zone.slug, {})
         fresh = zone.handoff is not None and zone.handoff.get("seed_range") is True
+        saved = self._saved_ranges.get(zone.slug)
         if not fresh and offers.get(True) is not None and offers.get(False) is not None:
             low, high = offers[True], offers[False]
+        elif not fresh and saved is not None:
+            low, high = saved
         else:
             low, high = self._seeded_range(zone)
         zone.target_low, zone.target_high = float(low), float(high)
@@ -4181,6 +4407,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         value invites a second tap that undoes the first. Only a re-render,
         no decision; the plan itself is unchanged.
         """
+        self.room_state.changed()
         if not self.coordinator_enable:
             self.deliveries.retire()
             await self._async_retire_vane_kicks()

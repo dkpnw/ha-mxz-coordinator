@@ -18,6 +18,7 @@ from custom_components.mxz_coordinator import _async_prune_stale_entities
 from custom_components.mxz_coordinator.const import FAN_LADDER
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator, Zone
 from custom_components.mxz_coordinator.fan_hold import FanHold
+from custom_components.mxz_coordinator.room_state import RoomStateStore
 from custom_components.mxz_coordinator.switch import MXZZoneFanAutoSwitch
 
 HEAD = "climate.test_head"
@@ -39,6 +40,7 @@ def _pending_restore(held: bool) -> tuple[MXZCoordinator, MXZZoneFanAutoSwitch]:
     coordinator.last_update_success = True
     coordinator.fan_boost_enable = False
     coordinator.fan_boost_max = FAN_LADDER[-1]
+    coordinator.room_state = Mock(spec=RoomStateStore)  # saves the fan record it publishes
     coordinator.fan = FanHold(coordinator)
     coordinator.fan.restore_failed(HEAD, "Previous fan hold is missing or malformed.")
     coordinator.async_request_refresh = AsyncMock()

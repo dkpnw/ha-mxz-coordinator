@@ -4,8 +4,8 @@ Fan boost drives a running head's fan speed from how far its room is off target,
 and hands a satisfied head back to the firmware's own "auto". A person who picks a
 speed at the head keeps it: that head latches, and MXZ makes no fan write to it
 until it is handed back, on the room's Fan auto switch or by the head reading
-"auto". The Fan auto switch carries the latch and the echo memory across a restart
-in its restore data.
+"auto". The room state store carries the latch and the echo memory across a restart
+(``FanHold.record``), and the Fan auto switch's restore data does too.
 """
 
 from __future__ import annotations
@@ -14,9 +14,11 @@ import logging
 import math
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Protocol
 
+from homeassistant.helpers.restore_state import ExtraStoredData
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -37,8 +39,110 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
 
     from .cloud import CloudHead, CloudRecords
+    from .room_state import RoomStateStore
 
 _LOGGER = logging.getLogger(__package__)
+
+
+# Echo baselines, including adopted observations and held user tokens; these
+# historical attribute names do NOT prove command delivery or token ownership.
+# Dual-channel persistence is a workaround for the frozen lifecycle read oracle:
+# clean states must not read extra data. Unavailable states use extra data.
+# Publish memory changes synchronously to keep clean/extra snapshots coherent.
+# Neither channel is a delivery journal or an arbitrary-crash guarantee.
+ATTR_LAST_FAN_COMMAND = "last_fan_command"
+ATTR_PRIOR_FAN_COMMAND = "prior_fan_command"
+ATTR_OLDER_FAN_COMMANDS = "older_fan_commands"
+ATTR_FAN_ON_PENDING = "fan_on_pending"
+
+
+def stored_token(value: Any) -> str | None:
+    """A restored fan token, or None for anything that is not one."""
+    return value if isinstance(value, str) else None
+
+
+def older_tokens(value: Any) -> tuple[str, ...]:
+    """Restored older echo baselines; anything but a list of tokens is none."""
+    if not isinstance(value, list) or not all(isinstance(token, str) for token in value):
+        return ()
+    return tuple(value)
+
+
+def pending_handback(data: Any, held: bool) -> bool:
+    """Only a well-formed explicit instruction can override token inference."""
+    return (
+        held is False and data.get(ATTR_FAN_ON_PENDING) is True
+        and all(data.get(key) is None or isinstance(data.get(key), str)
+                for key in (ATTR_LAST_FAN_COMMAND, ATTR_PRIOR_FAN_COMMAND))
+    )
+
+
+@dataclass(frozen=True)
+class FanHoldRestoreData(ExtraStoredData):
+    """A head's fan hold as a start reads it (``FanHold.record``).
+
+    MXZ's room state store keeps it as the head's ``fan`` record, and the Fan
+    auto switch carries the same beside its state.
+
+    ``held`` is the one bool that decides a restart: the switch's own state
+    cannot always carry it. The switch is unavailable while the head is
+    missing from the state machine, so a head whose integration is unloaded
+    or failed at shutdown leaves ``unavailable`` persisted — not an answer to
+    "was this room held?". HA stores extra restore data beside the state
+    whatever the state says, so the hold survives the outage that hid it.
+
+    ``last``/``prior`` are the coordinator's echo memory for the head, the
+    last two commanded or adopted tokens (None before any baseline). They
+    permit bounded echo tolerance, not proof that a token came from us.
+    Readers before this field ignore it; a record without it restores the
+    bool alone.
+
+    ``older`` is that memory's older end, only while the head was behind at the
+    stop, oldest first. Absent otherwise, so most records keep their old shape.
+
+    ``on_pending`` is earned only by explicit ON with no usable speed. It
+    survives a saved restart and is consumed once by the first usable report,
+    or cancelled by later OFF. It is not own-command or delivery provenance.
+    Legacy/malformed instructions are absent; held truth always takes priority.
+    """
+
+    held: bool
+    last: str | None = None
+    prior: str | None = None
+    on_pending: bool = False
+    older: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict[str, Any]:
+        """Serialize for the restore store."""
+        data: dict[str, Any] = {
+            "held": self.held,
+            ATTR_LAST_FAN_COMMAND: self.last,
+            ATTR_PRIOR_FAN_COMMAND: self.prior,
+        }
+        # Absent means false, preserving the legacy payload when no explicit
+        # handback awaits a report. Contradictory held truth always wins.
+        if self.on_pending is True and self.held is False:
+            data[ATTR_FAN_ON_PENDING] = True
+        if self.older:
+            data[ATTR_OLDER_FAN_COMMANDS] = list(self.older)
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> FanHoldRestoreData | None:
+        """Rebuild from the store; anything but a clean bool is no answer.
+
+        A token that is not a string is no memory, not a different answer.
+        """
+        held = data.get("held")
+        if not isinstance(held, bool):
+            return None
+        return cls(
+            held,
+            stored_token(data.get(ATTR_LAST_FAN_COMMAND)),
+            stored_token(data.get(ATTR_PRIOR_FAN_COMMAND)),
+            pending_handback(data, held),
+            older_tokens(data.get(ATTR_OLDER_FAN_COMMANDS)),
+        )
 
 
 class FanHost(ControllerHost, Protocol):
@@ -48,7 +152,8 @@ class FanHost(ControllerHost, Protocol):
     entry's coordinator switch came back on at a start, the entry (its age),
     and a cloud head's write record through the head drivers (whether a fan
     report can be older than its last batch). Called: the delivery queue, for
-    the head service a fan write sends.
+    the head service a fan write sends, and the room state store, which saves
+    the fan record each time it is published.
     """
 
     fan_boost_enable: bool
@@ -59,6 +164,7 @@ class FanHost(ControllerHost, Protocol):
     idle_action: str
     restored_coordinator_on: bool
     config_entry: ConfigEntry
+    room_state: RoomStateStore
 
     @property
     def deliveries(self) -> HeadCommands: ...
@@ -690,11 +796,11 @@ class FanHold:
         older: Iterable[str] = (),
         on_pending: bool = False,
     ) -> None:
-        """Record the Fan-auto switch's restored pre-restart latch truth.
+        """Record the restored pre-restart latch truth, replacing any restored before.
 
-        Called from the switch's async_added_to_hass (RestoreEntity) — which
-        runs during platform setup, BEFORE the coordinator's first compute —
-        and consumed once by the seed, which reconciles it against the
+        Called at a start, BEFORE the coordinator's first compute, from the
+        room state store or from the Fan auto switch's restore data, whichever
+        is newer, and consumed once by the seed, which reconciles it against the
         observed head state. Stale restores (older than the entry) are
         filtered by the switch and never reach here. With fan boost disabled
         the data is simply never consumed (the fan machinery is inert).
@@ -713,6 +819,7 @@ class FanHold:
         (see ``older_record``). Only speeds boost could write are taken back:
         anything else is no echo.
         """
+        self._echo.pop(climate_id, None)
         self._restore[climate_id] = held
         self._restore_problem.pop(climate_id, None)
         self._on_pending.discard(climate_id)
@@ -735,6 +842,32 @@ class FanHold:
             kept = [token for token in older if eligible(token) == token]
             last_two = dict.fromkeys((before, command))
             self._echo[climate_id] = FanEcho(command, before, (*kept, *last_two) if kept else ())
+
+    def restore_record(self, climate_id: str, record: FanHoldRestoreData) -> None:
+        """``restore`` from a saved record; replaces what an earlier record restored.
+
+        An explicit Fan auto on still waiting counts only on an entry that
+        knows when it was created.
+        """
+        self.restore(
+            climate_id,
+            held=record.held,
+            last=record.last,
+            prior=record.prior,
+            older=record.older,
+            on_pending=record.on_pending and self._host.config_entry.created_at is not None,
+        )
+
+    def record(self, climate_id: str) -> FanHoldRestoreData:
+        """What a start needs back of this head's hold and echo memory."""
+        last, prior = self.command_memory(climate_id)
+        return FanHoldRestoreData(
+            held=not self.auto_is_on(climate_id),
+            last=last,
+            prior=prior,
+            on_pending=self.on_pending(climate_id),
+            older=tuple(self.older_record(climate_id)),
+        )
 
     def restore_failed(self, climate_id: str, reason: str) -> None:
         """The Fan auto switch found a restore record it could not use, and why."""
@@ -814,7 +947,14 @@ class FanHold:
         return detach
 
     def publish(self, climate_id: str) -> None:
-        """Keep the existing clean-state channel current before yielding."""
+        """Keep both saved channels current before yielding.
+
+        The Fan auto switch writes its state and restore data, and the room
+        state store saves the fan record now. The store is written after a
+        refresh too, but a Fan auto gesture only asks for a debounced one, which
+        can wait out its cooldown: a crash in that wait would lose the gesture.
+        """
+        self._host.room_state.changed()
         if writer := self._writers.get(climate_id):
             writer()
 

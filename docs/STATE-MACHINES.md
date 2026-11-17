@@ -22,7 +22,7 @@ Paths are under `custom_components/mxz_coordinator/` unless they start with `tes
 **Standing rule.** Build cleanly and modularly with real separation of concerns. Never bolt a
 feature on. Where the clean fix is the coordinator split (audit chunk 5, H1) or the room-state
 store (audit chunk 6, H2), this file says so and recommends no patch in its place. The room-state
-store needs the owner's OK.
+store has landed (`room_state.py`); section 3.21 says what it keeps.
 
 **Where each finding stands.**
 
@@ -36,7 +36,7 @@ store needs the owner's OK.
 | SM-6 a press while MXZ's command waits is written over | Fixed | `test_a_press_while_mxzs_command_waits_for_the_head_is_adopted`, `test_a_flip_alone_while_mxzs_command_waits_is_put_back_by_it`, `test_a_press_taken_back_in_its_hold_leaves_the_room_target_to_reach_the_head` |
 | SM-7 a start releases restored season lockouts | Open, needs a decision | Confirmed by a run; no test landed |
 | SM-8 a reload inside an apply loses the hold | Closed by the SM-4 fix | `RecordLeadsHeads` in `ci-apply`, with reloads and restarts inside an apply (`NeverCutShort` reaches them) |
-| SM-9 restore data up to 15 minutes old after a crash | Open, room-state store | — |
+| SM-9 restore data up to 15 minutes old after a crash | Fixed by the room state store | `tests/test_room_state.py` (`test_a_crash_right_after_a_change_keeps_it`, `test_a_crash_right_after_a_fan_auto_gesture_keeps_it`, `test_a_hands_off_room_released_after_the_last_dump_stays_released_after_a_crash`) |
 | SM-10 a queued write that dropped out of the memory is adopted | Open, needs a decision | `QueuedWriteNeverAdopted` breaks in `ci-adopt` |
 
 ---
@@ -83,30 +83,32 @@ afterwards, for section 6.
 
 "Lives in" says what a start does to the state: `memory` is lost at any reload; `hass.data` is
 kept across a reload and lost when the Home Assistant process ends; `restore data` is written at
-a clean stop and every 15 minutes; `Store` is written at once.
+a clean stop and every 15 minutes; `Store` is written at once. The `room state store`
+(`room_state.py`) is one `Store` per entry, written at once on every change; for one release the
+restore data and the two older `Store` files are kept current beside it (3.21).
 
 | § | Machine | Owner | Lives in | Modeled |
 |---|---|---|---|---|
-| 3.1 | Coordinator lifecycle, Coordinator switch, startup quiet | `MXZCoordinator`, `__init__.py`, `switch.py` `MXZSwitch` | memory; the switch in restore data | Chart L1–L4; both specs (`Reload`, `Restart`, `Crash`). Startup quiet as adoption's gate and a retire inside an apply: `MXZCoordinator.tla` (`ci-adopt-restart`, `ci-apply`). The switch: nowhere |
+| 3.1 | Coordinator lifecycle, Coordinator switch, startup quiet | `MXZCoordinator`, `__init__.py`, `switch.py` `MXZSwitch` | memory; the switch in the room state store | Chart L1–L4; both specs (`Reload`, `Restart`, `Crash`). Startup quiet as adoption's gate and a retire inside an apply: `MXZCoordinator.tla` (`ci-adopt-restart`, `ci-apply`). The switch: nowhere |
 | 3.2 | Refresh serialization | `DeliveryQueue` | memory | Inputs landing during one apply: `MXZCoordinator.tla` (`ci-apply`). The lock, the debouncer and the follow-up: nowhere |
 | 3.3 | Per-head delivery slot | `DeliveryQueue` | `hass.data` | `MXZCoordinator.tla` `Deliver`, `Refuse` (`ci-apply`); the queue's locks and supersession in tests only |
 | 3.4 | Command status | `DeliveryQueue` | `hass.data` | Nowhere |
-| 3.5 | Shared mode and its hold | `MXZCoordinator`, `logic.arbitrate`, `select.py` | `Store`, with the select's restore data second | Chart M1–M6; both specs. The writeback's place in the apply: `MXZCoordinator.tla` `WithSplit` (`ci-apply`, `RecordLeadsHeads`) |
+| 3.5 | Shared mode and its hold | `MXZCoordinator`, `logic.arbitrate`, `select.py` | room state store (and its own `Store` file), with the select's restore data second | Chart M1–M6; both specs. The writeback's place in the apply: `MXZCoordinator.tla` `WithSplit` (`ci-apply`, `RecordLeadsHeads`) |
 | 3.6 | A room's run, startup resume, coast wakeup | `MXZCoordinator`, `logic.engage_with_latch` | memory, re-read from the head | Chart R1–R4; both specs |
 | 3.7 | Room sensor freshness | `MXZCoordinator`, `logic.sensor_health` | memory | Tests only |
 | 3.8 | Head sight, lost vote, action vote | `logic.HeadSight` | memory | The vote as a mode in `MXZModeHold.tla`; the rest tests only |
-| 3.9 | Hands-off room | `MXZCoordinator` | memory, with `released` in restore data | `MXZModeHold.tla` has it always released; phases tests only |
+| 3.9 | Hands-off room | `MXZCoordinator` | memory, with `released` in the room state store | `MXZModeHold.tla` has it always released; phases tests only |
 | 3.10 | Heal timers (band drift, off drift) | `MXZCoordinator` | memory | Tests only |
 | 3.11 | Changes made at a head (adopt) and the head write ledger | `MXZCoordinator`, `logic.HeadWriteMemory` | hold in memory; ledger in `hass.data` | Chart A1–A5; `MXZCoordinator.tla` for room 1's setpoint (`ci-adopt`, `ci-adopt-restart`) |
-| 3.12 | A head's fan hold and the fan echo ledger | `fan_hold.FanHold`, `switch.py` | memory, carried in restore data | Chart F1–F11; `MXZCoordinator.tla` |
-| 3.13 | Door/window pause | `MXZCoordinator`, `logic.opening_state` | `Store` | Chart W1–W11; both specs |
+| 3.12 | A head's fan hold and the fan echo ledger | `fan_hold.FanHold`, `switch.py` | memory, carried in the room state store | Chart F1–F11; `MXZCoordinator.tla` |
+| 3.13 | Door/window pause | `MXZCoordinator`, `logic.opening_state` | room state store (and its own `Store` file) | Chart W1–W11; both specs |
 | 3.14 | Coil-dry idle, and Allow Dry | `MXZCoordinator` (coil-dry), `dry.DryMode` (Allow Dry) | memory | Tests only |
-| 3.15 | Freeze floor and overheat ceiling | `floor.FloorGuard`, `logic.FloorRun` | memory, with the run in restore data | Arbitration tier in tests; the run nowhere |
+| 3.15 | Freeze floor and overheat ceiling | `floor.FloorGuard`, `logic.FloorRun` | memory, with the run in the room state store | Arbitration tier in tests; the run nowhere |
 | 3.16 | Cloud head batching | `cloud.CloudHead`, `MXZCoordinator` | memory | Nowhere |
-| 3.17 | Seasons (lockouts) | `MXZCoordinator`, `logic.season_lockouts`, lockout switches | restore data | Nowhere |
+| 3.17 | Seasons (lockouts) | `MXZCoordinator`, `logic.season_lockouts`, lockout switches | room state store | Nowhere |
 | 3.18 | Standby hold and eco | `MXZCoordinator` | memory, re-read from the entity | Nowhere |
 | 3.19 | Vane kick | `MXZCoordinator` | memory, with the cleanup flag in `hass.data` | Nowhere |
-| 3.20 | Dual setpoint | `MXZCoordinator`, `number.py`, options flow | restore data, with a one-shot `hass.data` hand-off | Tests only |
+| 3.20 | Dual setpoint | `MXZCoordinator`, `number.py`, options flow | room state store, with a one-shot `hass.data` hand-off | Tests only |
 | 3.21 | Persistence: what each start brings back | all of the above | — | `RestartRestores` covers the mode, hold, door/window; `ci-fan-crash` covers the fan |
 | 3.22 | Setup, reconfigure and options flows | `config_flow.py` | the flow object | Tests only |
 | 3.23 | Comfort priority | `MXZCoordinator`, `logic.comfort_priority`, `logic.comfort_stale_in` | nothing stored: read live from the entity, its age from Home Assistant's `last_changed` | `MXZModeHold.tla` leaves it out (its header); the arbitration in `tests/test_modehold_properties.py`, the rest tests only |
@@ -131,15 +133,15 @@ after it starts.
 
 | Event | From → to | Guard | Action | Code |
 |---|---|---|---|---|
-| Entry set up | none → Built | — | Load the mode record and the door/window store, build, seed compute | `__init__.py:141-145`; 1389 |
-| Platforms added | Built | — | Each entity restores its value into the coordinator | `__init__.py:154`; `switch.py:170-186`, `number.py:107-150`, `select.py:71-96` |
-| `async_setup` | Built → Live | — | Floors and openings go live, listeners attach, first refresh | 1472–1475, 1594 |
+| Entry set up | none → Built | — | Load the room state store, then the mode record and the door/window file with the store's copies as fallback; build, seed compute, resume what the store holds | `__init__.py` `async_setup_entry`; `MXZCoordinator._resume` |
+| Platforms added | Built | — | Each entity takes its restore data only where that is at least as new as the store (`store_resumes`) | `switch.py`, `number.py`, `select.py` `async_added_to_hass` |
+| `async_setup` | Built → Live | — | The store writes what the start settled, floors and openings go live, listeners attach, first refresh | 1472–1475, 1594 |
 | Home Assistant starts, then 40 s | quiet → normal | built before start | One refresh; the "no usable reading" warning and blind-floor notice may now go out | 1339, 5040–5050; `const.py:657` |
-| Coordinator switch | off ⇄ on | — | Off: retire deliveries and vane kicks. A live change clears the startup resume | `switch.py:212-220`; 7418–7420 |
+| Coordinator switch | off ⇄ on | — | Off: retire deliveries and vane kicks. A live change clears the startup resume | `MXZCoordinator.set_switch`; 7418–7420 |
 | Temperature unit changed | Live → Retired | unit differs | Retire, schedule a reload | 1681–1697 |
 | Unload or reload | Live → Retired | — | Retire first, then cancel every timer, then retire vane kicks | 1699–1749; `__init__.py:166-168` |
 | Options saved | Live → Retired → Built | not a dual-only save | Reload; a dual-only save is applied in place | `__init__.py:183-196` |
-| Entry removed | — | — | Both stores deleted; the per-head `hass.data` records are not (audit L3) | `__init__.py:176-180` |
+| Entry removed | — | — | The room state store and both older files deleted; the per-head `hass.data` records are not (audit L3) | `__init__.py:176-180` |
 
 Startup quiet has three readers: the sensor warning (2356), the blind-floor notice (6898) and
 head adoption (5405). It is not a general "ignore the heads" switch.
@@ -283,7 +285,7 @@ In order, as `_apply` now runs. Nothing is awaited from the compute to the end o
 | Writeback, a room runs in a mode votes chose | — | Stamp the hold, write the record | 3046–3051, now `_write_back_mode` |
 | The deliveries are awaited | — | The plan waits for every head or for a new input | 3021, 3086–3100 |
 | A person picks a mode | — | Set the mode, stamp, write the record, request a refresh. A pick during the wait comes after the apply's record, and nothing in the apply writes the mode again | 7443–7448 |
-| The record is written | not retired | `Store.async_delay_save(…, 0)` | 2715–2734 |
+| The record is written | not retired | `RoomStateStore.save_now`, at once, with its own file | `_record_mode` |
 | A start | — | The record gives the mode, the hold's remainder and whether votes set it; the select's restore data wins only if newer | 1275–1287, 2736–2764 |
 
 At the base the writeback came after the heads were commanded and could be skipped after they
@@ -299,7 +301,7 @@ refresh when a change the hold deferred becomes allowed (2589–2667). Neither c
 
 Chart R1–R4 and `Engage` in both specs. Additions:
 
-- **Startup resume** is three-valued per room (1111–1114): unknown head, known idle, or a run seen at the start. An enable switch that restores on puts its room in it (`switch.py:297-298`). The first compute with a usable sensor and a visible head takes the head's mode as the latch (1861–1881). A head reported off before that cancels the remembered run (5109–5116). A live Coordinator off, or a room turned off or on, clears it (`switch.py:218-220`, `299-301`).
+- **Startup resume** is three-valued per room (1111–1114): unknown head, known idle, or a run seen at the start. A room whose enable is resumed on is put in it (`MXZCoordinator.restore_room_enable`). The first compute with a usable sensor and a visible head takes the head's mode as the latch (1861–1881). A head reported off before that cancels the remembered run (5109–5116). A live Coordinator off, or a room turned off or on, clears it (`set_switch`, `set_room_enable`).
 - **A target write** forgets the latch, so the next compute re-reads the head (7388–7404). With changes at the head accepted, a head a person put in the other mode is not taken as a run (1882–1893).
 - **Coast wakeup**: a compute that lets a run go arms one wakeup 11 seconds later so a head with no fan echo is looked at again (622–629, 2792–2845).
 
@@ -357,11 +359,11 @@ released; floor.
 |---|---|---|---|---|
 | The room is disabled | not hands-off → parking | opted in | Off is sent each apply until it lands | 2936–2943 |
 | The head is seen off | parking → released | nothing of MXZ's but an off in flight | From here the head is left alone | 2937–2942, 5122–5142 |
-| The room is enabled | any → not hands-off | — | Forget the release | `switch.py:293-296` |
+| The room is enabled | any → not hands-off | — | Forget the release | `MXZCoordinator.set_room_enable` |
 | Its floor trips | parking or released → floor | — | MXZ runs the head; a person's own run in that direction is remembered | 6719–6724, 6770–6784 |
 | The floor run ends | floor → parking, or → released by hand-back | — | See 3.15 | 6754–6768, 6877–6885 |
 | A person changes the head's mode in a floor run | floor → released | a real change, not MXZ's | MXZ yields for 4 hours or until the room clears | 5143–5162, 7071–7093 |
-| A start | → released | restore data says released | Restored by the enable switch | `switch.py:277-278`; 5989–5991 |
+| A start | → released | the store (or newer restore data) says released | `MXZCoordinator.restore_room_enable` | `_resume`, `switch.py` |
 
 A standby hold parks a released head too (2903–2909, 3484–3500), which the docs state.
 
@@ -485,8 +487,9 @@ Remember their mode and setpoints (6770–6784), follow their later setpoint cha
 at the end queue one command giving the head back (6877–6885, 2855–2857, 2910–2935). A refusal is
 tried once more, then reported (6977–6996).
 
-**Persistence.** The run, the person's setting and a yield ride in the enable switch's extra
-restore data (7095–7152, `switch.py:279-288`). That is the 15-minute window of audit H2.
+**Persistence.** The run, the person's setting and a yield are the room state store's `floor`
+record for a disabled room (`FloorGuard.record`, `restore`), and ride in the enable switch's
+extra restore data too for one release.
 
 **Code.** Since the split all of it is `FloorGuard`'s, in `floor.py`, and its dicts lost their
 `_floor` prefix (`_floor_runs` is `_runs`, `_floor_expect` is `_expect`). The compute calls `want`
@@ -542,7 +545,8 @@ let only Home Assistant's own timers run once the room needs heat.
 ### 3.17 Seasons (lockouts)
 
 **States.** The pair (heat lockout, cool lockout): neither, heat locked, or cool locked. The two
-switches own the values and restore them. With a weather source set, MXZ drives the switches.
+switches show and set the coordinator's values, which the room state store keeps. With a weather
+source set, MXZ drives the switches.
 
 | Event | From → to | Code |
 |---|---|---|
@@ -599,8 +603,8 @@ are never read as a person (5151–5152, 5171–5172, and the ledger).
 |---|---|---|---|
 | An options save that only switches rooms | single ⇄ dual | Applied in place: seed a range or take the snapped midpoint, add or remove the two numbers, fresh engage decision, refresh at once | 7236–7314 |
 | Any other save that also switches a room | single ⇄ dual | A one-shot note in `hass.data`, then a reload | `config_flow.py:3227-3257`; 987–991 |
-| The numbers restore | unsettled → settled | The second edge settles the pair; a missing edge or a fresh opt-in seeds both | 7316–7344, `number.py:411-438` |
-| `async_setup` finds an edge never restored | unsettled → settled | Seed the pair | 1478–1489 |
+| The numbers restore | unsettled → settled | The second edge settles the pair; with an edge missing (or its restore data older than the store) the store's pair; with neither, or a fresh opt-in, both are seeded | `offer_range_restore`, `_settle_range`, `number.py` |
+| `async_setup` finds an edge never restored | unsettled → settled | The store's pair, else seed the pair | `async_setup` |
 | The pair no longer fits the head's limits | settled → settled, re-centered | A note on the room until the range is written | 7357–7386 |
 | The head is cloud or generic | dual → single | Forced at build | 3771–3774 |
 
@@ -609,24 +613,46 @@ target is the midpoint.
 
 ### 3.21 Persistence: what each start brings back
 
+Each room's state is kept in the room state store (`room_state.py`, one `Store` per entry,
+`mxz_coordinator.<entry>.room_state`), written at once when it changes, so a crash loses only a
+write still on its way to disk. Its sections are keyed by head. Dry stays out of it, unchanged:
+Dry is memory only, and keeping it across a restart would be a change of behavior nobody asked
+for.
+
 | State | Where | A reload | A clean restart | A crash |
 |---|---|---|---|---|
-| Shared mode, last change, set-by-votes | `Store`, written at once (2715–2734) | kept | kept | kept |
-| Door/window state, override, snapshot | `Store`, written at once (6224–6238) | kept | kept | kept |
-| Room target, drift override, dual edges | number restore data (`number.py:107-150`, `236-270`, `411-438`) | kept | kept | as last dumped, up to 15 min old |
-| Room enable, Coordinator, eco, lockouts | switch restore data (`switch.py:170-186`) | kept | kept | as last dumped |
-| Hands-off release, floor run, person's floor setting, yield | enable switch extra data (`switch.py:223-288`) | kept | kept | as last dumped |
-| Fan hold and fan echo memory | Fan auto switch state and extra data (`switch.py:76-138`, `342-445`) | kept | kept | as last dumped |
+| Shared mode, last change, set-by-votes | store `mode`, written with its own file at once (`_record_mode`, `save_now`) | kept | kept | kept |
+| Door/window state, override, snapshot | store `openings`, written with its own file at once (`OpeningPause._store_write`) | kept | kept | kept |
+| Room target, drift override, dual edges, enable | store `rooms` (`_rooms_record`) | kept | kept | kept |
+| Coordinator, eco, lockouts | store `switches` (`_switches_record`) | kept | kept | kept |
+| Hands-off release | store `rooms` | kept | kept | kept |
+| Floor run, person's floor setting, yield | store `floor` (`FloorGuard.record`) | kept | kept | kept |
+| Fan hold and fan echo memory | store `fan` (`FanHold.record`) | kept | kept | kept |
 | Head write ledger, delivery slots, head locks, command status, vane cleanup flag | `hass.data` (1368–1385) | kept | **lost** | **lost** |
 | Dual-switch hand-off note | `hass.data` (987–991) | consumed | lost | lost |
 | Engage latch | memory; re-read from the head (3.6) | re-read | re-read | re-read |
 | Adopt hold and what moved, heal timers, notice limits | memory | lost | lost | lost |
 | Sensor health, head sight and votes, cloud head record | memory, restarted with a grace or a window | restarted | restarted | restarted |
-| Dry state, Dry pick, coil-dry clock | memory; the coil-dry clock is re-seeded from the head | lost | lost | lost |
+| Dry state, Dry pick, coil-dry clock | memory; the coil-dry clock is re-seeded from the head (unchanged by the store) | lost | lost | lost |
 | Standby hold | memory; re-read from the entity at setup | re-read | re-read | re-read |
 
-The restore-data rows are audit H2 and belong to chunk 6. The `hass.data` row is what SM-1 turns
-on.
+**A start.** The coordinator resumes every value the store holds (`MXZCoordinator._resume`), and
+an entity takes its own restore data instead only where that record is at least as new as the
+store's last write (`store_resumes`). Every start writes every entity's state, so a record from a
+later run is newer, and one from before a crash is older. A stale record (older than the entry)
+never wins. The mode and door/window records come from their own files while those are kept,
+and from the store's copies when a file is missing. A section that can't be read is left out,
+and a store that can't be loaded (one a later release wrote) is neither read nor written.
+
+**One release of the old channels.** The entities stay `RestoreEntity` and keep writing their
+restore data in the same shapes, and the mode and door/window files are written at the same
+moments as before, so an earlier release finds its data after a rollback (docs/MIGRATION.md).
+The next release can stop both and delete the two files.
+
+**Adding a section.** One more `RoomStateStore.track` call with a function that returns the
+record, and one more read in `_resume`. The head write ledger (SM-1) is meant to go there.
+
+The `hass.data` row is what SM-1 turns on.
 
 ### 3.22 Setup, reconfigure and options flows
 
@@ -727,7 +753,7 @@ start event.
 - The same path adopts a late mode. A late off for an enabled room disables it (5421–5424); a late heat or cool for a disabled room enables it (5429–5440). That variant was read, not run.
 
 **Why this is not a small fix.** Three ways to close it, each a decision:
-1. Persist the ledger. That is one more restore channel, which audit H2 says not to add before the room-state store (chunk 6).
+1. Persist the ledger, as one more section of the room state store (3.21).
 2. Change the rule after a start, for example adopt nothing from a head until it has shown a write made since the start. That changes what a person at the remote gets after every restart.
 3. Accept it as a documented exception, as the fan hold's "outage" and "start" exceptions are, and pin it with a passing test.
 
@@ -961,11 +987,15 @@ breaks it.
 
 **Label.** `inferred`. This is audit H2, listed here once so the catalog is complete.
 
-Section 3.21 lists the rows: a room's target, enable, drift override and dual edges, the fan hold
-and its memory, a hands-off release, a floor run, the person's floor setting, and a yield. The fan
-hold's case is already an accepted exception (`pickKind = "crash"`, `ci-fan-crash`). The others
-have no test and no exception on record. The clean path is the room-state store (chunk 6, the owner's
-OK). No patch is recommended.
+**Status: fixed.** Section 3.21 lists the rows that rode restore data: a room's target, enable,
+drift override and dual edges, the fan hold and its memory, a hands-off release, a floor run, the
+person's floor setting, a yield, and the Coordinator, eco and lockout switches. Each is now in
+the room state store, written at once, so a crash keeps it. `tests/test_room_state.py` crashes
+right after each change, after the last restore data dump, and failed on the base for each one.
+A Fan auto gesture asks only for the debounced refresh, so the fan hold saves the fan record
+itself each time it publishes (`FanHold.publish`); a crash inside that refresh's cooldown keeps
+the gesture (`test_a_crash_right_after_a_fan_auto_gesture_keeps_it`).
+The fan hold's `crash` exception in the formal README narrows to a write still on its way to disk.
 
 ### SM-10. A write still queued at a head can drop out of MXZ's memory and be adopted as a press
 
@@ -1035,7 +1065,7 @@ Ranked by what a household would feel, then by how sure the evidence is.
 | 6 | SM-7 | A season lockout lapses at a start | run | Open: a decision | — |
 | 7 | SM-8 | A reversal with no hold in a one-apply window at a reload | read; model | Closed with SM-4 | — |
 | 8 | SM-5 | Heads in both modes while one refuses its park | run; by design | Documented exception; chunk 5 for a change | H1 |
-| 9 | SM-9 | A recent change lost at a crash | inferred | Chunk 6 | H2 |
+| 9 | SM-9 | A recent change lost at a crash | inferred | Fixed (room state store) | H2 |
 
 The structural findings behind several of these (audit M4, M5, M6) belong to the coordinator split
 (chunk 5). None of the fixes here needed it.
@@ -1084,11 +1114,10 @@ quiet. `tests/test_accept_head_changes.py` holds those.
 |---|---|---|
 | The delivery queue's locks, supersession and follow-ups (3.3) | One apply at a time in the model; the queue is chunk 5's `DeliveryQueue` | `tests/test_command_delivery.py`, `tests/test_refresh_race.py` |
 | Cloud batching and confirm wait (3.16) | SM-3 is an ordering bug a test pins better than a model | `tests/test_cloud_heads.py` |
-| Freeze floor run, hand-back and yield (3.15) | Large state, dense in tests; rides H2 | `tests/test_floor*.py`; chunk 6 |
+| Freeze floor run, hand-back and yield (3.15) | Large state, dense in tests | `tests/test_floor*.py`; its record's continuity in `tests/test_room_state_migration.py` |
 | Dry, coil-dry, seasons, vane kick (3.14, 3.17, 3.19) | Independent of the hold and the two memories | Their tests |
 | Standby hold (3.18), including a fixed park of a paused head | `PauseStopsHead` assumes no standby | A row of the README's exceptions |
 | The refresh debouncer and follow-up (3.2) | Home Assistant internals on two code paths (audit M2) | `tests/test_refresh_race.py` |
-| The crash rows of SM-9 other than the fan | Chunk 6 | — |
 
 ### 6.4 One subsystem at a time, and the user flows drawn
 
@@ -1114,8 +1143,8 @@ still does not run on code-only changes (audit M12, chunk 2 or 4).
 
 Each needs the owner's decision; none needs a patch until then.
 
-- **SM-1.** Persist the head write memory (one more restore channel, which belongs to the
-  room-state store, chunk 6), change the rule after a start (adopt nothing from a head until it
+- **SM-1.** Persist the head write memory (one more section of the room state store, 3.21),
+  change the rule after a start (adopt nothing from a head until it
   has shown a write made since the start), or accept it as a documented exception pinned by a
   passing test.
 - **SM-10.** Keep every copy of a rewrite and keep a replaced value while writes are queued (a
@@ -1124,7 +1153,6 @@ Each needs the owner's decision; none needs a patch until then.
 - **SM-7.** Hold restored lockouts until the outdoor source has been read once, or keep "no
   reading means no lockout" at a start too and document it.
 - **SM-5, as a change.** Send parks before runs: the delivery queue of chunk 5.
-- **SM-9.** The room-state store, chunk 6.
 
 **House rules for the tests.** No new test reads or writes a coordinator private (audit H3); the
 repros above drive entities, head fakes and the clock. No xfail: `tools/pytest_phases.py` fails a run

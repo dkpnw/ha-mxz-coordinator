@@ -1,0 +1,605 @@
+{
+ "entry": {
+  "created_at": "2026-11-13T18:00:01+00:00",
+  "data": {
+   "fan_boost_enable": true,
+   "idle_action": "fan_only",
+   "mode_hysteresis": 600,
+   "zones": [
+    {
+     "climate": "climate.property_head_a",
+     "name": "Study",
+     "opening_entity": "binary_sensor.property_window",
+     "opening_pause_enable": true,
+     "sensor": "sensor.property_a_temp"
+    },
+    {
+     "climate": "climate.property_head_b",
+     "dual_setpoint": true,
+     "floor_low": 50,
+     "hands_off": true,
+     "name": "Den",
+     "sensor": "sensor.property_b_temp"
+    }
+   ]
+  },
+  "entry_id": "01M7B12078M1W32QYHY7MKQAMQ",
+  "minor_version": 2,
+  "options": {},
+  "title": "MXZ Coordinator",
+  "version": 2
+ },
+ "heads": {
+  "climate.property_head_a": {
+   "fan_mode": "high",
+   "state": "off"
+  },
+  "climate.property_head_b": {
+   "fan_mode": "auto",
+   "state": "off"
+  }
+ },
+ "saved_by": "store1111 (Unreleased)",
+ "storage": {
+  "core.restore_state": {
+   "data": [
+    {
+     "extra_data": null,
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "friendly_name": "MXZ Coordinator Study follow global drift",
+       "icon": "mdi:backup-restore"
+      },
+      "context": {
+       "id": "01M7B4FTW0674J799F9Y6029TH",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "button.mxz_coordinator_study_follow_global_drift",
+      "last_changed": "2026-11-13T19:00:00+00:00",
+      "last_reported": "2026-11-13T19:00:00+00:00",
+      "last_updated": "2026-11-13T19:00:00+00:00",
+      "state": "unknown"
+     }
+    },
+    {
+     "extra_data": null,
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "friendly_name": "MXZ Coordinator Den follow global drift",
+       "icon": "mdi:backup-restore"
+      },
+      "context": {
+       "id": "01M7B4FTW0GQQ7DFTRBSQ322Z7",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "button.mxz_coordinator_den_follow_global_drift",
+      "last_changed": "2026-11-13T19:00:00+00:00",
+      "last_reported": "2026-11-13T19:00:00+00:00",
+      "last_updated": "2026-11-13T19:00:00+00:00",
+      "state": "unknown"
+     }
+    },
+    {
+     "extra_data": {
+      "native_max_value": 88.0,
+      "native_min_value": 59.0,
+      "native_step": 1.0,
+      "native_unit_of_measurement": "\u00b0F",
+      "native_value": 73.0
+     },
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "friendly_name": "MXZ Coordinator Study target",
+       "icon": "mdi:thermostat",
+       "max": 88.0,
+       "min": 59.0,
+       "mode": "box",
+       "step": 1.0,
+       "unit_of_measurement": "\u00b0F"
+      },
+      "context": {
+       "id": "01M7B4HNF02SCMX2WS7N82PH71",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "number.mxz_coordinator_study_target",
+      "last_changed": "2026-11-13T19:01:00+00:00",
+      "last_reported": "2026-11-13T19:01:00+00:00",
+      "last_updated": "2026-11-13T19:01:00+00:00",
+      "state": "73.0"
+     }
+    },
+    {
+     "extra_data": {
+      "native_max_value": 88.0,
+      "native_min_value": 59.0,
+      "native_step": 1.0,
+      "native_unit_of_measurement": "\u00b0F",
+      "native_value": 71.0
+     },
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "friendly_name": "MXZ Coordinator Den target",
+       "icon": "mdi:thermostat",
+       "max": 88.0,
+       "min": 59.0,
+       "mode": "box",
+       "step": 1.0,
+       "unit_of_measurement": "\u00b0F"
+      },
+      "context": {
+       "id": "01M7B4QRS0AZNPW9SW4PSM1F64",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "number.mxz_coordinator_den_target",
+      "last_changed": "2026-11-13T19:04:20+00:00",
+      "last_reported": "2026-11-13T19:04:20+00:00",
+      "last_updated": "2026-11-13T19:04:20+00:00",
+      "state": "71.0"
+     }
+    },
+    {
+     "extra_data": {
+      "native_max_value": 5.0,
+      "native_min_value": 0.5,
+      "native_step": 0.25,
+      "native_unit_of_measurement": "\u00b0F",
+      "native_value": 3.0
+     },
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "drift_cool": 3.0,
+       "drift_heat": 3.0,
+       "friendly_name": "MXZ Coordinator Study drift",
+       "icon": "mdi:arrow-expand-vertical",
+       "max": 5.0,
+       "min": 0.5,
+       "mode": "box",
+       "override": true,
+       "step": 0.25,
+       "unit_of_measurement": "\u00b0F"
+      },
+      "context": {
+       "id": "01M7B4FTW0MP1BZ7TMT57SAJBN",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "number.mxz_coordinator_study_drift",
+      "last_changed": "2026-11-13T19:00:00+00:00",
+      "last_reported": "2026-11-13T19:00:00+00:00",
+      "last_updated": "2026-11-13T19:00:00+00:00",
+      "state": "3.0"
+     }
+    },
+    {
+     "extra_data": {
+      "native_max_value": 5.0,
+      "native_min_value": 0.5,
+      "native_step": 0.25,
+      "native_unit_of_measurement": "\u00b0F",
+      "native_value": 1.0
+     },
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "drift_cool": 1.0,
+       "drift_heat": 1.0,
+       "friendly_name": "MXZ Coordinator Den drift",
+       "icon": "mdi:arrow-expand-vertical",
+       "max": 5.0,
+       "min": 0.5,
+       "mode": "box",
+       "override": false,
+       "step": 0.25,
+       "unit_of_measurement": "\u00b0F"
+      },
+      "context": {
+       "id": "01M7B4FTW06ZGARERQZN1DQZC8",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "number.mxz_coordinator_den_drift",
+      "last_changed": "2026-11-13T19:00:00+00:00",
+      "last_reported": "2026-11-13T19:00:00+00:00",
+      "last_updated": "2026-11-13T19:00:00+00:00",
+      "state": "1.0"
+     }
+    },
+    {
+     "extra_data": {
+      "native_max_value": 88.0,
+      "native_min_value": 59.0,
+      "native_step": 1.0,
+      "native_unit_of_measurement": "\u00b0F",
+      "native_value": 65.0
+     },
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "friendly_name": "MXZ Coordinator Den heat to",
+       "icon": "mdi:fire",
+       "max": 88.0,
+       "min": 59.0,
+       "mode": "box",
+       "step": 1.0,
+       "unit_of_measurement": "\u00b0F"
+      },
+      "context": {
+       "id": "01M7B4QRS0260JTZ91JGAVRBYY",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "number.mxz_coordinator_den_heat_to",
+      "last_changed": "2026-11-13T19:04:20+00:00",
+      "last_reported": "2026-11-13T19:04:20+00:00",
+      "last_updated": "2026-11-13T19:04:20+00:00",
+      "state": "65.0"
+     }
+    },
+    {
+     "extra_data": {
+      "native_max_value": 88.0,
+      "native_min_value": 59.0,
+      "native_step": 1.0,
+      "native_unit_of_measurement": "\u00b0F",
+      "native_value": 77.0
+     },
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "friendly_name": "MXZ Coordinator Den cool to",
+       "icon": "mdi:snowflake",
+       "max": 88.0,
+       "min": 59.0,
+       "mode": "box",
+       "step": 1.0,
+       "unit_of_measurement": "\u00b0F"
+      },
+      "context": {
+       "id": "01M7B4QRS09X3A3CMA3RFN1NR7",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "number.mxz_coordinator_den_cool_to",
+      "last_changed": "2026-11-13T19:04:20+00:00",
+      "last_reported": "2026-11-13T19:04:20+00:00",
+      "last_updated": "2026-11-13T19:04:20+00:00",
+      "state": "77.0"
+     }
+    },
+    {
+     "extra_data": {
+      "hands_off_released": false
+     },
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "friendly_name": "MXZ Coordinator Study enable",
+       "icon": "mdi:bed"
+      },
+      "context": {
+       "id": "01M7B4FTW07SRJ64E0H5XKAPW5",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "switch.mxz_coordinator_study_enable",
+      "last_changed": "2026-11-13T19:00:00+00:00",
+      "last_reported": "2026-11-13T19:00:00+00:00",
+      "last_updated": "2026-11-13T19:00:00+00:00",
+      "state": "on"
+     }
+    },
+    {
+     "extra_data": {
+      "floor_run": {
+       "direction": "heat",
+       "driven": 121.0,
+       "mark": 45.0,
+       "stalled": false,
+       "window": [
+        [
+         121.0,
+         45.0
+        ]
+       ],
+       "worst": 45.0
+      },
+      "hands_off_released": false
+     },
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "friendly_name": "MXZ Coordinator Den enable",
+       "icon": "mdi:sofa"
+      },
+      "context": {
+       "id": "01M7B4FTW058R1CA6F0MS8QHMA",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "switch.mxz_coordinator_den_enable",
+      "last_changed": "2026-11-13T19:00:00+00:00",
+      "last_reported": "2026-11-13T19:00:00+00:00",
+      "last_updated": "2026-11-13T19:00:00+00:00",
+      "state": "off"
+     }
+    },
+    {
+     "extra_data": {
+      "held": true,
+      "last_fan_command": "high",
+      "prior_fan_command": "high"
+     },
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "fan_control_reason": null,
+       "friendly_name": "MXZ Coordinator Study fan auto",
+       "icon": "mdi:fan-auto",
+       "last_fan_command": "high",
+       "prior_fan_command": "high"
+      },
+      "context": {
+       "id": "01M7B4FTW08JKX4721AAKBJDFQ",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "switch.mxz_coordinator_study_fan_auto",
+      "last_changed": "2026-11-13T19:00:00+00:00",
+      "last_reported": "2026-11-13T19:04:21+00:00",
+      "last_updated": "2026-11-13T19:00:00+00:00",
+      "state": "off"
+     }
+    },
+    {
+     "extra_data": {
+      "held": false,
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto"
+     },
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "fan_control_reason": null,
+       "friendly_name": "MXZ Coordinator Den fan auto",
+       "icon": "mdi:fan-auto",
+       "last_fan_command": "auto",
+       "prior_fan_command": "auto"
+      },
+      "context": {
+       "id": "01M7B4FTW03X1TXM115VRMCW0D",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "switch.mxz_coordinator_den_fan_auto",
+      "last_changed": "2026-11-13T19:00:00+00:00",
+      "last_reported": "2026-11-13T19:04:21+00:00",
+      "last_updated": "2026-11-13T19:00:00+00:00",
+      "state": "on"
+     }
+    },
+    {
+     "extra_data": null,
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "friendly_name": "MXZ Coordinator Coordinator enable",
+       "icon": "mdi:hvac"
+      },
+      "context": {
+       "id": "01M7B4FTW06VZP6WNHXDX1ZE54",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "switch.mxz_coordinator_coordinator_enable",
+      "last_changed": "2026-11-13T19:00:00+00:00",
+      "last_reported": "2026-11-13T19:00:00+00:00",
+      "last_updated": "2026-11-13T19:00:00+00:00",
+      "state": "on"
+     }
+    },
+    {
+     "extra_data": null,
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "friendly_name": "MXZ Coordinator Eco idle",
+       "icon": "mdi:leaf"
+      },
+      "context": {
+       "id": "01M7B4FTW0JXYHWKRYH7M0X0HF",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "switch.mxz_coordinator_eco_idle",
+      "last_changed": "2026-11-13T19:00:00+00:00",
+      "last_reported": "2026-11-13T19:00:00+00:00",
+      "last_updated": "2026-11-13T19:00:00+00:00",
+      "state": "on"
+     }
+    },
+    {
+     "extra_data": null,
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "friendly_name": "MXZ Coordinator Heat lockout",
+       "icon": "mdi:fire-off"
+      },
+      "context": {
+       "id": "01M7B4QRS02ACKNCWSXKBQQ99Q",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "switch.mxz_coordinator_heat_lockout",
+      "last_changed": "2026-11-13T19:04:20+00:00",
+      "last_reported": "2026-11-13T19:04:20+00:00",
+      "last_updated": "2026-11-13T19:04:20+00:00",
+      "state": "on"
+     }
+    },
+    {
+     "extra_data": null,
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "friendly_name": "MXZ Coordinator Cool lockout",
+       "icon": "mdi:snowflake-off"
+      },
+      "context": {
+       "id": "01M7B4FTW0N7WVQJF7QPV22CMT",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "switch.mxz_coordinator_cool_lockout",
+      "last_changed": "2026-11-13T19:00:00+00:00",
+      "last_reported": "2026-11-13T19:00:00+00:00",
+      "last_updated": "2026-11-13T19:00:00+00:00",
+      "state": "off"
+     }
+    },
+    {
+     "extra_data": null,
+     "last_seen": "2026-11-13T19:04:21+00:00",
+     "state": {
+      "attributes": {
+       "friendly_name": "MXZ Coordinator Shared mode",
+       "icon": "mdi:swap-horizontal",
+       "options": [
+        "cool",
+        "heat"
+       ]
+      },
+      "context": {
+       "id": "01M7B4HNF0XYW95BZDHAN60ZV9",
+       "parent_id": null,
+       "user_id": null
+      },
+      "entity_id": "select.mxz_coordinator_shared_mode",
+      "last_changed": "2026-11-13T19:01:00+00:00",
+      "last_reported": "2026-11-13T19:01:00+00:00",
+      "last_updated": "2026-11-13T19:01:00+00:00",
+      "state": "cool"
+     }
+    }
+   ],
+   "key": "core.restore_state",
+   "minor_version": 1,
+   "version": 1
+  },
+  "mxz_coordinator.01M7B12078M1W32QYHY7MKQAMQ.mode_change": {
+   "data": {
+    "last_mode_change": 1794596460.0,
+    "mode": "cool",
+    "mode_at": 1794596460.0,
+    "mode_by_votes": false
+   },
+   "key": "mxz_coordinator.01M7B12078M1W32QYHY7MKQAMQ.mode_change",
+   "minor_version": 1,
+   "version": 1
+  },
+  "mxz_coordinator.01M7B12078M1W32QYHY7MKQAMQ.openings": {
+   "data": {
+    "rooms": {
+     "climate.property_head_a": {
+      "notified": false,
+      "override": null,
+      "paused_at": null,
+      "snapshot": null,
+      "state": "closed"
+     }
+    }
+   },
+   "key": "mxz_coordinator.01M7B12078M1W32QYHY7MKQAMQ.openings",
+   "minor_version": 1,
+   "version": 1
+  },
+  "mxz_coordinator.01M7B12078M1W32QYHY7MKQAMQ.room_state": {
+   "data": {
+    "fan": {
+     "climate.property_head_a": {
+      "held": true,
+      "last_fan_command": "high",
+      "prior_fan_command": "high"
+     },
+     "climate.property_head_b": {
+      "held": false,
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto"
+     }
+    },
+    "floor": {
+     "climate.property_head_b": {
+      "floor_run": {
+       "direction": "heat",
+       "driven": 121.0,
+       "mark": 45.0,
+       "stalled": false,
+       "window": [
+        [
+         121.0,
+         45.0
+        ]
+       ],
+       "worst": 45.0
+      }
+     }
+    },
+    "mode": {
+     "last_mode_change": 1794596460.0,
+     "mode": "cool",
+     "mode_at": 1794596460.0,
+     "mode_by_votes": false
+    },
+    "openings": {
+     "rooms": {
+      "climate.property_head_a": {
+       "notified": false,
+       "override": null,
+       "paused_at": null,
+       "snapshot": null,
+       "state": "closed"
+      }
+     }
+    },
+    "rooms": {
+     "climate.property_head_a": {
+      "drift": 3.0,
+      "enable": true,
+      "hands_off_released": false,
+      "target": 73.0,
+      "target_high": null,
+      "target_low": null
+     },
+     "climate.property_head_b": {
+      "drift": null,
+      "enable": false,
+      "hands_off_released": false,
+      "target": 71.0,
+      "target_high": 77.0,
+      "target_low": 65.0
+     }
+    },
+    "saved_at": 1794596660.0,
+    "switches": {
+     "cool_lockout": false,
+     "coordinator_enable": true,
+     "eco_idle": true,
+     "heat_lockout": true
+    },
+    "unit": "\u00b0F"
+   },
+   "key": "mxz_coordinator.01M7B12078M1W32QYHY7MKQAMQ.room_state",
+   "minor_version": 1,
+   "version": 1
+  }
+ }
+}

@@ -58,6 +58,7 @@ from tests.head_entity import HeadEntity
 from tests.peek import armed, debug_view
 from tests.restart import stopped
 from tests.restore_store import find_stored_state, set_stored_states
+from tests.room_state_store import forget_saved_fan
 
 SENSOR_A = "sensor.room_a_temp"
 SENSOR_B = "sensor.room_b_temp"
@@ -397,7 +398,8 @@ async def _restart_without_fan_memory(hass: HomeAssistant, entry: MockConfigEntr
 
     MXZ then has no memory of its fan writes and no hold to restore, so the
     first compute seeds each head's hold from what the head shows: a start
-    after restore data without that record (lost, or never written).
+    after restore data without that record (lost, or never written). The room
+    state store keeps no fan hold either (tests/room_state_store.py).
     """
     fan_auto = {_eid(hass, entry, f"_{room}_fan_auto") for room in ("primary", "secondary")}
     async with stopped(hass, entry):
@@ -408,6 +410,7 @@ async def _restart_without_fan_memory(hass: HomeAssistant, entry: MockConfigEntr
             and (stored := find_stored_state(hass, item.entity_id)) is not None
         }
         set_stored_states(hass, kept)
+        await forget_saved_fan(hass, entry)
 
 
 async def _user_set_fan(hass: HomeAssistant, climate_id: str, token: str) -> None:
