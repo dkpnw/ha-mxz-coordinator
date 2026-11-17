@@ -274,7 +274,7 @@ plan sensor's `zones` row for the room gains `target_low` and `target_high`.
 <table>
 <tr>
 <td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-configure-room-dual-setpoint.png" alt="Configure room page titled Den with the Dual setpoint section open, its description, and Use separate heat and cool setpoints switched on, with the Cloud or generic head (beta) and Door/window pause sections below, before Submit."></td>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-thermostat-dual-setpoint.png" alt="Den thermostat card showing a range of 68 °F and 74 °F, Idle, with the room at 69 °F and heat/cool selected; beside it a Den card with Den heat to 68 °F, Den cool to 74 °F, and Den target 71 °F."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-thermostat-dual-setpoint.png" alt="Den thermostat card showing a range of 68 °F and 74 °F, Idle, with the room at 69 °F and heat/cool selected; beside it a Den card with Den heat to 68 °F, Den cool to 74 °F, and Den target 71 °F."></td>
 </tr>
 <tr>
 <td>Configure → Rooms → Den, with <b>Dual setpoint</b> opened and the switch on.</td>
@@ -813,8 +813,8 @@ head was gone.
 
 <table>
 <tr>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-plan-vote-stale.png" alt="The Plan sensor's Details: state heat, then Studio's zones row with engage heat, a control reason that climate.studio_head is unavailable, vote_status stale, and lost_since 2026-10-28T07:21:56."></td>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-plan-vote-expired.png" alt="The same Plan Details 75 seconds later: Studio's row still shows engage heat, now with vote_status expired and the same lost_since."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-plan-vote-stale.png" alt="The Plan sensor's Details: state heat, then Studio's zones row with engage heat, a control reason that climate.studio_head is unavailable, vote_status stale, and lost_since 2026-11-13T18:42:37."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-plan-vote-expired.png" alt="The same Plan Details 46 seconds later: Studio's row still shows engage heat, now with vote_status expired and the same lost_since."></td>
 </tr>
 <tr>
 <td>Studio's head has just gone unavailable (an invented test head, with <b>Keep a lost head's vote for</b> set to 1 minute): its vote is <code>stale</code>.</td>

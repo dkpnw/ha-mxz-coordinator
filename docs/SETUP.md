@@ -10,11 +10,14 @@ screenshot, and error.
 - [Reconfigure heads, rooms, and sensors](#reconfigure-heads-rooms-and-sensors)
 - [Remove the integration](#remove-the-integration)
 
-**About the screenshots.** They show invented heads (Studio, Loft, Den, Nook) and
-invented sensors on a test instance. Images named `mxz-3.12-*` show MXZ 3.12.0 on Home
-Assistant 2026.10.0 in its dark theme. The rest were retaken with MXZ 3.22.0b1 on Home
-Assistant 2026.9.4 in its light theme. The dashboard and the Configure menu were also
-taken in the dark theme: the README shows the one that matches your GitHub theme, and the
+**About the screenshots.** They show invented heads (Studio, Loft, Den) and invented
+sensors on a test instance, with Home Assistant 2026.9.4 in its light theme. Some were
+taken with MXZ 3.22.0b1 and the rest after 3.22.0; since then those pages have gained only
+an error message none of the screenshots shows. The errors and warnings below also use
+Home Assistant helpers made for the purpose: a Generic thermostat that only heats (Guest
+heater), a template sensor that reports its unit as `C` (Garage probe), and one that is
+unavailable (Porch temperature). The dashboard and the Configure menu were also taken in
+the dark theme: the README shows the one that matches your GitHub theme, and the
 [Configure](CONFIGURATION.md) page shows the dark menu.
 
 ## Requirements
@@ -171,31 +174,31 @@ second raw-head control for the same room.
 
 <table>
 <tr>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-setup-error-capability.png" alt="Heads step with Studio head and Guest fan unit picked, and the error: climate.guest_fan_unit does not advertise both heat and cool."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-error-capability.png" alt="Heads step with Studio head and Guest heater picked, and the error: these heads do not advertise both heat and cool in Home Assistant: climate.guest_heater."></td>
 <td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-error-already-configured.png" alt="Heads step with Studio head and Loft head picked for Downstairs outdoor unit, and the error: climate.studio_head and climate.loft_head are already assigned to another MXZ Coordinator entry."></td>
 </tr>
 <tr>
-<td>A fan-only guest unit is rejected because it lacks heat and cool.</td>
+<td>A heater that offers only heat and off is rejected because it lacks cool.</td>
 <td>The heads belong to another entry. The error names them, and the heads step stays open.</td>
 </tr>
 <tr>
 <td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-error-reserved.png" alt="Heads step with Den head and Studio head picked, and the error: climate.den_head and climate.studio_head are selected in another open MXZ Coordinator dialog; finish or cancel that dialog, or restart Home Assistant, then try again."></td>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-setup-error-duplicate-room.png" alt="Rooms step with Room 1 and Room 2 both named Studio and Room 3 Den, and the error: two rooms have the same name, Studio."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-error-duplicate-room.png" alt="Rooms step listing the three heads in priority order, Room 1 and Room 2 both named Studio and Room 3 Den, and the error: two rooms have the same name, Studio."></td>
 </tr>
 <tr>
 <td>A head is reserved by another open setup dialog.</td>
 <td>Two rooms have the same name.</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-setup-error-shared-sensor.png" alt="Sensors step with Studio temperature picked for both Studio and Den, and the error: sensor.studio_temperature is used for more than one room."></td>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-setup-error-sensor-unit.png" alt="Sensors step with Garage probe picked for Den, and the error: MXZ Coordinator cannot read the temperature unit reported by sensor.garage_probe."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-error-shared-sensor.png" alt="Sensors step with Studio temperature picked for both Studio and Den, and the error: the same temperature sensor is used for more than one room, sensor.studio_temperature."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-error-sensor-unit.png" alt="Sensors step with Garage probe picked for Den. The room list says sensor.garage_probe is not reporting a number, and the error says MXZ Coordinator cannot read the temperature unit sensor.garage_probe reports."></td>
 </tr>
 <tr>
 <td>One sensor picked for two rooms is blocked.</td>
-<td>A sensor whose unit cannot be converted is blocked.</td>
+<td>A sensor whose unit cannot be converted is blocked. This probe reports its unit as <code>C</code>, not <code>°C</code>.</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-setup-summary-warning-unavailable.png" alt="Summary with Den's sensor sensor.porch_temperature unavailable and a warning that the room makes no automatic demand until it reports a valid number."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-summary-warning-unavailable.png" alt="Summary for Studio, Loft and Den: Den's sensor sensor.porch_temperature is unavailable, with the warning that the room makes no automatic demand until it reports a valid number. Each room shows a 360-minute cadence and a 45 °F freeze floor."></td>
 <td></td>
 </tr>
 <tr>
@@ -220,20 +223,20 @@ and finish** to apply it. Comfort and sensor-freshness settings stay in
 
 <table>
 <tr>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-reconfigure-heads.png" alt="Reconfigure heads step with Nook, Loft, and Studio heads in priority order and the outdoor unit still named Upstairs outdoor unit."></td>
-<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-reconfigure-rooms.png" alt="Reconfigure room names step pre-filled with Nook, Loft, and Studio in the new priority order."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-reconfigure-heads.png" alt="Reconfigure heads step with Den head and Studio head in priority order and the outdoor unit still named Upstairs outdoor unit."></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-reconfigure-rooms.png" alt="Room names step listing climate.den_head and climate.studio_head in the new priority order, pre-filled with Den head for the new room and Studio for the kept one."></td>
 </tr>
 <tr>
-<td>Heads: Nook added at priority 1, Loft kept at 2, Studio moved from 1 to 3, Den dropped.</td>
-<td>Room names in the new priority order. An empty box uses the head's own name.</td>
+<td>Heads: Den added at priority 1, Studio moved from 1 to 2, Loft dropped.</td>
+<td>Room names in the new priority order. A new room starts with its head's name; here it was renamed Den before Submit. An empty box uses the head's own name.</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-reconfigure-sensors.png" alt="Reconfigure sensors step: Loft and Studio keep their sensors and readings; Nook temperature picked for the new room."></td>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-reconfigure-summary.png" alt="Reconfigure summary noting Studio moved from priority 1 with its name, sensor, vane wiring, target, drift, enable, and fan hold; climate.den_head removed with its room's entities; and that comfort settings live in Configure."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-reconfigure-sensors.png" alt="Reconfigure sensors step: Studio keeps sensor.studio_temperature, listed with its reading; Den temperature picked for the new room."></td>
+<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-reconfigure-summary.png" alt="Reconfigure summary: Den at priority 1 with sensor.den_temperature; Studio at priority 2, moved from priority 1 with its name, sensor, vane wiring, target, drift, enable and fan hold; climate.loft_head removed with its room's entities; and that comfort settings live in Configure."></td>
 </tr>
 <tr>
-<td>Sensors: kept rooms show their current sensors; Nook temperature is picked for the new room.</td>
-<td>Summary: Studio's move with its settings, Den's removal, and a pointer to Configure for comfort settings. Only <b>Save and finish</b> and <b>Go back to heads and rooms</b> are offered.</td>
+<td>Sensors: kept rooms show their current sensors; Den temperature is picked for the new room.</td>
+<td>Summary: Studio's move with its settings, Loft's removal, and a pointer to Configure for comfort settings. Only <b>Save and finish</b> and <b>Go back to heads and rooms</b> are offered.</td>
 </tr>
 </table>
 
@@ -270,7 +273,7 @@ save that leaves them unchanged triggers none. Reload rebuilds the coordinator a
 restarts sensor-health observation. Reconfigure finishes by closing the flow after a
 successful save with MXZ's own completion text.
 
-<img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-3.12-reconfigure-complete.png" width="420" alt="MXZ Coordinator dialog reading Reconfiguration was successful. with a Close button.">
+<img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-reconfigure-complete.png" width="420" alt="MXZ Coordinator dialog reading Reconfiguration was successful. with a Close button.">
 
 ## Remove the integration
 

@@ -976,7 +976,7 @@ def test_coil_dry_label_is_renamed_and_the_key_is_kept() -> None:
     migration = " ".join(Path("docs/MIGRATION.md").read_text().split())
     assert f"**Off after drying** is now called **{NOT_DRY}**" in migration
     # The current guides use the new name. (MIGRATION.md keeps each release's
-    # own wording, and a 3.12 screenshot's alt text describes that screenshot.)
+    # own wording, and Configuration's settings table gives the old name with its version.)
     for name in ("FEATURES.md", "SETUP.md", "TROUBLESHOOTING.md"):
         text = (Path("docs") / name).read_text()
         old = [line for line in text.splitlines() if "Off after drying" in line]

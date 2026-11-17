@@ -30,8 +30,8 @@ on equipment.
   installing it by version alone does not reproduce the stable .10 environment.
 - Use the linked recipe on Linux x86-64 with glibc 2.41 or newer. Its local evidence
   does not establish genuine hosted qualification.
-- The 3.12 form screenshots were captured on HA 2026.10.0 and the retaken ones on
-  2026.9.4; the floor's rendering of the forms was not captured.
+- The form screenshots were captured on HA 2026.9.4 (earlier ones on 2026.10.0 were
+  replaced); the floor's rendering of the forms was not captured.
 - This source does not implement the separate HA 2026.11 restore changes, and no .11
   support claim follows from .10 results.
 
@@ -144,8 +144,9 @@ central translation domain (the floor has no such parameter), so both strings sh
 locally in `strings.json`/`translations/en.json`. Tests resolve every flow reason
 through HA's translation loader on each lane.
 
-On HA 2026.10.0 (frontend 20260930.2) the real frontend rendered the local text,
-“Reconfiguration was successful.” with its trailing period, not HA's central text,
-which has none ([screenshot](../images/mxz-3.12-reconfigure-complete.png)). The
+On HA 2026.10.0 (frontend 20260930.2) and on HA 2026.9.4 (frontend 20260826.7) the
+real frontend rendered the local text, “Reconfiguration was successful.” with its
+trailing period, not HA's central text, which has none (the
+[screenshot](../images/mxz-reconfigure-complete.png) is from 2026.9.4). The
 floor's rendering of local abort text was not captured, and `already_configured` was
 not rendered.
