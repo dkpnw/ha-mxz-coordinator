@@ -15,6 +15,17 @@ on your equipment.
 - Fix: a room's `command_error` is cleared when a later command to its head returns, so an old
   error no longer sits beside `command_status: returned`. `command_failed_at` still shows the
   time of the last failure.
+- **Each room's state is kept in one store, written at once.** Targets, Heat to and Cool to, the
+  drift override, room enables, the hands-off release, the Coordinator, eco and lockout switches,
+  manual fan holds with their memory, and a disabled room's freeze floor run are now kept by MXZ
+  itself, beside the shared mode record and the door/window pauses. Fix: a crash or power cut no
+  longer loses a change made up to 15 minutes before it (they were in Home Assistant's restore
+  data, written at a stop and every 15 minutes). Fix: a target number, enable switch, Fan auto
+  switch, range number or Coordinator, eco or lockout switch disabled in the entity registry no
+  longer resets its value at the next start; a disabled Coordinator switch that was on stays on.
+  The first start migrates the old data, and for this release the old data is kept current so a
+  rollback to 3.22.0 finds it, which was checked by running 3.22.0. Dry is not kept, as before.
+  See [MIGRATION.md](docs/MIGRATION.md).
 - **Each setting is stored once (config entry v2.3).** Configure settings live in the entry's
   options and the rooms, **Notify on drift** and the saved-temperature unit in its data, where
   every Configure save used to write each setting to both. The first start migrates an entry

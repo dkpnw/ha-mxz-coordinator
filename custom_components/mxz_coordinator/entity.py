@@ -11,6 +11,8 @@ from .const import DOMAIN
 from .coordinator import MXZCoordinator
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from homeassistant.core import State
 
 
@@ -58,6 +60,12 @@ class MXZEntity(Entity):
             and created is not None
             and last_state.last_updated < created
         )
+
+    def _recorded_at(self, last_state: State | None) -> datetime | None:
+        """When a usable restore record was last updated; None for none, or a stale one."""
+        if last_state is None or self._restored_state_is_stale(last_state):
+            return None
+        return last_state.last_updated
 
     def __init__(self, coordinator: MXZCoordinator, key: str) -> None:
         self.coordinator = coordinator

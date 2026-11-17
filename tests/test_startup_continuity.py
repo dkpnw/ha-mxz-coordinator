@@ -76,6 +76,7 @@ from tests.ha_test import (
     mock_platform,
 )
 from tests.restore_store import find_stored_state, stored_state
+from tests.room_state_store import forget_saved_fan
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -577,6 +578,7 @@ async def test_late_token_without_memory_is_still_a_departure(
     record["extra_data"] = {"held": False}
     hass_storage["core.restore_state"] = legacy
     await _load_store(hass, legacy["data"])
+    await forget_saved_fan(hass, entry)  # that legacy record is all that was saved of it
     await _report(hass, head_a, "auto")
     await _startup(hass, entry)
     assert hass.states.get(switch_a).state == "on"
@@ -1258,6 +1260,7 @@ async def test_older_store_cannot_prove_a_later_rung_is_owned(
     removed = stored_state(hass, switch)
     await _load_store(hass, older["data"])
     assert stored_state(hass, switch) is not removed
+    await forget_saved_fan(hass, entry)  # the older record is all that was saved of it
     writes = _fan_writes(hass)
     await _startup(hass, entry)
     if room == "idle":
@@ -1399,6 +1402,7 @@ async def test_report_only_wall_pick_collides_with_unmarked_legacy_echo(
     record["extra_data"] = {"held": False}
     hass_storage["core.restore_state"] = legacy
     await _load_store(hass, legacy["data"])
+    await forget_saved_fan(hass, entry)  # that legacy record is all that was saved of it
     await _report(hass, head_a, "auto")
     await _startup(hass, entry)
     assert hass.states.get(switch).state == "on"
@@ -1561,6 +1565,7 @@ async def test_pending_handback_requires_fresh_strict_not_held_record(
             record["state"]["attributes"] = {}
         hass_storage["core.restore_state"] = saved
         await _load_store(hass, saved["data"])
+        await forget_saved_fan(hass, entry)  # the labelled record is all that was saved of it
         await _report(hass, head_a, "high")  # the user's token, above the ceiling
         writes = _fan_writes(hass)
         await _startup(hass, entry)
@@ -1656,6 +1661,7 @@ async def test_plan_explains_unavailable_room_inputs(
         record.pop("extra_data", None)
         hass_storage["core.restore_state"] = saved
         await _load_store(hass, saved["data"])
+        await forget_saved_fan(hass, entry)  # the labelled record is all that was saved of it
         await _startup(hass, entry)
         assert "missing or malformed" in _reasons(hass, entry)
         await _set_fan_auto(hass, switch, True)

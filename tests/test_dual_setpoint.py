@@ -56,6 +56,7 @@ from tests.pin_scenario import (
     take_mode_hold,
     take_vote_rows,
 )
+from tests.room_state_store import forget_room_state
 from tests.test_drive import MockHead, MockHeadC, _setup_mock_heads
 from tests.test_dual_setpoint_pin import PIN
 
@@ -675,6 +676,7 @@ async def test_a_disabled_edge_number_still_leaves_a_whole_range(hass: HomeAssis
     registry.async_update_entity(
         _eid(hass, entry, "primary_target_high"), disabled_by=er.RegistryEntryDisabler.USER
     )
+    await forget_room_state(hass, entry)  # only the edges' restore data holds the range
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert _pair(entry) == (69.0, 71.0)  # seeded around the target, never half restored

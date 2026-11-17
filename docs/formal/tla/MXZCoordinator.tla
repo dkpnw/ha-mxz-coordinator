@@ -75,7 +75,7 @@ PausedStates == {Paused, Closing}   \* const.OPENING_PAUSED_STATES
 \*   echo      one of the last two speeds commanded, or an older write while the head
 \*             hasn't reported the last one (the known exception)
 \*   outage    made before MXZ read it, across a stop or before the first read
-\*   crash     a crash lost the hold's restore data
+\*   crash     a crash came before the hold's record reached disk
 \*   seed      made with no command memory (the seed's documented adoption)
 \*   inflight  a Fan auto off with a write of MXZ's already sent, which can still land
 PickKinds == {"strict", "echo", "outage", "crash", "seed", "inflight"}
@@ -104,7 +104,7 @@ VARIABLES
     fanIdx,             \* FanHold._idx, or NoIdx
     fanLatched,         \* FanHold._latched
     fanRestore,         \* FanHold._restore: None, "held" or "free"
-    saved,              \* the Fan auto switch's restore data; has = FALSE: none yet
+    saved,              \* the fan record a start reads (room state store); has = FALSE: none yet
     \* Room 1's door/window (openings.OpeningPause).
     winRead,            \* "open", "closed" or None (unavailable)
     winChanged,         \* when that reading began
@@ -287,7 +287,7 @@ Rolled(f, t) ==
 \* FanHold.auto_is_on
 FanAutoOn == IF fanRestore # None THEN fanRestore = "free" ELSE ~fanLatched
 
-\* What the Fan auto switch writes as restore data (switch.extra_state_attributes).
+\* The fan record the room state store writes (FanHold.record; the switch's restore data too).
 Dumped == [has |-> TRUE, held |-> ~FanAutoOn, last |-> fanCmd, prior |-> fanPrev, older |-> fanOlder]
 NoDump == [has |-> FALSE, held |-> FALSE, last |-> None, prior |-> None, older |-> {}]
 
@@ -591,7 +591,8 @@ FanAutoOffGesture ==
     /\ UNCHANGED <<lastChange, flipInDwell, flipLate, fanOverwritten, exceptionLost, falseHold, twoBehind, falseHoldTwoBehind,
                    restoreBroken, pauseBroken, overrideBroken>>
 
-\* HA writes restore data every 15 minutes (the periodic dump a crash falls back on).
+\* The fan record reaches disk. The store writes it at once; this step lets it lag a change, as
+\* restore data's 15-minute dump did, so a crash in between is checked too.
 Dump ==
     /\ WithCrash
     /\ UNCHANGED <<splitVars, adoptVars>>
@@ -649,11 +650,11 @@ OverrideSwitch == WithWindow /\ \E on \in BOOLEAN :
 (* A new coordinator: __init__ reads the Store record (mode and the time   *)
 (* of the last change: async_load_mode_record, mode_change_stamp,          *)
 (* restore_shared_mode), the door/window store (async_load_openings); the  *)
-(* switch restore hands the Fan auto truth to FanHold.restore and puts     *)
+(* room state store hands the Fan auto truth to FanHold.restore and puts   *)
 (* each room in _startup_resume, so the first compute seeds its latch from *)
-(* the head's mode. A reload or a stop writes restore data; a crash leaves *)
-(* the last periodic dump. `outage` is the fan the head shows when this    *)
-(* start first reads it.                                                   *)
+(* the head's mode. A reload or a stop writes the fan record; a crash      *)
+(* leaves the last one that reached disk (Dump). `outage` is the fan the   *)
+(* head shows when this start first reads it.                              *)
 (***************************************************************************)
 Start(process, crash, outage) ==
     LET record == IF crash THEN saved ELSE Dumped

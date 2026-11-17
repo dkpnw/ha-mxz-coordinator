@@ -66,6 +66,7 @@ from tests.ha_test import (
 )
 from tests.peek import armed, debug_view
 from tests.restore_store import replace_stored_state, stored_state
+from tests.room_state_store import forget_room_state
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -2335,6 +2336,7 @@ async def test_p9_the_rearm_window_across_a_restart(
             stored.state, rs.RestoredExtraData({**data, "floor_run": old_run}),
             stored.last_seen,
         ))
+        await forget_room_state(hass, f.entry)  # an older release kept only restore data
     await _tick(hass, freezer, 3 * HOUR)  # downtime is not charged
     await _startup(hass, f.entry)
     await f.compute()
@@ -2637,6 +2639,7 @@ async def test_restart_hands_off_with_the_record_lost_parks_then_releases(
     assert stored.extra_data.as_dict()["hands_off_released"] is False
     assert stored.extra_data.as_dict()["floor_run"]["direction"] == "heat"
     replace_stored_state(hass, sid, rs.StoredState(stored.state, None, stored.last_seen))
+    await forget_room_state(hass, f.entry)  # an older store: restore data was all it kept
     assert await hass.config_entries.async_setup(f.entry.entry_id)
     await hass.async_block_till_done()
     await f.compute()

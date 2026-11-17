@@ -671,7 +671,7 @@ async def test_restart_after_idle_fan_only_self_parked_seeds_clean(
 
     async with stopped(hass, entry):
         hass.states.async_set(head_a, "fan_only", {**a.attributes, "fan_mode": "low"})
-        _plant_stale_fan_auto(hass, entry, "on")  # no usable restore data, same as S9
+        await _plant_stale_fan_auto(hass, entry, "on")  # no usable restore data, same as S9
     await _recompute(hass, entry)
     plan = hass.states.get(_eid(hass, entry, "_plan"))
     assert plan.attributes["zones"][0]["fan_hold"] is False
@@ -697,7 +697,7 @@ async def _restart_self_parked(
     await _set_temp(hass, SENSOR_A, temp)
     await _recompute(hass, entry)
     async with stopped(hass, entry):  # the token's first reader is the seed
-        _plant_stale_fan_auto(hass, entry, "on")  # no usable restore data
+        await _plant_stale_fan_auto(hass, entry, "on")  # no usable restore data
         if not restored_on:
             _plant(hass, _eid(hass, entry, "_coordinator_enable"), "off")
         # Set on the mock entity itself so its later writes keep the head's own token.

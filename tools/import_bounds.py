@@ -28,6 +28,8 @@ LAYERS = (
     ("helpers", {"logic", "cloud", "capabilities", "host", "settings"}),
     # The plan one compute decides and the attributes it is shown as.
     ("plan", {"plan"}),
+    # The one store of each room's state; the controllers hand it their records.
+    ("room state", {"room_state"}),
     # Concerns split out of the coordinator. Each reaches it through a Protocol it declares.
     # A controller another one calls sits below it: the door/window pause puts back a Dry
     # and snapshots the fan hold.

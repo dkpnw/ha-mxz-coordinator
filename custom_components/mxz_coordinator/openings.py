@@ -1,8 +1,9 @@
-"""Door/window pause (opt-in, per room): its record, its store, its wakeups.
+"""Door/window pause (opt-in, per room): its record, its wakeups.
 
 Idea from @mikepell007's MIT blueprint mxz_coordinator_blueprint. The states and
 their delays are decided in ``logic.opening_state``/``logic.opening_due``; this
-module keeps each room's record, writes it at once on every change, wakes at the
+module keeps each room's record, has the room state store write it at once on
+every change (``room_state.SECTION_OPENINGS``), wakes at the
 end of each delay, and sends the pause and resume notices. The coordinator asks
 it whether a room is paused and calls it at the points listed on ``OpeningPause``.
 """
@@ -39,6 +40,7 @@ from .logic import (
     opening_reading,
     opening_state,
 )
+from .room_state import SECTION_OPENINGS
 
 if TYPE_CHECKING:
     from homeassistant.core import EventStateChangedData
@@ -46,12 +48,13 @@ if TYPE_CHECKING:
     from .coordinator import Zone
     from .dry import DryMode
     from .fan_hold import FanHold
+    from .room_state import RoomStateStore
 
 _LOGGER = logging.getLogger(__package__)
 
 # ---------------------------------------------------------------------------
-# One small storage file per config entry, beside the mode-change record and
-# apart from it (the hold's record is never touched by a pause). Written at
+# The room state store's door/window section, and for one release its own file
+# as before (the hold's record is never touched by a pause). Written at
 # once on every change of a room's door/window state, keyed by the room's
 # head (a reorder moves a room's slug, never its head). Each room: its state,
 # a person's override ("switch" or "manual", or None), when its pause began
@@ -65,8 +68,12 @@ _OPENING_STATES = (
 _OPENING_OVERRIDES = ("switch", "manual")
 
 
-def _openings_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
-    """This entry's door/window store, one instance per Home Assistant run."""
+def openings_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
+    """This entry's door/window file from before the room state store, one instance per run.
+
+    Read at a start, and kept current for one release so an earlier release
+    finds its pauses after a rollback.
+    """
     stores: dict[str, Store[dict[str, Any]]] = hass.data.setdefault(
         f"{DOMAIN}_openings_stores", {}
     )
@@ -77,9 +84,17 @@ def _openings_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]
     return stores[entry_id]
 
 
-async def async_load_openings(hass: HomeAssistant, entry_id: str) -> dict[str, Any]:
-    """Each room's stored door/window record, by head; {} when none is readable."""
-    stored = await _openings_store(hass, entry_id).async_load()
+async def async_load_openings(
+    hass: HomeAssistant, entry_id: str, fallback: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Each room's stored door/window record, by head; {} when none is readable.
+
+    The door/window file, or ``fallback`` (the room state store's copy) when
+    there is no file.
+    """
+    stored = await openings_store(hass, entry_id).async_load()
+    if stored is None:
+        stored = fallback
     rooms = stored.get(OPENINGS_ROOMS_KEY) if isinstance(stored, dict) else None
     if not isinstance(rooms, dict):
         return {}
@@ -88,7 +103,7 @@ async def async_load_openings(hass: HomeAssistant, entry_id: str) -> dict[str, A
 
 async def async_remove_openings(hass: HomeAssistant, entry_id: str) -> None:
     """Delete a removed entry's door/window record."""
-    await _openings_store(hass, entry_id).async_remove()
+    await openings_store(hass, entry_id).async_remove()
     hass.data.get(f"{DOMAIN}_openings_stores", {}).pop(entry_id, None)
 
 
@@ -164,6 +179,7 @@ class OpeningHost(ControllerHost, Protocol):
     coordinator_enable: bool
     dry: DryMode
     fan: FanHold
+    room_state: RoomStateStore
 
     async def async_apply_vane(self, climate_id: str, vane_id: str, option: str) -> None: ...
     async def async_user_changed(self, *, at_once: bool = False) -> None: ...
@@ -181,7 +197,6 @@ class OpeningPause:
     def __init__(
         self,
         host: OpeningHost,
-        entry_id: str,
         zones: list[Zone],
         stored: dict[str, Any] | None,
         started: float,
@@ -199,7 +214,6 @@ class OpeningPause:
         self._hass = host.hass
         self._zones = zones
         self._started = started
-        self._store = _openings_store(host.hass, entry_id)
         self._records: dict[str, OpeningRecord] = {
             zone.slug: OpeningRecord.restored((stored or {}).get(zone.climate_id))
             for zone in zones
@@ -457,19 +471,22 @@ class OpeningPause:
         if (write := self._store_write()) is not None:
             write()
 
-    def _store_write(self) -> Effect | None:
-        """The write of every room's door/window record as it stands now;
-        none on a retired coordinator."""
-        if self._host.retired:
-            return None
-        data = {
+    def stored(self) -> dict[str, Any]:
+        """Every room's door/window record as it stands, as the store keeps it."""
+        return {
             OPENINGS_ROOMS_KEY: {
                 zone.climate_id: self._records[zone.slug].stored()
                 for zone in self._zones
                 if zone.slug in self._records
             }
         }
-        return lambda: self._store.async_delay_save(lambda: data, 0)
+
+    def _store_write(self) -> Effect | None:
+        """The write of every room's door/window record, at once; none on a
+        retired coordinator."""
+        if self._host.retired:
+            return None
+        return lambda: self._host.room_state.save_now(SECTION_OPENINGS)
 
     @callback
     def on_change(self, event: Event[EventStateChangedData]) -> None:

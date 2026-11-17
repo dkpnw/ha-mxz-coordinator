@@ -1,5 +1,52 @@
 # Upgrading and migrating MXZ Coordinator
 
+## Each room's state is kept in one store (Unreleased)
+
+**Nothing to do.** MXZ now keeps each room's state in its own store,
+`.storage/mxz_coordinator.<entry_id>.room_state`, and writes it at once whenever it changes:
+
+- each room's target, Heat to and Cool to, drift override, enable and hands-off release;
+- the Coordinator, eco and lockout switches;
+- each room's manual fan hold and the memory of the speeds MXZ wrote;
+- a disabled room's freeze floor run;
+- the shared mode and its last change, and each door/window pause.
+
+Until now all but the last two were kept in Home Assistant's restore data, which reaches disk
+only at a clean stop and every 15 minutes. Two things change because of that:
+
+- **A crash keeps a recent change.** A target, a fan pick or a switch changed shortly before a
+  crash or power cut used to come back as it was up to 15 minutes earlier. It now comes back as
+  it was. Only a write still on its way to disk at the moment of the crash can be lost.
+- **A helper disabled in the registry no longer resets its room.** A disabled entity restores
+  nothing, so a disabled target number, enable switch or Fan auto switch used to send its room
+  back to the default at the next start: the target to the default or the head's setpoint, the
+  room disabled, the fan read afresh. The room now keeps its values. The same holds for the
+  Coordinator switch: if it was on, disabling the entity no longer turns the Coordinator off at
+  the next start. Turn the switch off before disabling it if that is what you want.
+
+Dry is not kept, as before: a reload or restart ends it.
+
+**The first start** reads the old data into the store: each entity's restore data, and the
+`mode_change` and `openings` files. A source that is missing or can't be read is read as before
+(a target with none is seeded from the head's setpoint, a mode record that can't be read holds
+the full mode-change window, a Fan auto record that can't be used is shown in the room's plan),
+and the rest still comes across. A room state store that can't be read is set aside for the old
+sources, and one written by a later release is neither read nor written over.
+
+**For this release the old data stays current.** The entities keep writing their restore data,
+and the `mode_change` and `openings` files are written at the same moments as before. At each
+start the store wins, except where an entity's restore data is at least as new as the store's last
+write, which only happens when an earlier release ran after this one.
+
+**Rolling back to 3.22.0** finds its own data, current. This was checked by running 3.22.0 on
+what this release left after changing a target, the shared mode, a dual-setpoint range, a lockout
+and a door/window pause, with a held fan and a freeze floor running
+([`rollback_check_on_3_22_0.py`](../tests/fixtures/room_state/rollback_check_on_3_22_0.py)).
+3.22.0 ignores the new file. **Upgrading again** takes what 3.22.0 changed in between: its restore
+data is newer than the store. A rollback to a release before 3.22.0 was not checked.
+
+A later release will stop writing the old restore data and the two files, and delete the files.
+
 ## Each setting is stored in one place (entry v2.3, Unreleased)
 
 **Nothing to do.** The first start of this version moves the config entry from v2.2 to v2.3.

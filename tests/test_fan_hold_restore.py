@@ -24,12 +24,16 @@ from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
 from custom_components.mxz_coordinator.const import (
     CONF_IDLE_ACTION,
+    CONF_ZONES,
     FAN_LADDER,
     IDLE_ACTION_FAN_ONLY,
     INHIBIT_ACTION_OFF,
+    ZONE_CLIMATE,
 )
+from custom_components.mxz_coordinator.settings import entry_config
 from tests.restart import restart, stopped
 from tests.restore_store import replace_stored_state
+from tests.room_state_store import forget_saved_fan
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -58,9 +62,14 @@ def _plant(hass, entity_id: str, state: str, when: datetime | None = None) -> No
     ))
 
 
-def _plant_stale_fan_auto(hass, entry, state: str) -> None:
-    """A Fan auto record from before this entry existed: the switch ignores it."""
+async def _plant_stale_fan_auto(hass, entry, state: str) -> None:
+    """A Fan auto record from before this entry existed: the switch ignores it.
+
+    The room state store keeps no fan hold for that head either, as after an
+    entry re-add (tests/room_state_store.py).
+    """
     _plant(hass, _eid(hass, entry, "_primary_fan_auto"), state, entry.created_at - timedelta(seconds=1))
+    await forget_saved_fan(hass, entry, [entry_config(entry)[CONF_ZONES][0][ZONE_CLIMATE]])
 
 
 def _expect(hass, entry, head, *, hold: bool, fan: str | None = None) -> None:
@@ -265,7 +274,7 @@ async def test_s9_stale_restore_falls_back(hass: HomeAssistant):
     head_a, _b, entry = await _std(hass)
     await _idle_hold(hass, entry, head_a, "quiet")
     async with stopped(hass, entry):
-        _plant_stale_fan_auto(hass, entry, "off")
+        await _plant_stale_fan_auto(hass, entry, "off")
     await _recompute(hass, entry)
     # DOCUMENTED EDGE: no restore data (entry re-added / first post-upgrade
     # restart) falls back to observed-state seeding — which latches. Right for

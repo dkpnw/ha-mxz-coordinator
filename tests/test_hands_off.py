@@ -73,6 +73,7 @@ from tests.flow_pages import default, open_options_page, prefilled, submit
 from tests.ha_test import MockConfigEntry
 from tests.peek import armed
 from tests.restore_store import replace_stored_state, stored_state
+from tests.room_state_store import forget_room_state
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -489,6 +490,7 @@ async def test_disabled_while_down_without_record_still_parks(hass: HomeAssistan
     sid = _eid(hass, entry, "_secondary_enable")
     stored = stored_state(hass, sid)
     replace_stored_state(hass, sid, rs.StoredState(stored.state, None, stored.last_seen))
+    await forget_room_state(hass, entry)  # that older version kept only restore data
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     await _recompute(hass, entry)

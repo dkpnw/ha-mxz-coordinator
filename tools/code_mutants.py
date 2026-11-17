@@ -147,10 +147,10 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_properties_window.py::test_a_pause_stops_the_head_and_a_takeover_holds_until_the_window_closes',
     ),
     'C18': Mutant(
-        "a pause isn't stored", '_store_write',
-        'return lambda: self._store.async_delay_save(lambda: data, 0)',
+        "a pause isn't stored at once or in its own file", '_store_write',
+        'return lambda: self._host.room_state.save_now(SECTION_OPENINGS)',
         'return lambda: None',
-        'tests/test_properties_restart.py::test_a_start_changes_nothing_anyone_can_see',
+        'tests/test_door_window.py::test_a_pause_is_stored_as_the_record_a_start_reads',
     ),
     'C19': Mutant(
         'opening_state pauses on no reading', 'opening_state',
