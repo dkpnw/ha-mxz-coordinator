@@ -316,7 +316,7 @@
       "must_not_be_negative": "Enter 0 or more.",
       "not_a_number": "Enter a number.",
       "freshness_profile_invalid": "These freshness settings don't fit together. Times must be finite positive minutes, and maximum age can't be shorter than the report interval. \"Sensor reports a sample time or counter\" needs exactly one attribute; other choices need both attributes empty.",
-      "floor_out_of_range": "The freeze floor must be 35-65 °F (2-18 °C) and the overheat ceiling 75-100 °F (24-38 °C), in your Home Assistant unit. Leave a field empty for none. Nothing was saved.",
+      "floor_out_of_range": "The freeze floor must be 35-65 °F (2-18 °C) and the overheat ceiling 75-100 °F (24-38 °C), in your Home Assistant unit. Leave a field empty for none.",
       "cloud_esphome_head": "This head is on ESPHome, which MXZ drives as a local (CN105) head. Choose Local.",
       "cloud_unsupported_options": "A cloud head (beta) takes no vanes, airflow sensor, dual setpoint or vote by action. Clear those, or choose Local.",
       "generic_esphome_head": "This head is on ESPHome, which MXZ drives as a local (CN105) head. Choose Local.",
