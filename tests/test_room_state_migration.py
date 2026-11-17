@@ -113,14 +113,19 @@ async def test_a_3_22_0_install_comes_across_whole_and_the_store_alone_then_hold
     hass: HomeAssistant, freezer: Any, hass_storage: dict
 ) -> None:
     rig = await _start_saved_install(hass, freezer, hass_storage, _saved())
+    # 3.22.0's last real mode change, about an hour before the start: its hold has run out.
+    changed_at = SAVED["storage"][MODE_FILE]["data"]["last_mode_change"]
     try:
         _as_3_22_0_left_it(rig)
+        assert (rig.coord._last_mode_change_at, rig.coord.mode_hold_remaining()) == (changed_at, 0.0)
         assert STORE in hass_storage
         async with stopped(hass, rig.entry):
             set_stored_states(hass, {})  # every restore record lost
             del hass_storage[MODE_FILE], hass_storage[OPENINGS_FILE]
         await rig.settle()
         _as_3_22_0_left_it(rig)
+        # The mode record came from the store alone: the change is not restamped and nothing is held.
+        assert (rig.coord._last_mode_change_at, rig.coord.mode_hold_remaining()) == (changed_at, 0.0)
         await rig.window("off")
         await rig.later(200)
         assert rig.coord.openings.state_of("primary") == "closed"
