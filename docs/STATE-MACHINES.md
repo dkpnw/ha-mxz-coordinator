@@ -36,7 +36,7 @@ store has landed (`room_state.py`); section 3.21 says what it keeps.
 | SM-6 a press while MXZ's command waits is written over | Fixed | `test_a_press_while_mxzs_command_waits_for_the_head_is_adopted`, `test_a_flip_alone_while_mxzs_command_waits_is_put_back_by_it`, `test_a_press_taken_back_in_its_hold_leaves_the_room_target_to_reach_the_head` |
 | SM-7 a start releases restored season lockouts | Open, needs a decision | Confirmed by a run; no test landed |
 | SM-8 a reload inside an apply loses the hold | Closed by the SM-4 fix | `RecordLeadsHeads` in `ci-apply`, with reloads and restarts inside an apply (`NeverCutShort` reaches them) |
-| SM-9 restore data up to 15 minutes old after a crash | Fixed by the room state store | `tests/test_room_state.py` (`test_a_crash_right_after_a_change_keeps_it`, `test_a_hands_off_room_released_after_the_last_dump_stays_released_after_a_crash`) |
+| SM-9 restore data up to 15 minutes old after a crash | Fixed by the room state store | `tests/test_room_state.py` (`test_a_crash_right_after_a_change_keeps_it`, `test_a_crash_right_after_a_fan_auto_gesture_keeps_it`, `test_a_hands_off_room_released_after_the_last_dump_stays_released_after_a_crash`) |
 | SM-10 a queued write that dropped out of the memory is adopted | Open, needs a decision | `QueuedWriteNeverAdopted` breaks in `ci-adopt` |
 
 ---
@@ -992,6 +992,9 @@ drift override and dual edges, the fan hold and its memory, a hands-off release,
 person's floor setting, a yield, and the Coordinator, eco and lockout switches. Each is now in
 the room state store, written at once, so a crash keeps it. `tests/test_room_state.py` crashes
 right after each change, after the last restore data dump, and failed on the base for each one.
+A Fan auto gesture asks only for the debounced refresh, so the fan hold saves the fan record
+itself each time it publishes (`FanHold.publish`); a crash inside that refresh's cooldown keeps
+the gesture (`test_a_crash_right_after_a_fan_auto_gesture_keeps_it`).
 The fan hold's `crash` exception in the formal README narrows to a write still on its way to disk.
 
 ### SM-10. A write still queued at a head can drop out of MXZ's memory and be adopted as a press

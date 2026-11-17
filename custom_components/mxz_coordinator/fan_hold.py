@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
 
     from .cloud import CloudHead, CloudRecords
+    from .room_state import RoomStateStore
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -151,7 +152,8 @@ class FanHost(ControllerHost, Protocol):
     entry's coordinator switch came back on at a start, the entry (its age),
     and a cloud head's write record through the head drivers (whether a fan
     report can be older than its last batch). Called: the delivery queue, for
-    the head service a fan write sends.
+    the head service a fan write sends, and the room state store, which saves
+    the fan record each time it is published.
     """
 
     fan_boost_enable: bool
@@ -162,6 +164,7 @@ class FanHost(ControllerHost, Protocol):
     idle_action: str
     restored_coordinator_on: bool
     config_entry: ConfigEntry
+    room_state: RoomStateStore
 
     @property
     def deliveries(self) -> HeadCommands: ...
@@ -944,7 +947,14 @@ class FanHold:
         return detach
 
     def publish(self, climate_id: str) -> None:
-        """Keep the existing clean-state channel current before yielding."""
+        """Keep both saved channels current before yielding.
+
+        The Fan auto switch writes its state and restore data, and the room
+        state store saves the fan record now. The store is written after a
+        refresh too, but a Fan auto gesture only asks for a debounced one, which
+        can wait out its cooldown: a crash in that wait would lose the gesture.
+        """
+        self._host.room_state.changed()
         if writer := self._writers.get(climate_id):
             writer()
 
