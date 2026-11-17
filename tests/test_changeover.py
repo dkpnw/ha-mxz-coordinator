@@ -10,8 +10,10 @@ Requires a Home Assistant test plugin (tests/ha_test.py).
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any, ClassVar
 
+import pytest
 from homeassistant.components.climate import (
     ClimateEntityFeature,
     HVACMode,
@@ -25,9 +27,11 @@ from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
 from custom_components.mxz_coordinator.const import (
+    CHANGEOVER_INTERVAL_MINUTES,
     CONF_CHANGEOVER_ENTITY,
     CONF_IDLE_ACTION,
     CONF_PRIMARY_CLIMATE,
@@ -42,10 +46,12 @@ from tests.ha_test import (
     MockConfigEntry,
     MockModule,
     MockPlatform,
+    async_fire_time_changed,
     mock_integration,
     mock_platform,
 )
 from tests.head_entity import HeadEntity
+from tests.restart import stopped
 
 SENSOR_A = "sensor.room_a_temp"
 SENSOR_B = "sensor.room_b_temp"
@@ -262,3 +268,57 @@ async def test_changeover_end_to_end_head_behavior(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
     assert _lockouts(hass, entry) == ("off", "on")
     assert hass.states.get(head_a).state == "heat"
+
+
+OUTDOOR = "sensor.outdoor_high"
+
+
+async def _warm_entry(hass: HomeAssistant) -> MockConfigEntry:
+    """An outdoor high of 72, so the heat lockout is on."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    head_a, head_b = await _setup_mock_heads(hass)
+    temp_attrs = {ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.FAHRENHEIT}
+    hass.states.async_set(SENSOR_A, "70", temp_attrs)
+    hass.states.async_set(SENSOR_B, "70", temp_attrs)
+    hass.states.async_set(OUTDOOR, "72")
+    await hass.async_block_till_done()
+    entry = await _mxz_entry(hass, head_a, head_b, OUTDOOR)
+    assert _lockouts(hass, entry) == ("on", "off")
+    return entry
+
+
+async def _restart_without_the_source(hass: HomeAssistant, entry: MockConfigEntry) -> None:
+    """A restart in which the outdoor sensor's integration hasn't loaded yet."""
+    async with stopped(hass, entry):
+        hass.states.async_remove(OUTDOOR)
+
+
+@pytest.mark.parametrize(("high", "expected"), [("72", ("on", "off")), ("60", ("off", "off"))])
+async def test_a_start_keeps_the_restored_lockouts_until_the_source_loads(
+    hass: HomeAssistant, high: str, expected: tuple[str, str],
+) -> None:
+    """docs/STATE-MACHINES.md SM-7: a source still loading is no reading."""
+    entry = await _warm_entry(hass)
+    await _restart_without_the_source(hass, entry)
+    assert _lockouts(hass, entry) == ("on", "off")
+    hass.states.async_set(OUTDOOR, high)
+    await hass.async_block_till_done()
+    assert _lockouts(hass, entry) == expected
+    hass.states.async_set(OUTDOOR, "unavailable")
+    await hass.async_block_till_done()
+    assert _lockouts(hass, entry) == ("off", "off")  # once read, no reading is no lockout
+
+
+async def test_a_source_that_never_loads_holds_the_lockouts_until_the_hourly_re_read(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    entry = await _warm_entry(hass)
+    await _restart_without_the_source(hass, entry)
+    freezer.tick(timedelta(minutes=CHANGEOVER_INTERVAL_MINUTES - 1))
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await hass.async_block_till_done()
+    assert _lockouts(hass, entry) == ("on", "off")
+    freezer.tick(timedelta(minutes=1))
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await hass.async_block_till_done()
+    assert _lockouts(hass, entry) == ("off", "off")

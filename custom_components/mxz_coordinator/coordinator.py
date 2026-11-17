@@ -922,6 +922,9 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         )
         # Optional local-weather seasonal changeover (auto-drives the lockouts).
         self.changeover_entity: str | None = conf.get(CONF_CHANGEOVER_ENTITY) or None
+        # Until the source is read once, or the first hourly re-read, a start keeps the
+        # lockouts it restored: a source still loading is no reading (SM-7).
+        self._changeover_waiting = self.changeover_entity is not None
         # Optional external inhibit / low-power standby (grid-down, load-shed):
         # while the watched entity reads `inhibit_active_state` the coordinator
         # parks its heads at `inhibit_action` and self-restores on release.
@@ -4437,13 +4440,21 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     @callback
     def _on_changeover_timer(self, _now: Any) -> None:
         """Hourly changeover re-read (forecasts refresh slowly)."""
+        self._changeover_waiting = False
         self.hass.async_create_task(self._evaluate_changeover())
 
     async def _evaluate_changeover(self) -> None:
-        """Read local weather and auto-drive the heat/cool lockout switches."""
+        """Read local weather and auto-drive the heat/cool lockout switches.
+
+        No reading means no lockout, except after a start: the lockouts it
+        restored stay until the source is read, or until the first hourly re-read.
+        """
         if not self.changeover_entity:
             return
         outdoor_high = await self._read_outdoor_high()
+        if outdoor_high is None and self._changeover_waiting:
+            return
+        self._changeover_waiting = False
         heat_lock, cool_lock = season_lockouts(
             outdoor_high=outdoor_high,
             heat_above=self.changeover_heat_above,

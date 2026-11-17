@@ -16,6 +16,10 @@ on your equipment.
   follow one thermostat's sensor. Each head is still its own room with its own target, switches,
   freshness limit, freeze floor and fan hold. The summary names each shared sensor and its rooms.
   See [One sensor for several heads](docs/SETUP.md#one-sensor-for-several-heads).
+- Fix: after a restart, the Heat lockout and Cool lockout stay as they were until the weather
+  source has been read. Before, a source still loading at the start read as "no reading" and
+  turned both lockouts off until it loaded. A source that never loads holds them for at most an
+  hour, until the first hourly re-read.
 - The freeze floor and overheat ceiling range error drops its closing sentence about nothing
   being saved, as the other errors already had. The ranges it gives are unchanged.
 - Fix: a room's `command_error` is cleared when a later command to its head returns, so an old

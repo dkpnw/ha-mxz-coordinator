@@ -34,7 +34,7 @@ store has landed (`room_state.py`); section 3.21 says what it keeps.
 | SM-4 the record depends on a race | Fixed | `test_a_head_is_sent_a_new_mode_only_once_it_is_the_recorded_mode`; `RecordLeadsHeads` in `ci-apply` |
 | SM-5 a refusing head stays in the old mode | Documented exception | [formal/README.md](formal/README.md#documented-exceptions); `NeverRefused` reaches it |
 | SM-6 a press while MXZ's command waits is written over | Fixed | `test_a_press_while_mxzs_command_waits_for_the_head_is_adopted`, `test_a_flip_alone_while_mxzs_command_waits_is_put_back_by_it`, `test_a_press_taken_back_in_its_hold_leaves_the_room_target_to_reach_the_head` |
-| SM-7 a start releases restored season lockouts | Open, needs a decision | Confirmed by a run; no test landed |
+| SM-7 a start releases restored season lockouts | Fixed | `test_a_start_keeps_the_restored_lockouts_until_the_source_loads`, `test_a_source_that_never_loads_holds_the_lockouts_until_the_hourly_re_read` |
 | SM-8 a reload inside an apply loses the hold | Closed by the SM-4 fix | `RecordLeadsHeads` in `ci-apply`, with reloads and restarts inside an apply (`NeverCutShort` reaches them) |
 | SM-9 restore data up to 15 minutes old after a crash | Fixed by the room state store | `tests/test_room_state.py` (`test_a_crash_right_after_a_change_keeps_it`, `test_a_crash_right_after_a_fan_auto_gesture_keeps_it`, `test_a_hands_off_room_released_after_the_last_dump_stays_released_after_a_crash`) |
 | SM-10 a queued write that dropped out of the memory is adopted | Open, needs a decision | `QueuedWriteNeverAdopted` breaks in `ci-adopt` |
@@ -554,9 +554,10 @@ source set, MXZ drives the switches.
 | The daily high is at or above the heat threshold | → heat locked | `logic.py:401-423` |
 | The daily high is at or below the cool threshold | → cool locked | `logic.py:401-423` |
 | Between the two, or no reading at all | → neither | `logic.py:401-423`; pinned by `tests/test_logic.py:181-182` and `tests/test_changeover.py:207-208` |
+| No reading since this start, before the first hourly re-read | unchanged: the lockouts the start restored stay | `_evaluate_changeover` (`_changeover_waiting`), SM-7 |
 | The pair differs from the switches | drive each switch through its own service | 7501–7518 |
 
-**Modeled.** Nowhere. SM-7 is the start-up case.
+**Modeled.** Nowhere. Tests hold the start-up case (SM-7).
 
 ### 3.18 Standby hold and eco
 
@@ -944,8 +945,13 @@ takes the same `_read_outdoor_high` → None path, which was read, not run.
 **Run.** Outdoor high 72, so the heat lockout is on. A restart with the sensor not loaded yet: after
 setup both lockouts read off. The sensor loads at 72: the heat lockout is on again.
 
-**Status: open, needs a decision.** Holding a restored lockout until the source has been read once
-changes what the house does at a start.
+**Status: fixed (Drew's decision, t316u).** A start keeps the lockouts it restored until the
+source has been read once. A source that never loads holds them until the first hourly re-read
+(`CHANGEOVER_INTERVAL_MINUTES`, 60), and after that no reading means no lockout again. Once the
+source has been read, a reading that goes away lifts the lockouts at once, as before.
+`test_a_start_keeps_the_restored_lockouts_until_the_source_loads` (a sensor that loads late, at
+72 and at 60) and `test_a_source_that_never_loads_holds_the_lockouts_until_the_hourly_re_read`
+(a sensor that never loads) fail on the base, which turns the heat lockout off at setup.
 
 **Evidence.**
 - `async_setup` starts `_evaluate_changeover` before the first refresh (1552, 1594).
@@ -1062,7 +1068,7 @@ Ranked by what a household would feel, then by how sure the evidence is.
 | 3 | SM-10 | A person's press at a lagging head is lost to MXZ's own later write | run on invented heads | Open: a decision | M6 |
 | 4 | SM-3 | A cloud room, or a freeze floor on a cloud head, waits out the confirm wait after one rejected call; the row reads pending | run | Fixed | — |
 | 5 | SM-6 | A press at the head is lost | run | Fixed | M9 |
-| 6 | SM-7 | A season lockout lapses at a start | run | Open: a decision | — |
+| 6 | SM-7 | A season lockout lapses at a start | run | Fixed: held until the source is read, at most an hour | — |
 | 7 | SM-8 | A reversal with no hold in a one-apply window at a reload | read; model | Closed with SM-4 | — |
 | 8 | SM-5 | Heads in both modes while one refuses its park | run; by design | Documented exception; chunk 5 for a change | H1 |
 | 9 | SM-9 | A recent change lost at a crash | inferred | Fixed (room state store) | H2 |
@@ -1150,8 +1156,6 @@ Each needs the owner's decision; none needs a patch until then.
 - **SM-10.** Keep every copy of a rewrite and keep a replaced value while writes are queued (a
   person's press of that value then reads as an echo for longer), or accept it as a documented
   exception like the fan's F1 costs.
-- **SM-7.** Hold restored lockouts until the outdoor source has been read once, or keep "no
-  reading means no lockout" at a start too and document it.
 - **SM-5, as a change.** Send parks before runs: the delivery queue of chunk 5.
 
 **House rules for the tests.** No new test reads or writes a coordinator private (audit H3); the
