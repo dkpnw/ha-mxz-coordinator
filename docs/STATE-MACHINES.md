@@ -37,7 +37,7 @@ store has landed (`room_state.py`); section 3.21 says what it keeps.
 | SM-7 a start releases restored season lockouts | Fixed | `test_a_start_keeps_the_restored_lockouts_until_the_source_loads`, `test_a_source_that_never_loads_holds_the_lockouts_until_the_hourly_re_read` |
 | SM-8 a reload inside an apply loses the hold | Closed by the SM-4 fix | `RecordLeadsHeads` in `ci-apply`, with reloads and restarts inside an apply (`NeverCutShort` reaches them) |
 | SM-9 restore data up to 15 minutes old after a crash | Fixed by the room state store | `tests/test_room_state.py` (`test_a_crash_right_after_a_change_keeps_it`, `test_a_crash_right_after_a_fan_auto_gesture_keeps_it`, `test_a_hands_off_room_released_after_the_last_dump_stays_released_after_a_crash`) |
-| SM-10 a queued write that dropped out of the memory is adopted | Fixed for a rewrite; open after a person's press of a value MXZ has queued, which needs a decision | `test_a_rewrite_still_queued_is_not_adopted_over_a_later_press`, `test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value`, `QueuedWriteKept` in `ci-adopt`; the cost: `test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once`; `QueuedWriteNeverAdopted` still breaks in `ci-adopt` |
+| SM-10 a queued write that dropped out of the memory is adopted | Fixed for a rewrite; open after a person's press of a value MXZ has queued, which needs a decision | `test_a_rewrite_still_queued_is_not_adopted_over_a_later_press`, `test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value`, `QueuedWriteKept` in `ci-adopt`; a write of what the head shows adds no copy: `test_off_and_on_at_the_head_count_after_target_changes`; the cost: `test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once`; `QueuedWriteNeverAdopted` still breaks in `ci-adopt` |
 
 ---
 
@@ -395,7 +395,7 @@ Chart A1–A5. `MXZCoordinator.tla` checks room 1's setpoint with the ledger, th
 quiet (`WithAdopt`, `ci-adopt`, `ci-adopt-restart`, section 6.2). The enable, the heat/cool choice
 and every other gate are in tests only. Additions:
 
-- **The ledger.** One `HeadWriteMemory` per head and per field (mode, and each setpoint field), kept in the room state store's `head_writes` section in the unit it was written in (`_head_writes_record`, `_resume`; `logic.py` `HeadWriteMemory`). Each value counts its copies (SM-10). A write is remembered before it goes out, with what the head showed then (3251–3252, 5336–5345). A report of a remembered value drops the older ones and shows one copy (5062, 5347–5352). A report of anything else is a person's.
+- **The ledger.** One `HeadWriteMemory` per head and per field (mode, and each setpoint field), kept in the room state store's `head_writes` section in the unit it was written in (`_head_writes_record`, `_resume`; `logic.py` `HeadWriteMemory`). Each value counts its copies (SM-10); a write of what the head shows, with nothing else of MXZ's still to come, adds none. A write is remembered before it goes out, with what the head showed then (3251–3252, 5336–5345). A report of a remembered value drops the older ones and shows one copy (5062, 5347–5352). A report of anything else is a person's.
 - **Gates.** No adoption while the option is off, the coordinator is retired or off, a standby hold or eco is on, startup quiet is on, the head is unavailable, the room is a disabled hands-off room, its floor is tripped, it is paused, or the report is a stale cloud poll (5399–5415).
 - **The hold.** Five seconds (`const.py:656`). Each further move starts it over and adds to what moved (5471–5482). While it holds and still counts, the apply skips that head (2888–2889, 5484–5491). Arming it also disowns a command for that head still waiting to be sent (`_disown_waiting_command`, SM-6), so whatever ends the hold owes the head a compute.
 - **What ends a hold with nothing adopted.** The head going back, any gate closing (5478–5480), a change to the room in Home Assistant (7395–7397, `switch.py:302-303`), any start. Each is followed by a compute that puts the head back on the plan: the first two because the head report that ends the hold asks for one (`_watch_head_change` returns true, SM-6), the room change through its own refresh, and a start by its first compute. At the base the first two asked for none, which was harmless only while nothing was disowned.
@@ -1050,6 +1050,17 @@ an independent queue (on the base, Hypothesis shrinks to two writes of one value
 press). In the model, the memory's entries count copies too, and `QueuedWriteKept` (no queued
 write is dropped and adopted until a person presses a value MXZ still has queued) holds in
 `ci-adopt`; A4 (a rewrite kept once) and A5 (`seen` replaces a value with copies to come) break it.
+
+A write of the value the head already shows, with nothing else of MXZ's still to come, adds no
+copy. The head shows nothing new for it, so no report could count it off. Every setpoint write to
+a head already in the right mode sends that mode too (`heads.py` `_async_set_mode_and_setpoints`),
+so a counted copy would stay forever, and after any target change a person's off and then on at
+the head would read the "on" as MXZ's (review 2 of this change;
+`test_off_and_on_at_the_head_count_after_target_changes`,
+`test_a_write_of_what_the_head_shows_adds_no_copy`, code mutants C53 and C54). If such a write is
+still queued at a lagging head when a person presses another value, and lands after it, it is
+adopted, as on the base. The model doesn't cover this: its `WriteSp` writes only a value the head
+doesn't show.
 
 *The cost (F1).* A copy that lands while the head already shows its value shows nothing, so it
 stays counted. After a person's press of another value is adopted, a press back to the rewritten

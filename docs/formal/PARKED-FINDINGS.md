@@ -28,7 +28,10 @@ the evidence and the options.
   `HeadWriteMemory.seen` then replaces it. When that write lands after a person's later press, it
   is adopted over the press. A rewrite no longer drops one: each copy is counted, and
   `QueuedWriteKept` holds in `ci-adopt`. The rest can't be closed without changing what two pinned
-  tests require (STATE-MACHINES.md SM-10).
+  tests require (STATE-MACHINES.md SM-10). A write of the value the head already shows adds no
+  copy, since no report can count it off; one still queued that lands after a person's press of
+  another value is adopted, as before this change. The model writes only values the head
+  doesn't show, so this part is in the tests only.
 
 Both were replayed again on the real code at `ca78324`, on invented heads, each with a control
 that passes (SM-1 before its fix): SM-10 on the path the `/statechart` chart draws, where the target ends at 72 over

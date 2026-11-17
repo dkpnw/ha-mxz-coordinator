@@ -361,6 +361,18 @@ MUTANTS: dict[str, Mutant] = {
         'if self._entries[0][1]:',
         'tests/test_accept_head_changes.py::test_a_report_that_moves_nothing_shows_no_copy',
     ),
+    'C53': Mutant(
+        'a write of what the head shows adds a copy', 'wrote',
+        'same(shown, value) and same(shown, self._entries[-1][0])',
+        'False',
+        'tests/test_accept_head_changes.py::test_off_and_on_at_the_head_count_after_target_changes',
+    ),
+    'C54': Mutant(
+        'a write of what the head shows adds nothing behind another write', 'wrote',
+        'same(shown, value) and same(shown, self._entries[-1][0])',
+        'same(shown, value)',
+        'tests/test_accept_head_changes.py::test_a_write_of_what_the_head_shows_adds_no_copy',
+    ),
     'H1': Mutant(
         'the hold no longer gates a change', 'shared_mode',
         'if proposed != current and allowed and (standoff or not still):',

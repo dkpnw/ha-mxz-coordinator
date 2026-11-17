@@ -1018,6 +1018,23 @@ async def test_off_and_on_and_off_at_the_head_each_count(hass: HomeAssistant, fr
     await rig.close()
 
 
+async def test_off_and_on_at_the_head_count_after_target_changes(hass: HomeAssistant, freezer: Any) -> None:
+    """Each setpoint write also sends the mode the head shows; that mode is no write to wait for."""
+    rig = await _cooling(hass, freezer)
+    for target in (72, 73, 72):
+        await _set_target(hass, rig.eid("_primary_target"), target)
+        await rig.settle()
+        assert _edges(rig) == (target - 2, target)
+    await rig.person_mode("off")
+    await rig.later(HELD)
+    assert _enabled(rig) is False
+    await rig.person_mode("cool")
+    await rig.later(HELD)
+    assert _enabled(rig) is True
+    assert rig.heads[0].mode == "cool"
+    await rig.close()
+
+
 async def test_the_memory_rides_a_reload_with_the_head_still_behind(hass: HomeAssistant, freezer: Any) -> None:
     rig = await _cooling(hass, freezer)
     head = rig.heads[0]
@@ -1238,23 +1255,47 @@ def test_a_person_replaces_what_the_head_last_showed_not_what_is_still_coming() 
 def test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value(actions: list[tuple[str, Any]]) -> None:
     """SM-10 as far as a report can tell: against an independent queue, a head shows its
     writes in order, a copy of the value it shows lands with nothing new to show, and a
-    person presses only values MXZ never wrote (a press of a queued one is the open part)."""
+    person presses only values MXZ never wrote (a press of a queued one is the open part).
+
+    A write of the value the head shows, with only that value queued, is not checked: a
+    head that takes it at once shows nothing for it, so a kept copy would never be counted
+    off and would take a person's next press of that value (review 2 of smfix1111). That
+    copy landing late after a person's press is open, as on the base."""
     memory = HeadWriteMemory(64)
     shown = 100
-    queue: list[int] = []
+    queue: list[tuple[int, bool]] = []  # each write, and whether a report can count it off
     for kind, value in actions:
         if kind == "write":
+            unseen = value == shown and all(queued == shown for queued, _ in queue)
             memory.wrote(value, shown)
-            queue.append(value)
+            queue.append((value, not unseen))
         elif kind == "land" and queue:
-            landed = queue.pop(0)
+            landed, _ = queue.pop(0)
             if landed != shown:
                 memory.caught_up(landed)
                 shown = landed
         elif kind == "press" and value != shown:
             memory.seen(value)
             shown = value
-        assert all(memory.own(queued) for queued in queue), (actions, memory.values, queue)
+        assert all(memory.own(queued) for queued, checked in queue if checked), (actions, memory.values, queue)
+
+
+def test_a_write_of_what_the_head_shows_adds_no_copy() -> None:
+    """Every setpoint write sends the mode the head shows too; no report will count that off."""
+    memory = HeadWriteMemory(8)
+    memory.wrote("cool", "cool")
+    memory.wrote("cool", "cool")
+    assert memory.record() == [["cool", 0]]
+    memory.seen("off")
+    assert not memory.own("cool")
+    memory = HeadWriteMemory(8)
+    memory.wrote(70, 72)
+    memory.wrote(72, 72)  # behind the 70 still to come, the head shows it again
+    assert memory.record() == [[72, 0], [70, 1], [72, 1]]
+    memory = HeadWriteMemory(8)
+    memory.wrote(72, 70)
+    memory.wrote(72, 70)  # the head shows 70: both copies of 72 are still to come
+    assert memory.record() == [[70, 0], [72, 2]]
 
 
 def test_a_report_that_moves_nothing_shows_no_copy() -> None:
