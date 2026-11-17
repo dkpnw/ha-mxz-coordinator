@@ -2769,6 +2769,53 @@ async def test_roll_forward_a_newer_record_without_a_yield_drops_the_stored_yiel
     assert "floor_yield" not in f.coord.floor.record("secondary")
 
 
+async def test_roll_forward_a_newer_record_without_a_prior_drops_the_stored_prior(
+    hass: HomeAssistant,
+) -> None:
+    """Roll-forward (MIGRATION.md): this release stops while the floor runs a
+    released hands-off room's head, and the store keeps the person's own
+    setting (heat 56/58) to hand back at clear. 3.22.0 runs after it: its run
+    clears and hands the head back, the person later turns the head off, and
+    it saves the enable switch's record released and with no floor keys, 5
+    minutes after the store's last save. The next start takes 3.22.0's record
+    over the store's older setting. When the room next trips its floor, the
+    run starts from off, so the heat is MXZ's own and the head goes off at
+    clear (decision 5). Were the store's setting kept, the head would be left
+    heating at 56/58 at clear, a setting the person had dropped, and MXZ
+    would count that heat as the person's."""
+    f = await _setup(hass, hands_off=(False, True))
+    await _persons_heat_then_trip(f)
+    assert _run(hass, f.b) == ("heat", 59, 61)
+    await _shutdown(hass, f.entry)
+    store = await _room_state_store(hass, f.entry.entry_id).async_load()
+    assert store[SECTION_FLOOR][f.b]["floor_prior"] == {  # the store's setting
+        "mode": "heat", "low": 56, "high": 58,
+    }
+    # 3.22.0 ran in between: its run cleared and handed the head back, and the
+    # person later turned the head off. It saved the released room's record
+    # with no floor keys. The room reads 51 °F, inside the band.
+    await _remote(hass, f.b, "off")
+    await _set_temp(hass, SENSOR_B, 51)
+    sid = _eid(hass, f.entry, "_secondary_enable")
+    stored = stored_state(hass, sid)
+    later = dt_util.utcnow() + timedelta(minutes=5)
+    replace_stored_state(hass, sid, rs.StoredState(
+        State(sid, "off", stored.state.attributes, last_changed=later, last_updated=later),
+        rs.RestoredExtraData({"hands_off_released": True}), later,
+    ))
+    await _startup(hass, f.entry)
+    await f.compute()
+    assert f.zone(1)["hands_off"] == "released"
+    assert _run_of(f) is None
+    assert "floor_prior" not in f.coord.floor.record("secondary")
+    await f.temp(SENSOR_B, 45)
+    assert (_s(hass, f.b), f.floor(1)[0]) == ("heat", "heat")
+    assert "floor_prior" not in f.coord.floor.record("secondary")  # a run from off
+    await f.temp(SENSOR_B, 53)
+    assert _run_of(f) is None
+    assert _s(hass, f.b) == "off"
+
+
 async def test_a_room_without_a_floor_persists_exactly_what_3_7_0_did(hass: HomeAssistant) -> None:
     """Storage: with no floor run the enable switch's extra data is 3.7.0's."""
     f = await _setup(hass, floors=((None, None), (None, None)), hands_off=(False, True))
