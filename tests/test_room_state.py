@@ -16,6 +16,8 @@ import pytest
 from homeassistant.const import ATTR_RESTORED, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.mxz_coordinator.const import ZONE_DUAL_SETPOINT, ZONE_HANDS_OFF
 from tests.property_rig import Rig, open_rig
@@ -39,6 +41,15 @@ async def _number(rig: Rig, suffix: str, value: float) -> None:
     )
     await rig.hass.async_block_till_done()
     await rig.settle()
+
+
+async def _due_now(rig: Rig) -> None:
+    """What is due now runs, with no time passing and no compute of the test's own.
+
+    ``_next_moment`` computes after, which would save whatever the gesture left unsaved.
+    """
+    async_fire_time_changed(rig.hass, dt_util.utcnow())
+    await rig.hass.async_block_till_done()
 
 
 def _state(rig: Rig, suffix: str) -> str:
@@ -117,6 +128,61 @@ async def test_a_crash_right_after_a_change_keeps_it(
         await make(rig)
         assert kept(rig)
         await _next_moment(rig)
+        await rig.restart(crash=True)
+        assert kept(rig)
+    finally:
+        await rig.close()
+
+
+async def _fan_auto_off(rig: Rig) -> None:
+    """A person holds the speed boost chose, with the Fan auto switch."""
+    await _boost(rig)
+    assert rig.fan_auto_switch(0) == "on"
+
+
+async def _fan_auto_on(rig: Rig) -> None:
+    """A person hands a held speed back to boost, with the Fan auto switch."""
+    await _change_fan(rig)
+    assert rig.fan_auto_switch(0) == "off"
+
+
+def _fan_auto_off_kept(rig: Rig) -> bool:
+    return rig.fan_held(0) and rig.fan_auto_switch(0) == "off" and rig.heads[0].fan != "auto"
+
+
+def _fan_auto_on_kept(rig: Rig) -> bool:
+    return not rig.fan_held(0) and rig.fan_auto_switch(0) == "on"
+
+
+@pytest.mark.parametrize(
+    ("before", "on", "kept"),
+    [(_fan_auto_off, False, _fan_auto_off_kept), (_fan_auto_on, True, _fan_auto_on_kept)],
+    ids=["off_holds", "on_hands_back"],
+)
+async def test_a_crash_right_after_a_fan_auto_gesture_keeps_it(
+    hass: HomeAssistant, freezer: Any, before: Any, on: bool, kept: Any
+) -> None:
+    """The switch asks for the debounced refresh, and a refresh has just run, so its own waits.
+
+    In a house a head report or a sensor change runs that refresh. Nothing here refreshes
+    after the gesture: what the crash keeps is what the gesture itself saved.
+    """
+    rig = await open_rig(hass, freezer)
+    try:
+        await rig.restart()  # restore data now holds everything from before the gesture
+        await rig.later(1)
+        await before(rig)
+        await rig.coord.async_request_refresh()
+        await rig.hass.async_block_till_done()
+        await rig.hass.services.async_call(
+            "switch", "turn_on" if on else "turn_off",
+            {"entity_id": rig.eid("_primary_fan_auto")}, blocking=True,
+        )
+        await rig.hass.async_block_till_done()
+        # The plan waits for the refresh; the switch and the fan memory show the gesture now.
+        assert rig.fan_auto_switch(0) == ("on" if on else "off")
+        assert rig.coord.fan.auto_is_on(rig.coord.zones[0].climate_id) is on
+        await _due_now(rig)
         await rig.restart(crash=True)
         assert kept(rig)
     finally:
