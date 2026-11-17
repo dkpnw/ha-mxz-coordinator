@@ -230,6 +230,7 @@ from .plan import Plan, RoomPlan
 from .room_state import (
     SECTION_FAN,
     SECTION_FLOOR,
+    SECTION_HEAD_WRITES,
     SECTION_MODE,
     SECTION_OPENINGS,
     SECTION_ROOMS,
@@ -1082,6 +1083,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         self.room_state.track(SECTION_SWITCHES, self._switches_record)
         self.room_state.track(SECTION_FAN, self._fan_record)
         self.room_state.track(SECTION_FLOOR, self._floor_record)
+        self.room_state.track(SECTION_HEAD_WRITES, self._head_writes_record)
         self.room_state.track(
             SECTION_MODE, lambda: self._mode_data, _mode_change_store(hass, entry.entry_id)
         )
@@ -1135,12 +1137,10 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         self._applying_plan: Plan | None = None
         self._delivery_listeners: set[Callable[[], None]] = set()
         self.deliveries = DeliveryQueue(self, debouncer, super().async_request_refresh)
-        # Lives with HA like the above, so a reload keeps what the head may still
-        # report. Held per unit: a °F/°C switch's reload must not compare a
-        # remembered 70 °F with a report in °C.
-        self._head_writes: dict[str, dict[str, HeadWriteMemory]] = hass.data.setdefault(
-            f"{DOMAIN}_head_writes", {}
-        ).setdefault(self.temp_unit, {})
+        # MXZ's memory of its mode and setpoint writes, by head and field. The room
+        # state store keeps it, so a reload or a restart keeps what a head may still
+        # report (_resume).
+        self._head_writes: dict[str, dict[str, HeadWriteMemory]] = {}
         # What moved at each head since its adopt timer was armed: "mode", "setpoint".
         self._adopt_moved: dict[str, set[str]] = {}
         # Seed data so entities have something to read before the first refresh.
@@ -3326,16 +3326,20 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
                     payload[name], self._head_shows(state, name),
                     self._head_write_same(climate_id, name),
                 )
+        self.room_state.changed()
 
     def _head_writes_caught_up(self, climate_id: str, old_state: Any, state: Any) -> None:
         """A head's report: the writes before it are behind the head for good."""
-        for name, memory in self._head_writes.get(climate_id, {}).items():
+        memories = self._head_writes.get(climate_id, {})
+        for name, memory in memories.items():
             shown = self._head_shows(state, name)
             if shown is not None:
                 memory.caught_up(
                     shown, self._head_write_same(climate_id, name),
                     moved=shown != self._head_shows(old_state, name),
                 )
+        if memories:
+            self.room_state.changed()
 
     def _head_write_is_own(self, climate_id: str, name: str, shown: Any) -> bool:
         memory = self._head_writes.get(climate_id, {}).get(name)
@@ -3507,6 +3511,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
                 climate_id, name, shown
             ):
                 memory[name].seen(shown)
+        self.room_state.changed()
 
     def _sibling_entity(self, platform: str, key: str) -> str | None:
         """One of this entry's own entities by its key, under whatever it was renamed to."""
@@ -3956,7 +3961,9 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         replaces what the other set; an entity whose restore data is newer
         then takes its value (``store_resumes``). Temperatures saved in the
         other unit are converted, as a restored target number's are, and a
-        target is held to its head's bounds.
+        target is held to its head's bounds. MXZ's memory of its head writes
+        resumes only in the unit it was kept in: a remembered 70 °F is no
+        report in °C.
         """
         if saved.unit is not None:
             self.note_saved_unit(saved.unit)
@@ -3990,6 +3997,11 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             if fan is not None and (record := FanHoldRestoreData.from_dict(fan)) is not None:
                 self.fan.restore_record(cid, record)
                 self._resumed.add(("fan", cid))
+            writes = (saved.item(SECTION_HEAD_WRITES, cid) or {}) if saved.unit == self.temp_unit else {}
+            for name in _HEAD_WRITE_FIELDS:
+                memory = HeadWriteMemory.restored(HEAD_WRITES_REMEMBERED, writes.get(name))
+                if memory is not None:
+                    self._head_writes.setdefault(cid, {})[name] = memory
 
     def _saved_temperature(self, value: Any, unit: str | None) -> float | None:
         """A stored temperature in this unit, on the target step; None if it isn't one."""
@@ -4096,6 +4108,13 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     def _fan_record(self) -> dict[str, Any]:
         """Each head's fan hold and echo memory (``room_state.SECTION_FAN``)."""
         return {zone.climate_id: self.fan.record(zone.climate_id).as_dict() for zone in self.zones}
+
+    def _head_writes_record(self) -> dict[str, Any]:
+        """Each head's memory of MXZ's writes (``room_state.SECTION_HEAD_WRITES``)."""
+        return {
+            cid: {name: memory.record() for name, memory in fields.items()}
+            for cid, fields in self._head_writes.items()
+        }
 
     def _floor_record(self) -> dict[str, Any]:
         """Each disabled room's floor run or yield, by head (``room_state.SECTION_FLOOR``)."""

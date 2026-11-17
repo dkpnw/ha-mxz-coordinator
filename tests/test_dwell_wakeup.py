@@ -701,6 +701,13 @@ async def test_a_refresh_finishing_after_retirement_arms_nothing(
     await hass.async_block_till_done()
     if retire == "reload":
         await _quiesce(hass, entry.runtime_data)  # the successor's own burst
+        # The head write the refresh parked on saved the rooms as the test set them, so the
+        # successor calls heat too; off, it writes no head, and a call below is the retired one's.
+        await hass.services.async_call(
+            "switch", "turn_off",
+            {"entity_id": _eid(hass, entry, "_coordinator_enable")}, blocking=True,
+        )
+        await hass.async_block_till_done()
 
     # The in-flight refresh has now run its re-sync on a retired coordinator.
     assert not armed(coord, "dwell")

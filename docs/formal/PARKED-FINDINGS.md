@@ -3,24 +3,25 @@
 No finding is open for a head that shows MXZ's fan writes in the order it got them, or jumps
 to the latest, apart from one narrow case at a start. A head that does anything else isn't
 covered. [F1's limits](#f1-limits) has both.
-This page keeps what F1 was and how it was fixed, the one accepted exception on cloud heads, and
-two open findings on changes made at a head, each waiting on a decision.
+This page keeps what F1 was and how it was fixed, the one accepted exception on cloud heads,
+one open finding on changes made at a head that waits on a decision, and one that is fixed.
 
 ## Open: changes made at a head can adopt MXZ's own write
 
-Both break the rule that a report MXZ's own writes can explain is never a person, with Accept
-changes made at the head on (the default). Both were found or confirmed by TLC and run on the real
-code on invented heads; nothing ran on a real head. Each is a rule that `tools/formal_tlc.py cover`
-requires to keep breaking until it is decided, and
+These break the rule that a report MXZ's own writes can explain is never a person, with Accept
+changes made at the head on (the default). Each was found or confirmed by TLC and run on the real
+code on invented heads; nothing ran on a real head. An open one is a rule that
+`tools/formal_tlc.py cover` requires to keep breaking until it is decided, and
 [STATE-MACHINES.md](../STATE-MACHINES.md#4-invalid-states-and-transitions-the-code-can-reach) has
 the evidence and the options.
 
-- **SM-1, `StartWriteNeverAdopted` in `ci-adopt-restart`.** MXZ's memory of its own head writes is
-  in `hass.data`, so a reload keeps it and a process start doesn't. A write from before the start
-  that a lagging head shows more than 40 seconds after Home Assistant starts (after startup quiet)
-  reads as a press and moves the room's target. Whether a real head can report that late is not
-  known. `test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_write_out` pins the
-  quiet window, which holds.
+- **SM-1, `StartWriteNeverAdopted` in `ci-adopt-restart` (fixed).** MXZ's memory of its own head
+  writes was in `hass.data`, so a reload kept it and a process start didn't. A write from before
+  the start that a lagging head showed more than 40 seconds after Home Assistant started (after
+  startup quiet) read as a press and moved the room's target. The memory is now a section of the
+  room state store, so every start keeps it, and the rule holds in `ci-adopt-restart`.
+  `test_a_pre_restart_write_shown_late_is_not_adopted` (41 seconds and an hour after the start)
+  fails on the code before the fix. Whether a real head can report that late is still not known.
 - **SM-10, `QueuedWriteNeverAdopted` in `ci-adopt`.** A write a lagging head hasn't shown yet can
   drop out of the memory once a person presses a value MXZ still has queued: the press reads as
   MXZ's write landing, so the memory catches up past older writes or uses the write's copy, and
@@ -30,7 +31,7 @@ the evidence and the options.
   tests require (STATE-MACHINES.md SM-10).
 
 Both were replayed again on the real code at `ca78324`, on invented heads, each with a control
-that passes: SM-10 on the path the `/statechart` chart draws, where the target ends at 72 over
+that passes (SM-1 before its fix): SM-10 on the path the `/statechart` chart draws, where the target ends at 72 over
 the person's 70, and SM-1 on its probe in [STATE-MACHINES.md](../STATE-MACHINES.md#sm-1-a-late-report-of-mxzs-own-pre-restart-write-is-adopted-as-a-persons-press) (target 72 then 74 at a
 lagging head, a restart, the reports after startup quiet), where it ends at 72 where the person
 left 74.

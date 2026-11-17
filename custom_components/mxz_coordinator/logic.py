@@ -836,6 +836,26 @@ class HeadWriteMemory:
         """What is remembered, oldest first."""
         return tuple(value for value, _ in self._entries)
 
+    def record(self) -> list[list[Any]]:
+        """What a store keeps: each value with its copies, oldest first."""
+        return [list(entry) for entry in self._entries]
+
+    @classmethod
+    def restored(cls, size: int, record: Any) -> HeadWriteMemory | None:
+        """The memory ``record`` keeps, or None if it isn't one."""
+        if not isinstance(record, list) or not record:
+            return None
+        memory = cls(size)
+        for entry in record[-size:]:
+            if not (
+                isinstance(entry, list) and len(entry) == 2
+                and (isinstance(entry[0], str) or finite_number(entry[0]))
+                and type(entry[1]) is int and entry[1] >= 0
+            ):
+                return None
+            memory._entries.append([entry[0], entry[1]])
+        return memory
+
     def wrote(
         self, value: Any, shown: Any = None, same: Callable[[Any, Any], bool] = operator.eq
     ) -> None:

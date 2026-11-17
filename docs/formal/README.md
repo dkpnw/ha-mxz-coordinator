@@ -40,9 +40,9 @@ stay as they are, and this model doesn't repeat them.
 | A person's override holds until the window reads closed. | `OverrideHolds` | `test_a_pause_stops_the_head_and_a_takeover_holds_until_the_window_closes`, `test_an_override_is_never_paused_and_a_closed_reading_ends_it` |
 | A head is never sent a direction the record doesn't hold, so a head's error, a new input or a reload can't leave the record behind. | `RecordLeadsHeads`, in `ci-apply` | `test_a_head_is_sent_a_new_mode_only_once_it_is_the_recorded_mode`, `test_a_head_that_raises_during_a_mode_change_doesnt_undo_the_change` in `tests/test_head_fault.py` |
 | A change made at a head is never MXZ's own write: the target never takes a value only MXZ put on the head, apart from the open findings below. | `OwnWriteNeverAdopted`, in `ci-adopt` and `ci-adopt-restart` | `test_no_person_no_adoption_however_a_head_lags`, `test_every_report_of_a_head_showing_writes_in_order_reads_as_own` in `tests/test_accept_head_changes.py` |
-| A reload keeps MXZ's record of its writes, so a write from before it is never adopted. | `StartWriteNeverAdopted`, in `ci-adopt`; open after a process start (SM-1) | `test_the_memory_rides_a_reload_with_the_head_still_behind`, `test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_write_out` |
+| A reload or a restart keeps MXZ's record of its writes (the room state store), so a write from before it is never adopted, inside startup quiet or after it (SM-1). | `StartWriteNeverAdopted`, in `ci-adopt` and `ci-adopt-restart` | `test_the_memory_rides_a_reload_with_the_head_still_behind`, `test_a_late_own_write_inside_startup_quiet_is_not_adopted`, `test_a_pre_restart_write_shown_late_is_not_adopted` |
 | MXZ doesn't write a head's setpoint while a change made there holds. | `HoldBlocksWrite`, in `ci-adopt` | `test_a_change_must_hold_and_isnt_overwritten_while_it_does`, `test_a_press_while_mxzs_command_waits_for_the_head_is_adopted` |
-| A write still queued at a head stays in the memory, each copy of a rewrite too, so it is never adopted when it lands, unless a person has pressed a value MXZ still had queued (SM-10, the part a report can tell apart). | `QueuedWriteKept`, in `ci-adopt` | `test_a_rewrite_still_queued_is_not_adopted_over_a_later_press`, `test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value` |
+| A write still queued at a head stays in the memory, each copy of a rewrite too, so it is never adopted when it lands, unless a person has pressed a value MXZ still had queued (SM-10, the part a report can tell apart). | `QueuedWriteKept`, in `ci-adopt` and `ci-adopt-restart` | `test_a_rewrite_still_queued_is_not_adopted_over_a_later_press`, `test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value` |
 | Open, SM-10: a write still queued at a head that the memory has dropped is never adopted, also after a person's press of a value MXZ has queued. | `QueuedWriteNeverAdopted`, a finding in `ci-adopt` | None: it breaks. [STATE-MACHINES.md](../STATE-MACHINES.md#sm-10-a-write-still-queued-at-a-head-can-drop-out-of-mxzs-memory-and-be-adopted-as-a-press) |
 
 ## Documented exceptions
@@ -88,8 +88,8 @@ a person, is the fan memory's rule for a head's mode and setpoints (`logic.py`
 `HeadWriteMemory`). The model has room 1's target, the setpoint its head shows, the writes a
 lagging head hasn't shown yet in order, the memory as `HeadWriteMemory` keeps it, the hold, startup
 quiet, a reload and a process start. Each queued write carries a ghost kind saying how it left the
-memory, if it did, so the strict rule is checked and each way past it is a finding of its own:
-SM-1 (a process start) and SM-10 (a person's press of a value MXZ still has queued, after which
+memory, if it did, so the strict rule is checked and each way past it is a rule of its own:
+SM-1 (a process start, fixed: the room state store keeps the memory) and SM-10 (a person's press of a value MXZ still has queued, after which
 `HeadWriteMemory.caught_up` or `HeadWriteMemory.seen` can drop a queued write). The memory counts
 each value's copies, so a rewrite is not a way past it (`QueuedWriteKept`). The enable (on and off at the head), the heat/cool choice and every gate
 but startup quiet are not in it; the tests in `tests/test_accept_head_changes.py` hold those.

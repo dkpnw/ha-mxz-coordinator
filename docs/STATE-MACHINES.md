@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Written | 2026-11-09 (America/Los_Angeles); updated 2026-11-10 after the second review (section 3.23, and the SM-3 and SM-6 fixes made whole) |
+| Written | 2026-11-09 (America/Los_Angeles); updated 2026-11-10 after the second review (section 3.23, and the SM-3 and SM-6 fixes made whole), and 2026-11-17 for the SM-1, SM-7 and SM-10 fixes (section 4's evidence for each is still as found at the base) |
 | Base | `f21dffef5b012ace9b31cf51fd277292f3ffa5b7` (`docs: clean-copy strings and correct accept-at-head help (#114)`). Every line number below is at that commit; the fixes in this change move some by a few lines. Code this change added or changed has no line there and is cited by name (`_write_back_mode`, `_disown_waiting_command`, `CloudHead.refused`, `_watch_head_change`'s return). The door/window pause has since moved to `openings.py` (`OpeningPause`), Allow Dry to `dry.py` (`DryMode`), the fan hold to `fan_hold.py` (`FanHold`, `FanEcho`), the refresh serialization and the per-head delivery slot and command status to `delivery.py` (`DeliveryQueue`, `Delivery`), each head's driver, its band and setpoint grid, and the cloud heads' records, batches and wakeup to `heads.py` (`HeadDrivers`, `LocalDriver`, `CloudDriver`, `HeadGrid`), and the freeze floor to `floor.py` (`FloorGuard`); their line numbers here are from before those moves. The Allow Dry table in section 3.14 cites `DryMode` by name, and section 3.12 names the `FanHold` method beside each old line range, sections 3.2 to 3.4 name the `DeliveryQueue` members, section 3.16 names the `heads.py` members, and section 3.15 names the `FloorGuard` members. The plan a compute returns is now typed (`Plan` and `RoomPlan` in `plan.py`); a "plan row" below is a `RoomPlan`, and its attribute names are unchanged. Every timer is now a named wait on the coordinator's clock (`Clock.call_later` in `clock.py`), which cancels them all on retire: a field below such as `_dwell_timer` or `_heal_timers[(head, kind)]` is the wait `dwell`, or `heal` keyed by `(head, kind)`. |
 | How | The catalog and findings SM-1 to SM-9 come from a read-only review with scratch probes on invented heads (section 1). The fixes, the repros, the TLA+ extensions and SM-10 come from the change that added this file. Nothing ran on a real head, a real Home Assistant or a cloud account. |
 | Companion documents | The formal checks: [formal/README.md](formal/README.md), [formal/STATECHART.md](formal/STATECHART.md), [formal/PARKED-FINDINGS.md](formal/PARKED-FINDINGS.md), [formal/tla/MXZCoordinator.tla](formal/tla/MXZCoordinator.tla), `verification/modehold/MXZModeHold.tla`. IDs such as H1 or M1 are those of the whole-repo audit of the same date. |
@@ -28,7 +28,7 @@ store has landed (`room_state.py`); section 3.21 says what it keeps.
 
 | Finding | Status | Held by |
 |---|---|---|
-| SM-1 late pre-restart write adopted | Open, needs a decision | `test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_write_out` (the quiet window); `StartWriteNeverAdopted` breaks in `ci-adopt-restart` |
+| SM-1 late pre-restart write adopted | Fixed: the room state store keeps the head write ledger | `test_a_pre_restart_write_shown_late_is_not_adopted` (41 s and an hour after the start), `test_a_press_after_a_restart_is_adopted`, `test_a_late_own_write_inside_startup_quiet_is_not_adopted`; `StartWriteNeverAdopted` holds in `ci-adopt-restart` |
 | SM-2 a head's unexpected error skips the mode record | Fixed | `tests/test_head_fault.py` |
 | SM-3 a refused cloud batch waits out the confirm wait | Fixed | `test_a_refused_batch_goes_out_again_at_the_write_interval_with_nothing_else_happening`, `test_a_batch_refused_after_its_compute_has_ended_still_wakes_the_plan`, `test_a_refusal_that_outlasts_the_write_interval_is_sent_again_at_once`, `test_a_refused_batch_is_tried_again_once_the_write_interval_allows`, `test_a_floor_on_a_cloud_head_reads_held_while_its_command_is_refused`, `test_a_refused_batch_leaves_nothing_to_wait_on_and_keeps_the_rate`, `test_a_refusal_slower_than_the_write_interval_releases_the_next_batch_at_once` |
 | SM-4 the record depends on a race | Fixed | `test_a_head_is_sent_a_new_mode_only_once_it_is_the_recorded_mode`; `RecordLeadsHeads` in `ci-apply` |
@@ -99,7 +99,7 @@ restore data and the two older `Store` files are kept current beside it (3.21).
 | 3.8 | Head sight, lost vote, action vote | `logic.HeadSight` | memory | The vote as a mode in `MXZModeHold.tla`; the rest tests only |
 | 3.9 | Hands-off room | `MXZCoordinator` | memory, with `released` in the room state store | `MXZModeHold.tla` has it always released; phases tests only |
 | 3.10 | Heal timers (band drift, off drift) | `MXZCoordinator` | memory | Tests only |
-| 3.11 | Changes made at a head (adopt) and the head write ledger | `MXZCoordinator`, `logic.HeadWriteMemory` | hold in memory; ledger in `hass.data` | Chart A1–A5; `MXZCoordinator.tla` for room 1's setpoint (`ci-adopt`, `ci-adopt-restart`) |
+| 3.11 | Changes made at a head (adopt) and the head write ledger | `MXZCoordinator`, `logic.HeadWriteMemory` | hold in memory; ledger in the room state store | Chart A1–A5; `MXZCoordinator.tla` for room 1's setpoint (`ci-adopt`, `ci-adopt-restart`) |
 | 3.12 | A head's fan hold and the fan echo ledger | `fan_hold.FanHold`, `switch.py` | memory, carried in the room state store | Chart F1–F11; `MXZCoordinator.tla` |
 | 3.13 | Door/window pause | `MXZCoordinator`, `logic.opening_state` | room state store (and its own `Store` file) | Chart W1–W11; both specs |
 | 3.14 | Coil-dry idle, and Allow Dry | `MXZCoordinator` (coil-dry), `dry.DryMode` (Allow Dry) | memory | Tests only |
@@ -141,7 +141,7 @@ after it starts.
 | Temperature unit changed | Live → Retired | unit differs | Retire, schedule a reload | 1681–1697 |
 | Unload or reload | Live → Retired | — | Retire first, then cancel every timer, then retire vane kicks | 1699–1749; `__init__.py:166-168` |
 | Options saved | Live → Retired → Built | not a dual-only save | Reload; a dual-only save is applied in place | `__init__.py:183-196` |
-| Entry removed | — | — | The room state store and both older files deleted; the per-head `hass.data` records are not (audit L3) | `__init__.py:176-180` |
+| Entry removed | — | — | The room state store (the head write ledger with it) and both older files deleted; the per-head delivery and command records in `hass.data` are not (audit L3) | `__init__.py:176-180` |
 
 Startup quiet has three readers: the sensor warning (2356), the blind-floor notice (6898) and
 head adoption (5405). It is not a general "ignore the heads" switch.
@@ -395,19 +395,20 @@ Chart A1–A5. `MXZCoordinator.tla` checks room 1's setpoint with the ledger, th
 quiet (`WithAdopt`, `ci-adopt`, `ci-adopt-restart`, section 6.2). The enable, the heat/cool choice
 and every other gate are in tests only. Additions:
 
-- **The ledger.** One `HeadWriteMemory` per head and per field (mode, and each setpoint field), in `hass.data["mxz_coordinator_head_writes"]`, keyed by unit (1380–1385; `logic.py:787-847`). A write is remembered before it goes out, with what the head showed then (3251–3252, 5336–5345). A report of a remembered value drops the older ones (5062, 5347–5352). A report of anything else is a person's.
+- **The ledger.** One `HeadWriteMemory` per head and per field (mode, and each setpoint field), kept in the room state store's `head_writes` section in the unit it was written in (`_head_writes_record`, `_resume`; `logic.py` `HeadWriteMemory`). Each value counts its copies (SM-10). A write is remembered before it goes out, with what the head showed then (3251–3252, 5336–5345). A report of a remembered value drops the older ones and shows one copy (5062, 5347–5352). A report of anything else is a person's.
 - **Gates.** No adoption while the option is off, the coordinator is retired or off, a standby hold or eco is on, startup quiet is on, the head is unavailable, the room is a disabled hands-off room, its floor is tripped, it is paused, or the report is a stale cloud poll (5399–5415).
 - **The hold.** Five seconds (`const.py:656`). Each further move starts it over and adds to what moved (5471–5482). While it holds and still counts, the apply skips that head (2888–2889, 5484–5491). Arming it also disowns a command for that head still waiting to be sent (`_disown_waiting_command`, SM-6), so whatever ends the hold owes the head a compute.
 - **What ends a hold with nothing adopted.** The head going back, any gate closing (5478–5480), a change to the room in Home Assistant (7395–7397, `switch.py:302-303`), any start. Each is followed by a compute that puts the head back on the plan: the first two because the head report that ends the hold asks for one (`_watch_head_change` returns true, SM-6), the room change through its own refresh, and a start by its first compute. At the base the first two asked for none, which was harmless only while nothing was disowned.
 - **Adoption.** Through the room's own number and switch (5521–5568). A cloud head with a drive offset never gives a target, only an enable (5441–5444). A refused write adopts nothing (5564–5565).
 
 **What a start does.** The hold and the set of what moved are in memory and are lost at any
-start; `test_a_start_inside_the_hold_drops_the_change` pins that. The ledger survives a reload;
-`test_the_memory_rides_a_reload_with_the_head_still_behind` pins that. The ledger does not
-survive a process restart. The only guard then is startup quiet, pinned by
-`test_while_home_assistant_is_starting_nothing_is_adopted`, whose docstring reads "A restart
-loses the memory: the first reports have nothing to be read against." SM-1 is what happens after
-that window.
+start; `test_a_start_inside_the_hold_drops_the_change` pins that. The ledger survives a reload
+and a process restart, since the room state store keeps it:
+`test_the_memory_rides_a_reload_with_the_head_still_behind` and
+`test_a_pre_restart_write_shown_late_is_not_adopted` pin that. Startup quiet still adopts
+nothing for its 40 seconds (`test_while_home_assistant_is_starting_nothing_is_adopted`). After a
+switch of temperature unit the ledger starts empty
+(`test_writes_remembered_in_one_unit_dont_resume_in_the_other`).
 
 ### 3.12 A head's fan hold and the fan echo ledger
 
@@ -629,7 +630,8 @@ for.
 | Hands-off release | store `rooms` | kept | kept | kept |
 | Floor run, person's floor setting, yield | store `floor` (`FloorGuard.record`) | kept | kept | kept |
 | Fan hold and fan echo memory | store `fan` (`FanHold.record`) | kept | kept | kept |
-| Head write ledger, delivery slots, head locks, command status, vane cleanup flag | `hass.data` (1368–1385) | kept | **lost** | **lost** |
+| Head write ledger | store `head_writes` (`_head_writes_record`), written at once on each change | kept | kept | kept |
+| Delivery slots, head locks, command status, vane cleanup flag | `hass.data` (1368–1385) | kept | **lost** | **lost** |
 | Dual-switch hand-off note | `hass.data` (987–991) | consumed | lost | lost |
 | Engage latch | memory; re-read from the head (3.6) | re-read | re-read | re-read |
 | Adopt hold and what moved, heal timers, notice limits | memory | lost | lost | lost |
@@ -651,9 +653,7 @@ moments as before, so an earlier release finds its data after a rollback (docs/M
 The next release can stop both and delete the two files.
 
 **Adding a section.** One more `RoomStateStore.track` call with a function that returns the
-record, and one more read in `_resume`. The head write ledger (SM-1) is meant to go there.
-
-The `hass.data` row is what SM-1 turns on.
+record, and one more read in `_resume`, as the head write ledger's (SM-1) is.
 
 ### 3.22 Setup, reconfigure and options flows
 
@@ -758,15 +758,22 @@ start event.
 2. Change the rule after a start, for example adopt nothing from a head until it has shown a write made since the start. That changes what a person at the remote gets after every restart.
 3. Accept it as a documented exception, as the fan hold's "outage" and "start" exceptions are, and pin it with a passing test.
 
-**Status: open, needs a decision.** Landed with no product change: `tests/property_rig.py`
-`Rig.restart` is now a real restart (it drops every `hass.data` key MXZ keeps, sets the entry up
-before Home Assistant runs, then starts it), and
-`test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_write_out` pins the case that
-holds today. Run on the new helper: inside the 40-second window the target stays 74; 41 seconds
-after the start the late 72 is adopted. The case after the window is not pinned either way. In
-the model, `StartWriteNeverAdopted` holds across a reload (`ci-adopt`) and breaks after a process
-start once startup quiet ends (`ci-adopt-restart`), and `NeverLateOwnWriteInQuiet` shows the
-window case is reachable.
+**Status: fixed with option 1 (the owner's decision).** The ledger is a section of the room state
+store (`head_writes`), written at once on each change and resumed at every start, a reload
+included, in the unit it was kept in; it no longer lives in `hass.data`. The rule after a start
+is unchanged (option 2 was not taken), so a person's press after a start is adopted as before.
+Tests on `Rig.restart`, the real restart:
+`test_a_pre_restart_write_shown_late_is_not_adopted` (the late 72 at 41 seconds and an hour
+after the start leaves the target at 74, and a fan picked at the head before the restart stays
+held) and `test_a_press_after_a_restart_is_adopted` (a press after startup quiet is adopted, and
+the late 72 doesn't take it back) fail on the base;
+`test_a_late_own_write_inside_startup_quiet_is_not_adopted`, the window case, passes on both. In
+the model, a start keeps `spMem`, `StartWriteNeverAdopted` holds in `ci-adopt-restart`, A3 (a
+start loses the memory) and A6 (a process start loses it, as before the fix) break it, and the
+cover `NeverLatePreStartWrite` shows a write queued before a start can still be queued after
+startup quiet ends. Known limit: with a store a later release wrote, which is neither read nor
+written, a reload starts with no ledger, as every other section does. Whether a real head can
+report that late is still unknown.
 
 ### SM-2. An unexpected error from one head skips the mode record, so the unit can reverse with no hold
 
@@ -1089,7 +1096,7 @@ Ranked by what a household would feel, then by how sure the evidence is.
 | Rank | Finding | Impact | Evidence | Outcome | Audit |
 |---|---|---|---|---|---|
 | 1 | SM-2, with SM-4 | The unit reverses with no hold; the room thermostats and plan sensor unavailable; the select shows the wrong mode | run | Fixed | M1 |
-| 2 | SM-1 | A room's target or enable changes with nobody touching it, after a restart, under a default-on option | run on invented heads; hardware unknown | Open: a decision | M9, M10, H2 |
+| 2 | SM-1 | A room's target or enable changes with nobody touching it, after a restart, under a default-on option | run on invented heads; hardware unknown | Fixed: the room state store keeps the ledger | M9, M10, H2 |
 | 3 | SM-10 | A person's press at a lagging head is lost to MXZ's own later write | run on invented heads | Fixed for a rewrite; open after a press of a queued value: a decision | M6 |
 | 4 | SM-3 | A cloud room, or a freeze floor on a cloud head, waits out the confirm wait after one rejected call; the row reads pending | run | Fixed | — |
 | 5 | SM-6 | A press at the head is lost | run | Fixed | M9 |
@@ -1129,15 +1136,16 @@ Room 1's target, the setpoint its head shows, MXZ's writes a lagging head hasn't
 two), the memory as `HeadWriteMemory` keeps it, the hold, startup quiet, a person's press, a target
 set in Home Assistant, reloads, and process starts. Each queued write carries a ghost kind for what
 dropped it from the memory, if anything did. Rules: `OwnWriteNeverAdopted`, `HoldBlocksWrite`,
-`StartWriteNeverAdopted` (passes in `ci-adopt`, an open finding in `ci-adopt-restart`, SM-1),
-`QueuedWriteKept` (passes in `ci-adopt`: until a person presses a value MXZ still has queued, no
+`StartWriteNeverAdopted` (passes in `ci-adopt` and, since SM-1's fix, in `ci-adopt-restart`),
+`QueuedWriteKept` (passes in `ci-adopt` and `ci-adopt-restart`: until a person presses a value MXZ still has queued, no
 queued write is dropped and adopted; the memory's entries count copies, as the code's do), and
 `QueuedWriteNeverAdopted` (an open finding in `ci-adopt`, SM-10 after such a press).
 
 Broken copies: A1 (a write isn't remembered) breaks `OwnWriteNeverAdopted`; A2 (a hold doesn't stop
-the write) breaks `HoldBlocksWrite`; A3 (a reload loses the memory, as a process start does) breaks
-`StartWriteNeverAdopted`; A4 (a rewrite kept once) and A5 (`seen` replaces a value with copies to
-come) break `QueuedWriteKept`. Covers: `NeverAdopts`, `NeverLateOwnWriteInQuiet`.
+the write) breaks `HoldBlocksWrite`; A3 (a start loses the memory, in `ci-adopt`) and A6 (a process
+start loses it, as before SM-1's fix, in `ci-adopt-restart`) break `StartWriteNeverAdopted`; A4 (a
+rewrite kept once) and A5 (`seen` replaces a value with copies to come) break `QueuedWriteKept`. Covers: `NeverAdopts`, `NeverLatePreStartWrite` (it replaced
+`NeverLateOwnWriteInQuiet`, which needed a start to lose the memory).
 
 Not in it: the enable (on and off at a head), the heat/cool choice, and every gate but startup
 quiet. `tests/test_accept_head_changes.py` holds those.
@@ -1166,7 +1174,7 @@ pstack `/statechart` skill draws five user flows from the spec in
 hold, the door/window pause, the fan hold, changes made at a head, and SM-1's path. They found
 nothing new. SM-10 replays on the real code on its chart path. The model's shortest SM-1 path
 does not replay, since the model lets a person act between a start and MXZ's first write after
-it; SM-1 still replays on its own path.
+it; SM-1 replayed on its own path until its fix.
 
 `.github/workflows/tla.yml` runs on changes under `docs/formal/tla/**`, so it runs for this work. It
 still does not run on code-only changes (audit M12, chunk 2 or 4).
@@ -1177,10 +1185,6 @@ still does not run on code-only changes (audit M12, chunk 2 or 4).
 
 Each needs the owner's decision; none needs a patch until then.
 
-- **SM-1.** Persist the head write memory (one more section of the room state store, 3.21),
-  change the rule after a start (adopt nothing from a head until it
-  has shown a write made since the start), or accept it as a documented exception pinned by a
-  passing test.
 - **SM-10, after a person's press of a value MXZ still has queued.** Either accept it as a
   documented exception like the fan's F1 costs, pinned by passing tests, or close it by reading
   a press back to MXZ's last write as MXZ's (a report never uses a copy, and never passes older

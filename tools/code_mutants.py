@@ -304,7 +304,7 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_head_fault.py::test_a_head_that_raises_during_a_mode_change_doesnt_undo_the_change[RuntimeError]',
     ),
     # Changes made at a head and MXZ's memory of its own writes (OwnWriteNeverAdopted,
-    # HoldBlocksWrite, StartWriteNeverAdopted in ci-adopt).
+    # HoldBlocksWrite, StartWriteNeverAdopted in ci-adopt and ci-adopt-restart).
     'C44': Mutant(
         "a write to a head isn't remembered", 'remember_head_write',
         'if name in payload:',
@@ -318,10 +318,16 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_accept_head_changes.py::test_a_change_must_hold_and_isnt_overwritten_while_it_does',
     ),
     'C46': Mutant(
-        'a reload loses the memory, as a process start does', '__init__',
-        'hass.data.setdefault(\n            f"{DOMAIN}_head_writes", {}\n        )',
-        '{}',
+        'a start loses the memory', '_resume',
+        'writes = (saved.item(SECTION_HEAD_WRITES, cid) or {}) if saved.unit == self.temp_unit else {}',
+        'writes = {}',
         'tests/test_accept_head_changes.py::test_the_memory_rides_a_reload_with_the_head_still_behind',
+    ),
+    'C52': Mutant(
+        'a restart loses the memory', '_resume',
+        'writes = (saved.item(SECTION_HEAD_WRITES, cid) or {}) if saved.unit == self.temp_unit else {}',
+        'writes = (saved.item(SECTION_HEAD_WRITES, cid) or {}) if self.hass.is_running else {}',
+        'tests/test_accept_head_changes.py::test_a_pre_restart_write_shown_late_is_not_adopted[after_startup_quiet]',
     ),
     'C47': Mutant(
         "a report doesn't pass the writes before it", 'caught_up',

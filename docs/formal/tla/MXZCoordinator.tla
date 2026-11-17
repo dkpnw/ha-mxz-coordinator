@@ -318,6 +318,9 @@ CaughtUp(mem, v) ==
     ELSE IF mem[1].v = v THEN [mem EXCEPT ![1].n = IF @ > 0 THEN @ - 1 ELSE 0]
     ELSE CaughtUp(Tail(mem), v)
 
+\* A process start: the writes still queued are from before it (ghost).
+Prior(queue) == [i \in 1..Len(queue) |-> [queue[i] EXCEPT !.pre = TRUE]]
+
 \* The queued writes the memory no longer holds, filed under what dropped them.
 Orphan(queue, mem, cause) ==
     [i \in 1..Len(queue) |-> IF queue[i].kind = "mxz" /\ ~Own(mem, queue[i].v)
@@ -710,12 +713,12 @@ Start(process, crash, outage) ==
     /\ phase' = "idle" /\ left' = {} /\ refused' = {} /\ fresh' = TRUE /\ picked' = FALSE
     /\ cutShort' = (cutShort \/ phase = "applying")
     /\ UNCHANGED <<want, trailing>>
-    \* The head write memory is in hass.data: a reload keeps it, a new process has none.
-    \* No hold is saved, and a process start is quiet until STARTUP_RECOVER_DELAY.
-    /\ spMem' = IF process THEN <<>> ELSE spMem
+    \* The head write memory is in the room state store, written at once: every start
+    \* keeps it. No hold is saved, and a process start is quiet until STARTUP_RECOVER_DELAY.
+    /\ spMem' = spMem
     /\ holding' = FALSE
     /\ quiet' = (WithAdopt /\ process)
-    /\ spQueue' = IF process THEN Orphan(spQueue, <<>>, "start") ELSE spQueue
+    /\ spQueue' = Orphan(IF process THEN Prior(spQueue) ELSE spQueue, spMem', "start")
     /\ UNCHANGED <<target, spShown, shownKind, adopted, writeInHold, pressedQueued>>
     /\ UNCHANGED <<real, pos, head, storedMode, storedStamp, winRead, winChanged, storedWin, storedOverride>>
     /\ UNCHANGED <<lastChange, flipInDwell, flipLate, fanOverwritten, exceptionLost, falseHold, twoBehind, falseHoldTwoBehind,
@@ -759,7 +762,7 @@ SetTarget == WithAdopt /\ \E v \in Targets :
 WriteSp ==
     /\ WithAdopt /\ ~holding /\ spShown # target /\ Len(spQueue) < QueueMax
     /\ spMem' = Wrote(spMem, target, spShown)
-    /\ spQueue' = Append(Orphan(spQueue, spMem', "seen"), [v |-> target, kind |-> "mxz"])
+    /\ spQueue' = Append(Orphan(spQueue, spMem', "seen"), [v |-> target, kind |-> "mxz", pre |-> FALSE])
     /\ writeInHold' = (writeInHold \/ holding)
     /\ UNCHANGED <<target, spShown, holding, quiet, shownKind, adopted, pressedQueued, others>>
 
@@ -887,5 +890,5 @@ NeverTwoBehindEcho == ~(decided /\ twoBehind /\ fanShown \in fanOlder /\ ~fanLat
 NeverRefused == refused = {}
 NeverCutShort == ~cutShort
 NeverAdopts == target \in Targets
-NeverLateOwnWriteInQuiet == ~(quiet /\ shownKind = "start" /\ spShown # target /\ ~Own(spMem, spShown))
+NeverLatePreStartWrite == ~(~quiet /\ \E i \in 1..Len(spQueue) : spQueue[i].pre)
 =============================================================================

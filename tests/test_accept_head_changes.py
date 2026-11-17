@@ -54,6 +54,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_SENSOR,
 )
 from custom_components.mxz_coordinator.logic import HeadWriteMemory
+from custom_components.mxz_coordinator.room_state import SECTION_HEAD_WRITES
 from tests.cloud_heads import (
     COMFORT,
     ComfortHead,
@@ -81,6 +82,7 @@ from tests.property_rig import (
     Rig,
     open_rig,
 )
+from tests.room_state_store import saved_section
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -736,7 +738,7 @@ async def test_a_paused_rooms_head_keeps_its_own_rule(hass: HomeAssistant, freez
 
 
 async def test_while_home_assistant_is_starting_nothing_is_adopted(hass: HomeAssistant, freezer: Any) -> None:
-    """A restart loses the memory: the first reports have nothing to be read against."""
+    """Not even a person's press: a head still loading can report anything."""
     rig = await _cooling(hass, freezer)
     rig.coord._startup_quiet = True
     await _press(rig, low=64, high=66)
@@ -1024,13 +1026,10 @@ async def test_the_memory_rides_a_reload_with_the_head_still_behind(hass: HomeAs
     await rig.close()
 
 
-async def test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_write_out(
+async def test_a_late_own_write_inside_startup_quiet_is_not_adopted(
     hass: HomeAssistant, freezer: Any,
 ) -> None:
-    """A restart starts with no memory, so only startup quiet keeps a late own write out.
-
-    After the window, the same late report moves the target: docs/STATE-MACHINES.md SM-1.
-    """
+    """Startup quiet and the stored memory both keep it out; the next test is past the window."""
     rig = await _cooling(hass, freezer)
     head = rig.heads[0]
     head.lags_commands = True
@@ -1049,6 +1048,58 @@ async def test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_writ
     await rig.later(HELD)
     assert _target(rig) == 74
     assert rig.now() - started < STARTUP_RECOVER_DELAY
+    await rig.close()
+
+
+async def _two_writes_queued_then_restart(rig: Rig, wait: float) -> None:
+    """MXZ writes 72, then 74, to a lagging head; a restart; ``wait`` seconds pass."""
+    rig.heads[0].lags_commands = True
+    await _set_target(rig.hass, rig.eid("_primary_target"), 72)
+    await rig.settle()
+    await _set_target(rig.hass, rig.eid("_primary_target"), 74)
+    await rig.settle()
+    await rig.restart()
+    await rig.later(wait)
+
+
+@pytest.mark.parametrize(
+    "wait", [STARTUP_RECOVER_DELAY + 1, 3600], ids=["after_startup_quiet", "an_hour_later"],
+)
+async def test_a_pre_restart_write_shown_late_is_not_adopted(
+    hass: HomeAssistant, freezer: Any, wait: float,
+) -> None:
+    """docs/STATE-MACHINES.md SM-1: the room state store keeps MXZ's memory of its writes."""
+    rig = await _cooling(hass, freezer)
+    await rig.person_fan("quiet")
+    assert rig.fan_held() is True
+    await _two_writes_queued_then_restart(rig, wait)
+    assert await rig.report_next_command()
+    assert _edges(rig)[1] == 72
+    assert not _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 74
+    while await rig.report_next_command():
+        assert not _armed(rig)
+        await rig.later(HELD)
+        assert _target(rig) == 74
+    assert _edges(rig)[1] == 74
+    assert rig.fan_held() is True
+    assert rig.fan_auto_switch() == "off"
+    assert rig.heads[0].fan == "quiet"
+    await rig.close()
+
+
+async def test_a_press_after_a_restart_is_adopted(hass: HomeAssistant, freezer: Any) -> None:
+    """The stored memory is MXZ's writes only: a person's press after the start is a press."""
+    rig = await _cooling(hass, freezer)
+    await _two_writes_queued_then_restart(rig, STARTUP_RECOVER_DELAY + 1)
+    await _press(rig, low=64, high=66)
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    while await rig.report_next_command():
+        await rig.later(HELD)
+        assert _target(rig) == 66
     await rig.close()
 
 
@@ -1356,9 +1407,28 @@ async def test_a_unit_switch_keeps_the_target_and_adopts_nothing(hass: HomeAssis
     await rig.later(HELD)
     assert _target(rig) == target
     assert _enabled(rig) is True
-    # What's remembered in °F isn't compared with a report in °C.
-    remembered = hass.data[f"{DOMAIN}_head_writes"]
-    assert rig.heads[0].entity_id in remembered[UnitOfTemperature.FAHRENHEIT]
+    # What's remembered in °F isn't compared with a report in °C (and see the next test).
+    remembered = (await saved_section(hass, rig.entry, SECTION_HEAD_WRITES))[rig.heads[0].entity_id]
+    assert remembered["target_temp_high"]
+    assert not {TARGET - 2, TARGET} & {
+        value for name, entries in remembered.items() if name != "hvac_mode" for value, _ in entries
+    }
+    await rig.close()
+
+
+async def test_writes_remembered_in_one_unit_dont_resume_in_the_other(hass: HomeAssistant, freezer: Any) -> None:
+    """The store keeps the memory in °F; a start in °C begins without it. The Coordinator is
+    off, so nothing written after the start hides what resumed."""
+    rig = await _cooling(hass, freezer)
+    head = rig.heads[0].entity_id
+    await rig.switch("_coordinator_enable", False)
+    await rig.reload()
+    saved = await saved_section(hass, rig.entry, SECTION_HEAD_WRITES)
+    assert [value for value, _ in saved[head]["target_temp_high"]] == [TARGET]
+    assert await rig.hass.config.async_update(unit_system="metric") is None
+    await hass.async_block_till_done()
+    assert rig.coord.temp_unit == UnitOfTemperature.CELSIUS
+    assert await saved_section(hass, rig.entry, SECTION_HEAD_WRITES) == {}
     await rig.close()
 
 

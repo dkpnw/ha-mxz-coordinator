@@ -49,13 +49,12 @@ COVERS = {
     "NeverRefused": "ci-apply",
     "NeverCutShort": "ci-apply",
     "NeverAdopts": "ci-adopt",
-    "NeverLateOwnWriteInQuiet": "ci-adopt-restart",
+    "NeverLatePreStartWrite": "ci-adopt-restart",
 }
 
 # An open finding's rule, which must keep breaking until the finding is fixed and the
 # rule moves into its config's INVARIANTS (docs/formal/PARKED-FINDINGS.md).
 FINDINGS: dict[str, str] = {
-    "StartWriteNeverAdopted": "ci-adopt-restart",
     "QueuedWriteNeverAdopted": "ci-adopt",
 }
 
@@ -118,8 +117,10 @@ MUTANTS = {
            "ci-adopt", "OwnWriteNeverAdopted"),
     "A2": ("a hold doesn't stop the write", "/\\ WithAdopt /\\ ~holding /\\ spShown # target",
            "/\\ WithAdopt /\\ spShown # target", "ci-adopt", "HoldBlocksWrite"),
-    "A3": ("a reload loses the memory, as a process start does", "Reload == WithReload /\\ Start(FALSE, FALSE, fanShown)",
-           "Reload == WithReload /\\ Start(TRUE, FALSE, fanShown)", "ci-adopt", "StartWriteNeverAdopted"),
+    "A3": ("a start loses the memory", "/\\ spMem' = spMem\n", "/\\ spMem' = <<>>\n",
+           "ci-adopt", "StartWriteNeverAdopted"),
+    "A6": ("a process start loses the memory, as before the store kept it", "/\\ spMem' = spMem\n",
+           "/\\ spMem' = IF process THEN <<>> ELSE spMem\n", "ci-adopt-restart", "StartWriteNeverAdopted"),
     "A4": ("a rewrite of the last value is kept once",
            "THEN [m EXCEPT ![Len(m)].n = IF @ < QueueMax THEN @ + 1 ELSE @]", "THEN m",
            "ci-adopt", "QueuedWriteKept"),
