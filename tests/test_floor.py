@@ -2727,6 +2727,48 @@ async def test_roll_forward_a_newer_record_without_a_run_drops_the_stored_run(
     assert (_s(hass, f.b), f.floor(1)[0]) == ("off", "armed")
 
 
+async def test_roll_forward_a_newer_record_without_a_yield_drops_the_stored_yield(
+    hass: HomeAssistant,
+) -> None:
+    """Roll-forward (MIGRATION.md): this release stops while a hands-off room's
+    floor is yielded to a person. 3.22.0 runs after it, the yield ends there
+    (the room reached its clear line), and it saves the enable switch's record
+    without a yield, 5 minutes after the store's last save. The room is back at
+    45 °F, below its 50 °F floor. The next start takes 3.22.0's record over the
+    store's older yield, so the floor takes the head and heats at once. Were
+    the store's yield kept, the head would stay off below the floor until four
+    hours had passed on the old yield."""
+    f = await _setup(hass, hands_off=(False, True))
+    await f.temp(SENSOR_B, 45)
+    await f.compute()
+    assert (_s(hass, f.b), f.floor(1)[0]) == ("heat", "heat")
+    await _remote(hass, f.b, "off")
+    await f.compute()
+    assert (_s(hass, f.b), f.floor(1)[0]) == ("off", "yielded")
+    await _shutdown(hass, f.entry)
+    store = await _room_state_store(hass, f.entry.entry_id).async_load()
+    assert store[SECTION_FLOOR][f.b]["floor_yield"]["direction"] == "heat"  # the store's yield
+    # 3.22.0 ran in between: the room reached its clear line, the yield ended,
+    # and it saved the room's record without one. The room is cold again now.
+    await _set_temp(hass, SENSOR_B, 45)
+    sid = _eid(hass, f.entry, "_secondary_enable")
+    stored = stored_state(hass, sid)
+    extra = stored.extra_data.as_dict()
+    assert "floor_yield" in extra
+    del extra["floor_yield"]
+    later = dt_util.utcnow() + timedelta(minutes=5)
+    replace_stored_state(hass, sid, rs.StoredState(
+        State(sid, "off", stored.state.attributes, last_changed=later, last_updated=later),
+        rs.RestoredExtraData(extra), later,
+    ))
+    await _startup(hass, f.entry)
+    await f.compute()
+    assert f.floor(1)[0] != "yielded"
+    assert (_s(hass, f.b), f.floor(1)[0]) == ("heat", "heat")
+    assert _run_of(f)["direction"] == "heat"  # a new run
+    assert "floor_yield" not in f.coord.floor.record("secondary")
+
+
 async def test_a_room_without_a_floor_persists_exactly_what_3_7_0_did(hass: HomeAssistant) -> None:
     """Storage: with no floor run the enable switch's extra data is 3.7.0's."""
     f = await _setup(hass, floors=((None, None), (None, None)), hands_off=(False, True))
