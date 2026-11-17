@@ -17,6 +17,7 @@ from homeassistant.const import ATTR_RESTORED, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_system import METRIC_SYSTEM
 
 from custom_components.mxz_coordinator.const import ZONE_DUAL_SETPOINT, ZONE_HANDS_OFF
 from tests.ha_test import async_fire_time_changed
@@ -282,6 +283,44 @@ async def test_a_helper_disabled_in_the_registry_changes_no_control(
         assert _not_live(rig, suffix)
         assert kept(rig)
         assert rig.coord.coordinator_enable is True
+    finally:
+        await rig.close()
+
+
+async def _target_72(rig: Rig) -> None:
+    await _number(rig, "_primary_target", 72)
+
+
+async def _drift_2(rig: Rig) -> None:
+    await _number(rig, "_primary_drift", 2)
+
+
+@pytest.mark.parametrize(
+    ("suffix", "change", "key", "after"),
+    [
+        ("_primary_target", _target_72, "target", 22),  # never 72 °C, held to the head's top
+        ("_primary_drift", _drift_2, "drift", 1.125),  # a difference: scaled, never 2 °C
+    ],
+    ids=["target", "drift"],
+)
+async def test_a_helper_disabled_in_the_registry_keeps_its_temperature_across_a_unit_switch(
+    hass: HomeAssistant, freezer: Any, suffix: str, change: Any, key: str, after: float
+) -> None:
+    """The store is the only source here, so its own °F reading must be converted to °C.
+
+    A disabled entity restores nothing, and the entry's saved temperatures don't hold a
+    room's target or drift: the store's unit is all that tells 72 °F from 72 °C.
+    """
+    rig = await open_rig(hass, freezer)
+    try:
+        await change(rig)
+        async with stopped(hass, rig.entry):
+            _disable(rig, suffix)
+            hass.config.units = METRIC_SYSTEM
+        await rig.settle()
+        assert _not_live(rig, suffix)
+        assert getattr(rig.coord.zones[0], key) == after
+        assert rig.row(0)[key] == after
     finally:
         await rig.close()
 
