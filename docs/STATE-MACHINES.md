@@ -945,7 +945,7 @@ takes the same `_read_outdoor_high` → None path, which was read, not run.
 **Run.** Outdoor high 72, so the heat lockout is on. A restart with the sensor not loaded yet: after
 setup both lockouts read off. The sensor loads at 72: the heat lockout is on again.
 
-**Status: fixed (Drew's decision, t316u).** A start keeps the lockouts it restored until the
+**Status: fixed (the owner's decision).** A start keeps the lockouts it restored until the
 source has been read once. A source that never loads holds them until the first hourly re-read
 (`CHANGEOVER_INTERVAL_MINUTES`, 60), and after that no reading means no lockout again. Once the
 source has been read, a reading that goes away lifts the lockouts at once, as before.
