@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 from homeassistant.components.climate import HVACAction, HVACMode
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import restore_state as rs
@@ -49,6 +49,10 @@ from custom_components.mxz_coordinator.const import (
     ZONE_SAFETY_PRIORITY_ENTITY,
     ZONE_SAMPLE_TIMESTAMP_ATTR,
     ZONE_SENSOR,
+)
+from custom_components.mxz_coordinator.room_state import (
+    SECTION_FLOOR,
+    _room_state_store,
 )
 from custom_components.mxz_coordinator.sensor import _ATTRS
 from tests.clocks import jump_wall_clock, pass_time
@@ -2687,6 +2691,40 @@ async def test_restart_a_stalled_run_stays_stalled(hass: HomeAssistant, freezer)
     await f.compute()
     assert (_s(hass, f.b), f.floor(1)[0]) == ("off", "blind")
     assert _run_of(f)["stalled"] is True
+
+
+async def test_roll_forward_a_newer_record_without_a_run_drops_the_stored_run(
+    hass: HomeAssistant,
+) -> None:
+    """Roll-forward (MIGRATION.md): this release stops mid-run, 3.22.0 runs
+    after it, ends the run (head off, the room at 51 °F, inside the band) and
+    saves the enable switch's record with no floor keys, 5 minutes after the
+    store's last save. The next start takes 3.22.0's record over the store's
+    older run: the room is armed and its head stays off. Were the store's run
+    kept, the head would heat at 51 °F, a run 3.22.0 had already ended."""
+    f = await _setup(hass)
+    await f.temp(SENSOR_B, 45)
+    assert (_s(hass, f.b), f.floor(1)[0]) == ("heat", "heat")
+    await _shutdown(hass, f.entry)
+    store = await _room_state_store(hass, f.entry.entry_id).async_load()
+    assert store[SECTION_FLOOR][f.b]["floor_run"]["direction"] == "heat"  # the store's run
+    # 3.22.0 ran in between: its run cleared, so it turned the head off and
+    # saved the disabled room's record without a run.
+    await _remote(hass, f.b, "off")
+    await _set_temp(hass, SENSOR_B, 51)
+    sid = _eid(hass, f.entry, "_secondary_enable")
+    stored = stored_state(hass, sid)
+    assert stored.state.state == "off"
+    later = dt_util.utcnow() + timedelta(minutes=5)
+    replace_stored_state(hass, sid, rs.StoredState(
+        State(sid, "off", stored.state.attributes, last_changed=later, last_updated=later),
+        rs.RestoredExtraData({"hands_off_released": False}), later,
+    ))
+    await _startup(hass, f.entry)
+    await f.compute()
+    assert _run_of(f) is None
+    assert f.coord.floor.record("secondary") == {}
+    assert (_s(hass, f.b), f.floor(1)[0]) == ("off", "armed")
 
 
 async def test_a_room_without_a_floor_persists_exactly_what_3_7_0_did(hass: HomeAssistant) -> None:
