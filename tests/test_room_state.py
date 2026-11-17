@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from homeassistant.const import ATTR_RESTORED, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
@@ -146,6 +147,20 @@ def _disable(rig: Rig, suffix: str) -> None:
     )
 
 
+def _not_live(rig: Rig, suffix: str) -> bool:
+    """Home Assistant runs no entity for the helper.
+
+    Unloading the entry leaves the registry's placeholder (unavailable, ``restored``) for
+    each entity, and a disabled entity is never added again to replace it. Through 2026.10
+    the placeholder stays; from 2026.11 the registry removes it when the entity is
+    disabled (helpers/entity_registry.py ``sync_restored_state``), so there is no state.
+    """
+    state = rig.hass.states.get(rig.eid(suffix))
+    return state is None or (
+        state.state == STATE_UNAVAILABLE and state.attributes.get(ATTR_RESTORED) is True
+    )
+
+
 async def _no_change(rig: Rig) -> None:
     pass
 
@@ -174,10 +189,11 @@ async def test_a_helper_disabled_in_the_registry_changes_no_control(
     rig = await open_rig(hass, freezer)
     try:
         await change(rig)
+        assert not _not_live(rig, suffix)
         async with stopped(hass, rig.entry):
             _disable(rig, suffix)
         await rig.settle()
-        assert rig.hass.states.get(rig.eid(suffix)).state == "unavailable"
+        assert _not_live(rig, suffix)
         assert kept(rig)
         assert rig.coord.coordinator_enable is True
     finally:
