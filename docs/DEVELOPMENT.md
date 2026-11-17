@@ -17,6 +17,7 @@ on equipment.
 | 3.13 | 2026.2.3 | `requirements/constraints-py313-ha2026.2.3.txt` |
 | 3.14 | 2026.9.4 | `requirements/constraints-py314-ha2026.9.4.txt` |
 | 3.14 | 2026.10.4 | `requirements/constraints-py314-ha2026.10.4.txt` |
+| 3.14 | 2026.11.2 | `requirements/constraints-py314-ha2026.11.2.txt` |
 
 - Each lane is one lock and one row of the `pytest` job in `.github/workflows/ci.yml`; a
   contract test fails if a lock has no lane or a lane names the wrong lock. Each lane
@@ -29,9 +30,11 @@ on equipment.
   order, as a serial run does.
 - Coverage (96% branch floor, `pyproject.toml`) and strict mypy run on the 2026.9.4 lane
   in `.github/workflows/quality.yml`.
-- No lane runs HA 2026.11 yet. `pytest-homeassistant-custom-component` has no release
-  for it. Its test plugin is Home Assistant's own `pytest-homeassistant`, whose module
-  the tests do not import yet. No 2026.11 support claim follows from the 2026.10.4 lane.
+- The lanes up to 2026.10.4 use `pytest-homeassistant-custom-component`. It has no
+  release for HA 2026.11, so the 2026.11.2 lane uses Home Assistant's own test plugin,
+  `pytest-homeassistant`, which needs Python 3.14.2 or newer. Tests import the plugin's
+  helpers only through `tests/ha_test.py`, which takes them from whichever of the two is
+  installed. With neither installed the suite fails at import; no test file skips itself.
 - The form screenshots were captured on HA 2026.9.4; the floor's rendering of the forms
   was not captured.
 
@@ -42,16 +45,18 @@ TLA+ model.
 ### Make or refresh a lane lock
 
 A lock is `pip freeze` of a fresh venv on the lane's Python, unedited. The venv holds the
-`pytest-homeassistant-custom-component` release that pins that exact Home Assistant, and
-`requirements_test.txt`. Hypothesis and sortedcontainers keep the versions every lock
-shares (`tests/test_formal_contract.py` checks them):
+test plugin release that pins that exact Home Assistant (`pytest-homeassistant` from HA
+2026.11, `pytest-homeassistant-custom-component` before it; never both), numpy at the
+version Home Assistant's `package_constraints.txt` pins, and `requirements_test.txt`.
+Hypothesis and sortedcontainers keep the versions every lock shares
+(`tests/test_formal_contract.py` checks them):
 
 ```bash
 python3.14 -m venv /tmp/lane
 /tmp/lane/bin/python -m pip install --index-url https://pypi.org/simple \
-  pytest-homeassistant-custom-component==0.13.375 hypothesis==6.170.15 -r requirements_test.txt
+  pytest-homeassistant==2026.11.2 numpy==2.3.2 hypothesis==6.170.15 -r requirements_test.txt
 /tmp/lane/bin/python -m pip check
-/tmp/lane/bin/python -m pip freeze --all --exclude pip > requirements/constraints-py314-ha2026.10.4.txt
+/tmp/lane/bin/python -m pip freeze --all --exclude pip > requirements/constraints-py314-ha2026.11.2.txt
 ```
 
 Then add the lane's row to the `pytest` matrix and the table above.
