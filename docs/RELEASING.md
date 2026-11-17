@@ -22,17 +22,17 @@ A release is cut by hand, in this order. Don't tag until every step above the ta
 2. **Full suite and ruff.** On each lane you can run, from the checkout:
 
    ```bash
-   python -m pytest -p tools.pytest_phases tests/ -q -s -p no:cacheprovider
-   FAKE_UPTIME=120 python -m pytest -p tools.fakeboot -p tools.pytest_phases tests/ -q -s -p no:cacheprovider
+   python -m pytest -p tools.pytest_phases tests/ -q -n auto --dist loadfile
+   FAKE_UPTIME=120 python -m pytest -p tools.fakeboot -p tools.pytest_phases tests/ -q -n auto --dist loadfile
    ruff check --no-cache .
    ```
 
    Both suite runs must end `PHASES_VALID=true` with exit 0, and ruff must report no
    errors. The second runs on a clock that reads as if the host had booted 120 s ago
-   (`tools/fakeboot.py`) and prints `FAKEBOOT_UPTIME=120` once.
-   CI pins `ruff==0.17.4`.
+   (`tools/fakeboot.py`) and prints `FAKEBOOT_UPTIME=120`.
+   CI's ruff is the one `requirements_ci.in` pins.
 3. **CI green on main.** Push the release commit to `main` and wait until every job in
-   `CI` and `HA 2026.10 qualification` passes on that exact commit.
+   `CI` and `Quality` passes on that exact commit.
 4. **Credits.** This is a manual step before tagging. It does **not** run in CI, because
    CI has no `gh` token for reading issues. With an authenticated `gh`:
 

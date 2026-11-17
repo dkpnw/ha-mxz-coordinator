@@ -1,4 +1,4 @@
-"""Check the complete installed test inventory against one unchanged version lock."""
+"""Check the complete installed test inventory against one lane lock, on the lane's Python."""
 
 import json
 import re
@@ -13,10 +13,8 @@ def name(value):
     return re.sub(r"[-_.]+", "-", value).lower()
 
 
-def identity_errors(actual_digest, expected_digest, version, lane):
+def python_errors(version, lane):
     errors = []
-    if not re.fullmatch(r"[0-9a-f]{64}", expected_digest or "") or actual_digest != expected_digest:
-        errors.append("wrong or missing lock identity")
     if lane not in ("3.12.14", "3.13", "3.14") or not version or not (
         version == lane or version.startswith(lane + ".")
     ):
@@ -44,9 +42,9 @@ def inventory_errors(expected, actual):
 
 
 def main():
-    lock, digest, lane = sys.argv[1:]
+    lock, lane = sys.argv[1:]
     raw = Path(lock).read_bytes()
-    errors = identity_errors(sha256(raw).hexdigest(), digest, sys.version.split()[0], lane)
+    errors = python_errors(sys.version.split()[0], lane)
     assert not errors, errors
     expected = []
     for line in raw.decode().splitlines():

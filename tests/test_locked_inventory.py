@@ -1,8 +1,8 @@
-"""Version locks reject missing, extra, changed and duplicate distributions."""
+"""Version locks reject missing, extra, changed and duplicate distributions, and the wrong Python."""
 
 import pytest
 
-from tools.check_lock import identity_errors, inventory_errors
+from tools.check_lock import inventory_errors, python_errors
 
 EXPECTED = [("invented-core", "1.2.3"), ("invented-plugin", "4.5.6")]
 ACTUAL = [*EXPECTED, ("pip", "25.0")]
@@ -29,27 +29,24 @@ def test_empty_or_duplicate_lock_rejects():
     assert inventory_errors([*EXPECTED, ("invented_core", "1.2.3")], ACTUAL)
 
 
-def test_wrong_or_missing_lock_and_python_identity():
-    digest = "a" * 64  # Invented identity; no package or runtime lookup.
-    assert identity_errors(digest, digest, "3.12.14", "3.12.14") == []
-    assert identity_errors("b" * 64, digest, "3.12.14", "3.12.14")
-    assert identity_errors(None, None, "3.12.14", "3.12.14")
-    assert identity_errors(digest, digest, "3.13.1", "3.12.14")
-    assert identity_errors(digest, digest, None, "3.12.14")
-    assert identity_errors(digest, digest, "3.12.14", "unknown")
+def test_wrong_or_missing_python_lane():
+    assert python_errors("3.12.14", "3.12.14") == []
+    assert python_errors("3.14.7", "3.14") == []
+    assert python_errors("3.13.1", "3.12.14")
+    assert python_errors("3.140.1", "3.14")
+    assert python_errors(None, "3.12.14")
+    assert python_errors("3.12.14", "unknown")
 
 
 @pytest.mark.parametrize("field", ["name", "version"])
 def test_actual_checker_rejects_missing_distribution_metadata(tmp_path, monkeypatch, field):
-    from hashlib import sha256
     from types import SimpleNamespace
 
     from tools import check_lock
 
-    raw = b"invented-core==1.2.3\n"
     lock = tmp_path / "lock.txt"
-    lock.write_bytes(raw)
-    monkeypatch.setattr(check_lock.sys, "argv", ["check", str(lock), sha256(raw).hexdigest(), "3.12.14"])
+    lock.write_bytes(b"invented-core==1.2.3\n")
+    monkeypatch.setattr(check_lock.sys, "argv", ["check", str(lock), "3.12.14"])
     monkeypatch.setattr(check_lock.sys, "version", "3.12.14")
     item = SimpleNamespace(metadata={"Name": None if field == "name" else "invented-core"},
                            version=None if field == "version" else "1.2.3")
@@ -58,7 +55,7 @@ def test_actual_checker_rejects_missing_distribution_metadata(tmp_path, monkeypa
         check_lock.main()
 
 
-@pytest.mark.parametrize("args", [[], ["one"], ["one", "two"], ["one", "two", "three", "four"]])
+@pytest.mark.parametrize("args", [[], ["one"], ["one", "two", "three"], ["one", "two", "three", "four"]])
 def test_actual_checker_rejects_bad_arguments(monkeypatch, args):
     from tools import check_lock
 

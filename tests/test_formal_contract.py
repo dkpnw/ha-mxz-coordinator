@@ -3,7 +3,6 @@
 import ast
 import dataclasses
 import importlib.util
-import json
 import re
 import subprocess
 from pathlib import Path
@@ -311,11 +310,6 @@ def test_a_statechart_anchor_follows_its_function_to_another_module(tmp_path) ->
 def test_every_lock_pins_what_the_properties_need(lock) -> None:
     rows = dict(line.split("==") for line in lock.read_text().splitlines())
     assert {name: rows.get(name) for name in PROPERTY_PINS} == PROPERTY_PINS
-
-
-def test_the_exact_2026_10_bundle_pins_what_the_properties_need() -> None:
-    rows = json.loads((ROOT / "requirements/ha2026.10/bundle.json").read_text())["artifacts"]
-    assert {r["name"]: r["version"] for r in rows if r["name"] in PROPERTY_PINS} == PROPERTY_PINS
 
 
 SKILLS = ROOT / ".claude/skills"

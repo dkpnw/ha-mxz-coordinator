@@ -1,6 +1,6 @@
 """Dependabot leaves the HA test locks alone and keeps updating everything else.
 
-The locks are regenerated deliberately and pinned by sha256 in CI. GitHub documents
+The locks are regenerated deliberately, and each is one CI lane. GitHub documents
 ``ignore`` as also applying to security updates for the matching ecosystem and
 directory, and ``exclude-paths`` and ``open-pull-requests-limit`` as version-updates
 only. Whether GitHub then opens no pull request can only be seen on GitHub; this test
@@ -190,7 +190,7 @@ def test_a_subdirectory_lock_needs_its_own_covered_directory(config, tmp_path):
 
 
 def test_a_subdirectory_without_a_txt_requires_nothing(config, tmp_path):
-    """As requirements/ha2026.10 is today: its .lock and .json files are not pip manifests."""
+    """A subdirectory of .lock and .json files holds no pip manifest."""
     assert _tree(tmp_path, "bundle/artifacts.lock", "bundle/bundle.json", "bundle/README.md") == {LOCKS}
     assert violations(config, {LOCKS}) == []
 

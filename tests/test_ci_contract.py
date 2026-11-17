@@ -1,50 +1,139 @@
-"""Static CI boundaries; live repository/token receipts are required separately."""
+"""Static boundaries of .github/workflows/ci.yml; live check results are read separately."""
 
-import asyncio
-import io
-import logging
 import re
-import subprocess
-from contextlib import contextmanager
 from copy import deepcopy
-from hashlib import sha256
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import yaml
 
-# Every action is pinned to a full commit SHA; a floating tag or branch is unknown.
-CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
-SETUP_PYTHON = "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0"
-HASSFEST = "home-assistant/actions/hassfest@86d4564712fa02543c808e3a693dd04f9d3f8361"
-HACS = "hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa"
-ALLOWED_ACTIONS = {CHECKOUT, SETUP_PYTHON, HASSFEST, HACS}
+ROOT = Path(__file__).parents[1]
+# Every action is pinned to a full commit SHA. Which commit is Dependabot's to move, so
+# the SHAs live only in the workflows; this checks their shape and the action names.
+PINNED = re.compile(r"(?P<name>[\w.-]+/[\w./-]+)@[0-9a-f]{40}")
+ACTIONS = {"actions/checkout", "actions/setup-python", "home-assistant/actions/hassfest", "hacs/action"}
+JOBS = {"hassfest", "hacs", "ruff", "yamllint", "pytest"}
+ACTIVATE = 'source "$RUNNER_TEMP/mxz-venv/bin/activate"'
+INSTALL_RUN = 'tools/ci-install.sh "${{ matrix.constraints }}" "${{ matrix.python-version }}"'
+SUITE_RUN = "python -m pytest -p tools.pytest_phases tests/ -q -n auto --dist loadfile"
+FRESH_BOOT_RUN = ("FAKE_UPTIME=120 python -m pytest -p tools.fakeboot -p tools.pytest_phases tests/ -q"
+                  " -n auto --dist loadfile")
+# The fresh-boot pass runs after a failed suite too; nothing else in a lane is conditional.
+FRESH_BOOT_IF = "${{ !cancelled() }}"
+LANE_STEPS = ["Install the lane's lock", "Full suite", "Full suite on a fresh-boot clock"]
+MATRIX_KEYS = {"lane", "python-version", "constraints"}
+
+
+def load(path):
+    # BaseLoader keeps every scalar a string, and the "on" key as written.
+    return yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+
+
+def trigger_violations(workflow, prefix):
+    """Push to main, every pull request, by hand; no path filter can skip a required check.
+
+    A newer push to a pull request cancels its older run. Every other run has its own
+    group, because GitHub cancels a pending run that a newer one queues behind.
+    """
+    errors = []
+    on = workflow.get("on", {})
+    if set(on) != {"push", "pull_request", "workflow_dispatch"}:
+        errors.append("triggers")
+    if on.get("push") != {"branches": ["main"]}:
+        errors.append("push filter")
+    if on.get("pull_request") != "" or on.get("workflow_dispatch") != "":
+        errors.append("pull request or manual filter")
+    if workflow.get("concurrency") != {
+        "group": prefix + "-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}",
+        "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
+    }:
+        errors.append("concurrency")
+    return errors
+
+
+def run_lines(step):
+    return [line.strip() for line in step.get("run", "").strip().splitlines()]
+
+
+def lane_job_violations(job):
+    """Each lane installs its lock, runs the whole suite, then the whole suite on a
+    clock 120 s after boot, in that order, in one job."""
+    errors = []
+    steps = job.get("steps", [])
+    names = [step.get("name") for step in steps]
+    if names[-3:] != LANE_STEPS or any(names.count(name) != 1 for name in LANE_STEPS):
+        errors.append("lane steps")
+        return errors
+    install, suite, fresh = steps[-3:]
+    if run_lines(install) != [INSTALL_RUN]:
+        errors.append("lane install")
+    if run_lines(suite) != [ACTIVATE, SUITE_RUN]:
+        errors.append("suite run")
+    if run_lines(fresh) != [ACTIVATE, FRESH_BOOT_RUN] or fresh.get("if") != FRESH_BOOT_IF:
+        errors.append("fresh-boot run")
+    if any("if" in step for step in steps if step is not fresh):
+        errors.append("step condition")
+    if job.get("strategy", {}).get("fail-fast") != "false":
+        errors.append("fail-fast")
+    return errors
+
+
+def lane_lock_errors(entry, raw):
+    """A lane's name, Python, lock path and locked HA must all agree."""
+    python, ha = re.fullmatch(r"py3\.(\d+)-ha(.+)", entry["lane"]).groups()
+    errors = []
+    if entry["constraints"] != f"requirements/constraints-py3{python}-ha{ha}.txt":
+        errors.append("lock path")
+    if not (entry["python-version"] + ".").startswith(f"3.{python}."):
+        errors.append("lane python")
+    if f"homeassistant=={ha}" not in raw.decode().splitlines():
+        errors.append("locked HA")
+    return errors
+
+
+def lane_violations(include, root=ROOT):
+    """Every lock in requirements/ is exactly one lane, and every lane names its lock."""
+    errors = []
+    if not include or any(set(entry) != MATRIX_KEYS for entry in include):
+        return ["lane keys"]
+    lanes = [entry["lane"] for entry in include]
+    if len(set(lanes)) != len(lanes) or any(not re.fullmatch(r"py3\.\d+-ha[\d.]+", lane) for lane in lanes):
+        errors.append("lane names")
+        return errors
+    for entry in include:
+        lock = root / entry["constraints"]
+        errors += lane_lock_errors(entry, lock.read_bytes() if lock.is_file() else b"")
+    locks = sorted(path.relative_to(root).as_posix() for path in (root / "requirements").glob("constraints-*.txt"))
+    if sorted(entry["constraints"] for entry in include) != locks:
+        errors.append("lock without a lane, or lane without a lock")
+    return errors
 
 
 def violations(workflow):
-    errors = []
+    errors = trigger_violations(workflow, "ci")
     if workflow.get("permissions") != {"contents": "read"}:
         errors.append("token permissions")
     jobs = workflow.get("jobs", {})
-    if set(jobs) != {"approval", "hassfest", "hacs", "ruff", "pytest", "yamllint", "issue25"}:
+    if set(jobs) != JOBS:
         errors.append("missing or extra job")
-    for name, job in jobs.items():
+    for job in jobs.values():
         if job.get("runs-on") != "ubuntu-24.04" or "environment" in job:
             errors.append("runner/environment boundary")
-        # The approval admission alone may read Actions run metadata, nothing more.
-        allowed = {"contents": "read", "actions": "read"} if name == "approval" else None
-        if job.get("permissions", None) != allowed or "secrets" in job:
-            errors.append("job credential override")
-        if name != "approval" and job.get("needs") != "approval":
-            errors.append("approval dependency")
+        # A job-level if would let a required check report "skipped", which passes.
+        if {"permissions", "secrets", "if", "needs", "continue-on-error"} & set(job):
+            errors.append("job override")
+        if not re.fullmatch(r"[1-9][0-9]?", job.get("timeout-minutes", "")):
+            errors.append("job time limit")
         for step in job.get("steps", []):
-            if "ulimit -f" in step.get("run", ""):
-                errors.append("process-wide file limit for log")
+            if "continue-on-error" in step:
+                errors.append("step override")
             action = step.get("uses")
-            if action and action not in ALLOWED_ACTIONS:
-                errors.append("unknown action/cache/upload")
-            # Match on the action name so these boundaries hold for any ref, pinned or not.
+            if action:
+                pinned = PINNED.fullmatch(action)
+                if not pinned:
+                    errors.append("unpinned action")
+                elif pinned["name"] not in ACTIONS:
+                    errors.append("unknown action/cache/upload")
             name = (action or "").partition("@")[0]
             if name == "actions/checkout" and step.get("with", {}).get("persist-credentials") != "false":
                 errors.append("persistent checkout")
@@ -52,106 +141,15 @@ def violations(workflow):
                 errors.append("dependency cache")
             if "secrets." in str(step):
                 errors.append("secret input")
-    if jobs.get("pytest", {}).get("timeout-minutes") != PYTEST_JOB_MINUTES:
-        errors.append("pytest job time limit")
-    errors += fresh_boot_violations(jobs.get("pytest", {}))
+    pytest_job = jobs.get("pytest", {})
+    errors += lane_job_violations(pytest_job)
+    errors += lane_violations(pytest_job.get("strategy", {}).get("matrix", {}).get("include", []))
     return errors
-
-
-# The pytest job's exact limit: a job owning both full passes needs 1200 s for each,
-# 60 s for the sentinel, and room for install and export.
-PYTEST_JOB_MINUTES = "55"
-
-
-FRESH_BOOT_RUN = (
-    'FAKE_UPTIME=120 timeout --signal=TERM --kill-after=5s 1200s python -m pytest '
-    '-p tools.fakeboot -p tools.pytest_phases tests/ -q -s > "$RUNNER_TEMP/fakeboot.log" 2>&1'
-)
-
-
-# Each full-suite step runs only in a job whose matrix.runs owns its exact token.
-SUITE_IF = "${{ contains(format(' {0} ', matrix.runs), ' suite ') }}"
-FRESH_BOOT_IF = "${{ !cancelled() && contains(format(' {0} ', matrix.runs), ' fakeboot ') }}"
-SUITE_STEPS = {"suite": "Full retained suite", "fakeboot": "Full suite on a fresh-boot clock"}
-# The only ownership values the export accepts, and the runs each one owns.
-OWNED_RUNS = {"suite fakeboot": ("suite", "fakeboot"), "suite": ("suite",), "fakeboot": ("fakeboot",)}
-MATRIX_KEYS = {"lane", "runs", "python-version", "constraints", "sha256"}
-# py3.12 and py3.14 are each split into two jobs; py3.13 keeps both runs in one job.
-LANE_RUNS = [
-    ("py3.12-ha2024.12.5", "suite"), ("py3.12-ha2024.12.5-fakeboot", "fakeboot"),
-    ("py3.13-ha2026.2.3", "suite fakeboot"),
-    ("py3.14-ha2026.9.4", "suite"), ("py3.14-ha2026.9.4-fakeboot", "fakeboot"),
-]
-# Each lane and the number of jobs its two runs are spread across.
-LANE_JOBS = {"py3.12-ha2024.12.5": 2, "py3.13-ha2026.2.3": 1, "py3.14-ha2026.9.4": 2}
-EXPORT_OWNERSHIP = '''case "${OWNED_RUNS:-}" in
-  'suite fakeboot') runs=(suite fakeboot) ;;
-  suite) runs=(suite) ;;
-  fakeboot) runs=(fakeboot) ;;
-  *) echo "INVALID_OWNED_RUNS"; runs=(); result=1 ;;
-esac'''
-
-
-def step_runs(step, entry):
-    """Whether a step's own ``if`` admits it in the job for one matrix entry."""
-    return "if" not in step or admitted(step["if"], {}, matrix=entry)
-
-
-def fresh_boot_violations(job):
-    """Every lane runs the whole suite, and again on a clock 120 s after boot,
-    each exactly once across that lane's jobs."""
-    steps = [s for s in job.get("steps", []) if "-p tools.fakeboot" in s.get("run", "")]
-    names = [s.get("name") for s in job.get("steps", [])]
-    if (len(steps) != 1 or steps[0].get("name") != "Full suite on a fresh-boot clock"
-            or steps[0].get("if") != FRESH_BOOT_IF
-            or FRESH_BOOT_RUN not in steps[0]["run"]
-            or "Full retained suite" not in names
-            or names.count("Full retained suite") != 1
-            or next(s for s in job["steps"] if s.get("name") == "Full retained suite").get("if") != SUITE_IF
-            or names.index("Full retained suite") > names.index("Full suite on a fresh-boot clock")
-            or names.index("Full suite on a fresh-boot clock") > names.index("Complete logs and owned cleanup")):
-        return ["fresh-boot suite guard"]
-    export_step = next(s for s in job["steps"] if s.get("name") == "Complete logs and owned cleanup")
-    export = export_step["run"]
-    if (export_step.get("env") != {"OWNED_RUNS": "${{ matrix.runs }}"}
-            or export.count(EXPORT_OWNERSHIP) != 1
-            or 'logs=(install sentinel "${runs[@]}")' not in export
-            or 'for run in "${runs[@]}"; do' not in export
-            or "grep -qx 'FAKEBOOT_UPTIME=120'" not in export):
-        return ["fresh-boot suite guard"]
-    include = job.get("strategy", {}).get("matrix", {}).get("include", [])
-    if ([(e.get("lane"), e.get("runs")) for e in include] != LANE_RUNS
-            or any(set(e) != MATRIX_KEYS for e in include)):
-        return ["suite lane ownership"]
-    by_lock = {}
-    for entry in include:
-        ran = tuple(run for run, name in SUITE_STEPS.items()
-                    if step_runs(next(s for s in job["steps"] if s.get("name") == name), entry))
-        # The steps a job executes are exactly the runs its export requires.
-        if ran != OWNED_RUNS[entry["runs"]]:
-            return ["suite lane ownership"]
-        by_lock.setdefault((entry["python-version"], entry["constraints"], entry["sha256"]), []).extend(ran)
-    # Three locks; each runs the suite and the fresh-boot suite exactly once.
-    if len(by_lock) != 3 or any(sorted(runs) != ["fakeboot", "suite"] for runs in by_lock.values()):
-        return ["suite lane ownership"]
-    # A split lane's jobs share that lane's one lock, and no two lanes share a lock,
-    # so swapping the locks of two split lanes' fresh-boot jobs is refused too.
-    by_lane = {}
-    for entry in include:
-        lock = (entry["python-version"], entry["constraints"], entry["sha256"])
-        by_lane.setdefault(entry["lane"].removesuffix("-fakeboot"), []).append(lock)
-    if ({lane: len(locks) for lane, locks in by_lane.items()} != LANE_JOBS
-            or any(len(set(locks)) != 1 for locks in by_lane.values())
-            or len({locks[0] for locks in by_lane.values()}) != len(by_lane)):
-        return ["suite lane ownership"]
-    return []
 
 
 @pytest.fixture(scope="module")
 def parsed_workflow():
-    path = Path(__file__).parents[1] / ".github/workflows/ci.yml"
-    # BaseLoader preserves YAML's literal on/false keys/values as strings.
-    return yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+    return load(ROOT / ".github/workflows/ci.yml")
 
 
 @pytest.fixture
@@ -164,1071 +162,177 @@ def test_declared_ci_boundary(workflow):
     assert violations(workflow) == []
 
 
-def lane_lock_errors(entry, raw):
-    """A lane's name, lock path, recorded digest and locked HA must all agree."""
-    python, ha = re.fullmatch(r"py3\.(\d+)-ha(.+)", entry["lane"].removesuffix("-fakeboot")).groups()
-    errors = []
-    if entry["constraints"] != f"requirements/constraints-py3{python}-ha{ha}.txt":
-        errors.append("lock path")
-    if entry["sha256"] != sha256(raw).hexdigest():
-        errors.append("lock digest")
-    if f"homeassistant=={ha}" not in raw.decode().splitlines():
-        errors.append("locked HA")
-    return errors
+def _job(w, name):
+    return w["jobs"][name]
 
 
-def lane_entries(workflow):
-    return workflow["jobs"]["pytest"]["strategy"]["matrix"]["include"]
+def _lanes(w):
+    return w["jobs"]["pytest"]["strategy"]["matrix"]["include"]
 
 
-def test_each_lane_names_the_ha_its_lock_pins(workflow):
-    root = Path(__file__).parents[1]
-    for entry in lane_entries(workflow):
-        assert lane_lock_errors(entry, (root / entry["constraints"]).read_bytes()) == []
+def _step(w, name):
+    return next(s for s in w["jobs"]["pytest"]["steps"] if s.get("name") == name)
+
+
+def _replace_run(w, name, old, new):
+    step = _step(w, name)
+    assert old in step["run"]
+    step["run"] = step["run"].replace(old, new)
+
+
+FAULTS = {
+    # Triggers and cancelling.
+    "push on every branch": (lambda w: w["on"]["push"].update(branches=["**"]), "push filter"),
+    "push path filter": (lambda w: w["on"]["push"].update(paths=["custom_components/**"]), "push filter"),
+    "pull request path filter": (lambda w: w["on"].update(pull_request={"paths-ignore": ["docs/**"]}),
+                                 "pull request or manual filter"),
+    "no manual run": (lambda w: w["on"].pop("workflow_dispatch"), "triggers"),
+    "main runs share a group": (lambda w: w["concurrency"].update(group="ci-${{ github.ref }}"), "concurrency"),
+    "main runs cancelled": (lambda w: w["concurrency"].update({"cancel-in-progress": "true"}), "concurrency"),
+    "no concurrency": (lambda w: w.pop("concurrency"), "concurrency"),
+    # Token, runner and actions.
+    "token": (lambda w: w.update(permissions={"contents": "write"}), "token permissions"),
+    "runner": (lambda w: _job(w, "ruff").update({"runs-on": "self-hosted"}), "runner/environment boundary"),
+    "environment": (lambda w: _job(w, "hacs").update(environment="release"), "runner/environment boundary"),
+    "job permissions": (lambda w: _job(w, "hassfest").update(permissions={"actions": "read"}), "job override"),
+    "job skipped": (lambda w: _job(w, "pytest").update({"if": "${{ github.event_name == 'push' }}"}),
+                    "job override"),
+    "job needs": (lambda w: _job(w, "pytest").update(needs="ruff"), "job override"),
+    "job allowed to fail": (lambda w: _job(w, "pytest").update({"continue-on-error": "true"}), "job override"),
+    "step allowed to fail": (lambda w: _step(w, "Full suite").update({"continue-on-error": "true"}),
+                             "step override"),
+    "no time limit": (lambda w: _job(w, "pytest").pop("timeout-minutes"), "job time limit"),
+    "unpinned": (lambda w: _job(w, "ruff")["steps"][0].update(uses="actions/checkout@v7"), "unpinned action"),
+    "short sha": (lambda w: _job(w, "ruff")["steps"][0].update(uses="actions/checkout@3d3c42e"), "unpinned action"),
+    "upload": (lambda w: _job(w, "pytest")["steps"].append(
+        {"uses": "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"}),
+        "unknown action/cache/upload"),
+    "cache": (lambda w: _job(w, "pytest")["steps"][1]["with"].update(cache="pip"), "dependency cache"),
+    "checkout": (lambda w: _job(w, "hacs")["steps"][0]["with"].update({"persist-credentials": "true"}),
+                 "persistent checkout"),
+    "secret": (lambda w: _job(w, "hacs")["steps"][1]["with"].update(token="${{ secrets.TOKEN }}"),
+               "secret input"),
+    "missing job": (lambda w: w["jobs"].pop("yamllint"), "missing or extra job"),
+    # The lane job's own steps.
+    "suite on a subset": (lambda w: _replace_run(w, "Full suite", "tests/ ", "tests/test_climate.py "), "suite run"),
+    "suite without phases": (lambda w: _replace_run(w, "Full suite", "-p tools.pytest_phases ", ""), "suite run"),
+    "suite deselects": (lambda w: _replace_run(w, "Full suite", " -q", " -q -k 'not slow'"), "suite run"),
+    "suite on one worker": (lambda w: _replace_run(w, "Full suite", " -n auto", " -n 0"), "suite run"),
+    "suite splits a file": (lambda w: _replace_run(w, "Full suite", " --dist loadfile", ""), "suite run"),
+    "fresh-boot splits a file": (lambda w: _replace_run(w, "Full suite on a fresh-boot clock", " --dist loadfile",
+                                                        " --dist load"), "fresh-boot run"),
+    "suite conditional": (lambda w: _step(w, "Full suite").update({"if": "${{ success() }}"}), "step condition"),
+    "fresh-boot missing": (lambda w: _job(w, "pytest")["steps"].remove(_step(w, "Full suite on a fresh-boot clock")),
+                           "lane steps"),
+    "fresh-boot skipped after a failure": (lambda w: _step(w, "Full suite on a fresh-boot clock").pop("if"),
+                                           "fresh-boot run"),
+    "fresh-boot on one lane": (lambda w: _step(w, "Full suite on a fresh-boot clock").update(
+        {"if": "${{ !cancelled() && matrix.lane == 'py3.14-ha2026.9.4' }}"}), "fresh-boot run"),
+    "fresh-boot long uptime": (lambda w: _replace_run(w, "Full suite on a fresh-boot clock", "FAKE_UPTIME=120",
+                                                      "FAKE_UPTIME=86400"), "fresh-boot run"),
+    "fresh-boot without its clock": (lambda w: _replace_run(w, "Full suite on a fresh-boot clock",
+                                                            "-p tools.fakeboot ", ""), "fresh-boot run"),
+    "fresh-boot on a subset": (lambda w: _replace_run(w, "Full suite on a fresh-boot clock", "tests/ ",
+                                                      "tests/test_dwell_wakeup.py "), "fresh-boot run"),
+    "fresh-boot before the suite": (lambda w: _job(w, "pytest")["steps"].reverse(), "lane steps"),
+    "fresh-boot twice": (lambda w: _job(w, "pytest")["steps"].append(
+        deepcopy(_step(w, "Full suite on a fresh-boot clock"))), "lane steps"),
+    "install another lock": (lambda w: _replace_run(w, "Install the lane's lock", "${{ matrix.constraints }}",
+                                                    "requirements/constraints-py314-ha2026.9.4.txt"), "lane install"),
+    "fail-fast": (lambda w: _job(w, "pytest")["strategy"].update({"fail-fast": "true"}), "fail-fast"),
+    # The lanes.
+    "lane dropped": (lambda w: _lanes(w).pop(), "lock without a lane, or lane without a lock"),
+    "lane duplicated": (lambda w: _lanes(w).append(deepcopy(_lanes(w)[0])), "lane names"),
+    "lane extra key": (lambda w: _lanes(w)[0].update(sha256="0" * 64), "lane keys"),
+    "lane renamed": (lambda w: _lanes(w)[0].update(lane="py3.12-ha2024.12.0"), "lock path"),
+    "lane on another python": (lambda w: _lanes(w)[0].update({"python-version": "3.13"}), "lane python"),
+    "lane on a near python": (lambda w: _lanes(w)[2].update({"python-version": "3.140"}), "lane python"),
+    "lane on another lock": (lambda w: _lanes(w)[0].update(constraints=_lanes(w)[1]["constraints"]), "lock path"),
+}
+
+
+@pytest.mark.parametrize("fault", FAULTS)
+def test_weakened_ci_boundary_is_refused(workflow, fault):
+    change, expected = FAULTS[fault]
+    change(workflow)
+    assert expected in violations(workflow)
 
 
 @pytest.mark.parametrize(("change", "expected"), [
-    ("lane", ["lock path", "locked HA"]), ("path", ["lock path"]),
-    ("digest", ["lock digest"]), ("bytes", ["lock digest", "locked HA"]),
+    ("lane", ["lock path", "locked HA"]),
+    ("path", ["lock path"]),
+    ("bytes", ["locked HA"]),
 ])
 def test_a_lane_that_misnames_its_lock_is_refused(workflow, change, expected):
-    entry = lane_entries(workflow)[0]
-    raw = (Path(__file__).parents[1] / entry["constraints"]).read_bytes()
+    entry = _lanes(workflow)[0]
+    raw = (ROOT / entry["constraints"]).read_bytes()
     if change == "lane":
         entry["lane"] = "py3.12-ha2024.12.0"
     elif change == "path":
         entry["constraints"] = "requirements/constraints-py312-ha2024.12.0.txt"
-    elif change == "digest":
-        entry["sha256"] = "0" * 64
     else:
         raw = raw.replace(b"homeassistant==", b"homeassistant-other==")
     assert lane_lock_errors(entry, raw) == expected
 
 
-def floor_digest_gaps(digest):
-    """The floor lock's digest is also hard-coded outside the lane matrix."""
-    root = Path(__file__).parents[1]
-    return [name for name in ("tools/issue25/run.sh", "tools/issue25/pack.sh", "tools/issue25/README.md",
-                              "docs/DEVELOPMENT.md")
-            if digest not in (root / name).read_text()]
+def _lock_tree(tmp_path, *names):
+    for name in names:
+        path = tmp_path / "requirements" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        ha = re.search(r"-ha(.+)\.txt$", name).group(1)
+        path.write_text(f"homeassistant=={ha}\n")
+    return tmp_path
 
 
-def test_floor_lock_digest_is_current_everywhere(workflow):
-    entry = lane_entries(workflow)[0]
-    assert floor_digest_gaps(entry["sha256"]) == []
-    assert floor_digest_gaps("0" * 64) != []
-    install = next(s["run"] for s in workflow["jobs"]["issue25"]["steps"] if s.get("name") == "Exact locked installation")
-    assert f"tools/ci-install.sh {entry['constraints']} {entry['sha256']} 3.12.14" in install
+def test_a_lock_no_lane_runs_is_refused(tmp_path):
+    lanes = [{"lane": "py3.14-ha2026.9.4", "python-version": "3.14",
+              "constraints": "requirements/constraints-py314-ha2026.9.4.txt"}]
+    root = _lock_tree(tmp_path, "constraints-py314-ha2026.9.4.txt")
+    assert lane_violations(lanes, root) == []
+    _lock_tree(tmp_path, "constraints-py314-ha2026.11.2.txt")
+    assert lane_violations(lanes, root) == ["lock without a lane, or lane without a lock"]
 
 
-@pytest.mark.parametrize("change", [
-    "token", "runner", "environment", "checkout", "cache", "upload", "secret", "missing",
-    "fakeboot-missing", "fakeboot-one-lane", "fakeboot-skipped-after-failure", "fakeboot-uptime",
-    "fakeboot-no-plugin", "fakeboot-subset", "fakeboot-duplicate", "fakeboot-not-exported",
-    "fakeboot-clock-unchecked", "fakeboot-after-export",
-    "fakeboot-substring-owner", "suite-ungated", "suite-substring-owner", "suite-duplicate",
-    "export-all-runs", "export-all-logs", "export-ownership-unread", "export-accepts-any-runs",
-    "lane-merged", "lane-fakeboot-dropped", "lane-suite-only", "lane-unknown-runs",
-    "lane-runs-missing", "lane-lock-changed", "lane-renamed", "lane-extra-key",
-    "lane-py312-merged", "lane-py312-fakeboot-dropped", "lane-py312-suite-only",
-    "lane-py312-renamed", "lane-py312-lock-changed", "lane-py312-both-own-all",
-    "lane-split-locks-swapped",
-    "job-time-old", "job-time-longer", "job-time-missing",
-])
-def test_weakened_ci_boundary_rejects(workflow, change):
-    bad = deepcopy(workflow)
-    job = bad["jobs"]["pytest"]
-    include = job["strategy"]["matrix"]["include"]
-    steps = job["steps"]
-    suite = next(s for s in steps if s.get("name") == "Full retained suite")
-    export = next(s for s in steps if s.get("name") == "Complete logs and owned cleanup")
-    ownership = {
-        "fakeboot-substring-owner": lambda: next(
-            s for s in steps if s.get("name") == "Full suite on a fresh-boot clock").update(
-            {"if": "${{ !cancelled() && contains(matrix.runs, 'fakeboot') }}"}),
-        "suite-ungated": lambda: suite.pop("if"),
-        "suite-substring-owner": lambda: suite.update({"if": "${{ contains(matrix.runs, 'suite') }}"}),
-        "suite-duplicate": lambda: steps.insert(steps.index(suite), deepcopy(suite)),
-        "export-all-runs": lambda: export.update(
-            {"run": export["run"].replace('for run in "${runs[@]}"; do', "for run in suite fakeboot; do")}),
-        "export-all-logs": lambda: export.update(
-            {"run": export["run"].replace('logs=(install sentinel "${runs[@]}")',
-                                          "logs=(install sentinel suite fakeboot)")}),
-        "export-ownership-unread": lambda: export.pop("env"),
-        "export-accepts-any-runs": lambda: export.update(
-            {"run": export["run"].replace('*) echo "INVALID_OWNED_RUNS"; runs=(); result=1 ;;',
-                                          '*) runs=() ;;')}),
-    }
-    if change in ownership:
-        ownership[change]()
-        assert violations(bad) == ["fresh-boot suite guard"]
-        return
-    if change.startswith("job-time-"):
-        if change == "job-time-missing":
-            del job["timeout-minutes"]
-        else:
-            job["timeout-minutes"] = "35" if change == "job-time-old" else "60"
-        assert violations(bad) == ["pytest job time limit"]
-        return
-    if change.startswith("lane-"):
-        py312, py312_fresh, py313, py314, fresh = include
-        if change == "lane-merged":
-            py314["runs"] = "suite fakeboot"
-            include.remove(fresh)
-        elif change == "lane-fakeboot-dropped":
-            include.remove(fresh)
-        elif change == "lane-suite-only":
-            py313["runs"] = "suite"
-        elif change == "lane-unknown-runs":
-            fresh["runs"] = "fakeboot extra"
-        elif change == "lane-runs-missing":
-            del py313["runs"]
-        elif change == "lane-lock-changed":
-            fresh["sha256"] = py313["sha256"]
-        elif change == "lane-renamed":
-            py314["lane"] = "py3.14-ha2026.9.4-suite"
-        elif change == "lane-py312-merged":
-            py312["runs"] = "suite fakeboot"
-            include.remove(py312_fresh)
-        elif change == "lane-py312-fakeboot-dropped":
-            include.remove(py312_fresh)
-        elif change == "lane-py312-suite-only":
-            py312_fresh["runs"] = "suite"
-        elif change == "lane-py312-renamed":
-            py312_fresh["lane"] = "py3.12-ha2024.12.5-fresh"
-        elif change == "lane-py312-lock-changed":
-            py312_fresh["sha256"] = py313["sha256"]
-        elif change == "lane-py312-both-own-all":
-            py312["runs"] = py312_fresh["runs"] = "suite fakeboot"
-        elif change == "lane-split-locks-swapped":
-            # Each lock still runs both passes once, but each on another lane's job.
-            keys = ("python-version", "constraints", "sha256")
-            swapped = {key: py312_fresh[key] for key in keys}
-            py312_fresh.update({key: fresh[key] for key in keys})
-            fresh.update(swapped)
-        else:
-            fresh["cache"] = "pip"
-        assert violations(bad) == ["suite lane ownership"]
-        return
-    if change.startswith("fakeboot-"):
-        steps = job["steps"]
-        fresh = next(s for s in steps if s.get("name") == "Full suite on a fresh-boot clock")
-        export = next(s for s in steps if s.get("name") == "Complete logs and owned cleanup")
-        if change == "fakeboot-missing":
-            steps.remove(fresh)
-        elif change == "fakeboot-one-lane":
-            fresh["if"] = "${{ !cancelled() && matrix.lane == 'py3.14-ha2026.9.4' }}"
-        elif change == "fakeboot-skipped-after-failure":
-            del fresh["if"]
-        elif change == "fakeboot-uptime":
-            fresh["run"] = fresh["run"].replace("FAKE_UPTIME=120", "FAKE_UPTIME=86400")
-        elif change == "fakeboot-no-plugin":
-            fresh["run"] = fresh["run"].replace("-p tools.fakeboot -p tools.pytest_phases",
-                                                "-p tools.pytest_phases")
-        elif change == "fakeboot-subset":
-            fresh["run"] = fresh["run"].replace("tests/ -q", "tests/test_dwell_wakeup.py -q")
-        elif change == "fakeboot-duplicate":
-            steps.insert(steps.index(fresh), deepcopy(fresh))
-        elif change == "fakeboot-not-exported":
-            export["run"] = export["run"].replace('logs=(install sentinel "${runs[@]}")',
-                                                  "logs=(install sentinel suite)")
-        elif change == "fakeboot-clock-unchecked":
-            export["run"] = export["run"].replace("grep -qx 'FAKEBOOT_UPTIME=120'", "true")
-        else:
-            steps.remove(fresh)
-            steps.append(fresh)
-        assert violations(bad) == ["fresh-boot suite guard"]
-        return
-    if change == "token":
-        bad["permissions"] = {"contents": "write"}
-        expected = "token permissions"
-    elif change == "runner":
-        job["runs-on"] = "self-hosted"
-        expected = "runner/environment boundary"
-    elif change == "environment":
-        job["environment"] = "invented-private-environment"
-        expected = "runner/environment boundary"
-    elif change == "checkout":
-        next(s for s in job["steps"] if s.get("uses") == CHECKOUT)["with"]["persist-credentials"] = "true"
-        expected = "persistent checkout"
-    elif change == "cache":
-        next(s for s in job["steps"] if s.get("uses") == SETUP_PYTHON)["with"]["cache"] = "pip"
-        expected = "dependency cache"
-    elif change == "upload":
-        job["steps"].append({"uses": "actions/upload-artifact@v4"})
-        expected = "unknown action/cache/upload"
-    elif change == "secret":
-        job["steps"].append({"run": "echo forbidden", "env": {"X": "${{ secrets.INVENTED }}"}})
-        expected = "secret input"
-    else:
-        del bad["jobs"]["hacs"]
-        expected = "missing or extra job"
-    # Exactly the one boundary changed: a guard that never matches cannot hide behind another.
-    assert violations(bad) == [expected]
+def test_a_lane_whose_lock_is_missing_is_refused(tmp_path):
+    lanes = [{"lane": "py3.14-ha2026.11.2", "python-version": "3.14",
+              "constraints": "requirements/constraints-py314-ha2026.11.2.txt"}]
+    root = _lock_tree(tmp_path, "constraints-py314-ha2026.9.4.txt")
+    assert lane_violations(lanes, root) == ["locked HA", "lock without a lane, or lane without a lock"]
 
 
-# The floating refs these pins replaced; each must now be rejected as unknown.
-@pytest.mark.parametrize("pinned,floating", [
-    (CHECKOUT, "actions/checkout@v7"), (SETUP_PYTHON, "actions/setup-python@v7"),
-    (HASSFEST, "home-assistant/actions/hassfest@master"), (HACS, "hacs/action@main"),
-])
-def test_floating_action_ref_rejects(workflow, pinned, floating):
-    bad = deepcopy(workflow)
-    steps = [s for job in bad["jobs"].values() for s in job.get("steps", []) if s.get("uses") == pinned]
-    assert steps, "pinned ref unused by the workflow"
-    steps[0]["uses"] = floating
-    assert violations(bad) == ["unknown action/cache/upload"]
-
-
-def test_installer_and_tests_do_not_inherit_log_file_limits(workflow):
-    bad = deepcopy(workflow)
-    bad["jobs"]["pytest"]["steps"].append({"run": "ulimit -f 6144\ninstaller > install.log"})
-    assert "process-wide file limit for log" in violations(bad)
-    for path in ("tools/issue25/run.sh", "tools/issue25/pack.sh", "tools/ci-install.sh"):
-        assert "ulimit -f" not in (Path(__file__).parents[1] / path).read_text()
-
-
-def admitted(expression, context, approval="", matrix=None):
-    """Evaluate the authored Boolean subset, with no provider call.
-
-    ``approval`` is the approval job's ``admitted`` output: "" when it was skipped.
-    ``matrix`` is one strategy include entry. ``format`` takes the one ``{0}`` used.
-    """
-    expression = expression.removeprefix("${{").removesuffix("}}").strip()
-    expression = expression.replace("&&", " and ").replace("||", " or ")
-    expression = re.sub(r"!(?!=)", " not ", expression)
-    return bool(eval(expression.strip(), {"__builtins__": {}}, {
-        "github": SimpleNamespace(**context), "startsWith": lambda value, prefix: value.startswith(prefix),
-        "needs": SimpleNamespace(approval=SimpleNamespace(outputs=SimpleNamespace(admitted=approval))),
-        "cancelled": lambda: False,
-        "matrix": SimpleNamespace(**(matrix or {})),
-        "contains": lambda value, item: item in value,
-        "format": lambda template, value: template.replace("{0}", value),
-    }))
-
-
-@pytest.mark.parametrize("runs,suite,fakeboot", [
-    ("suite fakeboot", True, True), ("suite", True, False), ("fakeboot", False, True),
-    ("", False, False), ("suites", False, False), ("xsuite", False, False),
-    ("fakeboots", False, False), ("pre-fakeboot", False, False), ("suite-fakeboot", False, False),
-])
-def test_suite_steps_match_exact_owned_tokens(workflow, runs, suite, fakeboot):
-    """Ownership is by whole token: a run name inside another word owns nothing."""
-    steps = {s.get("name"): s for s in workflow["jobs"]["pytest"]["steps"]}
-    entry = {"runs": runs}
-    assert step_runs(steps["Full retained suite"], entry) is suite
-    assert step_runs(steps["Full suite on a fresh-boot clock"], entry) is fakeboot
-
-
-GATE_CASES = [
-    ("admission", "push", "refs/heads/ci/issue25-admission", "", "", 1, True),
-    ("ordinary", "push", "refs/heads/feature", "", "", 1, True),
-    ("ordinary-pr", "pull_request", "refs/pull/2/merge", "feature", "main", 1, True),
-    ("ordinary-manual", "workflow_dispatch", "refs/heads/feature", "", "", 1, True),
-    ("r", "push", "refs/heads/ci/issue25-discriminator", "", "", 1, False),
-    ("repeat", "push", "refs/heads/ci/issue25-independent-repeat", "", "", 1, False),
-    ("a-rerun", "push", "refs/heads/ci/issue25-admission", "", "", 2, False),
-    ("r-rerun", "push", "refs/heads/ci/issue25-discriminator", "", "", 2, False),
-    ("repeat-rerun", "push", "refs/heads/ci/issue25-independent-repeat", "", "", 2, False),
-    ("missing-attempt", "push", "refs/heads/feature", "", "", "", False),
-    ("bad-attempt", "push", "refs/heads/feature", "", "", "bad", False),
-    ("r-manual", "workflow_dispatch", "refs/heads/ci/issue25-discriminator", "", "", 1, False),
-    ("repeat-manual", "workflow_dispatch", "refs/heads/ci/issue25-independent-repeat", "", "", 1, False),
-    ("r-pr-head", "pull_request", "refs/pull/2/merge", "ci/issue25-discriminator", "main", 1, False),
-    ("r-pr-base", "pull_request", "refs/pull/2/merge", "feature", "ci/issue25-discriminator", 1, False),
-    ("repeat-pr-head", "pull_request", "refs/pull/2/merge", "ci/issue25-independent-repeat", "main", 1, False),
-    ("repeat-pr-base", "pull_request", "refs/pull/2/merge", "feature", "ci/issue25-independent-repeat", 1, False),
-    ("missing-ref", "push", "", "", "", 1, False),
-    ("tag", "push", "refs/tags/v0", "", "", 1, False),
-    ("missing-event", "", "refs/heads/feature", "", "", 1, False),
-    ("bad-event", "schedule", "refs/heads/feature", "", "", 1, False),
-    ("missing-pr-head", "pull_request", "refs/pull/2/merge", "", "main", 1, False),
+INSTALLER = ROOT / "tools/ci-install.sh"
+# The one install transaction, and the check that only the lock's distributions came in.
+INSTALL_LINES = [
+    'python -m pip install --index-url https://pypi.org/simple -c "$lock" -r "$lock" -r requirements_test.txt',
+    "python -m pip check",
+    'python tools/check_lock.py "$lock" "$python_lane"',
 ]
 
 
-@pytest.mark.parametrize("case,event,ref,head,base,attempt,ordinary", GATE_CASES,
-                         ids=[row[0] for row in GATE_CASES])
-def test_actual_job_gates(workflow, case, event, ref, head, base, attempt, ordinary):
-    context = {"event_name": event, "ref": ref, "head_ref": head, "base_ref": base, "run_attempt": attempt}
-    selected = {name for name, job in workflow["jobs"].items()
-                if name != "approval" and admitted(job["if"], context)}
-    assert selected == ({"hassfest", "hacs", "ruff", "pytest", "yamllint"} if ordinary else {"issue25"})
-    assert workflow["on"]["push"] == {"branches": ["**"]}
-    guard = workflow["jobs"]["issue25"]["steps"][0]["run"]
-    env = {"GITHUB_EVENT_NAME": event, "GITHUB_REF": ref, "GITHUB_RUN_ATTEMPT": str(attempt),
-           "GITHUB_SHA": "a" * 40, "REPOSITORY_PRIVATE": "false",
-           "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_ARCH": "X64"}
-    # Match noninteractive CI execution without host profile/rc startup.
-    result = subprocess.run(["bash", "--noprofile", "--norc", "-euo", "pipefail", "-c", guard], env=env,
-                            check=False, capture_output=True, text=True, timeout=5)
-    valid = False
-    assert (result.returncode == 0) is valid
-    if not valid:
-        reason = "event" if event != "push" else "ref"
-        assert result.stderr.strip() == "ISSUE25_REFUSED=" + reason
+def installer_violations(text):
+    lines = [line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    errors = []
+    if lines[:1] != ["set -euo pipefail"]:
+        errors.append("installer does not stop on errors")
+    if [line for line in lines if line.startswith("python -m pip install")] != INSTALL_LINES[:1]:
+        errors.append("installer installs something else")
+    if lines[-2:] != INSTALL_LINES[1:]:
+        errors.append("installer does not check the inventory")
+    return errors
 
 
-@pytest.mark.parametrize("key,value", [
-    ("GITHUB_SHA", ""), ("GITHUB_SHA", "wrong"),
-    ("REPOSITORY_PRIVATE", ""), ("REPOSITORY_PRIVATE", "true"),
-    ("RUNNER_ENVIRONMENT", ""), ("RUNNER_ENVIRONMENT", "self-hosted"),
-    ("RUNNER_ARCH", ""), ("RUNNER_ARCH", "ARM64"),
-], ids=["missing-sha", "bad-sha", "missing-visibility", "private", "missing-runner", "self-hosted",
-        "missing-arch", "wrong-arch"])
-def test_actual_preacquisition_settings_guard(workflow, key, value):
-    env = {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/ci/issue25-harness-replacement",
-           "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "a" * 40, "REPOSITORY_PRIVATE": "false",
-           "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_ARCH": "X64"}
-    env[key] = value
-    for name in ("pytest", "issue25"):
-        steps = workflow["jobs"][name]["steps"]
-        assert "uses" not in steps[0]
-        result = subprocess.run(["bash", "--noprofile", "--norc", "-euo", "pipefail", "-c", steps[0]["run"]], env=env,
-                                check=False, capture_output=True, text=True, timeout=5)
-        assert result.returncode != 0
-        reason = {"GITHUB_SHA": "source", "REPOSITORY_PRIVATE": "repository",
-                  "RUNNER_ENVIRONMENT": "runner", "RUNNER_ARCH": "architecture"}[key]
-        assert result.stderr.strip() == "ISSUE25_REFUSED=" + reason
+def test_the_installer_installs_exactly_the_lock():
+    assert installer_violations(INSTALLER.read_text()) == []
 
 
-def test_checkout_binding_and_process_layout(workflow, tmp_path):
-    executable = tmp_path / "git"
-    executable.write_text("#!/bin/sh\nprintf '%s\\n' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n")
-    executable.chmod(0o755)
-    for name in ("pytest", "issue25"):
-        steps = workflow["jobs"][name]["steps"]
-        binding = next(s["run"] for s in steps if s.get("name") == "Checkout source binding")
-        for sha in ("a" * 40, "b" * 40, ""):
-            result = subprocess.run(["/bin/bash", "--noprofile", "--norc", "-euo", "pipefail", "-c", binding],
-                                    env={"PATH": str(tmp_path), "GITHUB_SHA": sha},
-                                    check=False, capture_output=True, text=True, timeout=5)
-            assert (result.returncode == 0) is (sha == "a" * 40)
-        commands = "\n".join(s.get("run", "") for s in steps)
-        assert ("tests/ -q" in commands) is (name == "pytest")
-        assert "bash tools/issue25/run.sh" in commands
-        assert "timeout --signal=TERM --kill-after=5s 60s" in commands
-    include = workflow["jobs"]["pytest"]["strategy"]["matrix"]["include"]
-    assert [(e["lane"], e["runs"]) for e in include] == LANE_RUNS
-
-
-@pytest.mark.parametrize("key,value", [
-    ("GITHUB_EVENT_NAME", ""), ("GITHUB_EVENT_NAME", "workflow_dispatch"),
-    ("GITHUB_REF", ""), ("GITHUB_REF", "refs/heads/feature"),
-    ("GITHUB_RUN_ATTEMPT", ""), ("GITHUB_RUN_ATTEMPT", "bad"), ("GITHUB_RUN_ATTEMPT", "2"),
-    ("GITHUB_SHA", ""), ("GITHUB_SHA", "bad"), ("GITHUB_SHA", "b" * 40),
-    ("REPOSITORY_PRIVATE", ""), ("REPOSITORY_PRIVATE", "true"),
-    ("RUNNER_ENVIRONMENT", "self-hosted"), ("RUNNER_ARCH", "ARM64"),
-], ids=["missing-event", "manual", "missing-ref", "ordinary-ref", "missing-attempt", "bad-attempt",
-        "rerun", "missing-sha", "bad-sha", "wrong-sha", "missing-visibility", "private", "self-hosted", "wrong-arch"])
-def test_actual_parent_guard_refuses_before_inventory_or_export(tmp_path, key, value):
-    import os
-
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    marker = tmp_path / "forbidden"
-    for name, source in {
-        "git": '#!/bin/sh\nprintf "%s\\n" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n',
-        "python": '#!/bin/sh\necho forbidden > "$GUARD_MARKER"\nexit 9\n',
-    }.items():
-        path = bin_dir / name
-        path.write_text(source)
-        path.chmod(0o755)
-    env = {"PATH": f"{bin_dir}:{os.defpath}", "RUNNER_TEMP": str(tmp_path),
-           "GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/ci/issue25-harness-replacement", "ISSUE25_MODE": "pack",
-           "GITHUB_RUN_ID": "123", "GITHUB_REPOSITORY": "dkpnw/ha-mxz-coordinator",
-           "GITHUB_HEAD_REF": "", "GITHUB_BASE_REF": "", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "a" * 40, "REPOSITORY_PRIVATE": "false",
-           "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_ARCH": "X64", "GUARD_MARKER": str(marker)}
-    env[key] = value
-    run = Path(__file__).parents[1] / "tools/issue25/run.sh"
-    result = subprocess.run(["bash", str(run)], cwd=tmp_path, env=env,
-                            check=False, capture_output=True, text=True, timeout=5)
-    reason = {"GITHUB_EVENT_NAME": "event", "GITHUB_REF": "ref", "GITHUB_RUN_ATTEMPT": "attempt",
-              "GITHUB_SHA": "source", "REPOSITORY_PRIVATE": "repository",
-              "RUNNER_ENVIRONMENT": "runner", "RUNNER_ARCH": "architecture"}[key]
-    assert result.returncode != 0 and result.stderr.strip() == "ISSUE25_REFUSED=" + reason
-    assert not marker.exists()
-    assert not (tmp_path / "issue25-inventory-before.txt").exists()
-    assert not (tmp_path / "issue25-released").exists()
-
-
-def suite_payload(exit_code=0, fakeboot=False):
-    """Invented ordinary phase output; no HA or candidate imports.
-
-    ``fakeboot``: as ``tools/fakeboot.py`` prints it, once, at session start.
-    """
-    call_outcome = "failed" if exit_code else "passed"
-    return (
-        ('FAKEBOOT_UPTIME=120\n' if fakeboot else '')
-        + 'invented complete suite output\n'
-        'COLLECTED ["invented::test_case"]\n'
-        'PHASE {"node": "invented::test_case", "phase": "setup", "outcome": "passed"}\n'
-        f'PHASE {{"node": "invented::test_case", "phase": "call", "outcome": "{call_outcome}"}}\n'
-        'PHASE {"node": "invented::test_case", "phase": "teardown", "outcome": "passed"}\n'
-        f'PHASES_COMPLETE {{"classes": {{}}, "errors": [], "exit": {exit_code}}}\n'
-        'PHASES_VALID=true\n'
-    )
-
-
-@pytest.fixture
-def suite_export(tmp_path, workflow):
-    import os
-
-    root = tmp_path / "scratch"
-    root.mkdir()
-    activate = root / "mxz-venv/bin/activate"
-    activate.parent.mkdir(parents=True)
-    activate.write_text("# invented activation; no environment or dependency loading\n")
-    for name in ("issue25-released", "issue25-main"):
-        (root / name).mkdir()
-    (root / "install.log").write_text("invented installation\n")
-    (root / "sentinel.log").write_text("invented sentinel\n")
-    (root / "suite.log").write_text(suite_payload())
-    (root / "suite.exit").write_text("0\n")
-    (root / "fakeboot.log").write_text(suite_payload(fakeboot=True))
-    (root / "fakeboot.exit").write_text("0\n")
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    # Only the two Git cleanliness commands in the real export block are stubbed.
-    git = bin_dir / "git"
-    git.write_text('''#!/bin/bash
-case "$*" in
-  'diff --exit-code HEAD -- .'|'ls-files --others --exclude-standard') exit 0 ;;
-  *) exit 9 ;;
-esac
-''')
-    git.chmod(0o755)
-    steps = workflow["jobs"]["pytest"]["steps"]
-    export = next(s for s in steps if s.get("name") == "Complete logs and owned cleanup")
-    assert export["if"] == "always()"
-    suite = next(s["run"] for s in steps if s.get("name") == "Full retained suite")
-    assert export["env"] == {"OWNED_RUNS": "${{ matrix.runs }}"}
-    # A job owning both runs, as py3.13 does; split ownership is tested separately.
-    env = {"PATH": f"{bin_dir}:{os.defpath}", "RUNNER_TEMP": str(root), "OWNED_RUNS": "suite fakeboot"}
-    return root, bin_dir, env, suite, export["run"]
-
-
-def run_suite_source(source, root, env):
-    return subprocess.run(["bash", "--noprofile", "--norc", "-euo", "pipefail", "-c", source], cwd=root, env=env,
-                          check=False, capture_output=True, text=True, timeout=5)
-
-
-# Each full-suite step: its pytest arguments, and the environment it must set.
-SUITE_RUNS = {
-    "suite": ("Full retained suite", "-m pytest -p tools.pytest_phases tests/ -q -s", ""),
-    "fakeboot": ("Full suite on a fresh-boot clock",
-                 "-m pytest -p tools.fakeboot -p tools.pytest_phases tests/ -q -s", "120"),
-}
-# Each full-suite step's exact watchdog limit; no other value is accepted.
-SUITE_LIMITS = {"suite": "1200s", "fakeboot": "1200s"}
-
-
-def test_pytest_job_limit_covers_owned_watchdogs(workflow):
-    """The job limit, read from the workflow, leaves at least 10 minutes beyond every
-    watchdog a job owning both passes runs (sentinel, suite, fresh-boot suite)."""
-    job = workflow["jobs"]["pytest"]
-    assert job["timeout-minutes"] == PYTEST_JOB_MINUTES
-    limits = [int(m) for s in job["steps"]
-              for m in re.findall(r"timeout --signal=TERM --kill-after=5s (\d+)s ", s.get("run", ""))]
-    assert sorted(limits) == [60, 1200, 1200]
-    assert int(job["timeout-minutes"]) * 60 - sum(limits) >= 600
-    # The old 35-minute limit could not hold these passes.
-    assert 35 * 60 - sum(limits) < 600
-
-
-@pytest.mark.parametrize("owner", ["both", "split"])
-@pytest.mark.parametrize("run", sorted(SUITE_RUNS))
-@pytest.mark.parametrize("outcome,expected", [
-    ("success", 0), ("failure", 1), ("error", 2), ("timeout", 124),
-    ("success-oversize", 0), ("failure-oversize", 1),
+@pytest.mark.parametrize(("old", "new", "expected"), [
+    ("set -euo pipefail", "set -uo pipefail", "installer does not stop on errors"),
+    ('-c "$lock" -r "$lock" ', '-r "$lock" ', "installer installs something else"),
+    ("-r requirements_test.txt", "-r requirements_test.txt pytest-invented", "installer installs something else"),
+    ('python tools/check_lock.py "$lock" "$python_lane"', "true", "installer does not check the inventory"),
+    ("python -m pip check\n", "", "installer does not check the inventory"),
 ])
-def test_actual_suite_exit_survives_export(suite_export, workflow, run, outcome, expected, owner):
-    """``both``: a py3.13 job. ``split``: a py3.12 or py3.14 job owning this run alone,
-    with no evidence at all from the other run."""
-    root, bin_dir, env, _suite, export = suite_export
-    name, argv, uptime = SUITE_RUNS[run]
-    suite = next(s["run"] for s in workflow["jobs"]["pytest"]["steps"] if s.get("name") == name)
-    label = run.upper()
-    other = "suite" if run == "fakeboot" else "fakeboot"
-    if owner == "split":
-        env["OWNED_RUNS"] = run
-        (root / f"{other}.exit").unlink()
-        (root / f"{other}.log").unlink()
-    # Execute the unmodified workflow block with an invented executable, never pytest.
-    python = bin_dir / "python"
-    python.write_text(f'''#!/bin/bash
-set -eu
-test "$*" = '{argv}'
-test "${{FAKE_UPTIME-unset}}" = '{uptime or "unset"}'
-''' + '''if test "$INVENTED_OUTCOME" = timeout; then
-  echo 'invented partial suite before timeout'
-  exec sleep 10
-fi
-cat "$RUNNER_TEMP/payload"
-exit "$INVENTED_EXIT"
-''')
-    python.chmod(0o755)
-    # Keep the authored watchdog arguments under assertion; shorten only the
-    # invented child's deadline so the real timeout branch is cheap to exercise.
-    watchdog = bin_dir / "timeout"
-    limit = SUITE_LIMITS[run]
-    watchdog.write_text(f'''#!/bin/bash
-set -eu
-test "$1" = --signal=TERM
-test "$2" = --kill-after=5s
-test "$3" = {limit}
-shift 3
-if test "$INVENTED_OUTCOME" = timeout; then
-  exec /usr/bin/timeout --signal=TERM --kill-after=1s 0.2s "$@"
-fi
-exec /usr/bin/timeout --signal=TERM --kill-after=5s {limit} "$@"
-''')
-    watchdog.chmod(0o755)
-    env.update(INVENTED_OUTCOME=outcome, INVENTED_EXIT=str(expected))
-    payload = suite_payload(expected, fakeboot=run == "fakeboot")
-    if outcome.endswith("-oversize"):
-        payload = "x" * 5242880 + "\n" + payload
-    elif outcome == "error":
-        payload = 'invented interrupted collection\n'
-    (root / "payload").write_text(payload)
-    # A prior status must be overwritten, never appended or reused.
-    (root / f"{run}.exit").write_text("99\n")
-    result = run_suite_source(suite, root, env)
-    assert result.returncode == expected, result.stderr
-    assert result.stdout.splitlines() == [f"{label}_EXIT={expected}"]
-    assert (root / f"{run}.exit").read_text() == f"{expected}\n"
-    raw = (root / f"{run}.log").read_text()
-    assert raw == ("invented partial suite before timeout\n" if outcome == "timeout" else payload)
-    exported = run_suite_source(export, root, env)
-    incomplete = outcome in ("timeout", "error") or outcome.endswith("-oversize")
-    assert exported.returncode == int(incomplete), exported.stderr
-    assert f"RETAINED_{label}_EXIT={expected}\n" in exported.stdout
-    if outcome.endswith("-oversize"):
-        assert f"LOG_BUDGET_EXCEEDED={run} COMPLETE_EXPORT=false" in exported.stdout
-        assert raw not in exported.stdout
-    else:
-        assert raw in exported.stdout
-    assert (root / f"{run}.exit").read_text() == f"{expected}\n"
-    assert (root / f"{run}.log").read_text() == raw
-    assert "OWNED_SCRATCH_REMOVED=true" in exported.stdout
-    assert not (root / "mxz-venv").exists()
-    if outcome in ("timeout", "error"):
-        assert f"INCOMPLETE_{label}_PHASES" in exported.stdout
-        if run == "fakeboot":
-            assert "MISSING_FAKEBOOT_CLOCK" in exported.stdout
-    if owner == "both":
-        # The other run's evidence is untouched and still certifies on its own.
-        assert f"RETAINED_{other.upper()}_EXIT=0\n" in exported.stdout
-        assert f"INCOMPLETE_{other.upper()}_PHASES" not in exported.stdout
-    else:
-        # A run this job does not own is neither required nor reported.
-        assert f"{other.upper()}_EXIT" not in exported.stdout
-        assert f"LOG={other}" not in exported.stdout and f"={other}:" not in exported.stdout
-        assert "INVALID_OWNED_RUNS" not in exported.stdout
-    assert f"LOG_EXPORT_COMPLETE result={int(incomplete)}" in exported.stdout
-
-
-@pytest.mark.parametrize("fault", [
-    "missing-exit", "empty-exit", "text-exit", "negative-exit", "range-exit", "leading-zero-exit",
-    "duplicate-exit", "no-newline-exit", "nul-exit", "oversize-exit",
-    "missing-suite", "missing-install", "missing-sentinel", "missing-collection",
-    "missing-completion", "missing-validity", "invalid-phases", "duplicate-completion",
-    "duplicate-validity", "duplicate-collection", "malformed-completion", "mismatched-exit",
-    "truncated-suite", "suite-oversize", "install-oversize", "sentinel-oversize",
-])
-def test_actual_export_rejects_invalid_or_incomplete_evidence(suite_export, fault):
-    root, _bin_dir, env, _suite, export = suite_export
-    invalid_exits = {
-        "missing-exit": None, "empty-exit": b"", "text-exit": b"bad\n", "negative-exit": b"-1\n",
-        "range-exit": b"256\n", "leading-zero-exit": b"00\n", "duplicate-exit": b"0\n0\n",
-        "no-newline-exit": b"0", "nul-exit": b"0\0\n", "oversize-exit": b"12345\n",
-    }
-    if fault in invalid_exits:
-        value = invalid_exits[fault]
-        if value is None:
-            (root / "suite.exit").unlink()
-        else:
-            (root / "suite.exit").write_bytes(value)
-    elif fault in ("missing-suite", "missing-install", "missing-sentinel"):
-        (root / (fault.removeprefix("missing-") + ".log")).unlink()
-    elif fault.endswith("-oversize"):
-        name = fault.removesuffix("-oversize")
-        limits = {"suite": 5242880, "install": 6291456, "sentinel": 1048576}
-        (root / f"{name}.log").write_text("x" * (limits[name] + 1))
-    else:
-        prefixes = {"collection": "COLLECTED ", "completion": "PHASES_COMPLETE ", "validity": "PHASES_VALID="}
-        payload = suite_payload()
-        if fault == "malformed-completion":
-            payload = payload.replace('PHASES_COMPLETE {"classes": {}, "errors": [], "exit": 0}',
-                                      'PHASES_COMPLETE malformed')
-        elif fault == "mismatched-exit":
-            payload = payload.replace('"exit": 0', '"exit": 1')
-        elif fault == "truncated-suite":
-            payload = payload[:len(payload) // 2]
-        elif fault == "invalid-phases":
-            payload = payload.replace('PHASES_VALID=true', 'PHASES_VALID=false')
-            payload = payload.replace('"errors": []', '"errors": ["invented missing call phase"]')
-            payload = "\n".join(line for line in payload.splitlines() if '"phase": "call"' not in line) + "\n"
-        else:
-            prefix = prefixes[fault.split("-", 1)[1]]
-            record = next(line for line in payload.splitlines(keepends=True) if line.startswith(prefix))
-            payload = payload.replace(record, "") if fault.startswith("missing-") else payload + record
-        (root / "suite.log").write_text(payload)
-    before = {p.name: p.read_bytes() for p in root.glob("*.log")}
-    result = run_suite_source(export, root, env)
-    assert result.returncode != 0, result.stderr
-    assert "LOG_EXPORT_COMPLETE result=1" in result.stdout
-    assert {p.name: p.read_bytes() for p in root.glob("*.log")} == before
-    assert not (root / "mxz-venv").exists()
-    if fault in invalid_exits:
-        assert "RETAINED_SUITE_EXIT=" not in result.stdout
-        assert "SUITE_EXIT" in result.stdout
-    else:
-        assert "RETAINED_SUITE_EXIT=0\n" in result.stdout
-    if fault.endswith("-oversize"):
-        assert f"LOG_BUDGET_EXCEEDED={fault.removesuffix('-oversize')} COMPLETE_EXPORT=false" in result.stdout
-    elif fault.startswith("missing-") and fault.split("-", 1)[1] in ("suite", "install", "sentinel"):
-        assert f"MISSING_LOG={fault.removeprefix('missing-')}" in result.stdout
-    elif fault not in invalid_exits:
-        assert "INCOMPLETE_SUITE_PHASES" in result.stdout
-
-
-@pytest.mark.parametrize("fault", [
-    "missing-exit", "text-exit", "range-exit", "duplicate-exit", "no-newline-exit",
-    "missing-log", "oversize-log", "missing-completion", "invalid-phases", "mismatched-exit",
-    "missing-clock", "duplicate-clock", "other-uptime", "clock-not-at-line-start",
-])
-def test_actual_export_rejects_invalid_or_incomplete_fresh_boot_evidence(suite_export, fault):
-    """The fresh-boot run certifies like the suite, and only from the fake clock."""
-    root, _bin_dir, env, _suite, export = suite_export
-    clean = run_suite_source(export, root, env)
-    assert clean.returncode == 0 and "LOG_EXPORT_COMPLETE result=0" in clean.stdout, clean.stdout
-    for name, payload in (("suite.log", suite_payload()), ("fakeboot.log", suite_payload(fakeboot=True))):
-        (root / name).write_text(payload)
-    for name in ("mxz-venv", "issue25-released", "issue25-main"):
-        (root / name).mkdir(exist_ok=True)
-    exits = {"missing-exit": None, "text-exit": b"bad\n", "range-exit": b"256\n",
-             "duplicate-exit": b"0\n0\n", "no-newline-exit": b"0"}
-    payload = suite_payload(fakeboot=True)
-    if fault in exits:
-        if exits[fault] is None:
-            (root / "fakeboot.exit").unlink()
-        else:
-            (root / "fakeboot.exit").write_bytes(exits[fault])
-    elif fault == "missing-log":
-        (root / "fakeboot.log").unlink()
-    elif fault == "oversize-log":
-        (root / "fakeboot.log").write_text("x" * 5242880 + "\n" + payload)
-    else:
-        payload = {
-            "missing-completion": "\n".join(l for l in payload.splitlines() if not l.startswith("PHASES_COMPLETE ")) + "\n",
-            "invalid-phases": payload.replace("PHASES_VALID=true", "PHASES_VALID=false"),
-            "mismatched-exit": payload.replace('"exit": 0', '"exit": 1'),
-            "missing-clock": suite_payload(),
-            "duplicate-clock": payload + "FAKEBOOT_UPTIME=120\n",
-            "other-uptime": payload.replace("FAKEBOOT_UPTIME=120", "FAKEBOOT_UPTIME=86400"),
-            "clock-not-at-line-start": payload.replace("FAKEBOOT_UPTIME=120", " FAKEBOOT_UPTIME=120"),
-        }[fault]
-        (root / "fakeboot.log").write_text(payload)
-    before = {p.name: p.read_bytes() for p in root.glob("*.log")}
-    result = run_suite_source(export, root, env)
-    assert result.returncode != 0, result.stdout
-    assert "LOG_EXPORT_COMPLETE result=1" in result.stdout
-    assert {p.name: p.read_bytes() for p in root.glob("*.log")} == before
-    assert not (root / "mxz-venv").exists()
-    assert "RETAINED_SUITE_EXIT=0\n" in result.stdout
-    assert "INCOMPLETE_SUITE_PHASES" not in result.stdout
-    expected = {
-        "missing-exit": "MISSING_OR_OVERSIZE_FAKEBOOT_EXIT", "missing-log": "MISSING_LOG=fakeboot",
-        "oversize-log": "LOG_BUDGET_EXCEEDED=fakeboot COMPLETE_EXPORT=false",
-        "missing-completion": "INCOMPLETE_FAKEBOOT_PHASES", "invalid-phases": "INCOMPLETE_FAKEBOOT_PHASES",
-        "mismatched-exit": "INCOMPLETE_FAKEBOOT_PHASES",
-    }.get(fault, "INVALID_FAKEBOOT_EXIT" if fault in exits else "MISSING_FAKEBOOT_CLOCK")
-    assert expected in result.stdout.splitlines(), result.stdout
-
-
-@pytest.mark.parametrize("run", sorted(SUITE_RUNS))
-@pytest.mark.parametrize("fault", [
-    None, "missing-exit", "invalid-exit", "missing-log", "oversize-log", "invalid-phases",
-    "missing-install", "missing-sentinel", "dirty-tree", "untracked-file", "fakeboot-clock",
-])
-def test_actual_split_export_requires_owned_evidence(suite_export, run, fault):
-    """A py3.12 or py3.14 job owning one run still needs that run's exit and log, the install
-    and sentinel logs, and every check on them; the other run is not required."""
-    root, bin_dir, env, _suite, export = suite_export
-    other = "suite" if run == "fakeboot" else "fakeboot"
-    env["OWNED_RUNS"] = run
-    for suffix in ("exit", "log"):
-        (root / f"{other}.{suffix}").unlink()
-    expected = None
-    if fault == "missing-exit":
-        (root / f"{run}.exit").unlink()
-        expected = f"MISSING_OR_OVERSIZE_{run.upper()}_EXIT"
-    elif fault == "invalid-exit":
-        (root / f"{run}.exit").write_text("00\n")
-        expected = f"INVALID_{run.upper()}_EXIT"
-    elif fault in ("missing-log", "missing-install", "missing-sentinel"):
-        log = run if fault == "missing-log" else fault.removeprefix("missing-")
-        (root / f"{log}.log").unlink()
-        expected = f"MISSING_LOG={log}"
-    elif fault == "oversize-log":
-        (root / f"{run}.log").write_text("x" * 5242881)
-        expected = f"LOG_BUDGET_EXCEEDED={run} COMPLETE_EXPORT=false"
-    elif fault == "invalid-phases":
-        (root / f"{run}.log").write_text(
-            suite_payload(fakeboot=run == "fakeboot").replace("PHASES_VALID=true", "PHASES_VALID=false"))
-        expected = f"INCOMPLETE_{run.upper()}_PHASES"
-    elif fault in ("dirty-tree", "untracked-file"):
-        # The stub reports a modified tracked file or an untracked one.
-        command = "diff --exit-code HEAD -- ." if fault == "dirty-tree" else "ls-files --others --exclude-standard"
-        reply = "exit 1" if fault == "dirty-tree" else "echo invented-untracked; exit 0"
-        (bin_dir / "git").write_text(f'''#!/bin/bash
-case "$*" in
-  '{command}') {reply} ;;
-  'diff --exit-code HEAD -- .'|'ls-files --others --exclude-standard') exit 0 ;;
-  *) exit 9 ;;
-esac
-''')
-    elif fault == "fakeboot-clock":
-        # The fake-clock check binds only the fresh-boot log; a suite-only job has none.
-        (root / f"{run}.log").write_text(suite_payload())
-        expected = "MISSING_FAKEBOOT_CLOCK" if run == "fakeboot" else None
-    result = run_suite_source(export, root, env)
-    failed = fault is not None and not (fault == "fakeboot-clock" and run == "suite")
-    assert result.returncode == int(failed), result.stdout
-    assert f"LOG_EXPORT_COMPLETE result={int(failed)}" in result.stdout
-    if expected:
-        assert expected in result.stdout.splitlines(), result.stdout
-    assert f"{other.upper()}_EXIT" not in result.stdout and f"={other}:" not in result.stdout
-    assert "INVALID_OWNED_RUNS" not in result.stdout
-    assert "OWNED_SCRATCH_REMOVED=true" in result.stdout
-    assert not (root / "mxz-venv").exists()
-
-
-@pytest.mark.parametrize("owned", [
-    None, "", " ", "suites", "SUITE", "suite bogus", "bogus", "suite suite", "fakeboot suite",
-    " suite", "suite ", "suite  fakeboot", "suite\tfakeboot", "suite fakeboot fakeboot",
-])
-def test_actual_export_rejects_empty_or_unknown_ownership(suite_export, owned):
-    """No valid ownership certifies nothing, yet still exports and cleans up."""
-    root, _bin_dir, env, _suite, export = suite_export
-    if owned is None:
-        del env["OWNED_RUNS"]
-    else:
-        env["OWNED_RUNS"] = owned
-    result = run_suite_source(export, root, env)
-    assert result.returncode == 1, result.stdout
-    lines = result.stdout.splitlines()
-    assert lines[0] == "INVALID_OWNED_RUNS"
-    assert "RETAINED_" not in result.stdout and "LOG_BYTES=suite" not in result.stdout
-    assert "LOG_BYTES=fakeboot" not in result.stdout
-    assert any(line.startswith("LOG_BYTES=install:") for line in lines)
-    assert any(line.startswith("LOG_BYTES=sentinel:") for line in lines)
-    assert "OWNED_SCRATCH_REMOVED=true" in lines
-    assert lines[-1] == "LOG_EXPORT_COMPLETE result=1"
-    assert not (root / "mxz-venv").exists()
-
-
-@contextmanager
-def suite_stream():
-    """What CI's ``-s`` suite.log would get: the root stderr handlers, read into a buffer."""
-    streams = [h for h in logging.getLogger().handlers if type(h) is logging.StreamHandler]
-    assert streams, "pytest-homeassistant-custom-component's stderr handler is missing"
-    sink = io.StringIO()
-    old = [h.setStream(sink) for h in streams]
-    try:
-        yield sink
-    finally:
-        for handler, stream in zip(streams, old):
-            handler.setStream(stream)
-
-
-def test_suite_log_stream_keeps_warnings_while_tests_keep_info(caplog):
-    """CI runs ``-s``: Home Assistant's per-setup INFO stays out of suite.log, not out of tests."""
-    logger = logging.getLogger("homeassistant.setup")
-    with suite_stream() as sink:
-        logger.info("info for tests only")
-        logger.warning("warning for the log too")
-    assert "info for tests only" not in sink.getvalue()
-    assert "warning for the log too" in sink.getvalue()
-    assert [r.getMessage() for r in caplog.records] == ["info for tests only", "warning for the log too"]
-
-
-def test_suite_log_stream_drops_harness_noise_from_its_real_sources(caplog):
-    """The two per-test harness warnings, raised by asyncio and by Home Assistant's loader
-    with its own text, stay out of suite.log; caplog (and so a failure's "Captured log")
-    still has both."""
-    from homeassistant import loader
-
-    loop = asyncio.new_event_loop()
-    try:
-        loop.set_debug(True)  # as pytest-homeassistant-custom-component runs every test
-        loop.slow_callback_duration = 0  # every step is "slow", as under a moved clock
-        with suite_stream() as sink:
-            loop.run_until_complete(asyncio.sleep(0))
-            loader._LOGGER.warning(loader.CUSTOM_WARNING, "mxz_coordinator")
-    finally:
-        loop.close()
-    seen = [(r.name, r.getMessage()) for r in caplog.records]
-    assert any(name == "asyncio" and text.startswith("Executing <") for name, text in seen)
-    assert any(name == "homeassistant.loader" and text.startswith(
-        "We found a custom integration mxz_coordinator which has not been tested")
-        for name, text in seen)
-    assert sink.getvalue() == ""
-
-
-def test_suite_log_stream_still_shows_every_other_warning(caplog):
-    """Only those exact messages from those loggers go; product warnings, other asyncio or
-    loader warnings and the same words from any other logger reach suite.log."""
-    kept = [
-        ("custom_components.mxz_coordinator.coordinator", logging.WARNING,
-         "MXZ heal: room %s, head %s: off drift", ("Study", "climate.invented_head")),
-        ("custom_components.mxz_coordinator", logging.ERROR, "Executing %s took %.3f seconds",
-         ("invented", 1.0)),
-        ("asyncio", logging.ERROR, "Task was destroyed but it is pending!", ()),
-        ("asyncio", logging.WARNING, "Executing %s took %.3f seconds (invented variant)",
-         ("invented", 1.0)),
-        ("homeassistant.loader", logging.ERROR,
-         "The custom integration '%s' does not have a version key", ("invented",)),
-        ("homeassistant.setup", logging.WARNING,
-         ("We found a custom integration %s which has not been tested by Home Assistant. "
-          "This component might cause stability problems, be sure to disable it if you "
-          "experience issues with Home Assistant"), ("invented",)),
-    ]
-    with suite_stream() as sink:
-        for name, level, msg, args in kept:
-            logging.getLogger(name).log(level, msg, *args)
-    for name, _level, msg, args in kept:
-        assert f"{name}:{msg % args}\n" in sink.getvalue()
-    assert [(r.name, r.getMessage()) for r in caplog.records] == [
-        (name, msg % args) for name, _level, msg, args in kept]
-
-
-@pytest.mark.parametrize("exit_code", [0, 1])
-def test_actual_export_retains_entire_four_mib_suite(suite_export, exit_code):
-    root, _bin_dir, env, _suite, export = suite_export
-    payload = suite_payload(exit_code)
-    # Historical four MiB boundary: retain the whole file for both ordinary exits.
-    payload = "x" * (4194304 - len(payload) - 1) + "\n" + payload
-    (root / "suite.log").write_text(payload)
-    (root / "suite.exit").write_text(f"{exit_code}\n")
-    result = run_suite_source(export, root, env)
-    assert result.returncode == 0, result.stderr
-    assert f"RETAINED_SUITE_EXIT={exit_code}\n" in result.stdout
-    assert "LOG_BYTES=suite:4194304\n" in result.stdout
-    assert payload in result.stdout
-    assert (root / "suite.log").read_text() == payload
-    assert (root / "suite.exit").read_text() == f"{exit_code}\n"
-    assert "LOG_EXPORT_COMPLETE result=0" in result.stdout
-
-
-EXPORT_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
-              "TZ": "UTC", "PYTHONDONTWRITEBYTECODE": "1"}
-
-
-@pytest.fixture(scope="module")
-def boundary_phases(tmp_path_factory):
-    """Real child pytest output per exit code; both size boundaries reuse it.
-
-    The child loads every installed plugin, as the suite does, which costs seconds per
-    interpreter; the two exit codes run concurrently and only once per module.
-    """
-    import sys
-
-    plugin = Path(__file__).parents[1] / "tools/pytest_phases.py"
-    children = {}
-    for exit_code in (0, 1):
-        root = tmp_path_factory.mktemp(f"boundary-child-{exit_code}")
-        (root / "conftest.py").write_bytes(plugin.read_bytes())
-        (root / "test_invented_boundary.py").write_text(
-            f"def test_invented_boundary():\n    assert {exit_code} == 0\n")
-        # Explicit child fixture scope for pytest-asyncio; plain pytest accepts -o
-        # without introducing an unregistered option into an ini configuration file.
-        # -p no:respx is what the repository's pytest.ini adds to the suite itself.
-        children[exit_code] = subprocess.Popen(
-            [sys.executable, "-I", "-m", "pytest", "-p", "no:cacheprovider", "-p", "no:respx",
-             "-o", "asyncio_default_fixture_loop_scope=function",
-             "-q", "-s", "test_invented_boundary.py"], cwd=root, env=EXPORT_ENV,
-            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    results = {}
-    try:
-        for exit_code, child in children.items():
-            stdout, stderr = child.communicate(timeout=30)
-            results[exit_code] = subprocess.CompletedProcess(child.args, child.returncode, stdout, stderr)
-    finally:
-        for child in children.values():
-            child.kill()
-    return results
-
-
-@pytest.mark.parametrize("exit_code", [0, 1])
-@pytest.mark.parametrize("size", [5242880, 5242881], ids=["exact-five-mib", "five-mib-plus-one"])
-def test_actual_export_five_mib_boundary(tmp_path, workflow, boundary_phases, exit_code, size):
-    # Real pytest emits the phase records; real Git runs the cleanliness checks.
-    # All input data is invented. No endpoint, interpreter or Git stand-ins.
-    env = dict(EXPORT_ENV)
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    for argv in (["git", "-c", "init.templateDir=", "init", "-q"],
-                 ["git", "-c", "user.name=Invented fixture", "-c", "user.email=fixture@example.invalid",
-                  "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "Invented export fixture"]):
-        result = subprocess.run(argv, cwd=repo, env=env, stdin=subprocess.DEVNULL,
-                                check=False, capture_output=True, text=True, timeout=5)
-        assert result.returncode == 0, result.stderr
-    root = tmp_path / "scratch"
-    root.mkdir()
-    phases = boundary_phases[exit_code]
-    assert phases.returncode == exit_code and phases.stderr == b"", phases
-    assert b"PHASES_VALID=true\n" in phases.stdout, phases
-    payload = b"x" * (size - len(phases.stdout) - 1) + b"\n" + phases.stdout
-    assert len(payload) == size
-    (root / "suite.log").write_bytes(payload)
-    (root / "suite.exit").write_text(f"{exit_code}\n")
-    # Invented phases, not the child's: the oversize suite must stay unexported.
-    (root / "fakeboot.log").write_text(suite_payload(exit_code, fakeboot=True))
-    (root / "fakeboot.exit").write_text(f"{exit_code}\n")
-    for name in ("install", "sentinel"):
-        (root / f"{name}.log").write_text(f"invented {name} log\n")
-    for name in ("mxz-venv", "issue25-released", "issue25-main"):
-        (root / name).mkdir()
-    export = next(s for s in workflow["jobs"]["pytest"]["steps"]
-                  if s.get("name") == "Complete logs and owned cleanup")
-    assert export["if"] == "always()"
-    assert "suite) limit=5242880 ;;" in export["run"]
-    assert "fakeboot) limit=5242880 ;;" in export["run"]
-    env["RUNNER_TEMP"] = str(root)
-    env["OWNED_RUNS"] = "suite fakeboot"
-    result = subprocess.run(["bash", "--noprofile", "--norc", "-euo", "pipefail", "-c", export["run"]],
-                            cwd=repo, env=env, stdin=subprocess.DEVNULL,
-                            check=False, capture_output=True, timeout=5)
-    oversize = size > 5242880
-    assert result.returncode == int(oversize) and result.stderr == b"", result.stderr
-    assert f"RETAINED_SUITE_EXIT={exit_code}\n".encode() in result.stdout
-    assert f"LOG_BYTES=suite:{size}\n".encode() in result.stdout
-    if oversize:
-        assert b"LOG_BUDGET_EXCEEDED=suite COMPLETE_EXPORT=false\n" in result.stdout
-        assert payload not in result.stdout and phases.stdout not in result.stdout
-    else:
-        assert result.stdout.count(payload) == 1
-        assert b"INCOMPLETE_SUITE_PHASES" not in result.stdout
-    assert (root / "suite.log").read_bytes() == payload
-    assert (root / "suite.exit").read_text() == f"{exit_code}\n"
-    assert b"OWNED_SCRATCH_REMOVED=true\n" in result.stdout
-    assert all(not (root / name).exists() for name in ("mxz-venv", "issue25-released", "issue25-main"))
-    assert f"LOG_EXPORT_COMPLETE result={int(oversize)}\n".encode() in result.stdout
-
-
-RECOVERY_ROUTES = [
-    ('A3-push', 'push', 'refs/heads/ci/issue25-harness-admission', '', '', 1, True, None),
-    ('A3-PR-head', 'pull_request', 'refs/pull/2/merge', 'ci/issue25-harness-admission', 'main', 1, False, 'event'),
-    ('A3-PR-base', 'pull_request', 'refs/pull/2/merge', 'feature', 'ci/issue25-harness-admission', 1, False, 'event'),
-    ('A3-dispatch', 'workflow_dispatch', 'refs/heads/ci/issue25-harness-admission', '', '', 1, False, 'event'),
-    ('A3-attempt2', 'push', 'refs/heads/ci/issue25-harness-admission', '', '', 2, False, 'ref'),
-    ('A3-tag-shaped-ref', 'push', 'refs/tags/ci/issue25-harness-admission', '', '', 1, False, 'ref'),
-    ('R2-push', 'push', 'refs/heads/ci/issue25-harness-replacement', '', '', 1, False, None),
-    ('I1-push', 'push', 'refs/heads/ci/issue25-harness-repeat', '', '', 1, False, None),
-    ('R2-dispatch', 'workflow_dispatch', 'refs/heads/ci/issue25-harness-replacement', '', '', 1, False, 'event'),
-    ('I1-dispatch', 'workflow_dispatch', 'refs/heads/ci/issue25-harness-repeat', '', '', 1, False, 'event'),
-    ('R2-PR-head', 'pull_request', 'refs/pull/2/merge', 'ci/issue25-harness-replacement', 'main', 1, False, 'event'),
-    ('R2-PR-base', 'pull_request', 'refs/pull/2/merge', 'feature', 'ci/issue25-harness-replacement', 1, False, 'event'),
-    ('I1-PR-head', 'pull_request', 'refs/pull/2/merge', 'ci/issue25-harness-repeat', 'main', 1, False, 'event'),
-    ('I1-PR-base', 'pull_request', 'refs/pull/2/merge', 'feature', 'ci/issue25-harness-repeat', 1, False, 'event'),
-    ('R2-attempt2', 'push', 'refs/heads/ci/issue25-harness-replacement', '', '', 2, False, 'attempt'),
-    ('I1-attempt2', 'push', 'refs/heads/ci/issue25-harness-repeat', '', '', 2, False, 'attempt'),
-    ('missing-PR-base', 'pull_request', 'refs/pull/2/merge', 'feature', '', 1, False, 'event'),
-    ('A3-empty-attempt', 'push', 'refs/heads/ci/issue25-harness-admission', '', '', '', False, 'ref'),
-    ('A3-bad-attempt', 'push', 'refs/heads/ci/issue25-harness-admission', '', '', 'bad', False, 'ref'),
-    ('malformed-ref', 'push', 'bad', '', '', 1, False, 'ref'),
-]
-
-
-@pytest.mark.parametrize('case,event,ref,head,base,attempt,ordinary,reason', RECOVERY_ROUTES,
-                         ids=[f'G{i:02d}' for i in range(1, 21)])
-def test_recovery_route_actual_guards(workflow, case, event, ref, head, base, attempt, ordinary, reason):
-    context = {'event_name': event, 'ref': ref, 'head_ref': head, 'base_ref': base, 'run_attempt': attempt}
-    jobs = workflow['jobs']
-    selected = {name for name, job in jobs.items() if name != 'approval' and admitted(job['if'], context)}
-    assert selected == ({'hassfest', 'hacs', 'ruff', 'pytest', 'yamllint'} if ordinary else {'issue25'})
-    floor_steps = jobs['pytest']['steps']
-    lanes = [entry['lane'] for entry in jobs['pytest']['strategy']['matrix']['include']]
-    assert lanes == [lane for lane, _runs in LANE_RUNS]
-    names = [step.get('name') for step in floor_steps]
-    admission = ('Exact admission comparison objects', 'Six exported setup controls')
-    # Setup controls run once, in the floor lane's suite job, before its full suite;
-    # the floor lane's separate fresh-boot job and every other job never run them.
-    assert [n for n in names if n in admission] == list(admission)
-    assert names.index(admission[-1]) < names.index('Full retained suite')
-    runs = dict(LANE_RUNS)
-    for step in floor_steps:
-        if step.get('name') in admission:
-            for lane in lanes:
-                expression = step['if'].replace('matrix.lane', repr(lane))
-                assert admitted(expression, context) is (case == 'A3-push' and lane == 'py3.12-ha2024.12.5')
-            selected_lanes = [lane for lane in lanes
-                              if admitted(step['if'].replace('matrix.lane', repr(lane)), context)]
-            assert selected_lanes == (['py3.12-ha2024.12.5'] if case == 'A3-push' else [])
-            assert all(runs[lane] == 'suite' for lane in selected_lanes)
-    guard = jobs['pytest' if ordinary else 'issue25']['steps'][0]['run']
-    env = {'GITHUB_EVENT_NAME': event, 'GITHUB_REF': ref, 'GITHUB_HEAD_REF': head, 'GITHUB_BASE_REF': base,
-           'GITHUB_RUN_ATTEMPT': str(attempt), 'GITHUB_SHA': 'a' * 40, 'REPOSITORY_PRIVATE': 'false',
-           'RUNNER_ENVIRONMENT': 'github-hosted', 'RUNNER_ARCH': 'X64'}
-    result = subprocess.run(['bash', '--noprofile', '--norc', '-euo', 'pipefail', '-c', guard], env=env,
-                            check=False, capture_output=True, text=True, timeout=5)
-    assert result.returncode == (0 if reason is None else 1), result.stderr
-    assert result.stderr.strip() == ('' if reason is None else 'ISSUE25_REFUSED=' + reason)
-
-
-P_CASES = ('missing-mode', 'empty-mode', 'unknown-mode', 'pack-on-A3', 'admission-on-R2',
-           'admission-on-I1', 'unexpected-positional', 'CLI-mode-plus-env', 'legacy-R-ref',
-           'legacy-repeat-ref', 'missing-runner', 'missing-architecture', 'unknown-ISSUE25-key',
-           'PYTHONPATH', 'PYTEST_ADDOPTS', 'PYTEST_PLUGINS')
-
-
-@pytest.mark.parametrize('fault', P_CASES, ids=[f'P{i:02d}' for i in range(1, 17)])
-def test_parent_entry_refusal_reasons(tmp_path, fault):
-    from tests.test_issue25_pack import PACK, parent_inputs
-
-    root, env, calls, exports = parent_inputs(tmp_path, stage='A3')
-    args = []
-    reason = 'mode'
-    if fault == 'missing-mode':
-        del env['ISSUE25_MODE']
-    elif fault in ('empty-mode', 'unknown-mode'):
-        env['ISSUE25_MODE'] = '' if fault == 'empty-mode' else 'unknown'
-    elif fault == 'pack-on-A3':
-        env['ISSUE25_MODE'] = 'pack'
-        reason = 'mode-ref'
-    elif fault in ('admission-on-R2', 'admission-on-I1'):
-        env['GITHUB_REF'] = 'refs/heads/ci/issue25-harness-' + ('replacement' if fault.endswith('R2') else 'repeat')
-        reason = 'mode-ref'
-    elif fault in ('unexpected-positional', 'CLI-mode-plus-env'):
-        args = ['invented'] if fault == 'unexpected-positional' else ['--mode', 'admission']
-        reason = 'arguments'
-    elif fault.startswith('legacy-'):
-        env['GITHUB_REF'] = 'refs/heads/ci/issue25-' + ('discriminator' if fault == 'legacy-R-ref' else 'independent-repeat')
-        reason = 'ref'
-    elif fault == 'missing-runner':
-        del env['RUNNER_ENVIRONMENT']
-        reason = 'runner'
-    elif fault == 'missing-architecture':
-        del env['RUNNER_ARCH']
-        reason = 'architecture'
-    elif fault == 'unknown-ISSUE25-key':
-        # One actual call, four separately enumerated refusal records. The actual
-        # parent visits every supplied key without short-circuiting its scan.
-        env.update(ISSUE25_UNEXPECTED='x', ISSUE25_INJECTION='', ISSUE25_BASE='released', ISSUE25_CASE_ID='P-release')
-        reason = None
-    else:
-        env[fault] = 'invented'
-        reason = 'override-' + fault
-    result = subprocess.run(['bash', str(PACK.with_name('run.sh')), *args], cwd=root, env=env,
-                            check=False, capture_output=True, text=True, timeout=5)
-    assert result.returncode == 1, result.stdout + result.stderr
-    assert not calls.exists() and not exports.exists()
-    assert not (tmp_path / 'issue25-A3-123-a1').exists()
-    assert result.stdout == ''
-    if reason is None:
-        assert len(result.stderr.splitlines()) == 4
-        assert set(result.stderr.splitlines()) == {'ISSUE25_REFUSED=control-key:' + key for key in (
-            'ISSUE25_UNEXPECTED', 'ISSUE25_INJECTION', 'ISSUE25_BASE', 'ISSUE25_CASE_ID')}
-    else:
-        assert result.stderr.strip() == 'ISSUE25_REFUSED=' + reason
+def test_a_changed_installer_is_refused(old, new, expected):
+    text = INSTALLER.read_text()
+    assert text.count(old) == 1
+    assert expected in installer_violations(text.replace(old, new))

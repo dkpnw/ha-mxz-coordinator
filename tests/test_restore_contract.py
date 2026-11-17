@@ -22,8 +22,11 @@ from pytest_homeassistant_custom_component.common import (
     mock_platform,
 )
 
-from tools.issue25 import test_restore as harness
-from tools.issue25.test_restore import (
+# The hass fixtures import this integration (tests/conftest.py). Importing it first binds
+# custom_components to this checkout, not to the test plugin's own testing_config.
+import custom_components.mxz_coordinator  # noqa: F401
+from tests import restore_lifecycle
+from tests.restore_lifecycle import (
     LifecycleReads,
     dependency_provenance,
     load_after_removal,
@@ -175,7 +178,7 @@ async def test_platform_add_failure_is_unknown_after_real_getter(hass, hass_stor
 # Provenance over invented installs: real dist-info directories on disk, found by
 # importlib.metadata's own discovery, so name matching is the library's and not ours.
 # The names and paths are written out here on purpose, from what these lanes hold:
-# the tuple in the harness must not be its own oracle.
+# the tuple in tests/restore_lifecycle.py must not be its own oracle.
 HA_FILES = ("homeassistant/helpers/restore_state.py",
             "homeassistant/helpers/storage.py",
             "homeassistant/helpers/entity_platform.py")
@@ -211,13 +214,13 @@ def site(tmp_path, monkeypatch):
         return found
 
     install(tmp_path, "homeassistant", HA_FILES)
-    monkeypatch.setattr(harness, "distribution", lookup)
+    monkeypatch.setattr(restore_lifecycle, "distribution", lookup)
     return tmp_path
 
 
 def provenance_traces(capsys):
     lines = capsys.readouterr().out.splitlines()
-    events = [json.loads(line.partition("ISSUE25 ")[2]) for line in lines if line.startswith("ISSUE25 ")]
+    events = [json.loads(line.partition("RESTORE ")[2]) for line in lines if line.startswith("RESTORE ")]
     return [e for e in events if e["event"] == "dependency-file"]
 
 
