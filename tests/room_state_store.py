@@ -16,13 +16,13 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.mxz_coordinator.room_state import (
     SECTION_FAN,
     _room_state_store,
     async_remove_room_state,
 )
+from tests.ha_test import async_fire_time_changed
 
 
 async def forget_room_state(hass: HomeAssistant, entry: Any) -> None:

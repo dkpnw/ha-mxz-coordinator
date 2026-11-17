@@ -21,13 +21,10 @@ from homeassistant.const import EVENT_HOMEASSISTANT_START, EVENT_HOMEASSISTANT_S
 from homeassistant.core import CoreState, HomeAssistant, State
 from homeassistant.helpers import restore_state as rs
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_mock_load_restore_state_from_storage,
-)
 
 from custom_components.mxz_coordinator.const import DOMAIN, MODE_HEAT
 from tests.cloud_heads import register
+from tests.ha_test import MockConfigEntry, async_mock_load_restore_state_from_storage
 from tests.property_rig import _HEADS, SENSORS, WINDOW, Rig, RigHead, open_rig
 from tests.restart import stopped
 from tests.restore_store import (

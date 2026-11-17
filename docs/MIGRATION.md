@@ -41,7 +41,7 @@ write, which only happens when an earlier release ran after this one.
 **Rolling back to 3.22.0** finds its own data, current. This was checked by running 3.22.0 on
 what this release left after changing a target, the shared mode, a dual-setpoint range, a lockout
 and a door/window pause, with a held fan and a freeze floor running
-([`rollback_check_on_3_22_0.py`](../tests/fixtures/room_state/rollback_check_on_3_22_0.py)).
+([`rollback_check_on_3_22_0.py`](../tests/fixtures/migration/rollback_check_on_3_22_0.py)).
 3.22.0 ignores the new file. **Upgrading again** takes what 3.22.0 changed in between: its restore
 data is newer than the store. A rollback to a release before 3.22.0 was not checked.
 

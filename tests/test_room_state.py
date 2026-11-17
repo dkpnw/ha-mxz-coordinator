@@ -17,9 +17,9 @@ from homeassistant.const import ATTR_RESTORED, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.mxz_coordinator.const import ZONE_DUAL_SETPOINT, ZONE_HANDS_OFF
+from tests.ha_test import async_fire_time_changed
 from tests.property_rig import Rig, open_rig
 from tests.restart import stopped
 

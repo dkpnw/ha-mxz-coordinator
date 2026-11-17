@@ -3,7 +3,7 @@
 Run from a checkout of tag v3.22.0, with this file copied into its tests/ directory:
 
     git worktree add /tmp/mxz-3.22.0 v3.22.0
-    cp tests/fixtures/room_state/rollback_check_on_3_22_0.py /tmp/mxz-3.22.0/tests/
+    cp tests/fixtures/migration/rollback_check_on_3_22_0.py /tmp/mxz-3.22.0/tests/
     cd /tmp/mxz-3.22.0 && MXZ_FIXTURES=$OLDPWD/tests/fixtures/room_state \\
         python -m pytest -p no:cacheprovider -q tests/rollback_check_on_3_22_0.py
 
