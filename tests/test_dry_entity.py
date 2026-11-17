@@ -38,7 +38,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COOLDOWN
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.mxz_coordinator.const import (
     BAND_DRIFT_DELAY,
@@ -58,6 +57,7 @@ from tests.clocks import pass_time
 from tests.cloud_heads import record as record_calls
 from tests.cloud_heads import writes as head_writes
 from tests.flow_pages import open_options_page, prefilled, submit
+from tests.ha_test import async_fire_time_changed
 from tests.peek import armed, cloud_record
 from tests.test_drive import MockHead, _eid, _set_temp
 from tests.test_dry_mode import (

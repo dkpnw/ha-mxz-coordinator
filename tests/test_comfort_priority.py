@@ -19,7 +19,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mxz_coordinator.const import (
     CONF_COMFORT_STALE_HOURS,
@@ -47,6 +46,7 @@ from tests.flow_pages import (
     save_options,
     submit,
 )
+from tests.ha_test import MockConfigEntry
 from tests.peek import armed
 from tests.test_drive import (
     SENSOR_A,

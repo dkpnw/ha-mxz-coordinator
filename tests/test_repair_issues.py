@@ -19,10 +19,6 @@ from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
-)
 
 from custom_components.mxz_coordinator import issues as issues_module
 from custom_components.mxz_coordinator.const import (
@@ -54,6 +50,10 @@ from custom_components.mxz_coordinator.issues import (
     issue_id,
 )
 from tests.clocks import Armed, Clock, Time
+from tests.ha_test import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 from tests.test_door_window import _setup as _setup_rig
 from tests.test_startup_continuity import _head
 

@@ -4,7 +4,7 @@ The climate entities are facades: they READ the coordinator's plan/targets and
 WRITE by driving the integration's own number/switch entities. They must never
 write the real heads directly (only the coordinator does, via recompute).
 
-Requires pytest-homeassistant-custom-component (Python 3.12+).
+Requires a Home Assistant test plugin (tests/ha_test.py).
 """
 
 from __future__ import annotations
@@ -12,10 +12,6 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.components.climate import (
     ClimateEntityFeature,
     HVACMode,
@@ -29,15 +25,6 @@ from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    MockModule,
-    MockPlatform,
-    async_mock_service,
-    mock_integration,
-    mock_platform,
-    mock_restore_cache,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
@@ -50,6 +37,15 @@ from custom_components.mxz_coordinator.const import (
     DOMAIN,
 )
 from tests.dwell import expire_dwell
+from tests.ha_test import (
+    MockConfigEntry,
+    MockModule,
+    MockPlatform,
+    async_mock_service,
+    mock_integration,
+    mock_platform,
+    mock_restore_cache,
+)
 from tests.head_entity import HeadEntity
 
 SENSOR_A = "sensor.room_a_temp"

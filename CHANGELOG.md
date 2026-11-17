@@ -29,6 +29,11 @@ on your equipment.
 - Tooling only: `python3 tools/revert_rate.py` reports the share of landings on main that
   were reverts, month by month in Pacific time, and lists each revert with the commit it
   names. It only reads git. Nothing changes in the integration, `hacs.json` or CI.
+- CI and tests only: a new CI lane runs the full suite on Home Assistant 2026.11.2 (Python 3.14),
+  with Home Assistant's own test plugin, `pytest-homeassistant`. Tests now take the plugin's
+  helpers from one module, `tests/ha_test.py`, so they run under either plugin, and a lane
+  with neither fails at import. The 59 test files that skipped themselves when the plugin
+  was missing no longer do.
 - CI only: one plain `CI` workflow. It runs on pushes to `main`, on every pull request and by
   hand. A newer push to a pull request cancels its older run, and re-runs work. The HA 2026.10
   lane is now an ordinary lock (2026.10.4), replacing the generated bundle and its own

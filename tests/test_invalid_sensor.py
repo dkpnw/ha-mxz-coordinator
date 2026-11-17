@@ -3,22 +3,11 @@
 from __future__ import annotations
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfTemperature
 from homeassistant.core import HomeAssistant, State
 from homeassistant.setup import async_setup_component
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    MockModule,
-    MockPlatform,
-    mock_integration,
-    mock_platform,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_ECO_COOL_MAX,
@@ -32,6 +21,13 @@ from custom_components.mxz_coordinator.const import (
 )
 from custom_components.mxz_coordinator.coordinator import _read_temp, read_room_temp
 from tests.dwell import expire_dwell
+from tests.ha_test import (
+    MockConfigEntry,
+    MockModule,
+    MockPlatform,
+    mock_integration,
+    mock_platform,
+)
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,

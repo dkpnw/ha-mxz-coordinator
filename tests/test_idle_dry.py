@@ -13,15 +13,8 @@ import time
 from datetime import timedelta
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import (
-    async_fire_time_changed,
-)
 
 from custom_components.mxz_coordinator.const import (
     IDLE_ACTION_OFF_AFTER_DRY,
@@ -29,6 +22,9 @@ from custom_components.mxz_coordinator.const import (
 )
 from tests.clocks import jump_wall_clock, pass_time
 from tests.dwell import RESTAMP_TOLERANCE
+from tests.ha_test import (
+    async_fire_time_changed,
+)
 from tests.peek import armed
 from tests.test_drive import (
     SENSOR_A,

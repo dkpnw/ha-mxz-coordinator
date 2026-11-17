@@ -7,7 +7,7 @@ automation, or a bridge takes is the one tested. Expected numbers are worked
 out by hand from the stated settings: drift 1 °F (0.5 °C), Mode switch
 threshold 3 °F (1.5 °C), minimum gap 2 °F (1 °C), bounds 59-88 °F (15-31 °C).
 
-Requires pytest-homeassistant-custom-component (Python 3.12+).
+Requires a Home Assistant test plugin (tests/ha_test.py).
 """
 
 from __future__ import annotations
@@ -17,10 +17,6 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT
 from homeassistant.core import HomeAssistant, State
@@ -28,10 +24,6 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    mock_restore_cache_with_extra_data,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
@@ -46,6 +38,10 @@ from custom_components.mxz_coordinator.const import (
     ZONE_SENSOR,
 )
 from tests.dwell import expire_dwell
+from tests.ha_test import (
+    MockConfigEntry,
+    mock_restore_cache_with_extra_data,
+)
 from tests.pin_scenario import (
     COMFORT_OFF_ROW,
     SENSOR_A,

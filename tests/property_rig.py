@@ -24,10 +24,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from hypothesis import HealthCheck, settings
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
@@ -45,6 +41,10 @@ from custom_components.mxz_coordinator.const import (
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
 from tests.cloud_heads import register
+from tests.ha_test import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 from tests.head_entity import HeadEntity
 from tests.restart import restart
 from tests.restore_store import set_stored_states

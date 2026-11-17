@@ -10,24 +10,11 @@ same way so a rejectable target can't be entered in the first place.
 
 from __future__ import annotations
 
-import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant, State
 from homeassistant.setup import async_setup_component
 from homeassistant.util.unit_conversion import TemperatureConverter
 from homeassistant.util.unit_system import METRIC_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    MockModule,
-    MockPlatform,
-    mock_integration,
-    mock_platform,
-    mock_restore_cache_with_extra_data,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_PRIMARY_CLIMATE,
@@ -36,6 +23,14 @@ from custom_components.mxz_coordinator.const import (
     CONF_SECONDARY_SENSOR,
     CONF_ZONES,
     DOMAIN,
+)
+from tests.ha_test import (
+    MockConfigEntry,
+    MockModule,
+    MockPlatform,
+    mock_integration,
+    mock_platform,
+    mock_restore_cache_with_extra_data,
 )
 
 from .dwell import expire_dwell

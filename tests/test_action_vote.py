@@ -44,15 +44,10 @@ from typing import Any
 
 import pytest
 import voluptuous as vol
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.components.climate import HVACAction
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.mxz_coordinator.const import (
     CONF_RESTING_MODE_BIAS,
@@ -63,6 +58,7 @@ from custom_components.mxz_coordinator.const import (
 from custom_components.mxz_coordinator.logic import HeadSight
 from tests.clocks import pass_time
 from tests.flow_pages import default, marker_of, open_options_page, prefilled, submit
+from tests.ha_test import async_fire_time_changed
 from tests.peek import armed, debug_view
 from tests.test_drive import SENSOR_A, SENSOR_B, _eid, _recompute, _set_temp
 from tests.test_dwell_wakeup import _count_refresh_requests, _fire_due, _quiesce

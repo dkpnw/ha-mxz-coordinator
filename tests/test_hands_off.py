@@ -33,7 +33,6 @@ from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import restore_state as rs
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mxz_coordinator.const import (
     CONF_IDLE_ACTION,
@@ -71,6 +70,7 @@ from tests.dwell import (
     record_mode_change,
 )
 from tests.flow_pages import default, open_options_page, prefilled, submit
+from tests.ha_test import MockConfigEntry
 from tests.peek import armed
 from tests.restore_store import replace_stored_state, stored_state
 from tests.test_drive import (

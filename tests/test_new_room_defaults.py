@@ -21,10 +21,6 @@ from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_mock_service,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_DEMAND_THRESHOLD,
@@ -52,6 +48,10 @@ from tests.flow_pages import (
     setup_tuning,
     submit,
     suggested,
+)
+from tests.ha_test import (
+    MockConfigEntry,
+    async_mock_service,
 )
 from tests.test_drive import (
     SENSOR_A,

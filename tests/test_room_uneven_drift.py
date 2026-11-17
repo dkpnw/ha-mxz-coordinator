@@ -25,17 +25,9 @@ from unittest.mock import patch
 
 import pytest
 import voluptuous as vol
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant, State
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    mock_restore_cache_with_extra_data,
-)
 
 import custom_components.mxz_coordinator as component
 from custom_components.mxz_coordinator.const import (
@@ -52,6 +44,10 @@ from tests.flow_pages import (
     sections,
     submit,
     suggested,
+)
+from tests.ha_test import (
+    MockConfigEntry,
+    mock_restore_cache_with_extra_data,
 )
 from tests.one_home import assert_one_home
 from tests.restart import restart

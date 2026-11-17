@@ -20,10 +20,6 @@ from typing import Any
 import pytest
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import (
-    async_fire_time_changed,
-    async_mock_service,
-)
 
 from custom_components.mxz_coordinator.cloud import CloudHead
 from custom_components.mxz_coordinator.const import (
@@ -34,6 +30,10 @@ from custom_components.mxz_coordinator.const import (
 )
 from tests.clocks import pass_time
 from tests.cloud_heads import past_window, recompute, record, writes
+from tests.ha_test import (
+    async_fire_time_changed,
+    async_mock_service,
+)
 from tests.peek import armed, cloud_record
 from tests.property_rig import TARGET, Rig, open_rig
 from tests.test_accept_head_changes import (

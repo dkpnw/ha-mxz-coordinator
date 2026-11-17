@@ -12,9 +12,6 @@ import ast
 from pathlib import Path
 
 import pytest
-
-pytest.importorskip("homeassistant")
-
 from homeassistant.components.climate import ClimateEntity
 
 from tests.head_entity import NAMES, NATIVE, HeadEntity

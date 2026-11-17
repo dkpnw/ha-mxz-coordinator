@@ -2,17 +2,12 @@
 ClimateEntity heads (decide -> act). Uses a mock climate platform so the full
 service path (climate.set_temperature / climate.set_hvac_mode) actually runs.
 
-Requires pytest-homeassistant-custom-component (Python 3.12+).
+Requires a Home Assistant test plugin (tests/ha_test.py).
 """
 
 from __future__ import annotations
 
 from typing import Any, ClassVar
-
-import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.components.climate import (
     ClimateEntityFeature,
@@ -29,13 +24,6 @@ from homeassistant.setup import async_setup_component
 from homeassistant.util.unit_system import (
     METRIC_SYSTEM,
     US_CUSTOMARY_SYSTEM,
-)
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    MockModule,
-    MockPlatform,
-    mock_integration,
-    mock_platform,
 )
 
 from custom_components.mxz_coordinator.const import (
@@ -59,6 +47,13 @@ from custom_components.mxz_coordinator.const import (
     INHIBIT_ACTION_OFF,
 )
 from tests.dwell import expire_dwell
+from tests.ha_test import (
+    MockConfigEntry,
+    MockModule,
+    MockPlatform,
+    mock_integration,
+    mock_platform,
+)
 from tests.head_entity import HeadEntity
 from tests.peek import armed, debug_view
 from tests.restart import stopped
@@ -1781,7 +1776,8 @@ async def test_fan_change_triggers_prompt_refresh(hass: HomeAssistant) -> None:
     import datetime
 
     from homeassistant.util import dt as dt_util
-    from pytest_homeassistant_custom_component.common import (
+
+    from tests.ha_test import (
         async_fire_time_changed,
     )
 

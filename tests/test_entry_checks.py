@@ -13,12 +13,12 @@ import pytest
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-from pytest_homeassistant_custom_component.common import (
+
+from custom_components.mxz_coordinator.const import DOMAIN
+from tests.ha_test import (
     MockConfigEntry,
     async_mock_service,
 )
-
-from custom_components.mxz_coordinator.const import DOMAIN
 from tests.test_setup_flow import (
     BEDROOM,
     BEDROOM_SENSOR,

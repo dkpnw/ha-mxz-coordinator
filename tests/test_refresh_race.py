@@ -11,20 +11,16 @@ import asyncio
 from datetime import timedelta
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COOLDOWN
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.mxz_coordinator.const import MODE_COOL
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
 from tests.clocks import Armed, pass_time
 from tests.dwell import RESTAMP_TOLERANCE, assert_not_restamped
+from tests.ha_test import async_fire_time_changed
 from tests.peek import armed
 from tests.test_drive import SENSOR_A, SENSOR_B, MockHead, _eid, _set_temp
 from tests.test_dwell_wakeup import _quiesce, _setup_dwell

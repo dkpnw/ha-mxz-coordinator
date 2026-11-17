@@ -15,14 +15,9 @@ from typing import Any
 
 import pytest
 import voluptuous as vol
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 import custom_components.mxz_coordinator as component
 from custom_components.mxz_coordinator.const import (
@@ -48,6 +43,7 @@ from tests.flow_pages import (
     submit,
     suggested,
 )
+from tests.ha_test import MockConfigEntry
 from tests.one_home import assert_one_home
 from tests.test_configure_menu import HEADS, SENSORS, _entry, _head, _setup_review
 from tests.test_drive import (

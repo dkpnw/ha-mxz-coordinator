@@ -18,10 +18,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant

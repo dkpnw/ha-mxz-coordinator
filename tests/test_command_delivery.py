@@ -17,10 +17,6 @@ from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
@@ -34,6 +30,10 @@ from custom_components.mxz_coordinator.const import (
     CONF_SECONDARY_SENSOR,
     DOMAIN,
     IDLE_ACTION_FAN_ONLY,
+)
+from tests.ha_test import (
+    MockConfigEntry,
+    async_fire_time_changed,
 )
 from tests.peek import armed
 from tests.test_climate_immediate import _plans

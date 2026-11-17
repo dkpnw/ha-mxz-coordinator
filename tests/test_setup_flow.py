@@ -10,20 +10,12 @@ from copy import deepcopy
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant import config_entries
 from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_mock_service,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_CHANGEOVER_COOL_BELOW,
@@ -70,6 +62,10 @@ from tests.flow_pages import (
     press,
     sections,
     setup_tuning,
+)
+from tests.ha_test import (
+    MockConfigEntry,
+    async_mock_service,
 )
 
 LIVING = "climate.living_room"

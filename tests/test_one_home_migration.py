@@ -24,14 +24,14 @@ from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
+
+from custom_components.mxz_coordinator.const import DOMAIN
+from custom_components.mxz_coordinator.settings import entry_config, one_home
+from tests.ha_test import (
     MockConfigEntry,
     async_mock_service,
     mock_restore_cache,
 )
-
-from custom_components.mxz_coordinator.const import DOMAIN
-from custom_components.mxz_coordinator.settings import entry_config, one_home
 from tests.one_home import DATA_KEYS, assert_one_home
 from tests.test_drive import _eid, _recompute
 

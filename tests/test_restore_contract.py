@@ -13,19 +13,19 @@ import pytest
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers import restore_state as rs
 from homeassistant.setup import async_setup_component
-from pytest_homeassistant_custom_component import common as plugin_common
-from pytest_homeassistant_custom_component.common import (
+
+# The hass fixtures import this integration (tests/conftest.py). Importing it first binds
+# custom_components to this checkout, not to the test plugin's own testing_config.
+import custom_components.mxz_coordinator  # noqa: F401
+from tests import restore_lifecycle
+from tests.ha_test import (
     MockModule,
     MockPlatform,
     async_mock_restore_state_shutdown_restart,
     mock_integration,
     mock_platform,
 )
-
-# The hass fixtures import this integration (tests/conftest.py). Importing it first binds
-# custom_components to this checkout, not to the test plugin's own testing_config.
-import custom_components.mxz_coordinator  # noqa: F401
-from tests import restore_lifecycle
+from tests.ha_test import common as plugin_common
 from tests.restore_lifecycle import (
     LifecycleReads,
     dependency_provenance,

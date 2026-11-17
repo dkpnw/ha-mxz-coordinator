@@ -14,10 +14,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant import config_entries
 from homeassistant.components.climate import HVACMode
 from homeassistant.core import HomeAssistant

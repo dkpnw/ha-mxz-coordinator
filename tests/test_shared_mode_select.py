@@ -9,7 +9,7 @@ pin the two supported directions, the migration of the two dropped values, and
 the fact that no choice here ever meant "stop the system" — the kill-switch and
 the standby hold do that.
 
-Requires pytest-homeassistant-custom-component.
+Requires a Home Assistant test plugin (tests/ha_test.py).
 """
 
 from __future__ import annotations
@@ -18,10 +18,6 @@ import asyncio
 from typing import Any, ClassVar
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.components.climate import (
     ClimateEntityFeature,
     HVACMode,
@@ -33,14 +29,6 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.setup import async_setup_component
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    MockModule,
-    MockPlatform,
-    mock_integration,
-    mock_platform,
-    mock_restore_cache,
-)
 
 from custom_components.mxz_coordinator import select as mxz_select
 from custom_components.mxz_coordinator.const import (
@@ -53,6 +41,14 @@ from custom_components.mxz_coordinator.const import (
 from custom_components.mxz_coordinator.logic import shared_mode
 from tests.clocks import pass_time
 from tests.dwell import RESTAMP_TOLERANCE, assert_not_restamped, expire_dwell
+from tests.ha_test import (
+    MockConfigEntry,
+    MockModule,
+    MockPlatform,
+    mock_integration,
+    mock_platform,
+    mock_restore_cache,
+)
 from tests.head_entity import HeadEntity
 from tests.restart import restart
 

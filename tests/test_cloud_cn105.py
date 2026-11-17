@@ -11,10 +11,6 @@ install no cloud record, wakeup, row field or repair issue at all.
 from __future__ import annotations
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM

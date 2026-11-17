@@ -10,19 +10,11 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.const import STATE_UNAVAILABLE, EntityCategory
 from homeassistant.core import HomeAssistant, State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    mock_restore_cache_with_extra_data,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_ENGAGE_DEADBAND,
@@ -34,6 +26,10 @@ from custom_components.mxz_coordinator.const import (
     CONF_SECONDARY_SENSOR,
     DOMAIN,
     ZONE_ENTITY_SUFFIXES,
+)
+from tests.ha_test import (
+    MockConfigEntry,
+    mock_restore_cache_with_extra_data,
 )
 from tests.restart import restart
 from tests.test_drive import (

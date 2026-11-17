@@ -38,10 +38,6 @@ from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, EVENT_CALL_SERVICE
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    mock_restore_cache_with_extra_data,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
@@ -58,6 +54,10 @@ from custom_components.mxz_coordinator.const import (
 )
 from tests.dwell import expire_dwell
 from tests.flow_pages import open_options_page, prefilled, submit
+from tests.ha_test import (
+    MockConfigEntry,
+    mock_restore_cache_with_extra_data,
+)
 from tests.test_drive import MockHead, MockHeadC, _setup_mock_heads
 
 SENSOR_A = "sensor.room_a_temp"

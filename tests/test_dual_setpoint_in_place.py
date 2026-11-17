@@ -15,7 +15,7 @@ read in HA 2024.12.0, 2026.2.3, 2026.9.0, and 2026.10.0 (the same rule in all
 four), with ``RELOAD_ON_CHANGE_ATTRS`` = supported_features, device_class, and
 unit_of_measurement.
 
-Requires pytest-homeassistant-custom-component (Python 3.12+).
+Requires a Home Assistant test plugin (tests/ha_test.py).
 """
 
 from __future__ import annotations
@@ -23,17 +23,12 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.const import EVENT_STATE_CHANGED, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_component import DATA_INSTANCES
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mxz_coordinator.const import (
     CONF_DEMAND_THRESHOLD,
@@ -47,6 +42,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_VANE_VERTICAL,
 )
 from tests.flow_pages import open_options_page, prefilled, submit
+from tests.ha_test import MockConfigEntry
 from tests.pin_scenario import room_page_pass
 from tests.test_dual_setpoint import (
     _call,

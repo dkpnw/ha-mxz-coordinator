@@ -22,11 +22,6 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import restore_state as rs
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
-    async_mock_service,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_IDLE_ACTION,
@@ -64,6 +59,11 @@ from tests.dwell import (
     record_mode_change,
 )
 from tests.flow_pages import open_options_page, prefilled, submit, suggested
+from tests.ha_test import (
+    MockConfigEntry,
+    async_fire_time_changed,
+    async_mock_service,
+)
 from tests.peek import armed, debug_view
 from tests.restore_store import replace_stored_state, stored_state
 from tests.test_drive import (

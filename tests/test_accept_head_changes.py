@@ -23,10 +23,6 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 from hypothesis import given
 from hypothesis import strategies as st
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
-)
 
 from custom_components.mxz_coordinator.const import (
     ADOPT_DELAY,
@@ -70,6 +66,10 @@ from tests.cloud_heads import (
     writes,
 )
 from tests.flow_pages import open_options_page, prefilled, submit
+from tests.ha_test import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 from tests.peek import armed, cloud_record
 from tests.property_rig import (
     CLOSE_DELAY,
