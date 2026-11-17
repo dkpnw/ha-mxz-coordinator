@@ -88,6 +88,22 @@ def _eco_kept(rig: Rig) -> bool:
     return _state(rig, "_eco_idle") == "on" and rig.coord.eco_idle is True
 
 
+async def _change_heat_lockout(rig: Rig) -> None:
+    await rig.switch("_heat_lockout", True)
+
+
+def _heat_lockout_kept(rig: Rig) -> bool:
+    return _state(rig, "_heat_lockout") == "on" and rig.coord.heat_lockout is True
+
+
+async def _change_cool_lockout(rig: Rig) -> None:
+    await rig.switch("_cool_lockout", True)
+
+
+def _cool_lockout_kept(rig: Rig) -> bool:
+    return _state(rig, "_cool_lockout") == "on" and rig.coord.cool_lockout is True
+
+
 async def _change_fan(rig: Rig) -> None:
     await rig.person_fan("high", 0)
     assert rig.fan_held(0)
@@ -110,6 +126,8 @@ CHANGES = {
     "drift": (_change_drift, _drift_kept, None),
     "enable": (_change_enable, _enable_kept, None),
     "eco": (_change_eco, _eco_kept, None),
+    "heat_lockout": (_change_heat_lockout, _heat_lockout_kept, None),
+    "cool_lockout": (_change_cool_lockout, _cool_lockout_kept, None),
     "fan_hold": (_change_fan, _fan_kept, None),
     "range": (_change_range, _range_kept, {ZONE_DUAL_SETPOINT: True}),
 }
@@ -245,8 +263,10 @@ async def _boost(rig: Rig) -> None:
         ("_primary_fan_auto", _change_fan, lambda rig: rig.fan_held(0) and rig.heads[0].fan == "high"),
         ("_primary_fan_auto", _boost, lambda rig: not rig.fan_held(0)),
         ("_eco_idle", _change_eco, lambda rig: rig.coord.eco_idle is True),
+        ("_heat_lockout", _change_heat_lockout, lambda rig: rig.coord.heat_lockout is True),
+        ("_cool_lockout", _change_cool_lockout, lambda rig: rig.coord.cool_lockout is True),
     ],
-    ids=["target", "enable", "fan_hold", "fan_boost", "eco"],
+    ids=["target", "enable", "fan_hold", "fan_boost", "eco", "heat_lockout", "cool_lockout"],
 )
 async def test_a_helper_disabled_in_the_registry_changes_no_control(
     hass: HomeAssistant, freezer: Any, suffix: str, change: Any, kept: Any
