@@ -295,23 +295,43 @@ async def _drift_2(rig: Rig) -> None:
     await _number(rig, "_primary_drift", 2)
 
 
+async def _range_64_76(rig: Rig) -> None:
+    await _number(rig, "_primary_target_low", 64)
+    await _number(rig, "_primary_target_high", 76)
+
+
 @pytest.mark.parametrize(
-    ("suffix", "change", "key", "after"),
+    ("first_room", "suffix", "change", "after"),
     [
-        ("_primary_target", _target_72, "target", 22),  # never 72 °C, held to the head's top
-        ("_primary_drift", _drift_2, "drift", 1.125),  # a difference: scaled, never 2 °C
+        # Never 72 °C, held to the head's top.
+        ({}, "_primary_target", _target_72, {"target": 22}),
+        # A difference: scaled, never 2 °C.
+        ({}, "_primary_drift", _drift_2, {"drift": 1.125}),
+        # One edge offered, so the store's pair decides both (_settle_range): 17.8 and 24.4
+        # on the 0.5 °C step, never 64 and 76 °C.
+        (
+            {ZONE_DUAL_SETPOINT: True},
+            "_primary_target_high",
+            _range_64_76,
+            {"target_low": 18, "target_high": 24.5},
+        ),
     ],
-    ids=["target", "drift"],
+    ids=["target", "drift", "range"],
 )
 async def test_a_helper_disabled_in_the_registry_keeps_its_temperature_across_a_unit_switch(
-    hass: HomeAssistant, freezer: Any, suffix: str, change: Any, key: str, after: float
+    hass: HomeAssistant,
+    freezer: Any,
+    first_room: dict[str, Any],
+    suffix: str,
+    change: Any,
+    after: dict[str, float],
 ) -> None:
     """The store is the only source here, so its own °F reading must be converted to °C.
 
     A disabled entity restores nothing, and the entry's saved temperatures don't hold a
-    room's target or drift: the store's unit is all that tells 72 °F from 72 °C.
+    room's target, range or drift: the store's unit is all that tells 72 °F from 72 °C.
     """
-    rig = await open_rig(hass, freezer)
+    rig = await open_rig(hass, freezer, first_room=first_room)
     try:
         await change(rig)
         async with stopped(hass, rig.entry):
@@ -319,8 +339,9 @@ async def test_a_helper_disabled_in_the_registry_keeps_its_temperature_across_a_
             hass.config.units = METRIC_SYSTEM
         await rig.settle()
         assert _not_live(rig, suffix)
-        assert getattr(rig.coord.zones[0], key) == after
-        assert rig.row(0)[key] == after
+        zone = rig.coord.zones[0]
+        assert {key: getattr(zone, key) for key in after} == after
+        assert {key: rig.row(0)[key] for key in after} == after
     finally:
         await rig.close()
 
