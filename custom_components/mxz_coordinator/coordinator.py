@@ -3077,7 +3077,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         mode = new_state.state if new_state else None
         if new_state is not None:
             self.fan.head_reported(entity_id, new_state.attributes.get("fan_mode"))
-            self._head_writes_caught_up(entity_id, new_state)
+            self._head_writes_caught_up(entity_id, old_state, new_state)
         refresh_needed = False
         refresh_now = False
         sight = self._sight.get(entity_id)
@@ -3327,12 +3327,15 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
                     self._head_write_same(climate_id, name),
                 )
 
-    def _head_writes_caught_up(self, climate_id: str, state: Any) -> None:
+    def _head_writes_caught_up(self, climate_id: str, old_state: Any, state: Any) -> None:
         """A head's report: the writes before it are behind the head for good."""
         for name, memory in self._head_writes.get(climate_id, {}).items():
             shown = self._head_shows(state, name)
             if shown is not None:
-                memory.caught_up(shown, self._head_write_same(climate_id, name))
+                memory.caught_up(
+                    shown, self._head_write_same(climate_id, name),
+                    moved=shown != self._head_shows(old_state, name),
+                )
 
     def _head_write_is_own(self, climate_id: str, name: str, shown: Any) -> bool:
         memory = self._head_writes.get(climate_id, {}).get(name)

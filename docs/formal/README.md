@@ -42,7 +42,8 @@ stay as they are, and this model doesn't repeat them.
 | A change made at a head is never MXZ's own write: the target never takes a value only MXZ put on the head, apart from the open findings below. | `OwnWriteNeverAdopted`, in `ci-adopt` and `ci-adopt-restart` | `test_no_person_no_adoption_however_a_head_lags`, `test_every_report_of_a_head_showing_writes_in_order_reads_as_own` in `tests/test_accept_head_changes.py` |
 | A reload keeps MXZ's record of its writes, so a write from before it is never adopted. | `StartWriteNeverAdopted`, in `ci-adopt`; open after a process start (SM-1) | `test_the_memory_rides_a_reload_with_the_head_still_behind`, `test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_write_out` |
 | MXZ doesn't write a head's setpoint while a change made there holds. | `HoldBlocksWrite`, in `ci-adopt` | `test_a_change_must_hold_and_isnt_overwritten_while_it_does`, `test_a_press_while_mxzs_command_waits_for_the_head_is_adopted` |
-| Open, SM-10: a write still queued at a head that the memory has dropped is never adopted. | `QueuedWriteNeverAdopted`, a finding in `ci-adopt` | None: it breaks. [STATE-MACHINES.md](../STATE-MACHINES.md#sm-10-a-write-still-queued-at-a-head-can-drop-out-of-mxzs-memory-and-be-adopted-as-a-press) |
+| A write still queued at a head stays in the memory, each copy of a rewrite too, so it is never adopted when it lands, unless a person has pressed a value MXZ still had queued (SM-10, the part a report can tell apart). | `QueuedWriteKept`, in `ci-adopt` | `test_a_rewrite_still_queued_is_not_adopted_over_a_later_press`, `test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value` |
+| Open, SM-10: a write still queued at a head that the memory has dropped is never adopted, also after a person's press of a value MXZ has queued. | `QueuedWriteNeverAdopted`, a finding in `ci-adopt` | None: it breaks. [STATE-MACHINES.md](../STATE-MACHINES.md#sm-10-a-write-still-queued-at-a-head-can-drop-out-of-mxzs-memory-and-be-adopted-as-a-press) |
 
 ## Documented exceptions
 
@@ -62,6 +63,7 @@ pinned by a passing test that fails if the behavior changes. They aren't xfails 
 | **A hold seeded with no memory can be adopted** if it is a rung the ladder would stay on. `FanHold._seed_matches_boost` accepts this. | `pickKind = "seed"` | `test_restart_adopts_a_rung_held_by_hysteresis` in `tests/test_drive.py` |
 | **A start can hold a speed nobody touched**: `FanHold._reconcile_restored_hold`'s conservative false hold. A speed boost could never have written holds, even right after a hand-back. | `NoFalseHold` counts live reads only | `test_s11b_not_held_seed_above_boost_ceiling` in `tests/test_fan_hold_restore.py` |
 | **A write already sent can land after a Fan auto gesture.** MXZ writes nothing after the gesture, but a head still applying the earlier write can report it next. | `pickKind = "inflight"`; `gesture` | The spec's `ci-fan-lag` |
+| **A press back to a setpoint MXZ wrote again while its head lagged reads as MXZ's write once.** The memory keeps each copy of a rewrite until a report shows it, and a copy that lands while the head already shows the value shows nothing. After a person's press of another value is adopted, a press back to the rewritten one reads as that copy: the head goes back to the room's target, and once it shows that write, a press of the value is a press. | Each memory entry's copies, `n` | `test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once` in `tests/test_accept_head_changes.py` |
 | **A change on the head during the close delay** lasts one compute: the window has already closed, so the room goes on closing. It's chart transition W8. | Reachable in `ci-window` | `OverrideHolds` binds only while the window isn't closed |
 | **A head that refuses its command keeps its old mode** while the others run the new one, until it takes a retry at a later update (SM-5). Sending parks before runs would be a change to the delivery queue. | `refused`; `HeadsFollowMode` and `PauseStopsHead` leave a refused head out; reachable by `NeverRefused` in `ci-apply` | `test_a_head_that_raises_during_a_mode_change_doesnt_undo_the_change` |
 | **A fixed standby park sends every head to the park mode**, a paused one included. `PauseStopsHead` holds because standby is outside the model. | Not a step of the machine | `docs/FEATURES.md`, standby hold |
@@ -87,8 +89,9 @@ a person, is the fan memory's rule for a head's mode and setpoints (`logic.py`
 lagging head hasn't shown yet in order, the memory as `HeadWriteMemory` keeps it, the hold, startup
 quiet, a reload and a process start. Each queued write carries a ghost kind saying how it left the
 memory, if it did, so the strict rule is checked and each way past it is a finding of its own:
-SM-1 (a process start) and SM-10 (a person's press of a remembered value, or `HeadWriteMemory.seen`
-replacing a queued write). The enable (on and off at the head), the heat/cool choice and every gate
+SM-1 (a process start) and SM-10 (a person's press of a value MXZ still has queued, after which
+`HeadWriteMemory.caught_up` or `HeadWriteMemory.seen` can drop a queued write). The memory counts
+each value's copies, so a rewrite is not a way past it (`QueuedWriteKept`). The enable (on and off at the head), the heat/cool choice and every gate
 but startup quiet are not in it; the tests in `tests/test_accept_head_changes.py` hold those.
 [STATECHART.md](STATECHART.md#changes-made-at-a-head) charts it.
 

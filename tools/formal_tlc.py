@@ -120,6 +120,12 @@ MUTANTS = {
            "/\\ WithAdopt /\\ spShown # target", "ci-adopt", "HoldBlocksWrite"),
     "A3": ("a reload loses the memory, as a process start does", "Reload == WithReload /\\ Start(FALSE, FALSE, fanShown)",
            "Reload == WithReload /\\ Start(TRUE, FALSE, fanShown)", "ci-adopt", "StartWriteNeverAdopted"),
+    "A4": ("a rewrite of the last value is kept once",
+           "THEN [m EXCEPT ![Len(m)].n = IF @ < QueueMax THEN @ + 1 ELSE @]", "THEN m",
+           "ci-adopt", "QueuedWriteKept"),
+    "A5": ("a person's value replaces a value with copies still to come",
+           "ELSE IF mem[1].n > 0 THEN <<[v |-> v, n |-> 0]>> \\o mem",
+           "ELSE IF FALSE THEN <<[v |-> v, n |-> 0]>> \\o mem", "ci-adopt", "QueuedWriteKept"),
 }
 
 def java() -> list[str]:

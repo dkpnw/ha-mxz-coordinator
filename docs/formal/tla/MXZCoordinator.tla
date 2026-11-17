@@ -146,10 +146,12 @@ VARIABLES
     quiet,              \* coordinator._startup_quiet
     shownKind,          \* ghost: what put spShown there: "person", or a queued write's kind
     adopted,            \* ghost: the kinds of MXZ's own writes the target took
-    writeInHold         \* ghost: MXZ wrote room 1's setpoint while a hold counted
+    writeInHold,        \* ghost: MXZ wrote room 1's setpoint while a hold counted
+    pressedQueued       \* ghost: a person pressed a value MXZ still had queued at the head
 
 splitVars == <<phase, want, left, refused, fresh, picked, trailing, cutShort>>
-adoptVars == <<target, spShown, spQueue, spMem, holding, quiet, shownKind, adopted, writeInHold>>
+adoptVars == <<target, spShown, spQueue, spMem, holding, quiet, shownKind, adopted, writeInHold,
+               pressedQueued>>
 fanVars == <<fanShown, fanSent, fanCmd, fanPrev, fanOlder, fanIdx, fanLatched, fanRestore, saved>>
 winVars == <<winRead, winChanged, winState, winOverride, storedWin, storedOverride>>
 ghosts == <<lastChange, decided, pick, pickKind, pickSeen, gesture, flipInDwell, flipLate,
@@ -297,14 +299,24 @@ Eligible(t) == IF InCeiling(t) THEN t ELSE "auto"
 \* The mode a start would read from the record (restore_shared_mode, no restore data).
 Recorded == IF storedMode = None THEN "cool" ELSE storedMode
 
-\* logic.HeadWriteMemory: own, seen, wrote and caught_up.
-Own(mem, v) == \E i \in 1..Len(mem) : mem[i] = v
-Seen(mem, v) == IF Len(mem) = 0 THEN <<v>> ELSE <<v>> \o Tail(mem)
+\* logic.HeadWriteMemory: own, seen, wrote and caught_up. Each entry is a value and its
+\* copies, the writes of it the head hasn't been seen to show. The model's head is at most
+\* QueueMax writes behind, so a count past that is QueueMax: a bounded memory, as the
+\* code's is. Every report in the model moves the setpoint.
+Own(mem, v) == \E i \in 1..Len(mem) : mem[i].v = v
+Seen(mem, v) == IF Len(mem) = 0 THEN <<[v |-> v, n |-> 0]>>
+                ELSE IF mem[1].n > 0 THEN <<[v |-> v, n |-> 0]>> \o mem
+                ELSE <<[v |-> v, n |-> 0]>> \o Tail(mem)
 Wrote(mem, v, shown) ==
     LET m == IF Own(mem, shown) THEN mem ELSE Seen(mem, shown)
-    IN IF Len(m) > 0 /\ m[Len(m)] = v THEN m ELSE Append(m, v)
+    IN IF Len(m) > 0 /\ m[Len(m)].v = v
+       THEN [m EXCEPT ![Len(m)].n = IF @ < QueueMax THEN @ + 1 ELSE @]
+       ELSE Append(m, [v |-> v, n |-> 1])
 RECURSIVE CaughtUp(_, _)
-CaughtUp(mem, v) == IF ~Own(mem, v) \/ mem[1] = v THEN mem ELSE CaughtUp(Tail(mem), v)
+CaughtUp(mem, v) ==
+    IF ~Own(mem, v) THEN mem
+    ELSE IF mem[1].v = v THEN [mem EXCEPT ![1].n = IF @ > 0 THEN @ - 1 ELSE 0]
+    ELSE CaughtUp(Tail(mem), v)
 
 \* The queued writes the memory no longer holds, filed under what dropped them.
 Orphan(queue, mem, cause) ==
@@ -331,6 +343,7 @@ TypeOK ==
     /\ want \in [RoomIds -> {"off", "fan_only"} \cup Modes]
     /\ target \in Setpoints /\ spShown \in Setpoints /\ Len(spQueue) <= QueueMax
     /\ shownKind \in WriteKinds \cup {"person"} /\ adopted \subseteq WriteKinds
+    /\ pressedQueued \in BOOLEAN
 
 Init ==
     /\ real = 0 /\ boot = 0
@@ -354,6 +367,7 @@ Init ==
     /\ picked = FALSE /\ trailing = FALSE /\ cutShort = FALSE
     /\ target = 1 /\ spShown = 1 /\ spQueue = <<>> /\ spMem = <<>> /\ holding = FALSE
     /\ quiet = FALSE /\ shownKind = "mxz" /\ adopted = {} /\ writeInHold = FALSE
+    /\ pressedQueued = FALSE
 
 (***************************************************************************)
 (* Decide: MXZCoordinator._compute then _apply.                            *)
@@ -702,7 +716,7 @@ Start(process, crash, outage) ==
     /\ holding' = FALSE
     /\ quiet' = (WithAdopt /\ process)
     /\ spQueue' = IF process THEN Orphan(spQueue, <<>>, "start") ELSE spQueue
-    /\ UNCHANGED <<target, spShown, shownKind, adopted, writeInHold>>
+    /\ UNCHANGED <<target, spShown, shownKind, adopted, writeInHold, pressedQueued>>
     /\ UNCHANGED <<real, pos, head, storedMode, storedStamp, winRead, winChanged, storedWin, storedOverride>>
     /\ UNCHANGED <<lastChange, flipInDwell, flipLate, fanOverwritten, exceptionLost, falseHold, twoBehind, falseHoldTwoBehind,
                    pauseBroken, overrideBroken>>
@@ -737,7 +751,8 @@ Report(v, by) ==
 \* ends a hold (drop_head_change): the later change wins.
 SetTarget == WithAdopt /\ \E v \in Targets :
     /\ v # target /\ target' = v /\ holding' = FALSE
-    /\ UNCHANGED <<spShown, spQueue, spMem, quiet, shownKind, adopted, writeInHold, others>>
+    /\ UNCHANGED <<spShown, spQueue, spMem, quiet, shownKind, adopted, writeInHold, pressedQueued,
+                   others>>
 
 \* The apply's setpoint write (LocalDriver._async_apply, DeliveryQueue._async_issue): skipped while a hold
 \* counts (_head_change_settling), remembered before it goes out.
@@ -746,7 +761,7 @@ WriteSp ==
     /\ spMem' = Wrote(spMem, target, spShown)
     /\ spQueue' = Append(Orphan(spQueue, spMem', "seen"), [v |-> target, kind |-> "mxz"])
     /\ writeInHold' = (writeInHold \/ holding)
-    /\ UNCHANGED <<target, spShown, holding, quiet, shownKind, adopted, others>>
+    /\ UNCHANGED <<target, spShown, holding, quiet, shownKind, adopted, pressedQueued, others>>
 
 \* The lagging head shows the oldest write it hasn't shown yet.
 HeadShows ==
@@ -755,12 +770,13 @@ HeadShows ==
     /\ IF Head(spQueue).v = spShown
        THEN UNCHANGED <<spShown, spMem, holding, shownKind>>
        ELSE Report(Head(spQueue).v, Head(spQueue).kind)
-    /\ UNCHANGED <<target, quiet, adopted, writeInHold, others>>
+    /\ UNCHANGED <<target, quiet, adopted, writeInHold, pressedQueued, others>>
 
 \* A person at the head's remote. Writes still queued at the head can land after it.
 PersonPress == WithAdopt /\ \E v \in Setpoints :
     /\ v # spShown /\ Report(v, "person")
     /\ spQueue' = Orphan(spQueue, spMem', "echo")
+    /\ pressedQueued' = (pressedQueued \/ \E i \in 1..Len(spQueue) : spQueue[i].v = v)
     /\ UNCHANGED <<target, quiet, adopted, writeInHold, others>>
 
 \* The hold ends (ADOPT_DELAY): a change that still counts becomes the room's target.
@@ -774,13 +790,14 @@ AdoptFires ==
             /\ spQueue' = Orphan(spQueue, spMem', "seen")
             /\ adopted' = adopted \cup (IF shownKind = "person" THEN {} ELSE {shownKind})
        ELSE UNCHANGED <<target, spMem, spQueue, adopted>>
-    /\ UNCHANGED <<spShown, quiet, shownKind, writeInHold, others>>
+    /\ UNCHANGED <<spShown, quiet, shownKind, writeInHold, pressedQueued, others>>
 
 \* coordinator._on_startup_timer, STARTUP_RECOVER_DELAY after Home Assistant starts.
 QuietEnds ==
     /\ WithAdopt /\ quiet
     /\ quiet' = FALSE
-    /\ UNCHANGED <<target, spShown, spQueue, spMem, holding, shownKind, adopted, writeInHold, others>>
+    /\ UNCHANGED <<target, spShown, spQueue, spMem, holding, shownKind, adopted, writeInHold,
+                   pressedQueued, others>>
 
 Next ==
     \/ Decide \/ Reading \/ Tick \/ Select
@@ -845,6 +862,10 @@ RecordLeadsHeads == ~trailing
 OwnWriteNeverAdopted == "mxz" \notin adopted
 StartWriteNeverAdopted == "start" \notin adopted
 QueuedWriteNeverAdopted == adopted \cap {"echo", "seen"} = {}
+
+\* The part of SM-10 a report can tell apart: until a person presses a value MXZ still has
+\* queued at the head, no queued write leaves the memory and is adopted.
+QueuedWriteKept == pressedQueued \/ QueuedWriteNeverAdopted
 
 \* No setpoint write to a head while a change made at it holds.
 HoldBlocksWrite == ~writeInHold

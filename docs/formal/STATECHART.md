@@ -423,7 +423,9 @@ other rungs.
 write behind, targets set in Home Assistant, presses at the head of the same two values
 (`TwoValues`), no reload or restart: 280 states. Rules that hold: `OwnWriteNeverAdopted`,
 `HoldBlocksWrite`, `StartWriteNeverAdopted`. Rule that breaks: `QueuedWriteNeverAdopted`,
-open finding SM-10.
+open finding SM-10. Drawn before the memory counted each copy of a rewrite; not redrawn since. With
+a head one write behind there is no second copy to count, and the path below, a press of the
+value on its way, is the part of SM-10 that is still open.
 
 ```mermaid
 ---

@@ -325,15 +325,35 @@ MUTANTS: dict[str, Mutant] = {
     ),
     'C47': Mutant(
         "a report doesn't pass the writes before it", 'caught_up',
-        'while not same(reported, self._values[0]):\n                self._values.popleft()',
+        'while not same(reported, self._entries[0][0]):\n            self._entries.popleft()\n            passed = True',
         'pass',
         'tests/test_accept_head_changes.py::test_a_report_of_the_last_write_ends_all_the_others',
     ),
     'C48': Mutant(
         "a person's value replaces the writes still coming", 'seen',
-        'if self._values:\n            self._values.popleft()\n        self._values.appendleft(shown)',
-        'self._values.clear()\n        self._values.append(shown)',
+        'if self._entries and (not self._entries[0][1] or len(self._entries) == self._size):\n'
+        '            self._entries.popleft()\n        self._entries.appendleft([shown, 0])',
+        'self._entries.clear()\n        self._entries.append([shown, 0])',
         'tests/test_accept_head_changes.py::test_a_person_replaces_what_the_head_last_showed_not_what_is_still_coming',
+    ),
+    # A write still queued at a head stays remembered (QueuedWriteNeverAdopted in ci-adopt-queued).
+    'C49': Mutant(
+        'a rewrite of the last value is kept once', 'wrote',
+        'self._entries[-1][1] += 1',
+        'pass',
+        'tests/test_accept_head_changes.py::test_a_rewrite_still_queued_is_not_adopted_over_a_later_press',
+    ),
+    'C50': Mutant(
+        "a person's value replaces a value with copies still to come", 'seen',
+        '(not self._entries[0][1] or len(self._entries) == self._size)',
+        'True',
+        'tests/test_accept_head_changes.py::test_a_rewrite_still_queued_is_not_adopted_over_a_later_press',
+    ),
+    'C51': Mutant(
+        'a report that moves nothing shows a copy', 'caught_up',
+        'if (passed or moved) and self._entries[0][1]:',
+        'if self._entries[0][1]:',
+        'tests/test_accept_head_changes.py::test_a_report_that_moves_nothing_shows_no_copy',
     ),
     'H1': Mutant(
         'the hold no longer gates a change', 'shared_mode',

@@ -16,6 +16,11 @@ on your equipment.
   follow one thermostat's sensor. Each head is still its own room with its own target, switches,
   freshness limit, freeze floor and fan hold. The summary names each shared sensor and its rooms.
   See [One sensor for several heads](docs/SETUP.md#one-sensor-for-several-heads).
+- Fix: with Accept changes made at the head on, a setpoint MXZ sent twice to a head that was
+  slow to show it no longer overrides a person's later press when its second copy arrives. MXZ
+  now remembers each copy. In exchange, right after such a double send, a press back to that
+  same value is read as MXZ's own once, and the head goes back to the room's target; the next
+  press of it is taken.
 - Fix: after a restart, the Heat lockout and Cool lockout stay as they were until the weather
   source has been read. Before, a source still loading at the start read as "no reading" and
   turned both lockouts off until it loaded. A source that never loads holds them for at most an

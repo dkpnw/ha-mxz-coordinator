@@ -914,6 +914,59 @@ async def test_the_lagging_write_after_an_adopted_press_is_still_mxz_s(hass: Hom
     await rig.close()
 
 
+async def _rewritten_while_lagging(rig: Rig) -> None:
+    """MXZ writes 72 on two applies while the head still shows 70: two copies queued."""
+    rig.heads[0].lags_commands = True
+    await _set_target(rig.hass, rig.eid("_primary_target"), 72)
+    await rig.settle()
+    await rig.settle()
+    assert [command["target_temp_high"] for command in rig.heads[0].unreported_commands] == [72, 72]
+
+
+async def test_a_rewrite_still_queued_is_not_adopted_over_a_later_press(hass: HomeAssistant, freezer: Any) -> None:
+    """docs/STATE-MACHINES.md SM-10, a rewrite kept once: the second 72 lands after the press."""
+    rig = await _cooling(hass, freezer)
+    await _rewritten_while_lagging(rig)
+    assert await rig.report_next_command()
+    assert _edges(rig)[1] == 72
+    await _press(rig, low=64, high=66)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    while await rig.report_next_command():
+        assert not _armed(rig)
+        await rig.later(HELD)
+        assert _target(rig) == 66
+    assert _edges(rig) == (64, 66)
+    await rig.close()
+
+
+async def test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once(hass: HomeAssistant, freezer: Any) -> None:
+    """The cost of keeping each copy (F1), and its end.
+
+    The head took both copies of 72, the second with nothing new to show, so MXZ still
+    counts one. A person's 66 is adopted; a press back to 72 then reads as MXZ's copy and
+    the head goes back to 66. Once the head shows that write, a press of 72 is a press.
+    """
+    rig = await _cooling(hass, freezer)
+    await _rewritten_while_lagging(rig)
+    rig.heads[0].lags_commands = False
+    await rig.report_next_command()
+    await rig.report_next_command()
+    await _press(rig, low=64, high=66)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    await _press(rig, low=70, high=72)
+    assert not _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    assert _edges(rig) == (64, 66)
+    await _press(rig, low=70, high=72)
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    await rig.close()
+
+
 async def test_a_press_of_a_write_the_head_has_passed_is_adopted(hass: HomeAssistant, freezer: Any) -> None:
     """The memory is only as wide as the lag."""
     rig = await _cooling(hass, freezer)
@@ -1110,6 +1163,53 @@ def test_a_person_replaces_what_the_head_last_showed_not_what_is_still_coming() 
     assert not memory.own(0)
     memory.wrote(2, 8)  # shown isn't remembered: the same again
     assert memory.values == (8, 1, 2)
+
+
+@given(
+    actions=st.lists(
+        st.one_of(
+            st.integers(0, 4).map(lambda v: ("write", v)),
+            st.just(("land", None)),
+            st.integers(5, 9).map(lambda v: ("press", v)),
+        ),
+        max_size=30,
+    ),
+)
+@PURE
+def test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value(actions: list[tuple[str, Any]]) -> None:
+    """SM-10 as far as a report can tell: against an independent queue, a head shows its
+    writes in order, a copy of the value it shows lands with nothing new to show, and a
+    person presses only values MXZ never wrote (a press of a queued one is the open part)."""
+    memory = HeadWriteMemory(64)
+    shown = 100
+    queue: list[int] = []
+    for kind, value in actions:
+        if kind == "write":
+            memory.wrote(value, shown)
+            queue.append(value)
+        elif kind == "land" and queue:
+            landed = queue.pop(0)
+            if landed != shown:
+                memory.caught_up(landed)
+                shown = landed
+        elif kind == "press" and value != shown:
+            memory.seen(value)
+            shown = value
+        assert all(memory.own(queued) for queued in queue), (actions, memory.values, queue)
+
+
+def test_a_report_that_moves_nothing_shows_no_copy() -> None:
+    """A fan report, say, while the head shows MXZ's write: that copy may still be coming."""
+    memory = HeadWriteMemory(8)
+    memory.wrote(1)
+    memory.caught_up(1, moved=False)
+    memory.seen(9)
+    assert memory.values == (9, 1)
+    memory = HeadWriteMemory(8)
+    memory.wrote(1)
+    memory.caught_up(1)
+    memory.seen(9)
+    assert memory.values == (9,)
 
 
 def test_the_memory_is_bounded() -> None:

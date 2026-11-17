@@ -22,10 +22,12 @@ the evidence and the options.
   known. `test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_write_out` pins the
   quiet window, which holds.
 - **SM-10, `QueuedWriteNeverAdopted` in `ci-adopt`.** A write a lagging head hasn't shown yet can
-  drop out of the memory: a rewrite of the same target is kept once, a person's press of a
-  remembered value catches the memory up past older writes, and `HeadWriteMemory.seen` replaces
-  the value it takes for the one shown. When that write lands after a person's later press, it is
-  adopted over the press.
+  drop out of the memory once a person presses a value MXZ still has queued: the press reads as
+  MXZ's write landing, so the memory catches up past older writes or uses the write's copy, and
+  `HeadWriteMemory.seen` then replaces it. When that write lands after a person's later press, it
+  is adopted over the press. A rewrite no longer drops one: each copy is counted, and
+  `QueuedWriteKept` holds in `ci-adopt`. The rest can't be closed without changing what two pinned
+  tests require (STATE-MACHINES.md SM-10).
 
 Both were replayed again on the real code at `ca78324`, on invented heads, each with a control
 that passes: SM-10 on the path the `/statechart` chart draws, where the target ends at 72 over
