@@ -917,12 +917,20 @@ async def test_the_lagging_write_after_an_adopted_press_is_still_mxz_s(hass: Hom
 
 
 async def _rewritten_while_lagging(rig: Rig) -> None:
-    """MXZ writes 72 on two applies while the head still shows 70: two copies queued."""
-    rig.heads[0].lags_commands = True
+    """MXZ writes 72 on two applies while the head still shows 70: two copies queued.
+
+    How many applies one settle runs depends on Home Assistant's refresh scheduling:
+    on 2024.12.5 the first settle runs two refreshes and queues both copies, on 2026.x
+    it runs one. Settle until two are queued, never past it.
+    """
+    head = rig.heads[0]
+    head.lags_commands = True
     await _set_target(rig.hass, rig.eid("_primary_target"), 72)
-    await rig.settle()
-    await rig.settle()
-    assert [command["target_temp_high"] for command in rig.heads[0].unreported_commands] == [72, 72]
+    for _ in range(2):
+        if len(head.unreported_commands) >= 2:
+            break
+        await rig.settle()
+    assert [command["target_temp_high"] for command in head.unreported_commands] == [72, 72]
 
 
 async def test_a_rewrite_still_queued_is_not_adopted_over_a_later_press(hass: HomeAssistant, freezer: Any) -> None:
