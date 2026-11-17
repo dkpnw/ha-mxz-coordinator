@@ -1,7 +1,7 @@
 """Pytest fixtures and configuration.
 
 The pure-logic tests (``test_logic.py``) need no Home Assistant. The integration
-tests need ``pytest-homeassistant-custom-component`` and the ``hass`` fixture; for
+tests need a Home Assistant test plugin (``tests/ha_test.py``) and the ``hass`` fixture; for
 those we enable loading the custom integration. We only pull in
 ``enable_custom_integrations`` for tests that actually request ``hass`` so the pure
 tests still run on a bare ``pytest`` (and don't spin up Home Assistant needlessly).

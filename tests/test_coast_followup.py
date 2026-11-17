@@ -25,20 +25,12 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COOLDOWN
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
-)
 
 from custom_components.mxz_coordinator import coordinator as coordinator_module
 from custom_components.mxz_coordinator.const import (
@@ -61,6 +53,10 @@ from custom_components.mxz_coordinator.const import (
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
 from tests.clocks import Armed
+from tests.ha_test import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 from tests.peek import armed, debug_view
 from tests.test_drive import (
     INHIBIT,

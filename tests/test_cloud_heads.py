@@ -19,15 +19,10 @@ import time
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.mxz_coordinator.const import (
     CONF_IDLE_ACTION,
@@ -59,6 +54,7 @@ from tests.cloud_heads import (
     setup_rooms,
     writes,
 )
+from tests.ha_test import async_fire_time_changed
 from tests.peek import armed, cloud_record
 from tests.test_drive import _eid
 
@@ -840,7 +836,8 @@ async def test_a_held_back_step_wakes_the_plan_by_itself(
     from datetime import timedelta
 
     from homeassistant.util import dt as dt_util
-    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from tests.ha_test import async_fire_time_changed
 
     a, _b, entry = await _comfort_pair(hass)
     await past_startup(hass, entry)

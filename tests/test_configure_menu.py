@@ -13,16 +13,11 @@ from copy import deepcopy
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant import config_entries
 from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mxz_coordinator.const import (
     DEFAULT_IDLE_ACTION,
@@ -42,6 +37,7 @@ from tests.flow_pages import (
     sections,
     submit,
 )
+from tests.ha_test import MockConfigEntry
 from tests.one_home import assert_one_home
 
 HEADS = ("climate.rec_room", "climate.bedroom", "climate.office")

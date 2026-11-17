@@ -31,18 +31,12 @@ from __future__ import annotations
 from typing import Any
 
 import attr
-import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
@@ -52,6 +46,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_NAME,
     ZONE_SENSOR,
 )
+from tests.ha_test import MockConfigEntry
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -79,7 +74,8 @@ async def _setup_heads(hass: HomeAssistant, count: int) -> list[str]:
     addition cases need three, so this is the same platform setup widened.
     """
     from homeassistant.setup import async_setup_component
-    from pytest_homeassistant_custom_component.common import (
+
+    from tests.ha_test import (
         MockModule,
         MockPlatform,
         mock_integration,

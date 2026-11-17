@@ -1,11 +1,6 @@
 """Per-room drift (#18): a room's re-engage band, per zone, automatable."""
 from __future__ import annotations
 
-import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
@@ -152,10 +147,6 @@ async def test_widening_mid_run_does_not_truncate_the_approach(
 async def _restore_setup(hass, restored):
     """Set up a fresh entry with a seeded restore cache for the primary drift."""
     from homeassistant.core import State
-    from pytest_homeassistant_custom_component.common import (
-        MockConfigEntry,
-        mock_restore_cache_with_extra_data,
-    )
 
     from custom_components.mxz_coordinator.const import (
         CONF_FAN_BOOST_ENABLE,
@@ -164,6 +155,10 @@ async def _restore_setup(hass, restored):
         CONF_SECONDARY_CLIMATE,
         CONF_SECONDARY_SENSOR,
         DOMAIN,
+    )
+    from tests.ha_test import (
+        MockConfigEntry,
+        mock_restore_cache_with_extra_data,
     )
 
     hass.config.units = US_CUSTOMARY_SYSTEM

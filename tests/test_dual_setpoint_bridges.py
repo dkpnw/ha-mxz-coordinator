@@ -21,7 +21,7 @@ reason, never passed, and ``tools.pytest_phases`` fails the run on that skip.
 HA 2024.12 has no ``HassClimateSetTemperature`` intent; there the Assist test
 checks that the intent is unknown, rather than skipping.
 
-Requires pytest-homeassistant-custom-component (Python 3.12+).
+Requires a Home Assistant test plugin (tests/ha_test.py).
 """
 
 from __future__ import annotations
@@ -32,10 +32,6 @@ import types
 from types import SimpleNamespace
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import intent

@@ -11,15 +11,12 @@ import time
 from datetime import timedelta
 
 import pytest
-
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.mxz_coordinator.clock import Clock as MXZClock
 from tests.clocks import Clock, Time
+from tests.ha_test import async_fire_time_changed
 
 
 async def _later(hass: HomeAssistant, seconds: float) -> None:

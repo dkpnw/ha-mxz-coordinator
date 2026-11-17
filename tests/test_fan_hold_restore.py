@@ -17,11 +17,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import restore_state as rs
 from homeassistant.util import dt as dt_util
@@ -382,10 +377,6 @@ async def test_switch_restore_path_end_to_end(hass: HomeAssistant) -> None:
     docstring).
     """
     from homeassistant.core import State
-    from pytest_homeassistant_custom_component.common import (
-        MockConfigEntry,
-        mock_restore_cache,
-    )
 
     from custom_components.mxz_coordinator.const import (
         CONF_FAN_BOOST_ENABLE,
@@ -394,6 +385,10 @@ async def test_switch_restore_path_end_to_end(hass: HomeAssistant) -> None:
         CONF_SECONDARY_CLIMATE,
         CONF_SECONDARY_SENSOR,
         DOMAIN,
+    )
+    from tests.ha_test import (
+        MockConfigEntry,
+        mock_restore_cache,
     )
 
     hass.config.units = US_CUSTOMARY_SYSTEM

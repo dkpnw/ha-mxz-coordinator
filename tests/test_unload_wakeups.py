@@ -11,16 +11,12 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from tests.clocks import pass_time
 from tests.cloud_heads import SENSORS, past_startup, record, writes
+from tests.ha_test import async_fire_time_changed
 from tests.peek import armed, armed_wakeups
 from tests.test_cloud_heads import _comfort_pair, _driven
 from tests.test_door_window import OPEN

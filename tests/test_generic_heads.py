@@ -17,16 +17,11 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COOLDOWN
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.mxz_coordinator.const import (
     CONF_IDLE_ACTION,
@@ -60,6 +55,7 @@ from tests.cloud_heads import (
     writes,
 )
 from tests.generic_heads import GENERIC, OddFanHead, PlainHead, RichHead
+from tests.ha_test import async_fire_time_changed
 from tests.test_drive import _eid
 
 GEN = {ZONE_HEAD_TYPE: HEAD_TYPE_GENERIC}

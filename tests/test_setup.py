@@ -1,16 +1,10 @@
-"""Setup / coordinator behavior tests (requires pytest-homeassistant-custom-component)."""
+"""Setup / coordinator behavior tests (requires a Home Assistant test plugin, tests/ha_test.py)."""
 
 from __future__ import annotations
-
-import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mxz_coordinator.const import (
     CONF_PRIMARY_CLIMATE,
@@ -19,6 +13,7 @@ from custom_components.mxz_coordinator.const import (
     CONF_SECONDARY_SENSOR,
     DOMAIN,
 )
+from tests.ha_test import MockConfigEntry
 
 _DATA = {
     CONF_PRIMARY_CLIMATE: "climate.primary",

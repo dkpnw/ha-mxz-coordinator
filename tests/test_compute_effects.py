@@ -24,10 +24,6 @@ from homeassistant.core import HomeAssistant, ServiceRegistry
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.storage import Store
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_mock_service,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_IDLE_ACTION,
@@ -54,6 +50,10 @@ from tests.cloud_heads import (
     recompute,
     register,
     setup_rooms,
+)
+from tests.ha_test import (
+    MockConfigEntry,
+    async_mock_service,
 )
 from tests.test_cloud_control import _advance, _issue, _standoff
 from tests.test_door_window import CLOSE, OPEN, PAUSE_NOTICE, WINDOW, WINDOW_ON

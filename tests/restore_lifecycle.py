@@ -25,8 +25,8 @@ def trace(event, **values):
     print("RESTORE " + json.dumps({"event": event, **values}, default=str, sort_keys=True))
 
 
-# The tests import through pytest_homeassistant_custom_component, so that plugin
-# comes first where it is installed. Home Assistant ships its own plugin for cores
+# tests/ha_test.py takes the helpers from pytest_homeassistant_custom_component where
+# it is installed, so that plugin comes first. Home Assistant ships its own plugin for cores
 # the custom-component one no longer follows: pytest-homeassistant, named
 # pytest-home-assistant before 2026.11.0b4, both with the same module.
 _TEST_PLUGINS = (

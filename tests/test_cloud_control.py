@@ -20,17 +20,12 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COOLDOWN
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.mxz_coordinator.const import (
     CONF_MODE_HYSTERESIS,
@@ -62,6 +57,7 @@ from tests.cloud_heads import (
     setup_rooms,
     writes,
 )
+from tests.ha_test import async_fire_time_changed
 from tests.peek import armed
 from tests.test_drive import _eid
 

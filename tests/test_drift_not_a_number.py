@@ -15,18 +15,14 @@ import logging
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mxz_coordinator.const import DOMAIN
 from tests.flow_pages import open_options_page, prefilled, submit
+from tests.ha_test import MockConfigEntry
 from tests.test_configure_menu import _entry
 from tests.test_drive import (
     SENSOR_A,

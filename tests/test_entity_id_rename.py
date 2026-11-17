@@ -72,10 +72,6 @@ from collections import Counter
 from datetime import timedelta
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from awesomeversion import AwesomeVersion
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.const import __version__ as HA_VERSION
@@ -87,10 +83,6 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COOLDOWN
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_PRIMARY_CLIMATE,
@@ -101,6 +93,10 @@ from custom_components.mxz_coordinator.const import (
     SERVICE_RECOMPUTE,
 )
 from tests.dwell import expire_dwell
+from tests.ha_test import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 from tests.restart import restart
 from tests.test_drive import (
     SENSOR_A,

@@ -27,16 +27,9 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import (
-    async_fire_time_changed_exact,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_IDLE_ACTION,
@@ -65,6 +58,9 @@ from custom_components.mxz_coordinator.const import (
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator, _read_marker
 from custom_components.mxz_coordinator.logic import evidence_contract, sample_evidence
+from tests.ha_test import (
+    async_fire_time_changed_exact,
+)
 
 from .test_drive import SENSOR_A, SENSOR_B, _eid, _recompute
 from .test_sensor_freshness import (

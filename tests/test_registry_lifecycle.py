@@ -33,26 +33,22 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import restore_state as rs
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_mock_restore_state_shutdown_restart,
-    flush_store,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_ZONES,
     ZONE_CLIMATE,
     ZONE_NAME,
     ZONE_SENSOR,
+)
+from tests.ha_test import (
+    MockConfigEntry,
+    async_mock_restore_state_shutdown_restart,
+    flush_store,
 )
 from tests.restart import restart, stopped
 from tests.restore_store import set_stored_states

@@ -35,10 +35,6 @@ from homeassistant.components.climate import HVACMode
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_mock_service,
-)
 
 from custom_components.mxz_coordinator.climate import MXZRoomClimate
 from custom_components.mxz_coordinator.const import (
@@ -70,6 +66,10 @@ from custom_components.mxz_coordinator.diagnostics import (
     async_get_config_entry_diagnostics,
 )
 from tests.cloud_heads import ComfortHead, register
+from tests.ha_test import (
+    MockConfigEntry,
+    async_mock_service,
+)
 from tests.test_drive import MockHead, _eid, _set_target, _set_temp
 from tests.test_dry_mode import DryHead
 from tests.test_startup_continuity import _head

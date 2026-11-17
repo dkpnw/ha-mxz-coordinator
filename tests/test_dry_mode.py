@@ -40,11 +40,6 @@ from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COOLDOWN
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
-    async_mock_service,
-)
 
 from custom_components.mxz_coordinator.capabilities import IDLE_ACTION_LABELS
 from custom_components.mxz_coordinator.const import (
@@ -91,6 +86,11 @@ from tests.cloud_heads import (
 )
 from tests.dwell import expire_dwell
 from tests.flow_pages import default, fields, open_options_page, prefilled, submit
+from tests.ha_test import (
+    MockConfigEntry,
+    async_fire_time_changed,
+    async_mock_service,
+)
 from tests.peek import armed
 from tests.test_drive import MockHead, _eid, _set_target, _set_temp
 from tests.test_startup_continuity import _head, _shutdown, _startup

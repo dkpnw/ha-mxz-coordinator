@@ -4,11 +4,6 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, State
 from homeassistant.data_entry_flow import FlowResultType
@@ -16,15 +11,6 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    MockModule,
-    MockPlatform,
-    mock_integration,
-    mock_platform,
-    mock_restore_cache,
-    mock_restore_cache_with_extra_data,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_NOTIFY_SERVICE,
@@ -33,6 +19,15 @@ from custom_components.mxz_coordinator.const import (
     ZONE_CLIMATE,
     ZONE_NAME,
     ZONE_SENSOR,
+)
+from tests.ha_test import (
+    MockConfigEntry,
+    MockModule,
+    MockPlatform,
+    mock_integration,
+    mock_platform,
+    mock_restore_cache,
+    mock_restore_cache_with_extra_data,
 )
 
 from .test_drive import _set_temp

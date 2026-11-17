@@ -14,10 +14,10 @@ from copy import deepcopy
 
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mxz_coordinator.const import DOMAIN
 from tests.flow_pages import open_options_page, prefilled, submit
+from tests.ha_test import MockConfigEntry
 from tests.test_setup_flow import (
     BEDROOM,
     BEDROOM_SENSOR,

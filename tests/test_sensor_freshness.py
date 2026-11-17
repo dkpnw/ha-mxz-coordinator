@@ -22,10 +22,6 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import (
@@ -35,10 +31,6 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import (
     METRIC_SYSTEM,
     US_CUSTOMARY_SYSTEM,
-)
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
 )
 
 from custom_components.mxz_coordinator.const import (
@@ -80,6 +72,10 @@ from custom_components.mxz_coordinator.coordinator import (
     MXZCoordinator,
 )
 from custom_components.mxz_coordinator.logic import freshness_window, sensor_health
+from tests.ha_test import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
 from .dwell import record_mode_change
 from .test_drive import (

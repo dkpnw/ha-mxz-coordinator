@@ -28,11 +28,11 @@ from homeassistant.const import (
 )
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers import restore_state as rs
-from pytest_homeassistant_custom_component.common import (
-    async_mock_load_restore_state_from_storage,
-)
 
 from custom_components.mxz_coordinator.const import DOMAIN
+from tests.ha_test import (
+    async_mock_load_restore_state_from_storage,
+)
 
 
 @asynccontextmanager

@@ -5,17 +5,12 @@ daily forecast, asserting the integration auto-drives the heat/cool lockout swit
 and that the resulting room decision follows. Proves the decision comes from local
 weather, not the calendar.
 
-Requires pytest-homeassistant-custom-component (Python 3.12+).
+Requires a Home Assistant test plugin (tests/ha_test.py).
 """
 
 from __future__ import annotations
 
 from typing import Any, ClassVar
-
-import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.components.climate import (
     ClimateEntityFeature,
@@ -31,13 +26,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    MockModule,
-    MockPlatform,
-    mock_integration,
-    mock_platform,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_CHANGEOVER_ENTITY,
@@ -50,6 +38,13 @@ from custom_components.mxz_coordinator.const import (
     IDLE_ACTION_FAN_ONLY,
 )
 from tests.dwell import expire_dwell
+from tests.ha_test import (
+    MockConfigEntry,
+    MockModule,
+    MockPlatform,
+    mock_integration,
+    mock_platform,
+)
 from tests.head_entity import HeadEntity
 
 SENSOR_A = "sensor.room_a_temp"

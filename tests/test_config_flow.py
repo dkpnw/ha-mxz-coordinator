@@ -1,4 +1,4 @@
-"""Config and options flow tests (requires pytest-homeassistant-custom-component)."""
+"""Config and options flow tests (requires a Home Assistant test plugin, tests/ha_test.py)."""
 
 from __future__ import annotations
 
@@ -6,10 +6,6 @@ from copy import deepcopy
 
 import pytest
 import voluptuous as vol
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant import config_entries
 from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.core import HomeAssistant
@@ -17,7 +13,6 @@ from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mxz_coordinator.config_flow import (
     MXZOptionsFlow,
@@ -81,6 +76,7 @@ from tests.flow_pages import (
     submit,
     suggested,
 )
+from tests.ha_test import MockConfigEntry
 from tests.one_home import DATA_KEYS, assert_one_home
 
 _VALID = {

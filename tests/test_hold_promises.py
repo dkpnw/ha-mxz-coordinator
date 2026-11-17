@@ -21,15 +21,8 @@ change. All rooms, heads and values are invented.
 from __future__ import annotations
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant, State
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import (
-    mock_restore_cache,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_RESTING_MODE_BIAS,
@@ -40,6 +33,9 @@ from custom_components.mxz_coordinator.const import (
 from custom_components.mxz_coordinator.logic import arbitrate
 from tests.clocks import jump_wall_clock
 from tests.dwell import assert_not_restamped, assert_restamped, expire_dwell
+from tests.ha_test import (
+    mock_restore_cache,
+)
 from tests.restart import restart
 from tests.test_drive import SENSOR_A, SENSOR_B, _eid, _recompute, _set_temp
 from tests.test_dwell_wakeup import _setup_dwell

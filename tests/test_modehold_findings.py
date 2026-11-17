@@ -9,16 +9,12 @@ and its control (the same steps without the trigger) passed before and after.
 ``verification/run`` requires both to pass. The steps are the model's steps,
 one action each (.claude/skills/verify-mxz-formal/SKILL.md).
 
-Requires pytest-homeassistant-custom-component. All entities are invented.
+Requires a Home Assistant test plugin (tests/ha_test.py). All entities are invented.
 """
 
 from __future__ import annotations
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import restore_state as rs
 

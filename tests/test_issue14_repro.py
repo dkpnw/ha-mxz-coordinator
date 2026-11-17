@@ -1,11 +1,6 @@
 """Repro for #14: idempotent auto-rewrites roll the echo memory -> self-latch."""
 from __future__ import annotations
 
-import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 

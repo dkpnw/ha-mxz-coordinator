@@ -18,22 +18,11 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.setup import async_setup_component
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    MockModule,
-    MockPlatform,
-    mock_integration,
-    mock_platform,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
@@ -46,6 +35,13 @@ from custom_components.mxz_coordinator.const import (
     DOMAIN,
     IDLE_ACTION_FAN_ONLY,
     IDLE_ACTION_OFF,
+)
+from tests.ha_test import (
+    MockConfigEntry,
+    MockModule,
+    MockPlatform,
+    mock_integration,
+    mock_platform,
 )
 from tests.test_drive import (
     EVENT_CALL_SERVICE,

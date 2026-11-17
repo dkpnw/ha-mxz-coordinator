@@ -13,12 +13,7 @@ from copy import deepcopy
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mxz_coordinator import async_migrate_entry
 from custom_components.mxz_coordinator.const import (
@@ -29,6 +24,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_NAME,
     ZONE_SENSOR,
 )
+from tests.ha_test import MockConfigEntry
 from tests.test_setup_flow import (
     BEDROOM,
     BEDROOM_SENSOR,

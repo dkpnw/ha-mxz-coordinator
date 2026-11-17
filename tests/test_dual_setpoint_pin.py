@@ -10,7 +10,7 @@ registry's unique IDs; what the stored entry data and options mean, read as
 including after an options-flow pass over both room pages; and every head
 service call.
 
-Requires pytest-homeassistant-custom-component (Python 3.12+).
+Requires a Home Assistant test plugin (tests/ha_test.py).
 """
 
 from __future__ import annotations
@@ -21,10 +21,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant
 
 from tests.one_home import assert_one_home

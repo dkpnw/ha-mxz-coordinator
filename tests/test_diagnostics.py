@@ -22,7 +22,6 @@ from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.setup import async_setup_component
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mxz_coordinator import diagnostics
 from custom_components.mxz_coordinator.const import (
@@ -40,6 +39,7 @@ from custom_components.mxz_coordinator.diagnostics import (
     async_get_config_entry_diagnostics,
     async_get_device_diagnostics,
 )
+from tests.ha_test import MockConfigEntry
 from tests.test_door_window import Rig, _setup
 from tests.test_setup import _setup as _setup_plain
 from tests.test_startup_continuity import _head

@@ -28,13 +28,6 @@ from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.setup import async_setup_component
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    MockModule,
-    MockPlatform,
-    mock_integration,
-    mock_platform,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
@@ -48,6 +41,13 @@ from custom_components.mxz_coordinator.const import (
     ZONE_SENSOR,
 )
 from tests.clocks import pass_time
+from tests.ha_test import (
+    MockConfigEntry,
+    MockModule,
+    MockPlatform,
+    mock_integration,
+    mock_platform,
+)
 from tests.head_entity import HeadEntity
 from tests.peek import cloud_record
 from tests.test_drive import EVENT_CALL_SERVICE, _eid

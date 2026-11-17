@@ -33,11 +33,6 @@ from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
-    async_mock_service,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
@@ -80,6 +75,11 @@ from tests.flow_pages import (
     sections,
     submit,
     suggested,
+)
+from tests.ha_test import (
+    MockConfigEntry,
+    async_fire_time_changed,
+    async_mock_service,
 )
 from tests.restart import restart, stopped
 from tests.test_drive import MockHead, _eid, _set_target, _set_temp

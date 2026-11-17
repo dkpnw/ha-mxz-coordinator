@@ -14,19 +14,11 @@ import logging
 from datetime import timedelta
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.const import EVENT_HOMEASSISTANT_START, EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COOLDOWN
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
@@ -45,6 +37,10 @@ from custom_components.mxz_coordinator.const import (
     STARTUP_RECOVER_DELAY,
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+from tests.ha_test import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 from tests.test_drive import SENSOR_A, SENSOR_B, _eid, _set_temp, _setup_mock_heads
 
 # The startup timer is armed at the START event and the in-grace steps fire

@@ -15,19 +15,15 @@ from copy import deepcopy
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mxz_coordinator.const import DOMAIN
 from tests.flow_pages import default, setup_tuning, submit
+from tests.ha_test import MockConfigEntry
 
 ALPHA = "climate.sandbox_alpha"
 BETA = "climate.sandbox_beta"

@@ -26,10 +26,6 @@ import weakref
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.components.climate import HVACAction, HVACMode
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError

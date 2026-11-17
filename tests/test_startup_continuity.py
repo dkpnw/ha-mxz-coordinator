@@ -35,10 +35,6 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.const import EVENT_CALL_SERVICE, EVENT_STATE_CHANGED
 from homeassistant.core import HomeAssistant, callback
@@ -46,14 +42,6 @@ from homeassistant.helpers import restore_state as rs
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    MockModule,
-    MockPlatform,
-    async_mock_restore_state_shutdown_restart,
-    mock_integration,
-    mock_platform,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_DEMAND_THRESHOLD,
@@ -78,6 +66,14 @@ from custom_components.mxz_coordinator.switch import (
     ATTR_LAST_FAN_COMMAND,
     ATTR_PRIOR_FAN_COMMAND,
     FanHoldRestoreData,
+)
+from tests.ha_test import (
+    MockConfigEntry,
+    MockModule,
+    MockPlatform,
+    async_mock_restore_state_shutdown_restart,
+    mock_integration,
+    mock_platform,
 )
 from tests.restore_store import find_stored_state, stored_state
 from tests.test_drive import (

@@ -32,10 +32,6 @@ from typing import Any
 
 import pytest
 import voluptuous as vol
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.util import dt as dt_util

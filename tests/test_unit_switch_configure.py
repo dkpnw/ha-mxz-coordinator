@@ -18,7 +18,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from hypothesis import given
 from hypothesis import strategies as st
-from pytest_homeassistant_custom_component.common import MockModule, mock_integration
 
 from custom_components.mxz_coordinator.const import (
     CONF_CHANGEOVER_COOL_BELOW,
@@ -50,6 +49,7 @@ from tests.flow_pages import (
     submit,
     suggested,
 )
+from tests.ha_test import MockModule, mock_integration
 from tests.one_home import DATA_KEYS, assert_one_home
 from tests.property_rig import HOLD, PURE, Rig, open_rig
 from tests.restore_store import replace_stored_state, stored_state

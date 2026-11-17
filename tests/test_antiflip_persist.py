@@ -12,23 +12,16 @@ what the new one can know is the wall-clock time of the last change it finds
 stored. The monotonic clock does not move with the step, so within one
 coordinator nothing here shortens the hold.
 
-Requires pytest-homeassistant-custom-component.
+Requires a Home Assistant test plugin (tests/ha_test.py).
 """
 
 from __future__ import annotations
 
-import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from datetime import timedelta
 
+import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import (
-    async_fire_time_changed,
-)
 
 from custom_components.mxz_coordinator.const import (
     CONF_MODE_HYSTERESIS,
@@ -39,6 +32,9 @@ from custom_components.mxz_coordinator.const import (
 from custom_components.mxz_coordinator.coordinator import COAST_FOLLOWUP_DELAY
 from tests.clocks import jump_wall_clock, pass_time
 from tests.dwell import RESTAMP_TOLERANCE, expire_dwell
+from tests.ha_test import (
+    async_fire_time_changed,
+)
 from tests.peek import armed
 from tests.restart import restart
 from tests.test_drive import SENSOR_A, _eid, _recompute, _set_temp

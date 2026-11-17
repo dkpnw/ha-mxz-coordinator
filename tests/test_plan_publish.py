@@ -16,10 +16,6 @@ from itertools import groupby
 from typing import Any
 
 import pytest
-
-pytest.importorskip("homeassistant")
-pytest.importorskip("pytest_homeassistant_custom_component")
-
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 

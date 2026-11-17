@@ -27,7 +27,8 @@ from homeassistant.const import EVENT_CALL_SERVICE
 from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from tests.ha_test import MockConfigEntry
 
 _STAMP = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 OUT = Path(
