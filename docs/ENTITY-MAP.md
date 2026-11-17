@@ -18,8 +18,8 @@ the legacy YAML mappings below. These existing entities carry the observations:
 
 | Entity surface | Added fields | Meaning |
 | --- | --- | --- |
-| Room `climate.*_thermostat` and `sensor.*_plan` → `zones[]` | `command_attempted_at`, `command_returned_at`, `command_failed_at`, `command_retired_at` | HA software observation times; missing times are `not yet recorded`. |
-| Same room surfaces | `command_status`, `command_error`, `command_deferred`, `command_ownership_retired` | Delivery progress, error, and ownership; a handler return does not prove physical application. |
+| Room `climate.*_thermostat` and `sensor.*_plan` → `zones[]` | `command_attempted_at`, `command_returned_at`, `command_failed_at`, `command_retired_at` | HA software observation times; missing times are `not yet recorded`. `command_failed_at` is the time of the last failed call and stays after a later command returns. |
+| Same room surfaces | `command_status`, `command_error`, `command_deferred`, `command_ownership_retired` | Delivery progress, error, and ownership; a handler return does not prove physical application. `command_error` is the failed call's message, set when a call is `rejected` and `null` again once a later command returns. |
 | `sensor.*_plan` → `zones[]` only | `head_state_updated_at` | The head's HA `last_updated` as of the plan's last update; `not yet recorded` if the head is missing. Not on the room thermostat, so head attribute-only updates add no thermostat events. |
 | Same room surfaces | `command_timestamp_basis`, `plan_target_basis` | Explicit software-time and computed-intent boundaries. |
 | Same room surfaces | `vane_retirement_cleanup`, `control_reasons` | Retired vane cleanup observations and current reasons with next steps. |

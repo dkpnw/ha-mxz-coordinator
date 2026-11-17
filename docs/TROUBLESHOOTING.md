@@ -37,8 +37,8 @@ Studio's row while its head is unavailable; see
 | `sensor_health`, `sensor_age`, `sensors_ok` | Check validity and the freshness contract. Age of an HA write can differ from age of a sample. |
 | `fan_hold`, `control_reasons` | Check ownership, capability, restore, and settings warnings with their suggested next step. |
 | `command_status: pending`, `command_deferred` | A service handler has not returned. New intent waits for that head; independent rooms can continue. |
-| `command_status: rejected` | Read `command_error` and repair the head integration. A later ordinary update may retry. |
-| `command_status: returned` | The HA handler returned. This does not prove the hardware applied the command. |
+| `command_status: rejected` | Read `command_error` and repair the head integration; `command_failed_at` is when the call failed. A later ordinary update may retry. |
+| `command_status: returned` | The HA handler returned. This does not prove the hardware applied the command. `command_error` is `null` once a command returns; `command_failed_at` still shows the last failure. |
 | `cancelled; outcome unknown`, retired ownership | External work may still finish. Check the head's report before relying on its outcome. |
 
 **What these readings can't tell you**
@@ -109,7 +109,9 @@ An enabled room's head is parked for other reasons too, so rule those out first 
 - **Waiting.** A room that needs the other mode parks while it waits; see
   [A room needs heating or cooling but its head waits](#faq-waiting).
 - **Command status.** A room `command_status` of `pending` or `rejected` means MXZ's last
-  command to that head has not returned, or failed; read `command_error`.
+  command to that head has not returned, or failed; read `command_error`. A later command
+  that returns clears `command_error`, and `command_failed_at` keeps the time of the last
+  failure.
 
 If none of these applies, it is a satisfied room parked by its idle action. That is not a
 fault, and the room has not been dropped.

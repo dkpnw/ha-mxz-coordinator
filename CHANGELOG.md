@@ -10,6 +10,9 @@ on your equipment.
 
 ## Unreleased
 
+- Fix: a room's `command_error` is cleared when a later command to its head returns, so an old
+  error no longer sits beside `command_status: returned`. `command_failed_at` still shows the
+  time of the last failure.
 - **Each setting is stored once (config entry v2.3).** Configure settings live in the entry's
   options and the rooms, **Notify on drift** and the saved-temperature unit in its data, where
   every Configure save used to write each setting to both. The first start migrates an entry

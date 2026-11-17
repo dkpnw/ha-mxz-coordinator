@@ -518,6 +518,7 @@ class DeliveryQueue:
             raise HomeAssistantError(f"{climate_id} raised {err!r}") from err
         else:
             observed.update(command_status="returned", command_returned_at=dt_util.utcnow().isoformat())
+            observed.pop("command_error", None)
         finally:
             self._host.publish_delivery()
 
