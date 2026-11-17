@@ -57,6 +57,29 @@ async def test_actual_rejection_then_ordinary_recovery(delivery):
     assert datetime.fromisoformat(r.zone()["command_returned_at"]) >= failed
 
 
+async def test_later_return_clears_command_error_and_keeps_failure_time(delivery):
+    r = delivery
+    room_id = _eid(r.hass, r.entry, "_primary_thermostat")
+    gate = r.arm(behavior="reject")
+    r.sensor()
+    r.tick()
+    await until(gate["entered"].is_set)
+    await until(lambda: r.zone()["command_status"] == "rejected")
+    failed_at = r.zone()["command_failed_at"]
+    for view in (r.zone(), r.hass.states.get(room_id).attributes):
+        assert view["command_error"] == "invented definite rejection"
+        assert view["command_failed_at"] == failed_at
+    await until(lambda: bool(r.calls("b")), 1.0)
+    await r.coord.async_refresh()
+    await r.settle()
+    assert len(r.calls("a")) == 1
+    for view in (r.zone(), r.hass.states.get(room_id).attributes):
+        assert view["command_status"] == "returned"
+        assert view["command_error"] is None
+        assert view["command_failed_at"] == failed_at
+        assert datetime.fromisoformat(view["command_returned_at"]) >= datetime.fromisoformat(failed_at)
+
+
 async def test_software_timestamps_are_absent_until_observed_and_immediate(delivery):
     r = delivery
     # A pending attempt must not overwrite the separately observed prior return.
