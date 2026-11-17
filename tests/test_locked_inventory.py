@@ -55,7 +55,7 @@ def test_actual_checker_rejects_missing_distribution_metadata(tmp_path, monkeypa
         check_lock.main()
 
 
-@pytest.mark.parametrize("args", [[], ["one"], ["one", "two", "three"]])
+@pytest.mark.parametrize("args", [[], ["one"], ["one", "two", "three"], ["one", "two", "three", "four"]])
 def test_actual_checker_rejects_bad_arguments(monkeypatch, args):
     from tools import check_lock
 
