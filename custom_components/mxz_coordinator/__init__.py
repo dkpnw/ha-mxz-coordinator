@@ -55,12 +55,8 @@ from .coordinator import (
 )
 from .issues import async_clear_entry_issues, async_start_repair_monitor
 from .openings import async_load_openings, async_remove_openings
-from .room_state import (
-    SECTION_MODE,
-    SECTION_OPENINGS,
-    async_load_room_state,
-    async_remove_room_state,
-)
+from .resume import SECTION_MODE, SECTION_OPENINGS
+from .room_state import async_load_room_state, async_remove_room_state
 from .settings import entry_config, one_home
 
 _LOGGER = logging.getLogger(__name__)

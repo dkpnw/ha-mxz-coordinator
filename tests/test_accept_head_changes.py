@@ -56,7 +56,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_SENSOR,
 )
 from custom_components.mxz_coordinator.logic import HeadWriteMemory
-from custom_components.mxz_coordinator.room_state import SECTION_HEAD_WRITES
+from custom_components.mxz_coordinator.resume import SECTION_HEAD_WRITES
 from tests.cloud_heads import (
     COMFORT,
     ComfortHead,

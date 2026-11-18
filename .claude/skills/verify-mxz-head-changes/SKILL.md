@@ -61,8 +61,8 @@ them, and run both commands under Run.
 | Model `HeadShows`, `PersonPress` (`Report`) | `coordinator.py` `_on_head_change`, `_head_writes_caught_up`, `_watch_head_change`, `_head_adoption`, `_arm_or_cancel`; `delivery.py` `DeliveryQueue.disown`; `logic.py` `HeadWriteMemory.own`, `HeadWriteMemory.caught_up` |
 | Model `AdoptFires` | `coordinator.py` `_on_heal_timer`, `_async_adopt_head_change`, `_head_change_seen`; `logic.py` `HeadWriteMemory.seen` |
 | Model `SetTarget` | `number.py` `MXZTargetNumber.async_set_native_value`; `coordinator.py` `drop_head_change` |
-| Model `Reload`, `Restart`, `QuietEnds` | `coordinator.py` `MXZCoordinator.__init__` (`_startup_quiet`), `_resume` and `_head_writes_record` (the ledger in the room state store, `room_state.py` `SECTION_HEAD_WRITES`), `_on_startup_timer`; `logic.py` `HeadWriteMemory.record`, `HeadWriteMemory.restored` |
-| Code mutants C44 to C57 | `remember_head_write`, `_head_change_settling`, `_resume`, `HeadWriteMemory.caught_up`, `HeadWriteMemory.seen`, `HeadWriteMemory.wrote`, `DeliveryQueue._async_issue` |
+| Model `Reload`, `Restart`, `QuietEnds` | `coordinator.py` `MXZCoordinator.__init__` (`_startup_quiet`), `_resume` and `_head_writes_record` (the ledger in the room state store, `resume.py` `SECTION_HEAD_WRITES`, read back by `resume.py` `resume`), `_on_startup_timer`; `logic.py` `HeadWriteMemory.record`, `HeadWriteMemory.restored` |
+| Code mutants C44 to C57 | `remember_head_write`, `_head_change_settling`, `resume` (C46), `_resume` (C52), `HeadWriteMemory.caught_up`, `HeadWriteMemory.seen`, `HeadWriteMemory.wrote`, `DeliveryQueue._async_issue` |
 
 Does a change touch it?
 
@@ -71,7 +71,8 @@ git diff --stat ca78324aca3d5402252a585693ae98193cee24ca -- \
   custom_components/mxz_coordinator/coordinator.py custom_components/mxz_coordinator/delivery.py \
   custom_components/mxz_coordinator/heads.py \
   custom_components/mxz_coordinator/logic.py custom_components/mxz_coordinator/number.py \
-  custom_components/mxz_coordinator/room_state.py docs/formal/tla/MXZCoordinator.tla
+  custom_components/mxz_coordinator/resume.py custom_components/mxz_coordinator/room_state.py \
+  docs/formal/tla/MXZCoordinator.tla
 ```
 
 If it lists a file, read the diff against the table. A change inside a listed function needs

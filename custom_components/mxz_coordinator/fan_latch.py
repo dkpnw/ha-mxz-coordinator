@@ -9,6 +9,7 @@ head can show late, never latch it (``FanEcho``).
 One head's state is a ``FanLatch``. Each head report is first passed to
 ``FanLatch.echo.caught_up``, then ``observe_fan`` reads the speed for the next fan write.
 A start's record comes back through ``restored`` and a Fan auto gesture through ``fan_auto``.
+What the room state store and the Fan auto switch keep of a head's hold is a ``FanRecord``.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Any
+from typing import Any, Self
 
 from .const import (
     FAN_AUTO,
@@ -30,6 +31,107 @@ from .const import (
     MODE_HEAT,
 )
 from .logic import fan_for_delta
+
+# Echo baselines, including adopted observations and held user tokens; these
+# historical attribute names do NOT prove command delivery or token ownership.
+# Dual-channel persistence is a workaround for the frozen lifecycle read oracle:
+# clean states must not read extra data. Unavailable states use extra data.
+# Publish memory changes synchronously to keep clean/extra snapshots coherent.
+# Neither channel is a delivery journal or an arbitrary-crash guarantee.
+ATTR_LAST_FAN_COMMAND = "last_fan_command"
+ATTR_PRIOR_FAN_COMMAND = "prior_fan_command"
+ATTR_OLDER_FAN_COMMANDS = "older_fan_commands"
+ATTR_FAN_ON_PENDING = "fan_on_pending"
+
+
+def stored_token(value: Any) -> str | None:
+    """A restored fan token, or None for anything that is not one."""
+    return value if isinstance(value, str) else None
+
+
+def older_tokens(value: Any) -> tuple[str, ...]:
+    """Restored older echo baselines; anything but a list of tokens is none."""
+    if not isinstance(value, list) or not all(isinstance(token, str) for token in value):
+        return ()
+    return tuple(value)
+
+
+def pending_handback(data: Any, held: bool) -> bool:
+    """Only a well-formed explicit instruction can override token inference."""
+    return (
+        held is False and data.get(ATTR_FAN_ON_PENDING) is True
+        and all(data.get(key) is None or isinstance(data.get(key), str)
+                for key in (ATTR_LAST_FAN_COMMAND, ATTR_PRIOR_FAN_COMMAND))
+    )
+
+
+@dataclass(frozen=True)
+class FanRecord:
+    """A head's fan hold as a start reads it (``FanHold.record``).
+
+    MXZ's room state store keeps it as the head's ``fan`` record, and the Fan
+    auto switch carries the same beside its state (``fan_hold.FanHoldRestoreData``,
+    this record as Home Assistant's restore data).
+
+    ``held`` is the one bool that decides a restart: the switch's own state
+    cannot always carry it. The switch is unavailable while the head is
+    missing from the state machine, so a head whose integration is unloaded
+    or failed at shutdown leaves ``unavailable`` persisted — not an answer to
+    "was this room held?". HA stores extra restore data beside the state
+    whatever the state says, so the hold survives the outage that hid it.
+
+    ``last``/``prior`` are the coordinator's echo memory for the head, the
+    last two commanded or adopted tokens (None before any baseline). They
+    permit bounded echo tolerance, not proof that a token came from us.
+    Readers before this field ignore it; a record without it restores the
+    bool alone.
+
+    ``older`` is that memory's older end, only while the head was behind at the
+    stop, oldest first. Absent otherwise, so most records keep their old shape.
+
+    ``on_pending`` is earned only by explicit ON with no usable speed. It
+    survives a saved restart and is consumed once by the first usable report,
+    or cancelled by later OFF. It is not own-command or delivery provenance.
+    Legacy/malformed instructions are absent; held truth always takes priority.
+    """
+
+    held: bool
+    last: str | None = None
+    prior: str | None = None
+    on_pending: bool = False
+    older: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict[str, Any]:
+        """Serialize for the restore store."""
+        data: dict[str, Any] = {
+            "held": self.held,
+            ATTR_LAST_FAN_COMMAND: self.last,
+            ATTR_PRIOR_FAN_COMMAND: self.prior,
+        }
+        # Absent means false, preserving the legacy payload when no explicit
+        # handback awaits a report. Contradictory held truth always wins.
+        if self.on_pending is True and self.held is False:
+            data[ATTR_FAN_ON_PENDING] = True
+        if self.older:
+            data[ATTR_OLDER_FAN_COMMANDS] = list(self.older)
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self | None:
+        """Rebuild from the store; anything but a clean bool is no answer.
+
+        A token that is not a string is no memory, not a different answer.
+        """
+        held = data.get("held")
+        if not isinstance(held, bool):
+            return None
+        return cls(
+            held,
+            stored_token(data.get(ATTR_LAST_FAN_COMMAND)),
+            stored_token(data.get(ATTR_PRIOR_FAN_COMMAND)),
+            pending_handback(data, held),
+            older_tokens(data.get(ATTR_OLDER_FAN_COMMANDS)),
+        )
 
 
 class FanEcho:

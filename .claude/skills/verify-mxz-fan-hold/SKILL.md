@@ -51,7 +51,7 @@ them, and run both commands under Run.
 | Model `Decide` (`Observe`, `ApplyFan`, `Rolled`) | `fan_hold.py` `FanHold._observe_latch`, `FanHold.async_apply`, `FanHold._async_write`, `FanHold.cloud_token`; `fan_latch.py` `observe_fan`, `seed_matches_boost`, `seed_is_own_idle`, `hold_at`, `FanEcho.own`, `FanEcho.wrote`, `FanEcho.caught_up`; `logic.py` `fan_for_delta` |
 | Model `PersonFan`, `HeadReports` | `coordinator.py` `_on_head_change` (the fan report); `fan_hold.py` `FanHold.head_reported`; `fan_latch.py` `FanEcho.caught_up` |
 | Model `FanAutoOnGesture`, `FanAutoOffGesture` | `fan_hold.py` `FanHold.async_set_auto`; `fan_latch.py` `fan_auto`, `adopt` |
-| Model `Restart`, `Crash`, `Dump` (`Reconcile`) | `switch.py` `MXZZoneFanAutoSwitch.async_added_to_hass`, `MXZZoneFanAutoSwitch.extra_restore_state_data`; `fan_hold.py` `FanHold.restore`, `FanHold.command_memory`, `FanHold.older_record`; `fan_latch.py` `restored`, `reconcile_restored_hold` |
+| Model `Restart`, `Crash`, `Dump` (`Reconcile`) | `switch.py` `MXZZoneFanAutoSwitch.async_added_to_hass`, `MXZZoneFanAutoSwitch.extra_restore_state_data`; `fan_hold.py` `FanHold.restore`, `FanHold.restore_record`, `FanHold.command_memory`, `FanHold.older_record`; `fan_latch.py` `restored`, `reconcile_restored_hold`, `FanRecord.from_dict`; `resume.py` `resume` (the store's fan record) |
 | Code mutants C8 to C13, C22, C23, C31 to C41 | the functions above; each mutant names its function in `tools/code_mutants.py` |
 
 Does a change touch it?
@@ -60,6 +60,7 @@ Does a change touch it?
 git diff --stat ca78324aca3d5402252a585693ae98193cee24ca -- \
   custom_components/mxz_coordinator/coordinator.py custom_components/mxz_coordinator/fan_hold.py \
   custom_components/mxz_coordinator/fan_latch.py custom_components/mxz_coordinator/switch.py \
+  custom_components/mxz_coordinator/resume.py \
   docs/formal/tla/MXZCoordinator.tla
 ```
 

@@ -50,10 +50,8 @@ from custom_components.mxz_coordinator.const import (
     ZONE_SAMPLE_TIMESTAMP_ATTR,
     ZONE_SENSOR,
 )
-from custom_components.mxz_coordinator.room_state import (
-    SECTION_FLOOR,
-    _room_state_store,
-)
+from custom_components.mxz_coordinator.resume import SECTION_FLOOR
+from custom_components.mxz_coordinator.room_state import _room_state_store
 from custom_components.mxz_coordinator.sensor import _ATTRS
 from tests.clocks import jump_wall_clock, pass_time
 from tests.dwell import (

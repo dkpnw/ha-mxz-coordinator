@@ -40,7 +40,7 @@ from .logic import (
     opening_reading,
     opening_state,
 )
-from .room_state import SECTION_OPENINGS
+from .resume import SECTION_OPENINGS
 
 if TYPE_CHECKING:
     from homeassistant.core import EventStateChangedData

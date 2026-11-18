@@ -307,6 +307,14 @@ def test_fan_auto_on_with_no_speed_waits_for_one() -> None:
     assert (latch.held, latch.on_pending) == (False, True)
 
 
+def test_fan_auto_off_at_a_speed_ends_a_waiting_on_and_a_restored_truth() -> None:
+    """The hold a person asks for replaces both: neither is left to act on a later report."""
+    waiting = replace(driving(), on_pending=True, restored=False)
+    latch, acted = fan_auto(waiting, "quiet", False, HIGH)
+    assert acted is True
+    assert (latch.held, latch.on_pending, latch.restored) == (True, False, None)
+
+
 def test_fan_auto_off_holds_the_speed_showing() -> None:
     latch, acted = fan_auto(driving(), "medium", False, HIGH)
     assert acted is True

@@ -30,12 +30,12 @@ from .const import (
 )
 from .coordinator import MXZCoordinator, Zone
 from .entity import MXZEntity
-from .fan_hold import (
+from .fan_hold import FanHoldRestoreData
+from .fan_latch import (
     ATTR_FAN_ON_PENDING,
     ATTR_LAST_FAN_COMMAND,
     ATTR_OLDER_FAN_COMMANDS,
     ATTR_PRIOR_FAN_COMMAND,
-    FanHoldRestoreData,
     older_tokens,
     pending_handback,
     stored_token,

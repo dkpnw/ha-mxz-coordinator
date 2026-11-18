@@ -32,6 +32,8 @@ LAYERS = (
     ("planner", {"planner"}),
     # Whether a fan speed a head shows is a person's pick: the manual fan hold's decision.
     ("fan latch", {"fan_latch"}),
+    # What a start takes back from the room state store and the mode record.
+    ("resume", {"resume"}),
     # The one store of each room's state; the controllers hand it their records.
     ("room state", {"room_state"}),
     # Concerns split out of the coordinator. Each reaches it through a Protocol it declares.
@@ -53,7 +55,7 @@ LAYERS = (
 )
 
 # Kept free of Home Assistant so their math is tested directly (docs/DEVELOPMENT.md).
-STDLIB_ONLY = {"const", "units", "logic", "cloud", "plan", "planner", "fan_latch", "settings"}
+STDLIB_ONLY = {"const", "units", "logic", "cloud", "plan", "planner", "fan_latch", "resume", "settings"}
 
 # (importer, imported, type_only): why. Each one is an architecture decision. A runtime
 # exception also covers type-only imports; one that no longer matches an import of its own
