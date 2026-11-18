@@ -15,7 +15,7 @@ Tables (stdlib only):
   ordinary vote; Comfort priority 0 or 1. Every combination, with engaged,
   current, allowed and resting each over every value: 648,000 cases.
 * PAIRS2: two rooms built by the coordinator's own
-  ``MXZCoordinator._zone_arbitration_pair`` (demand, hands-off vote, Safety
+  ``planner.arbitration_entries`` (demand, hands-off vote, Safety
   priority, floor or ceiling, Dry vote, Comfort priority 0 or 1), with
   engaged, current and allowed over every value: 373,248 cases.
 
@@ -75,7 +75,7 @@ def _rooms3():
 
 
 def _pairs2():
-    from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+    from custom_components.mxz_coordinator.planner import arbitration_entries
 
     per_room = list(
         itertools.product(
@@ -90,7 +90,7 @@ def _pairs2():
     built: dict[int, list[tuple[Any, ...]]] = {}
     for index in (0, 1):
         built[index] = [
-            MXZCoordinator._zone_arbitration_pair(
+            arbitration_entries(
                 demand=demand, vote=vote, safety=safety, index=index,
                 floor=floor, dry=dry, boost=boost,
             )
@@ -233,21 +233,18 @@ def _offsets() -> list[float]:
     return edges + spread
 
 
-def test_a_start_keeps_what_is_left_of_the_hold_and_never_more(monkeypatch) -> None:
+def test_a_start_keeps_what_is_left_of_the_hold_and_never_more() -> None:
     """After a start, the hold left is the full window less the time since the
     stored change, and never more than the full window: a stored time in the
     future counts as now (docs/FEATURES.md "Mode-change wait")."""
-    from homeassistant.util import dt as dt_util
+    from custom_components.mxz_coordinator.planner import mode_change_stamp
 
-    from custom_components.mxz_coordinator.coordinator import mode_change_stamp
-
-    monkeypatch.setattr(dt_util, "utcnow", lambda: NOW)
     now = NOW.timestamp()
     clock = time.monotonic()
-    assert mode_change_stamp(None, clock) is None  # nothing on record, nothing to wait out
+    assert mode_change_stamp(None, clock, now) is None  # nothing on record, nothing to wait out
     for ago in _offsets():
         stored = now - ago
-        stamp = mode_change_stamp(stored, clock)
+        stamp = mode_change_stamp(stored, clock, now)
         waited = max(0.0, now - stored)  # what the record says has passed
         slack = 1e-6 * max(1.0, abs(waited))
         assert stamp <= clock, (ago, stamp, clock)  # never longer than the window

@@ -13,7 +13,6 @@ from dataclasses import dataclass
 import pytest
 
 from custom_components.mxz_coordinator.const import FLOOR_STALL_SECONDS
-from custom_components.mxz_coordinator.coordinator import MXZCoordinator
 from custom_components.mxz_coordinator.logic import (
     PRIORITY_DEMAND,
     PRIORITY_FLOOR_HEAT,
@@ -26,9 +25,10 @@ from custom_components.mxz_coordinator.logic import (
     floor_progress,
     shared_mode,
 )
+from custom_components.mxz_coordinator.planner import arbitration_entries
 
 HOUR = 3600.0
-pair = MXZCoordinator._zone_arbitration_pair
+pair = arbitration_entries
 
 
 def call(temp, prior=None, ok=True, low=50.0, high=90.0, margin=3.0):

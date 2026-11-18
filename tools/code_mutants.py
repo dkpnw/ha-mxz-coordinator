@@ -71,26 +71,26 @@ HA_BEFORE_2025_11 = Needs(
 
 MUTANTS: dict[str, Mutant] = {
     'C1': Mutant(
-        'the hold is ignored', '_compute',
-        'allowed = elapsed is None or elapsed >= self.hysteresis\n        engaged',
-        'allowed = True\n        engaged',
+        'the hold is ignored', 'decide',
+        'allowed = shared.elapsed is None or shared.elapsed >= shared.hold\n    engaged',
+        'allowed = True\n    engaged',
         'tests/test_properties_mode.py::test_no_flip_inside_the_hold_and_no_wait_after_it',
     ),
     'C2': Mutant(
-        'the hold runs long', '_compute',
-        'allowed = elapsed is None or elapsed >= self.hysteresis\n        engaged',
-        'allowed = elapsed is None or elapsed >= self.hysteresis * 2\n        engaged',
+        'the hold runs long', 'decide',
+        'allowed = shared.elapsed is None or shared.elapsed >= shared.hold\n    engaged',
+        'allowed = shared.elapsed is None or shared.elapsed >= shared.hold * 2\n    engaged',
         'tests/test_properties_mode.py::test_no_flip_inside_the_hold_and_no_wait_after_it',
     ),
     'C3': Mutant(
-        "a flip isn't stamped", '_write_back_mode',
-        'if not plan.mode_by_hands_off:\n                self._stamp_mode_change()',
-        'if False:\n                self._stamp_mode_change()',
+        "a flip isn't stamped", 'mode_write_back',
+        'stamp=not by_hands_off,',
+        'stamp=False,',
         'tests/test_properties_mode.py::test_no_flip_inside_the_hold_and_no_wait_after_it',
     ),
     'C4': Mutant(
         'a start restarts the hold', 'mode_change_stamp',
-        'ago = max(0.0, dt_util.utcnow().timestamp() - stored)',
+        'ago = max(0.0, wall - stored)',
         'ago = 0.0',
         'tests/test_properties_restart.py::test_a_start_changes_nothing_anyone_can_see',
     ),
@@ -155,9 +155,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_properties_window.py::test_a_pause_stops_the_head_and_a_takeover_holds_until_the_window_closes',
     ),
     'C15': Mutant(
-        'a paused room still votes', '_compute',
-        'if paused:\n                demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED',
-        'if False:\n                demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED',
+        'a paused room still votes', 'decide',
+        'if room.paused:\n            demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED',
+        'if False:\n            demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED',
         'tests/test_properties_window.py::test_a_paused_room_never_keeps_or_turns_the_shared_mode',
     ),
     'C16': Mutant(
@@ -204,7 +204,7 @@ MUTANTS: dict[str, Mutant] = {
     ),
     'C24': Mutant(
         'a start ignores the time since the change', 'mode_change_stamp',
-        'ago = max(0.0, dt_util.utcnow().timestamp() - stored)',
+        'ago = max(0.0, wall - stored)',
         'ago = 0.0',
         'tests/test_properties_mode.py::test_a_start_keeps_what_is_left_of_the_hold_and_never_more',
     ),
@@ -479,8 +479,8 @@ MUTANTS: dict[str, Mutant] = {
     ),
     'H7': Mutant(
         'a stored time in the future holds longer', 'mode_change_stamp',
-        'ago = max(0.0, dt_util.utcnow().timestamp() - stored)',
-        'ago = dt_util.utcnow().timestamp() - stored',
+        'ago = max(0.0, wall - stored)',
+        'ago = wall - stored',
         'tests/test_modehold_properties.py::test_a_start_keeps_what_is_left_of_the_hold_and_never_more',
     ),
     'H8': Mutant(
@@ -490,9 +490,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_modehold_properties.py::test_a_start_reads_the_record_or_holds_the_full_window',
     ),
     'H9': Mutant(
-        "a room's run in the voted mode is not stamped", '_write_back_mode',
-        '            self._mode_by_votes = False\n            self._stamp_mode_change()\n            self._record_mode()\n',
-        '            self._mode_by_votes = False\n            self._record_mode()\n',
+        "a room's run in the voted mode is not stamped", 'mode_write_back',
+        'stamp=True,',
+        'stamp=False,',
         'tests/test_modehold_findings.py::test_f2_a_reload_forgets_that_a_room_now_runs_in_the_voted_mode[control_no_reload]',
     ),
     'H10': Mutant(
@@ -514,9 +514,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_modehold_findings.py::test_f1_resting_mode_takes_the_mode_from_a_room_still_running[finding]',
     ),
     'H13': Mutant(
-        'the plan never says a room runs in the shared mode', '_compute',
-        '        running = current in held_engages\n',
-        '        running = False\n',
+        'the plan never says a room runs in the shared mode', 'decide',
+        '    running = current in held_engages\n',
+        '    running = False\n',
         'tests/test_hold_promises.py::test_resting_mode_waits_for_the_run_then_rests',
     ),
     'H14': Mutant(
@@ -526,9 +526,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_hold_promises.py::test_a_restart_keeps_that_votes_chose_the_mode[2]',
     ),
     'H15': Mutant(
-        'a change votes made is not written to the record', '_write_back_mode',
-        '            self.async_update_listeners()  # let the shared-mode select re-render\n            self._record_mode()\n',
-        '            self.async_update_listeners()  # let the shared-mode select re-render\n',
+        'a change votes made is not written to the record', 'mode_write_back',
+        'stamp=not by_hands_off,\n            record=True,',
+        'stamp=not by_hands_off,\n            record=False,',
         'tests/test_modehold_findings.py::test_f2_a_reload_forgets_that_a_room_now_runs_in_the_voted_mode[finding]',
     ),
     'H16': Mutant(
@@ -544,9 +544,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_hold_promises.py::test_a_start_takes_the_newer_of_the_record_and_the_restore_data[restore_data_newer]',
     ),
     'H18': Mutant(
-        'a paused room still votes', '_compute',
-        '            if paused:\n                demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED\n',
-        '            if False:\n                demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED\n',
+        'a paused room still votes', 'decide',
+        '        if room.paused:\n            demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED\n',
+        '        if False:\n            demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED\n',
         'tests/test_door_window.py::test_a_paused_room_never_votes',
     ),
     'H19': Mutant(

@@ -1,0 +1,718 @@
+[
+ {
+  "step": "votes_set_heat",
+  "plan": {
+   "primary_demand": "neutral",
+   "primary_engage": "satisfied",
+   "primary_temp": 70.0,
+   "primary_sensor_health": "cadence_unknown",
+   "primary_sensor_age": "<seconds>",
+   "secondary_demand": "off",
+   "secondary_engage": "off",
+   "secondary_temp": 70.0,
+   "secondary_sensor_health": "cadence_unknown",
+   "secondary_sensor_age": "<seconds>",
+   "state": "heat",
+   "zones": [
+    {
+     "name": "Room 0",
+     "demand": "neutral",
+     "engage": "satisfied",
+     "temp": 70.0,
+     "target": 70.0,
+     "enabled": true,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": 69.0,
+     "cool_start": 71.0,
+     "heat_demand_below": 67.0,
+     "cool_demand_above": 73.0,
+     "start_points_mode": "comfort",
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": "<seconds>",
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: fan boost, maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application"
+    },
+    {
+     "name": "Room 1",
+     "demand": "off",
+     "engage": "off",
+     "temp": 70.0,
+     "target": 70.0,
+     "enabled": false,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": null,
+     "cool_start": null,
+     "heat_demand_below": null,
+     "cool_demand_above": null,
+     "start_points_mode": null,
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": "<seconds>",
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: fan boost, maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": "released",
+     "hands_off_vote": "heat",
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application"
+    }
+   ],
+   "standoff": false,
+   "mode_by_hands_off": true,
+   "mode_by_safety": false,
+   "mode_by_comfort_priority": false,
+   "mode_by_floor": false,
+   "sensors_ok": true,
+   "seconds_since_mode_change": null,
+   "mode_change_allowed": true,
+   "inhibited": false,
+   "idle_action": "off_after_dry"
+  },
+  "calls": [],
+  "waits": [
+   [
+    "startup",
+    null,
+    40
+   ]
+  ],
+  "mode": {
+   "shared_mode": "heat",
+   "by_votes": true,
+   "hold_remaining": 0.0,
+   "record": {
+    "mode": "heat",
+    "mode_at": 0.0,
+    "mode_by_votes": true
+   },
+   "engage_latch": {
+    "primary": "",
+    "secondary": ""
+   },
+   "startup_resume": {},
+   "coasted": false,
+   "coil_dry": {}
+  },
+  "heads": [
+   {
+    "state": "off",
+    "target_temp_low": null,
+    "target_temp_high": null,
+    "temperature": null,
+    "fan_mode": "auto"
+   },
+   {
+    "state": "heat",
+    "target_temp_low": null,
+    "target_temp_high": null,
+    "temperature": null,
+    "fan_mode": "auto"
+   }
+  ]
+ },
+ {
+  "step": "vote_gone_back_to_rest",
+  "plan": {
+   "primary_demand": "neutral",
+   "primary_engage": "satisfied",
+   "primary_temp": 70.0,
+   "primary_sensor_health": "cadence_unknown",
+   "primary_sensor_age": "<seconds>",
+   "secondary_demand": "off",
+   "secondary_engage": "off",
+   "secondary_temp": 70.0,
+   "secondary_sensor_health": "cadence_unknown",
+   "secondary_sensor_age": "<seconds>",
+   "state": "cool",
+   "zones": [
+    {
+     "name": "Room 0",
+     "demand": "neutral",
+     "engage": "satisfied",
+     "temp": 70.0,
+     "target": 70.0,
+     "enabled": true,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": 69.0,
+     "cool_start": 71.0,
+     "heat_demand_below": 67.0,
+     "cool_demand_above": 73.0,
+     "start_points_mode": "comfort",
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": "<seconds>",
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: fan boost, maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application"
+    },
+    {
+     "name": "Room 1",
+     "demand": "off",
+     "engage": "off",
+     "temp": 70.0,
+     "target": 70.0,
+     "enabled": false,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": null,
+     "cool_start": null,
+     "heat_demand_below": null,
+     "cool_demand_above": null,
+     "start_points_mode": null,
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": "<seconds>",
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: fan boost, maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": "released",
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application"
+    }
+   ],
+   "standoff": false,
+   "mode_by_hands_off": true,
+   "mode_by_safety": false,
+   "mode_by_comfort_priority": false,
+   "mode_by_floor": false,
+   "sensors_ok": true,
+   "seconds_since_mode_change": null,
+   "mode_change_allowed": true,
+   "inhibited": false,
+   "idle_action": "off_after_dry"
+  },
+  "calls": [],
+  "waits": [],
+  "mode": {
+   "shared_mode": "cool",
+   "by_votes": false,
+   "hold_remaining": 0.0,
+   "record": {
+    "mode": "cool",
+    "mode_at": 0.0,
+    "mode_by_votes": false
+   },
+   "engage_latch": {
+    "primary": "",
+    "secondary": ""
+   },
+   "startup_resume": {},
+   "coasted": false,
+   "coil_dry": {}
+  },
+  "heads": [
+   {
+    "state": "off",
+    "target_temp_low": null,
+    "target_temp_high": null,
+    "temperature": null,
+    "fan_mode": "auto"
+   },
+   {
+    "state": "fan_only",
+    "target_temp_low": null,
+    "target_temp_high": null,
+    "temperature": null,
+    "fan_mode": "auto"
+   }
+  ]
+ },
+ {
+  "step": "votes_again",
+  "plan": {
+   "primary_demand": "neutral",
+   "primary_engage": "satisfied",
+   "primary_temp": 70.0,
+   "primary_sensor_health": "cadence_unknown",
+   "primary_sensor_age": "<seconds>",
+   "secondary_demand": "off",
+   "secondary_engage": "off",
+   "secondary_temp": 70.0,
+   "secondary_sensor_health": "cadence_unknown",
+   "secondary_sensor_age": "<seconds>",
+   "state": "heat",
+   "zones": [
+    {
+     "name": "Room 0",
+     "demand": "neutral",
+     "engage": "satisfied",
+     "temp": 70.0,
+     "target": 70.0,
+     "enabled": true,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": 69.0,
+     "cool_start": 71.0,
+     "heat_demand_below": 67.0,
+     "cool_demand_above": 73.0,
+     "start_points_mode": "comfort",
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": "<seconds>",
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: fan boost, maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application"
+    },
+    {
+     "name": "Room 1",
+     "demand": "off",
+     "engage": "off",
+     "temp": 70.0,
+     "target": 70.0,
+     "enabled": false,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": null,
+     "cool_start": null,
+     "heat_demand_below": null,
+     "cool_demand_above": null,
+     "start_points_mode": null,
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": "<seconds>",
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: fan boost, maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": "released",
+     "hands_off_vote": "heat",
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application"
+    }
+   ],
+   "standoff": false,
+   "mode_by_hands_off": true,
+   "mode_by_safety": false,
+   "mode_by_comfort_priority": false,
+   "mode_by_floor": false,
+   "sensors_ok": true,
+   "seconds_since_mode_change": null,
+   "mode_change_allowed": true,
+   "inhibited": false,
+   "idle_action": "off_after_dry"
+  },
+  "calls": [],
+  "waits": [],
+  "mode": {
+   "shared_mode": "heat",
+   "by_votes": true,
+   "hold_remaining": 0.0,
+   "record": {
+    "mode": "heat",
+    "mode_at": 0.0,
+    "mode_by_votes": true
+   },
+   "engage_latch": {
+    "primary": "",
+    "secondary": ""
+   },
+   "startup_resume": {},
+   "coasted": false,
+   "coil_dry": {}
+  },
+  "heads": [
+   {
+    "state": "off",
+    "target_temp_low": null,
+    "target_temp_high": null,
+    "temperature": null,
+    "fan_mode": "auto"
+   },
+   {
+    "state": "heat",
+    "target_temp_low": null,
+    "target_temp_high": null,
+    "temperature": null,
+    "fan_mode": "auto"
+   }
+  ]
+ },
+ {
+  "step": "a_cool_call_against_the_vote",
+  "plan": {
+   "primary_demand": "cool",
+   "primary_engage": "cool",
+   "primary_temp": 76.0,
+   "primary_sensor_health": "cadence_unknown",
+   "primary_sensor_age": "<seconds>",
+   "secondary_demand": "off",
+   "secondary_engage": "off",
+   "secondary_temp": 70.0,
+   "secondary_sensor_health": "cadence_unknown",
+   "secondary_sensor_age": "<seconds>",
+   "state": "cool",
+   "zones": [
+    {
+     "name": "Room 0",
+     "demand": "cool",
+     "engage": "cool",
+     "temp": 76.0,
+     "target": 70.0,
+     "enabled": true,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": 69.0,
+     "cool_start": 71.0,
+     "heat_demand_below": 67.0,
+     "cool_demand_above": 73.0,
+     "start_points_mode": "comfort",
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": "<seconds>",
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: fan boost, maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "<time>",
+     "command_returned_at": "<time>",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "returned",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application"
+    },
+    {
+     "name": "Room 1",
+     "demand": "off",
+     "engage": "off",
+     "temp": 70.0,
+     "target": 70.0,
+     "enabled": false,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": null,
+     "cool_start": null,
+     "heat_demand_below": null,
+     "cool_demand_above": null,
+     "start_points_mode": null,
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": "<seconds>",
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: fan boost, maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": "released",
+     "hands_off_vote": "heat",
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application"
+    }
+   ],
+   "standoff": true,
+   "mode_by_hands_off": false,
+   "mode_by_safety": false,
+   "mode_by_comfort_priority": false,
+   "mode_by_floor": false,
+   "sensors_ok": true,
+   "seconds_since_mode_change": "<seconds>",
+   "mode_change_allowed": false,
+   "inhibited": false,
+   "idle_action": "off_after_dry"
+  },
+  "calls": [
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.mock_head_parity_0",
+     "hvac_mode": "cool",
+     "target_temp_low": 68.0,
+     "target_temp_high": 70.0
+    }
+   },
+   {
+    "call": "climate.set_fan_mode",
+    "data": {
+     "entity_id": "climate.mock_head_parity_0",
+     "fan_mode": "high"
+    }
+   }
+  ],
+  "waits": [
+   [
+    "hold_end",
+    null,
+    601.0
+   ],
+   [
+    "dry",
+    "climate.mock_head_parity_0",
+    601.0
+   ]
+  ],
+  "mode": {
+   "shared_mode": "cool",
+   "by_votes": false,
+   "hold_remaining": 600.0,
+   "record": {
+    "mode": "cool",
+    "mode_at": 0.0,
+    "mode_by_votes": false,
+    "last_mode_change": 0.0
+   },
+   "engage_latch": {
+    "primary": "cool",
+    "secondary": ""
+   },
+   "startup_resume": {},
+   "coasted": false,
+   "coil_dry": {
+    "climate.mock_head_parity_0": [
+     "cool",
+     0.0
+    ]
+   }
+  },
+  "heads": [
+   {
+    "state": "cool",
+    "target_temp_low": 68,
+    "target_temp_high": 70,
+    "temperature": null,
+    "fan_mode": "high"
+   },
+   {
+    "state": "heat",
+    "target_temp_low": null,
+    "target_temp_high": null,
+    "temperature": null,
+    "fan_mode": "auto"
+   }
+  ]
+ }
+]
