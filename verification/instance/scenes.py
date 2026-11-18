@@ -47,7 +47,7 @@ SCENES = {scene.name: scene for scene in (
     Scene("comfort-priority", (
         Row("comfort-off", "journeys.comfort_off", "mxz-comfort"),
         Row("comfort-on", "journeys.comfort_on", "mxz-comfort"),
-    ), comfort.WINDOW, comfort.START_STEP),
+    ), comfort.WINDOW, comfort.START_STEP, comfort.SPEED),
 )}
 
 ROWS = {row.feature: row for scene in SCENES.values() for row in scene.rows}

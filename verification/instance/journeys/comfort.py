@@ -6,6 +6,13 @@ only in what that sensor reads. Then Studio reads 76 and wants cool while Den
 reads 66 and wants heat: a standoff. With Den unoccupied, Studio wins by room
 order (it is first). With Den occupied, Den's Comfort priority wins it. The
 loser's head is never sent its mode in the window. Every beat is checked.
+
+The window shows who goes first, and ends before either winner stops calling.
+A room calls only while it is more than the Mode switch threshold (3 °F) from
+target. Unoccupied, Studio is within it about 180 s in; with no mode switch on
+record since the install, no wait holds the mode, and MXZ turns to heat for Den
+(the comfort-off run on scenarios1111 did, at 190 s). Occupied, the turn to heat
+at the start starts the 600-second wait, which holds Studio for the window.
 """
 
 from __future__ import annotations
@@ -21,9 +28,9 @@ if TYPE_CHECKING:
 TARGET = 70
 START = {"studio": 76, "loft": 70, "den": 66}
 START_STEP = "start: Studio reads 76, Loft 70, Den 66"
-# Long enough for the winner's first minutes; shorter than either winner's run, so
-# the loser never gets a turn on screen.
-WINDOW = 330
+# Under the 180 s Studio takes to come within 3 °F of its target at the model's rate.
+WINDOW = 150
+SPEED = 10  # a short window, so a slower film than the others' 25 times
 OCCUPANCY = "binary_sensor.den_occupancy"
 SETTLE = 60
 

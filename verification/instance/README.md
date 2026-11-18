@@ -122,7 +122,7 @@ and the card `film.py` shows for it (`cards.py`), and the window, start step and
 | `satisfied` | `satisfied-stock` (`stock`), `satisfied-coordinated` (`mxz-outdoor`) | 450 s |
 | `fan-hold` | `fan-hold` (`mxz-fan`) | 450 s |
 | `mode-wait` | `mode-wait` (`mxz-wait`) | 600 s |
-| `comfort-priority` | `comfort-off` (`mxz-comfort`), `comfort-on` (`mxz-comfort`) | 330 s |
+| `comfort-priority` | `comfort-off` (`mxz-comfort`), `comfort-on` (`mxz-comfort`) | 150 s, at 10 times |
 
 The equipment's outdoor unit and room model (`invented_house/model.py`) makes each
 scene a story. It is off until a demo journey turns it on, so the proof journeys see
