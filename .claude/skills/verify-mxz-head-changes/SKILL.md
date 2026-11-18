@@ -30,7 +30,8 @@ Model rules (`docs/formal/tla/MXZCoordinator.tla` with `WithAdopt`, room 1's set
   queued write leaves the memory and is adopted; each copy of a rewrite is counted. Passes in
   `ci-adopt` and `ci-adopt-restart`.
 - **QueuedWriteNeverAdopted.** A write still queued at the head that the memory has dropped is
-  never adopted, also after such a press. **Open finding SM-10**, in `ci-adopt`.
+  never adopted, also after such a press. Not checked: SM-10 paths (b) and (c) break it, an
+  accepted known cost. It stays in the spec as the form `QueuedWriteKept` is built from.
 - Reachability goals, which must break so the rules above aren't vacuous: `NeverAdopts` (a
   press is adopted at all) and `NeverLatePreStartWrite` (a write queued before a start is still
   queued after startup quiet ends).
@@ -129,17 +130,21 @@ purpose, change the rule, the docs and the tests together, and say so in the PR.
 
 ## Findings
 
-One open finding, waiting on the maintainer's decision. `check` requires it to keep breaking
-until it is made. `docs/STATE-MACHINES.md` sections 4 and 7 have the evidence and the options,
-and `docs/formal/PARKED-FINDINGS.md` the short form.
+No open finding: `FINDINGS` in `tools/formal_tlc.py` is empty. `docs/STATE-MACHINES.md`
+sections 4 and 7 have the evidence and the decisions, and `docs/formal/PARKED-FINDINGS.md` the
+short form.
 
-- **SM-10, after a person's press of a value MXZ still has queued.** The press reads as MXZ's
-  write landing, so `HeadWriteMemory.caught_up` passes older writes or uses the write's copy,
-  and `HeadWriteMemory.seen` can then drop it. When that write lands after a later press, it is
+- **SM-10, after a person's press of a value MXZ still has queued: an accepted known cost**
+  (the owner's decision, Nov 17, 2026). The press reads as MXZ's write landing, so
+  `HeadWriteMemory.caught_up` passes older writes or uses the write's copy, and
+  `HeadWriteMemory.seen` can then drop it. When that write lands after a later press, it is
   adopted over the press. Its events are the same as those of
   `test_up_and_back_are_both_adopted` and `test_a_press_of_a_write_the_head_has_passed_is_adopted`,
-  which require the opposite answer. A rewrite kept once, the other way, is fixed
-  (`QueuedWriteKept`).
+  which require the opposite answer. The `test_known_cost_` tests in
+  `tests/test_accept_head_changes.py` pin it. A rewrite kept once, the other way, is fixed
+  (`QueuedWriteKept`), and so is a rewrite of the shown value behind another write (shape B,
+  code mutant C56). Shape A and the F1 rewrite cost of that fix are accepted known costs under
+  the overnight release mandate (Nov 17, 2026).
 
 SM-1 (a process start lost the memory) is fixed: the room state store keeps it.
 
