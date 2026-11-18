@@ -201,3 +201,18 @@ MXZ_PROPERTY_EXAMPLES=400 MXZ_PROPERTY_RANDOM=1 python -m pytest tests/test_prop
 MXZ_PYTHON="$(command -v python)" python3 tools/code_mutants.py      # every broken copy of the code fails its named property
 python -m pytest verification/findings -q -p no:cacheprovider        # each finding's replay: F1's now passes
 ```
+
+A code mutant whose broken code runs only on some Home Assistant releases declares `needs` in
+`tools/code_mutants.py`, a probe the runner runs in the lane's own `MXZ_PYTHON` first. On a lane
+that lacks it, the mutant is not run: its line starts `N/A` and says what it needs, and it counts
+as not applicable, never as caught. A probe that errors fails the run. The run ends with the
+counts (caught, not applicable, missed, probe errors) and `MUTANTS_ALL_CAUGHT` (exit 0) only if
+nothing was missed, no probe errored and at least one mutant was caught; a run where no mutant
+asked for applies ends `MUTANTS_NONE_APPLICABLE` (exit 1). `formal_area.py` and `verification/run`
+take none of these mutants, so their runs mean the same on every lane.
+
+C58 is the only such mutant. It breaks `DeliveryQueue.request_for_report`'s branch for Home
+Assistant before 2025.11, so it runs and is caught on the py312-ha2024.12.5 lane and shows
+`N/A` on 2025.11 and later. CI's py3.12-ha2024.12.5 job runs its test,
+`test_one_target_change_takes_no_later_press_back_to_it`, in the full suite of every pull
+request and every push to main.
