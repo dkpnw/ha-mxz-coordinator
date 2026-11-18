@@ -1203,6 +1203,31 @@ def test_a_rewrite_of_the_shown_last_write_after_a_restart_adds_no_copy() -> Non
     assert not memory.own("cool")  # the person's on is a person's
 
 
+def test_known_cost_after_a_restart_a_rewrite_behind_a_write_shown_while_mxz_was_down_counts_a_copy() -> None:
+    """Known cost (F1's, docs/formal/PARKED-FINDINGS.md), the F1 rewrite cost's restart
+    trigger, accepted under the overnight release mandate (Nov 17, 2026), shown on
+    HeadWriteMemory alone. A restart restores MXZ's off and then its on, both still to
+    come. The head took both while MXZ was down and shows "cool", but nothing reconciles
+    the restored memory with what the head shows, so the off still counts a copy. MXZ
+    writes "cool" again before the head reports anything. As far as the memory knows, the
+    off is still to come before it, so it counts a copy. The head shows nothing new for it,
+    and no report counts it off. Fix round 4's rule counted none here; fix round 5's
+    counted one too.
+
+    It is not free: like the copy that
+    test_known_cost_a_rewrite_of_the_shown_value_behind_another_write_takes_a_press_back_once
+    pins, it can take a person's later press of "cool" as MXZ's. The restored off's copy
+    already takes a person's off as MXZ's on every rule, as path (b) does. What a person
+    loses after that on the integration is not replayed here. Whether MXZ ever has an off
+    and then an on queued at one head is unknown: in one attempt on invented heads (fix
+    round 6 of smfix1111), MXZ sent nothing more while its off was still queued."""
+    memory = HeadWriteMemory.restored(8, [["cool", 0], ["off", 1], ["cool", 1]])
+    assert memory is not None
+    assert memory.wrote("cool", "cool") is True  # the restored off still counts a copy
+    memory.caught_up("cool", moved=False)  # the head's report of that write moves nothing
+    assert memory.record() == [["cool", 0], ["off", 1], ["cool", 2]]
+
+
 def _refuses_the_first_setpoint(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     """The first head refuses MXZ's first setpoint call (a cloud timeout, say), then takes them."""
     head = rig.heads[0]
