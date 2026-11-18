@@ -170,6 +170,9 @@ shot), each with a head, a room temperature sensor and a door/window sensor.
   is stopped.
 - **An outdoor unit and a room model, for the demo only (section 6).** Off by default, so
   proof journeys set exact temperatures and stay deterministic.
+- **An occupancy sensor per room, for the demo only (6.5).** Off until a journey sets it.
+  MXZ reads one only where a journey wires it as a room's Comfort priority entity; the
+  model never reads it.
 
 Home Assistant's own `template` integration has a `climate.py` in the 2026.10.4 lane and
 none in the 2024.12.5 or 2026.9.4 lanes (section 8), so it cannot supply the heads on every
@@ -583,7 +586,87 @@ switch threshold off target, so the mode leaves Studio once it is back within 3 
 Loft still calls (`docs/FEATURES.md` and `docs/HOW-IT-WORKS.md` step 4 say the same). That
 version was never run. Run it before trusting any number for it.
 
-<!-- SCENES -->
+### 6.2 Every room at target (`satisfied`)
+
+A cold morning: every room reads 66 °F against 70 °F. Window 450 seconds.
+
+**Arm A, stock** (`satisfied-stock`). No MXZ entry.
+
+- **Before the start.** Person at the heads: every head to heat at 70.
+- **Action.** Studio, Loft and Den read 66, in one report.
+- **Pass (a control on the model).** Every head heats and the outdoor unit runs heat;
+  every room reaches 70 and its head idles in heat; at the end every head is still set to
+  heat and idle and the outdoor unit still runs heat, and it never left heat in the
+  window; no climate call reached a head.
+
+**Arm B, coordinated** (`satisfied-coordinated`). After 5.1, every option at its default.
+
+- **Before the start.** Every head off (the coil dry 5.1 leaves has ended).
+- **Action.** Studio, Loft and Den read 66, in one report.
+- **Pass.** The shared mode is heat and every head heats; every room reaches 70 and MXZ
+  turns its head off; once every head is off MXZ sends no head heat or cool for the rest
+  of the window; the model's outdoor unit then has no direction; MXZ never sends cool.
+
+RUN_SATISFIED
+
+### 6.3 A fan speed picked at the head is kept (`fan-hold`)
+
+The afternoon of 6.1, coordinated only: a stock row would show the speed the person set,
+which compares nothing. Window 450 seconds. After 5.1, every option at its default.
+
+- **Before the start.** Every head off.
+- **Action.** Studio reads 76, Loft and Den 70. Once MXZ cools Studio with the fan on
+  high, 30 s later, person at the head: picks `quiet` (outside MXZ's last two writes; see
+  5.6's gotcha).
+- **Pass.** Within the Confirm wait of MXZ's fan write plus 60 s, Studio's Fan auto turns
+  off and its row shows `fan_hold: true`; Studio reaches 70, then its head goes to fan only;
+  before the pick MXZ had sent Studio's head a fan speed (negative control); after it, MXZ
+  sends that head no fan speed, the head shows only `quiet`, and Fan auto is still off at
+  the end.
+- **Not filmed.** The hand-back (5.6 steps 6 to 8). Fan auto off and the row's
+  `fan_hold`, MXZ's own state, are what show the silence is the hold here.
+
+RUN_FAN
+
+### 6.4 The mode-switch wait, on screen (`mode-wait`)
+
+Coordinated only: the wait is MXZ's own rule. After 5.1, every option at its default, so
+the wait is 600 s and is not shortened. Window 600 seconds.
+
+- **Before the start.** Every head off. Loft and Den read 66; the shared mode turns to heat;
+  they reach 70 and MXZ turns their heads off. More than 120 s of the wait must be left.
+- **Action.** Studio reads 76.
+- **Pass.** Studio's row asks for cool while the shared mode is still heat and the plan's
+  `mode_change_allowed` is false; the shared mode turns to cool no earlier than the
+  thermostat's `mode_change_hold_until` (1.5 s slack for its whole seconds) and within 60 s
+  after it; MXZ sends no head cool before then; Studio's head then cools with the fan on
+  high; the turn comes at least 60 s before the window ends.
+- **Card.** `can switch in m:ss` is Studio's thermostat's `mode_change_hold_remaining`,
+  as MXZ publishes it.
+
+RUN_WAIT
+
+### 6.5 Comfort priority settles a standoff (`comfort-priority`)
+
+Two coordinated rows, the same but for one sensor. After 5.1, every option at its
+default. Window 150 seconds, filmed at 10 times.
+
+- **Before the start.** Person in Home Assistant: Configure, Rooms, Den, Comfort priority
+  set to `binary_sensor.den_occupancy`, every other field as the page shows it. Den's
+  occupancy reads off (`comfort-off`) or on (`comfort-on`), and Den's row shows that
+  status. Every head off.
+- **Action.** Studio reads 76, Loft 70, Den 66, in one report.
+- **Pass.** A standoff, won by Studio (off: shared mode cool, Studio's head cools) or by Den
+  (on: shared mode heat, Den's head heats); `mode_by_comfort_priority` is false off and true
+  on; the shared mode does not change in the window; MXZ never sends the other room's head
+  its mode in the window, from before the start step.
+- **Why 150 seconds.** A room calls only while more than the Mode switch threshold (3 °F)
+  from target. Studio is within it about 180 s in. On the first comfort-off run, with a
+  330 s window, Studio stopped calling at 190 s and MXZ turned to heat for Den at once:
+  nothing had switched modes since the install, so no wait was on record. The clip shows
+  who goes first and ends before that.
+
+RUN_COMFORT
 
 ### 6.6 Capture and honesty limits
 
@@ -595,7 +678,7 @@ stacks a scene's rows on their journeys' start steps, sped up evenly. See
 
 - It is a simulation with invented heads, time-compressed. It is not a measurement of
   Mitsubishi equipment, energy, comfort or noise, and the capture says so.
-- Arm A shows only the cited rule. It does not model stock AUTO, installer switches,
+- A stock row shows only the cited rule. It does not model stock AUTO, installer switches,
   kumo cloud changeover groups, or how long a real system leaves a head in standby. The
   capture must not claim "an hour"; that figure is a household observation in
   `docs/HOW-IT-WORKS.md`.

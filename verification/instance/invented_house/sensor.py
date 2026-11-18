@@ -13,6 +13,7 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from . import DOMAIN, OUTDOOR, signal
+from .devices import reading
 from .entity import InventedEntity
 
 if TYPE_CHECKING:
@@ -39,7 +40,7 @@ class InventedTemperature(InventedEntity, SensorEntity):
 
     @property
     def native_value(self) -> float:
-        return self.bench.devices.rooms[self.key].temperature
+        return reading(self.bench.devices.rooms[self.key].temperature)
 
 
 class OutdoorUnit(SensorEntity):
