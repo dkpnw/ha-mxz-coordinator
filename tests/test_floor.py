@@ -148,6 +148,7 @@ async def _setup(
     metric: bool = False,
     zone_extra: tuple[dict, dict] = ({}, {}),
     temps: tuple[float, float] | None = None,
+    sensors: tuple[str, str] = (SENSOR_A, SENSOR_B),
     **extra: Any,
 ) -> Floor:
     """Two mock heads. By default the primary is enabled at its target and the
@@ -166,7 +167,7 @@ async def _setup(
     pinned = [] if pin_real else async_mock_service(hass, "persistent_notification", "create")
     zones = []
     for name, head, sensor, (low, high), opted, more in zip(
-        ("Primary", "Guest room"), (head_a, head_b), (SENSOR_A, SENSOR_B), floors,
+        ("Primary", "Guest room"), (head_a, head_b), sensors, floors,
         hands_off, zone_extra,
     ):
         zone = {ZONE_NAME: name, ZONE_CLIMATE: head, ZONE_SENSOR: sensor, **more}

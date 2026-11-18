@@ -322,23 +322,15 @@ def _sensor_problem(
     """Describe a PERMANENT room-sensor misconfiguration, for a flow error.
 
     Only conditions that retrying later cannot fix belong here, because a
-    config flow's only feedback channel blocks the whole install: two rooms
-    sharing one thermometer, an entity that does not exist, and a unit the
-    coordinator will always refuse. A sensor that is merely asleep or
+    config flow's only feedback channel blocks the whole install: an entity
+    that does not exist, and a unit the coordinator will always refuse. A
+    sensor that several rooms read is fine (each is named once here, and the
+    review notes the sharing). A sensor that is merely asleep or
     momentarily non-numeric is reported on the review step instead
     (``_sensor_status``), because blocking on it would make a legitimate
     install impossible at the wrong hour — and because the coordinator itself
     treats those as a temporarily neutral room, not a fatal entry.
     """
-    seen: set[str] = set()
-    duplicates: list[str] = []
-    for entity_id in sensors:
-        if entity_id in seen and entity_id not in duplicates:
-            duplicates.append(entity_id)
-        seen.add(entity_id)
-    if duplicates:
-        return "duplicate_sensors", {"problem_sensors": ", ".join(duplicates)}
-
     states = {entity_id: hass.states.get(entity_id) for entity_id in sensors}
     missing = [entity_id for entity_id, state in states.items() if state is None]
     if missing:
@@ -352,6 +344,26 @@ def _sensor_problem(
     if unsupported:
         return "sensor_unit_unsupported", {"problem_sensors": ", ".join(unsupported)}
     return None
+
+
+def _and_list(names: list[str]) -> str:
+    """``A``, ``A and B``, ``A, B and C``."""
+    return " and ".join([", ".join(names[:-1]), names[-1]] if len(names) > 1 else names)
+
+
+def _shared_sensor_notes(sensors: list[str], room_names: list[str]) -> list[str]:
+    """One review line per sensor that two or more rooms read, in priority order."""
+    rooms_by_sensor: dict[str, list[str]] = {}
+    for sensor, name in zip(sensors, room_names, strict=True):
+        rooms_by_sensor.setdefault(sensor, []).append(name)
+    return [
+        f"{sensor} is the sensor for {_and_list(rooms)}, so"
+        f" {'both heads' if len(rooms) == 2 else f'all {len(rooms)} heads'}"
+        " follow its reading. Give those rooms targets that need the same mode,"
+        " or one of them will wait."
+        for sensor, rooms in rooms_by_sensor.items()
+        if len(rooms) > 1
+    ]
 
 
 def _relative_age(state: State) -> str:
@@ -1678,6 +1690,8 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
             elif self._head_types.get(head) == HEAD_TYPE_GENERIC:
                 lines.append("  Head type: generic (beta)")
             lines.append("")
+        if notes := _shared_sensor_notes(self._sensors, self._room_names):
+            lines.extend([*notes, ""])
         if self._tunables is not None:
             lines.append(
                 f"Comfort settings: your choices ({len(self._tunables)} values)."
@@ -2134,6 +2148,8 @@ class MXZConfigFlow(ConfigFlow, domain=DOMAIN):
                     " move with it."
                 )
             lines.append("")
+        if notes := _shared_sensor_notes(self._sensors, self._room_names):
+            lines.extend([*notes, ""])
         for head in old_order:
             if head not in self._heads:
                 lines.append(f"Removed: {head}. That room's entities are deleted.")

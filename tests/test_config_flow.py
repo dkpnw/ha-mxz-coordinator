@@ -314,11 +314,11 @@ async def test_rejected_sensor_submit_keeps_matching_room_label_placeholders(
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {"sensor_1": "sensor.primary_temp", "sensor_2": "sensor.primary_temp"},
+        {"sensor_1": "sensor.primary_temp", "sensor_2": "sensor.not_loaded_temp"},
     )
 
     assert result["step_id"] == "sensors"
-    assert result["errors"] == {"base": "duplicate_sensors"}
+    assert result["errors"] == {"base": "sensor_missing"}
     assert result["description_placeholders"]["room_1"] == "Cobalt"
     assert result["description_placeholders"]["room_2"] == "Juniper"
     assert result["description_placeholders"]["rooms"].startswith(

@@ -10,6 +10,12 @@ on your equipment.
 
 ## Unreleased
 
+- **One temperature sensor can serve several rooms
+  ([Discussion #145](https://github.com/dkpnw/ha-mxz-coordinator/discussions/145)).** Setup and
+  Reconfigure accept a sensor that another room already uses, so two heads in one space can both
+  follow one thermostat's sensor. Each head is still its own room with its own target, switches,
+  freshness limit, freeze floor and fan hold. The summary names each shared sensor and its rooms.
+  See [One sensor for several heads](docs/SETUP.md#one-sensor-for-several-heads).
 - The freeze floor and overheat ceiling range error drops its closing sentence about nothing
   being saved, as the other errors already had. The ranges it gives are unchanged.
 - Fix: a room's `command_error` is cleared when a later command to its head returns, so an old

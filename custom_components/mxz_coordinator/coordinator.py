@@ -19,7 +19,7 @@ import copy
 import logging
 import math
 import operator
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from functools import partial
@@ -1247,12 +1247,9 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         self._unsubs.append(self.async_add_listener(self.room_state.changed))
         self.floor.start()  # the switches have restored by now
         self.openings.start()
+        sensors = _distinct(z.sensor_id for z in self.zones)
         self._unsubs.append(
-            async_track_state_change_event(
-                self.hass,
-                [z.sensor_id for z in self.zones],
-                self._on_input_change,
-            )
+            async_track_state_change_event(self.hass, sensors, self._on_input_change)
         )
         if self._freshness:
             # Only where a cutoff can actually apply, and only for OUR sensors:
@@ -1262,9 +1259,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             # install pays for this stream without a use for it.
             self._unsubs.append(
                 async_track_state_report_event(
-                    self.hass,
-                    [z.sensor_id for z in self.zones],
-                    self._on_input_report,
+                    self.hass, sensors, self._on_input_report
                 )
             )
         self._unsubs.append(
@@ -1315,9 +1310,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             self.hass.async_create_task(self._evaluate_inhibit())
         # React to a safety-priority sensor immediately rather than waiting
         # for the next unrelated temp report/heartbeat.
-        safety_entities = [
-            zone.safety_priority_entity for zone in self.zones if zone.safety_priority_entity
-        ]
+        safety_entities = _distinct(zone.safety_priority_entity for zone in self.zones)
         if safety_entities:
             self._unsubs.append(
                 async_track_state_change_event(
@@ -1325,9 +1318,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
                 )
             )
         # And to a Comfort priority entity, the same way.
-        comfort_entities = [
-            zone.comfort_priority_entity for zone in self.zones if zone.comfort_priority_entity
-        ]
+        comfort_entities = _distinct(zone.comfort_priority_entity for zone in self.zones)
         if comfort_entities:
             self._unsubs.append(
                 async_track_state_change_event(
@@ -1336,7 +1327,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             )
         # A door/window reading pauses or resumes its room: react at once,
         # then the delay wakeups (OpeningPause.sync_timers) take it from there.
-        openings: list[Any] = [zone.opening_entity for zone in self.zones if zone.opening_active]
+        openings = _distinct(zone.opening_entity for zone in self.zones if zone.opening_active)
         if openings:
             self._unsubs.append(
                 async_track_state_change_event(
@@ -4643,6 +4634,16 @@ def _start_points(
         }
     )
     return points
+
+
+def _distinct(entity_ids: Iterable[str | None]) -> list[str]:
+    """Each configured entity once, in order, for one listener.
+
+    Home Assistant calls a listener once per time its entity is listed, and
+    several rooms may name the same sensor, Safety priority, Comfort priority
+    or door/window entity.
+    """
+    return list(dict.fromkeys(entity_id for entity_id in entity_ids if entity_id))
 
 
 def _zone_name(z: dict[str, Any], index: int) -> str:

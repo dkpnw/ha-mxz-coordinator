@@ -89,8 +89,9 @@ Setup has four steps. Only **Save and finish** creates the entry.
    ([Generic heads (beta)](FEATURES.md#generic-heads-beta)).
 2. **Rooms.** Check each pre-filled **Room N name**. Use distinct, non-empty names;
    comparison ignores case. These names label the room entities.
-3. **Room temperature sensors.** Pick one sensor per room. Check the room/head mapping
-   and the displayed reading. Vane and airflow entities are detected from the head's
+3. **Room temperature sensors.** Pick a sensor for each room. Two rooms can use the same
+   one ([One sensor for several heads](#one-sensor-for-several-heads)). Check the
+   room/head mapping and the displayed reading. Vane and airflow entities are detected from the head's
    device when matching registry records exist. Missing records or no matching device
    leave those optional controls unset; edit them later in Configure.
 4. **Check this before you save.** Read each priority, head, and sensor line, then
@@ -156,6 +157,21 @@ After **Save and finish**, Home Assistant shows its own device **Name and assign
 Expose the per-room thermostats to HomeKit/Google, or use them in HA. Avoid exposing a
 second raw-head control for the same room.
 
+### One sensor for several heads
+
+Two heads in one space, such as two wall units run from one thermostat, can both use
+that thermostat's sensor. Add each head as its own room and pick the same sensor for
+both. The summary names each shared sensor and the rooms that use it.
+
+Each head keeps its own room, with its own target, enable switch, Fan auto switch,
+freshness limit, freeze floor, and door/window pause. To run both heads to one
+temperature, give both rooms the same target. Rooms on one sensor read the same
+temperature, so targets that need opposite modes put them in a standoff, settled like
+any other ([How MXZ decides](HOW-IT-WORKS.md#how-mxz-decides)): by default the room
+higher in the priority order picks the mode and the other waits. Each room judges the
+sensor by its own freshness limit, so two rooms with different limits can show different
+sensor health.
+
 ### If setup stops or warns
 
 | What you see | What to do; what MXZ saves |
@@ -165,7 +181,7 @@ second raw-head control for the same room.
 | A head belongs to another entry | Reconfigure that entry first. Setup names the conflict and saves nothing. |
 | A head is reserved by an open flow | Finish or cancel that setup/Reconfigure flow. Reservations have no timeout; HA restart clears an abandoned in-memory flow. |
 | Duplicate heads or room names, or an empty room name | Correct the selection/name. Setup keeps you on that step. |
-| Two rooms share a sensor, a sensor has no HA state, or its unit cannot convert | Pick a distinct, existing temperature sensor with a supported unit. Saving is blocked. |
+| A sensor has no HA state, or its unit cannot convert | Pick an existing temperature sensor with a supported unit. Saving is blocked. |
 | A sensor is `unknown`, `unavailable`, non-numeric, or non-finite | You may finish setup. The summary warns; that room makes no automatic demand until its reading is valid. |
 | A sensor's unit attribute is absent or `null` | MXZ reads it in HA's system unit. Verify that interpretation. Celsius, Fahrenheit, and kelvin convert to the system unit. An empty string (`""`), another unsupported string, or a non-string unit is invalid and blocks saving. |
 
@@ -190,20 +206,12 @@ second raw-head control for the same room.
 <td>Two rooms have the same name.</td>
 </tr>
 <tr>
-<td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-error-shared-sensor.png" alt="Sensors step with Studio temperature picked for both Studio and Den, and the error: the same temperature sensor is used for more than one room, sensor.studio_temperature."></td>
 <td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-error-sensor-unit.png" alt="Sensors step with Garage probe picked for Den. The room list says sensor.garage_probe is not reporting a number, and the error says MXZ Coordinator cannot read the temperature unit sensor.garage_probe reports."></td>
-</tr>
-<tr>
-<td>One sensor picked for two rooms is blocked.</td>
-<td>A sensor whose unit cannot be converted is blocked. This probe reports its unit as <code>C</code>, not <code>°C</code>.</td>
-</tr>
-<tr>
 <td><img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/mxz-setup-summary-warning-unavailable.png" alt="Summary for Studio, Loft and Den: Den's sensor sensor.porch_temperature is unavailable, with the warning that the room makes no automatic demand until it reports a valid number. Each room shows a 360-minute cadence and a 45 °F freeze floor."></td>
-<td></td>
 </tr>
 <tr>
+<td>A sensor whose unit cannot be converted is blocked. This probe reports its unit as <code>C</code>, not <code>°C</code>.</td>
 <td>An unavailable sensor is accepted. The summary warns that the room makes no automatic demand until it reads a valid number.</td>
-<td></td>
 </tr>
 </table>
 

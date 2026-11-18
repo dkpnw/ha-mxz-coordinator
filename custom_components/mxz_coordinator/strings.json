@@ -279,7 +279,6 @@
       "clamp_inverted": "The lowest setpoint can't be above the highest setpoint.",
       "duplicate_heads": "The same head was selected more than once.",
       "duplicate_room_names": "Two rooms have the same name: {problem_names}. Give each room a different name.",
-      "duplicate_sensors": "The same temperature sensor is used for more than one room: {problem_sensors}. Give each room its own sensor.",
       "eco_band_inverted": "The away low limit can't be above the away high limit.",
       "head_capabilities_unavailable": "Home Assistant is not reporting climate capabilities for: {unsupported_heads}. Make sure each head is loaded and available, then retry.",
       "head_missing_heat_cool": "These heads do not advertise both heat and cool in Home Assistant: {unsupported_heads}. Choose climate entities that support both modes.",
