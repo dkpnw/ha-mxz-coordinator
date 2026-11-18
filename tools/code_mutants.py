@@ -15,8 +15,17 @@ verification/modehold/MXZModeHold.tla, which `verification/run mutants` runs wit
 own broken copies.
 
 Each run breaks a scratch copy of the checkout, never the checkout, and runs the mutant's
-test there with MXZ_PYTHON, a lane venv's python with hypothesis in it. The exit status is 0
-only if every named test failed on its broken copy.
+test there with MXZ_PYTHON, a lane venv's python with hypothesis in it.
+
+A mutant whose code runs only on some Home Assistant releases says so with ``needs``: a probe
+run first in MXZ_PYTHON. On a lane where the probe says no, the mutant is not run: its line
+starts "N/A", says what it needs and why this lane lacks it, and it counts as not applicable,
+never as caught. A probe that errors, or says anything but "yes" or "no <why>", is an error.
+
+The last two lines are the counts (caught, not applicable, missed, probe errors) and a marker:
+MUTANTS_ALL_CAUGHT when no mutant was missed, no probe errored and at least one was caught;
+MUTANTS_NONE_APPLICABLE when nothing was run because no mutant asked for applies to this lane;
+MUTANTS_MISSED otherwise. The exit status is 0 only with MUTANTS_ALL_CAUGHT.
 """
 
 import argparse
@@ -35,12 +44,29 @@ PACKAGE = Path("custom_components/mxz_coordinator")
 
 
 @dataclass(frozen=True)
+class Needs:
+    """What a lane must have for a mutant's broken code to run there."""
+
+    what: str  # in words, as "needs <what>"
+    probe: str  # Python run in MXZ_PYTHON; prints "yes", or "no <why this lane lacks it>"
+
+
+@dataclass(frozen=True)
 class Mutant:
     what: str  # what breaks, in words
     symbol: str  # the function whose body holds ``old``
     old: str
     new: str
     test: str  # a pytest node id that must fail on the broken copy
+    needs: Needs | None = None  # None: the broken code runs on every lane
+
+
+# delivery._legacy_busy's own guard: the code it guards runs only where this says yes.
+HA_BEFORE_2025_11 = Needs(
+    "HA before 2025.11",
+    "from homeassistant.helpers.debounce import Debouncer\n"
+    "print('no (Debouncer.async_lock present)' if hasattr(Debouncer, 'async_lock') else 'yes')\n",
+)
 
 
 MUTANTS: dict[str, Mutant] = {
@@ -405,13 +431,15 @@ MUTANTS: dict[str, Mutant] = {
     # A head's report during a plan waits out the request cooldown on Home Assistant before
     # 2025.11, as it does from 2025.11 (review 8 of smfix1111). Refreshed right after the plan,
     # it wrote the target a second time, whose copy took a later press back to it. The broken
-    # branch runs only before 2025.11: run this one with MXZ_PYTHON from a py312-ha2024.12 lane.
-    # It is not in formal_area's adopt area, which runs on any lane.
+    # branch runs only before 2025.11, so this one runs and is caught on the py312-ha2024.12.5
+    # lane and shows N/A on later ones; CI's py3.12-ha2024.12.5 job runs its test. It is not in
+    # formal_area's adopt area, which runs on any lane.
     'C58': Mutant(
         "a report during a plan is refreshed right after it, before HA 2025.11", 'request_for_report',
         'self._defer_request()',
         'self._host.hass.async_create_task(self._request())',
         'tests/test_accept_head_changes.py::test_one_target_change_takes_no_later_press_back_to_it',
+        HA_BEFORE_2025_11,
     ),
     'H1': Mutant(
         'the hold no longer gates a change', 'shared_mode',
@@ -601,8 +629,65 @@ def apply(root: Path, mutant: Mutant) -> Path:
     return path
 
 
+CAUGHT, NOT_APPLICABLE, MISSED, PROBE_ERROR = "caught", "not applicable", "missed", "probe errors"
+
+
+@functools.cache
+def probe(python: str, needs: Needs) -> str | None:
+    """None if the lane of ``python`` has what ``needs`` asks for, else why not.
+
+    RuntimeError if the probe fails or answers anything but "yes" or "no <why>".
+    """
+    try:
+        done = subprocess.run(
+            [python, "-I", "-c", needs.probe], capture_output=True, text=True, check=False, timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired) as err:
+        raise RuntimeError(f"the probe for {needs.what} did not run: {err}") from err
+    answer = done.stdout.strip()
+    if done.returncode == 0 and answer == "yes":
+        return None
+    if done.returncode == 0 and answer.startswith("no ") and answer[3:].strip():
+        return answer[3:].strip()
+    said = (done.stderr.strip().splitlines() or [answer or "nothing"])[-1]
+    raise RuntimeError(f"the probe for {needs.what} exited {done.returncode}: {said}")
+
+
+def outcome(name: str, python: str, out: Path) -> str:
+    """CAUGHT, NOT_APPLICABLE, MISSED or PROBE_ERROR for mutant ``name`` on the lane of ``python``."""
+    needs = MUTANTS[name].needs
+    if needs is not None:
+        try:
+            why = probe(python, needs)
+        except RuntimeError as err:
+            print(f"FAIL code {name}: {err}", flush=True)
+            return PROBE_ERROR
+        if why is not None:
+            print(f"N/A  code {name} not run on this lane: needs {needs.what} {why}", flush=True)
+            return NOT_APPLICABLE
+    return CAUGHT if run(name, python, out) else MISSED
+
+
+def verdict(outcomes: dict[str, str]) -> tuple[str, int]:
+    """The counts line and the exit status for a run's outcomes, by mutant id."""
+    count = {kind: [name for name, got in outcomes.items() if got == kind]
+             for kind in (CAUGHT, NOT_APPLICABLE, MISSED, PROBE_ERROR)}
+    line = ", ".join(f"{kind} {len(names)}" + (f" ({' '.join(names)})" if names and kind != CAUGHT else "")
+                     for kind, names in count.items())
+    if count[MISSED] or count[PROBE_ERROR]:
+        return f"{line}\nMUTANTS_MISSED", 1
+    if not count[CAUGHT]:
+        return f"{line}\nMUTANTS_NONE_APPLICABLE", 1
+    return f"{line}\nMUTANTS_ALL_CAUGHT", 0
+
+
 def run(name: str, python: str, out: Path) -> bool:
-    """Break a scratch copy with mutant ``name`` and run its test there; True if the test failed."""
+    """Break a scratch copy with mutant ``name`` and run its test there; True if the test failed.
+
+    It does not probe ``needs``. tools/formal_area.py and verification/verify.py call it for
+    mutants that must be caught on every lane, and tests/test_formal_contract.py keeps mutants
+    with ``needs`` out of those.
+    """
     mutant = MUTANTS[name]
     with tempfile.TemporaryDirectory() as folder:
         copy = Path(folder) / "repo"
@@ -640,11 +725,10 @@ def main() -> int:
     out = args.out or Path(tempfile.mkdtemp(prefix="mxz-code-mutants-"))
     out.mkdir(parents=True, exist_ok=True)
     print(f"output in {out}", flush=True)
-    good = True
-    for name in args.only or MUTANTS:
-        good = run(name, python, out) and good
-    print("MUTANTS_ALL_CAUGHT" if good else "MUTANTS_MISSED", flush=True)
-    return 0 if good else 1
+    outcomes = {name: outcome(name, python, out) for name in args.only or MUTANTS}
+    summary, status = verdict(outcomes)
+    print(summary, flush=True)
+    return status
 
 
 if __name__ == "__main__":
