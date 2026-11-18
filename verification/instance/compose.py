@@ -1,12 +1,13 @@
-"""Stack the two filmed rows of the README demo into one looping image per theme.
+"""Stack a demo scene's filmed rows (scenes.py) into one looping image per theme.
 
-    python3 verification/instance/compose.py <stock run> <stock frames> <mxz run> <mxz frames> <out>
+    python3 verification/instance/compose.py <scene> <out> <run> <frames> [<run> <frames> ...]
 
-A run is a journey's evidence directory (it holds transcript.json); frames are
-what film.py wrote. Each row's clock starts at its journey's start step, and both
-rows advance on that clock in fixed steps, sped up evenly; no time is cut from
-one row or one beat. The band above the rows says what this is, the speed, and
-the time into the run. Needs Pillow. Nothing here reads or changes a state.
+One run and one frames folder per row, top to bottom. A run is a journey's
+evidence directory (it holds transcript.json); frames are what film.py wrote.
+Each row's clock starts at its journey's start step, and every row advances on
+that clock in fixed steps, sped up evenly; no time is cut from one row or one
+beat. The band above the rows says what this is, the speed, and the time into
+the run. Needs Pillow. Nothing here reads or changes a state.
 """
 
 from __future__ import annotations
@@ -17,11 +18,10 @@ from bisect import bisect_left
 from datetime import datetime
 from pathlib import Path
 
-from journeys.demo import START_STEP, WINDOW
 from PIL import Image, ImageDraw, ImageFont
+from scenes import SCENES, Scene
 
 EVERY = 5.0  # seconds of the run between frames, as filmed
-SPEED = 25  # each frame shows for EVERY / SPEED seconds
 HOLD = 3.0  # seconds the last frame stays
 MARGIN = 16
 BAND = 56
@@ -29,10 +29,19 @@ THEMES = {"light": ("#fafafa", "#212121", "#616161"), "dark": ("#111111", "#e1e1
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 
-def started(run: Path) -> float:
-    """When the journey's start step was recorded, in epoch seconds."""
-    steps = json.loads((run / "transcript.json").read_text())["steps"]
-    step = next(step for step in steps if step["action"] == START_STEP)
+class WrongRun(ValueError):
+    """The runs given do not match the scene's rows."""
+
+
+def started(run: Path, feature: str, start_step: str) -> float:
+    """When the journey's start step was recorded, in epoch seconds.
+
+    Refuses another feature's run, so a row is never filmed from the wrong journey.
+    """
+    transcript = json.loads((run / "transcript.json").read_text())
+    if transcript["feature"] != feature:
+        raise WrongRun(f"{run} is a {transcript['feature']} run; this row is {feature}")
+    step = next(step for step in transcript["steps"] if step["action"] == start_step)
     return datetime.fromisoformat(step["time"]).timestamp()
 
 
@@ -50,44 +59,61 @@ def at(shots: list[tuple[float, Path]], moment: float) -> Path:
     return shots[min(index, len(shots) - 1)][1]
 
 
-def timeline(window: float = WINDOW, every: float = EVERY) -> list[float]:
+def timeline(window: float, every: float = EVERY) -> list[float]:
     """Seconds into the run of each frame, from the start step to the window's end."""
     return [step * every for step in range(int(window // every) + 1)]
 
 
-def frame(stock: Path, mxz: Path, seconds: float, theme: str) -> Image.Image:
+def frame(rows: list[Path], seconds: float, theme: str, speed: int) -> Image.Image:
     back, text, quiet = THEMES[theme]
-    top, bottom = Image.open(stock).convert("RGB"), Image.open(mxz).convert("RGB")
-    width = max(top.width, bottom.width) + 2 * MARGIN
-    canvas = Image.new("RGB", (width, BAND + top.height + MARGIN + bottom.height + MARGIN), back)
+    shots = [Image.open(row).convert("RGB") for row in rows]
+    width = max(shot.width for shot in shots) + 2 * MARGIN
+    canvas = Image.new("RGB", (width, BAND + sum(shot.height + MARGIN for shot in shots)), back)
     draw = ImageDraw.Draw(canvas)
     font = ImageFont.truetype(FONT, 22)
-    draw.text((MARGIN, BAND // 2), f"Simulation · invented heads and rooms · {SPEED}× speed",
+    draw.text((MARGIN, BAND // 2), f"Simulation · invented heads and rooms · {speed}× speed",
               fill=quiet, font=font, anchor="lm")
     clock = f"{int(seconds) // 60}:{int(seconds) % 60:02d} into the run"
     draw.text((width - MARGIN, BAND // 2), clock, fill=text, font=font, anchor="rm")
-    canvas.paste(top, (MARGIN, BAND))
-    canvas.paste(bottom, (MARGIN, BAND + top.height + MARGIN))
+    top = BAND
+    for shot in shots:
+        canvas.paste(shot, (MARGIN, top))
+        top += shot.height + MARGIN
     return canvas
+
+
+def compose(scene: Scene, out: Path, rows: list[tuple[Path, Path]]) -> list[Path]:
+    """Write the scene's GIF and end still per theme; return the GIFs."""
+    if len(rows) != len(scene.rows):
+        raise WrongRun(f"{scene.name} has {len(scene.rows)} rows; got {len(rows)} run and frames pairs")
+    zero = [started(run, row.feature, scene.start_step) for (run, _), row in zip(rows, scene.rows, strict=True)]
+    out.mkdir(parents=True, exist_ok=True)
+    written = []
+    for theme in THEMES:
+        shots = [frames(folder / theme) for _, folder in rows]
+        images = [frame([at(row, start + t) for row, start in zip(shots, zero, strict=True)], t, theme, scene.speed)
+                  for t in timeline(scene.window)]
+        durations = [round(1000 * EVERY / scene.speed)] * len(images)
+        durations[-1] = round(1000 * HOLD)
+        gif = out / f"demo-{scene.name}-{theme}.gif"
+        images[0].save(gif, save_all=True, append_images=images[1:], duration=durations, loop=0, optimize=True)
+        images[-1].save(out / f"demo-{scene.name}-end-{theme}.png", optimize=True)
+        written.append(gif)
+    return written
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    for name in ("stock_run", "stock_frames", "mxz_run", "mxz_frames", "out"):
-        parser.add_argument(name, type=Path)
+    parser.add_argument("scene", choices=sorted(SCENES))
+    parser.add_argument("out", type=Path)
+    parser.add_argument("pairs", type=Path, nargs="+", metavar="run frames")
     args = parser.parse_args()
-    args.out.mkdir(parents=True, exist_ok=True)
-    zero = {"stock": started(args.stock_run), "mxz": started(args.mxz_run)}
-    for theme in THEMES:
-        shots = {"stock": frames(args.stock_frames / theme), "mxz": frames(args.mxz_frames / theme)}
-        images = [frame(at(shots["stock"], zero["stock"] + t), at(shots["mxz"], zero["mxz"] + t), t, theme)
-                  for t in timeline()]
-        durations = [round(1000 * EVERY / SPEED)] * len(images)
-        durations[-1] = round(1000 * HOLD)
-        gif = args.out / f"demo-stock-vs-mxz-{theme}.gif"
-        images[0].save(gif, save_all=True, append_images=images[1:], duration=durations, loop=0, optimize=True)
-        images[-1].save(args.out / f"demo-stock-vs-mxz-end-{theme}.png", optimize=True)
-        print(f"{gif} {len(images)} frames {gif.stat().st_size} bytes")
+    if len(args.pairs) % 2:
+        parser.error("give a run and a frames folder for each row")
+    rows = list(zip(args.pairs[::2], args.pairs[1::2], strict=True))
+    for gif in compose(SCENES[args.scene], args.out, rows):
+        with Image.open(gif) as image:
+            print(f"{gif} {image.n_frames} frames {gif.stat().st_size} bytes")
     return 0
 
 

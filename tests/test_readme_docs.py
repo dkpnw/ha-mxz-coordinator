@@ -16,6 +16,9 @@
 - RELEASING.md states the release cadence, and its step references point at the right steps.
 - Each screenshot the docs show is in the theme SETUP.md's note says (the pixels are the oracle).
 - No screenshot's file name carries a version, so a page's link outlives the release it shows.
+- Every filmed demo the docs show is a <picture> with a light and a dark copy that exist and
+  are in the theme their names say, and its alt text says it is a simulation. Every demo
+  scene (verification/instance/scenes.py) is shown, and the README's first demo is the hook.
 - The Quick start installs from the Marketplace (Home Assistant 2026.11 or newer) and links to
   SETUP.md's HACS steps for older versions, which keep search, Download, restart and Add
   integration. The README's main badge opens the Marketplace.
@@ -23,11 +26,15 @@
 
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 from PIL import Image, ImageStat
+
+sys.path.append(str(Path(__file__).parents[1] / "verification" / "instance"))
+from scenes import SCENES
 
 ROOM_STEP = json.loads(
     Path("custom_components/mxz_coordinator/strings.json").read_text()
@@ -601,3 +608,102 @@ def test_main_badge_opens_the_marketplace() -> None:
 def test_main_badge_check_reports_the_hacs_badge() -> None:
     """Negative: the base README's HACS badge is not the Marketplace one."""
     assert _main_badge(f'<p><a href="{HACS_LINK}"><img></a> <a href="{MARKETPLACE_LINK}"></a></p>') == HACS_LINK
+
+
+DEMO_PICTURE = re.compile(
+    r'<picture>\s*<source media="\(prefers-color-scheme: dark\)" srcset="[^"]*/images/(demo-[\w.-]+)">\s*'
+    r'<img src="[^"]*/images/(demo-[\w.-]+)"[^>]*?alt="([^"]*)">\s*</picture>'
+)
+DEMO_NAME = re.compile(r"images/(demo-[\w-]+\.(?:gif|png))")
+
+
+def _demo_pictures(text: str) -> list[tuple[str, str, str]]:
+    """(dark copy, light copy, alt text) of each filmed demo a page shows, in page order."""
+    return DEMO_PICTURE.findall(text)
+
+
+def _demo_problems(text: str, images: Path) -> list[str]:
+    """A demo shown outside a light/dark <picture>, a missing or mis-themed copy, or alt text
+    that does not say simulation."""
+    problems = []
+    pictures = _demo_pictures(text)
+    pictured = {name for dark, light, _ in pictures for name in (dark, light)}
+    problems += [f"{name} is not in a light/dark picture" for name in DEMO_NAME.findall(text) if name not in pictured]
+    for dark, light, alt in pictures:
+        if dark.replace("-dark.", "-light.") != light or "-dark." not in dark:
+            problems.append(f"{dark} and {light} are not one image's dark and light copies")
+        if "simulation" not in alt.lower():
+            problems.append(f"{light}: the alt text does not say simulation")
+        for name, theme in ((dark, "dark"), (light, "light")):
+            if not (images / name).exists():
+                problems.append(f"{name} does not exist")
+                continue
+            with Image.open(images / name) as image:
+                shown = "light" if ImageStat.Stat(image.convert("L")).mean[0] > 128 else "dark"
+            if shown != theme:
+                problems.append(f"{name} is {shown}")
+    return problems
+
+
+def _demo_pages() -> str:
+    return "\n".join(page.read_text() for page in [Path("README.md"), *sorted(Path("docs").glob("*.md"))])
+
+
+def test_every_demo_shown_is_a_simulation_in_both_themes() -> None:
+    assert _demo_pictures(_demo_pages())
+    assert _demo_problems(_demo_pages(), Path("images")) == []
+
+
+def test_demo_check_reports_each_kind_of_problem(tmp_path: Path) -> None:
+    """Negative: a bare image, a mismatched pair, alt text without the word, a missing copy, a wrong theme."""
+    Image.new("RGB", (8, 8), (255, 255, 255)).save(tmp_path / "demo-a-light.gif")
+    Image.new("RGB", (8, 8), (255, 255, 255)).save(tmp_path / "demo-a-dark.gif")
+    Image.new("RGB", (8, 8), (0, 0, 0)).save(tmp_path / "demo-b-dark.gif")
+
+    def picture(dark: str, light: str, alt: str) -> str:
+        return (f'<picture>\n  <source media="(prefers-color-scheme: dark)" srcset="x/images/{dark}">\n'
+                f'  <img src="x/images/{light}" alt="{alt}">\n</picture>\n')
+
+    text = (picture("demo-a-dark.gif", "demo-a-light.gif", "Rooms cooling.")
+            + picture("demo-b-dark.gif", "demo-a-light.gif", "Simulation.")
+            + picture("demo-z-dark.gif", "demo-z-light.gif", "Simulation.")
+            + "![x](images/demo-c-light.gif)\n")
+    assert _demo_problems(text, tmp_path) == [
+        "demo-c-light.gif is not in a light/dark picture",
+        "demo-a-light.gif: the alt text does not say simulation",
+        "demo-a-dark.gif is light",
+        "demo-b-dark.gif and demo-a-light.gif are not one image's dark and light copies",
+        "demo-z-dark.gif does not exist",
+        "demo-z-light.gif does not exist",
+    ]
+
+
+def _unshown_scenes(text: str, names: list[str]) -> list[str]:
+    shown = {light for _, light, _ in _demo_pictures(text)}
+    return [name for name in names if f"demo-{name}-light.gif" not in shown]
+
+
+def test_every_filmed_scene_is_shown() -> None:
+    assert _unshown_scenes(_demo_pages(), list(SCENES)) == []
+
+
+def test_scene_check_reports_a_scene_the_docs_do_not_show() -> None:
+    """Negative: only the hook's end still is shown, so neither scene's GIF is."""
+    text = Path("docs/HOW-IT-WORKS.md").read_text().split("## More scenarios")[0]
+    assert _unshown_scenes(text, ["stock-vs-mxz", "fan-hold"]) == ["stock-vs-mxz", "fan-hold"]
+
+
+def _first_demo(readme: str) -> str:
+    return _demo_pictures(readme)[0][1]
+
+
+def test_the_readme_s_first_demo_is_the_hook() -> None:
+    assert _first_demo(Path("README.md").read_text()) == "demo-stock-vs-mxz-light.gif"
+
+
+def test_first_demo_check_reports_another_scene_first() -> None:
+    """Negative: a scene placed above the hook."""
+    readme = Path("README.md").read_text()
+    other = ('<picture>\n  <source media="(prefers-color-scheme: dark)" srcset="x/images/demo-fan-hold-dark.gif">\n'
+             '  <img src="x/images/demo-fan-hold-light.gif" alt="Simulation.">\n</picture>\n')
+    assert _first_demo(other + readme) == "demo-fan-hold-light.gif"

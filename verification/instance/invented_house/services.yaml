@@ -34,6 +34,15 @@ room:
     window_open:
       selector:
         boolean:
+    occupied:
+      selector:
+        boolean:
+temperatures:
+  fields:
+    temperatures:
+      required: true
+      selector:
+        object:
 availability:
   fields:
     head:

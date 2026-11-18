@@ -5,6 +5,7 @@ Why MXZ exists, how it decides, and where its control stops. The
 
 - [The problem in detail](#the-problem-in-detail)
 - [How MXZ decides](#how-mxz-decides)
+- [More scenarios](#more-scenarios)
 - [Best practice: give the firmware your room sensor too](#best-practice-give-the-firmware-your-room-sensor-too)
 - [Service-manual note: a parked room warming in heating season](#service-manual-note-a-parked-room-warming-in-heating-season)
 - [Limits of control](#limits-of-control)
@@ -147,6 +148,81 @@ The plan, with each room's reasons, is on `sensor.*_plan`; see
   [Setpoints on °C-native heads](MIGRATION.md#setpoints-on-c-native-heads-in-a-f-system-341).
 - While eco/away is on, heads get fixed eco setpoints instead of the room target.
 - A parked head (`fan_only` or `off`) is sent a mode only, so it keeps its last setpoint.
+
+## More scenarios
+
+These clips are made the same way as the one at the top of the README: invented heads
+and rooms on a throwaway Home Assistant, each row filmed on its own instance and sped up
+25 times (the Comfort priority clip, which is shorter, 10 times). A stock row follows
+only the manual's standby rule quoted in [The problem in detail](#the-problem-in-detail).
+An MXZ row is the real integration at its default settings, except where the caption
+names a setting. A running head moves its
+room an invented 1 °F a minute. No clip measures real equipment, energy, comfort or
+noise. How each one is filmed and checked is in
+[the verification instance's README](../verification/instance/README.md#the-demo-scenes).
+
+The README's clip also shows coil drying: when Studio reaches its target after cooling,
+MXZ runs its head on fan only to dry the coil, and turns it off 10 minutes later.
+
+### Every room at target
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-satisfied-dark.gif">
+  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-satisfied-light.gif" width="440" alt="Simulation with invented heads, sped up 25 times. Two rows show the same three rooms, Studio, Loft and Den, each starting at 66 °F with a 70 °F target. Top row, stock: each head is set to heat at 70 °F, heats its room to 70 °F and then idles in heat, and the outdoor unit keeps running heat. Bottom row, MXZ Coordinator: the shared mode is heat, every head heats its room to 70 °F, and then MXZ turns every head off and the outdoor unit has no direction.">
+</picture>
+
+A cold morning: every room reads 66 °F against a 70 °F target. Both rows heat every room
+to 70 °F. In the stock row each head then stays set to heat and idles, so by the model's
+rule the outdoor unit keeps running heat, and a room that later wants cool would wait
+behind it. MXZ turns each head off once its room is at target, so no head is left asking
+for heat. Tests: `tests/test_idle_action.py`.
+
+### A fan speed you pick is kept
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-fan-hold-dark.gif">
+  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-fan-hold-light.gif" width="440" alt="Simulation with invented heads, sped up 25 times. One row, MXZ Coordinator, shared mode cool. Studio starts at 76 °F with a 70 °F target and its head cools with the fan on high, while Loft and Den sit at 70 °F with their heads off. A person picks quiet on Studio's remote: Studio's Fan auto switch turns off and the fan stays on quiet as Studio cools to 70 °F and its head dries the coil on fan only.">
+</picture>
+
+Studio starts at 76 °F and MXZ cools it with the fan on high. A person then picks quiet on
+Studio's own remote. MXZ turns Studio's **Fan auto** off and sends Studio's head no fan
+speed for the rest of the run, through the coil drying. In the README's clip, with no
+pick, the fan steps down from high to quiet as Studio closes in. Turning Fan auto back on
+hands the fan back to MXZ ([Who drives the fan](FEATURES.md#who-drives-the-fan)). Tests:
+`tests/test_fan_hold_restore.py`, `tests/test_properties_fan.py`; formal: the
+`ci-fan`, `ci-fan-lag` and `ci-fan-crash` TLA+ configurations.
+
+### The wait between heat and cool
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-mode-wait-dark.gif">
+  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-mode-wait-light.gif" width="440" alt="Simulation with invented heads, sped up 25 times. One row, MXZ Coordinator. Loft and Den were just heated to 70 °F and their heads are off; the shared mode is heat. Studio reads 76 °F with a 70 °F target. The card counts down the time until MXZ can switch modes while the shared mode stays heat and Studio's head stays off. When the count reaches zero, the shared mode changes to cool, Studio's head cools with the fan on high, and the count starts again from 10 minutes.">
+</picture>
+
+MXZ has just heated Loft and Den, so the shared mode is heat. Then Studio reads 76 °F
+and wants cool. **Minimum time between mode switches** (10 minutes by default) keeps the
+mode on heat until 10 minutes after the turn to heat; the card shows the time left from
+Studio's thermostat. Then the mode changes to cool, Studio cools, and the count starts
+again: the next change, back to heat, waits 10 minutes from this one. The wait is the
+product's real 10 minutes; only the film is sped up. Tests: `tests/test_dwell_wakeup.py`,
+`tests/test_antiflip_persist.py`, `tests/test_properties_mode.py`; formal:
+`verification/modehold/MXZModeHold.tla`.
+
+### Comfort priority in a standoff
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-comfort-priority-dark.gif">
+  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-comfort-priority-light.gif" width="440" alt="Simulation with invented heads, sped up 10 times. Two rows, both MXZ Coordinator, start the same way: Studio reads 76 °F and wants cool, Loft reads 70 °F, and Den reads 66 °F and wants heat, all with 70 °F targets. Den's Comfort priority is its occupancy sensor. Top row, Den unoccupied: the shared mode is cool and Studio cools while Den's head stays off. Bottom row, Den occupied: the shared mode is heat and Den heats while Studio's head stays off.">
+</picture>
+
+Studio wants cool and Den wants heat at the same time, and one outdoor unit can do only
+one. Den's **Comfort priority** is wired to an invented occupancy sensor. In the top row
+Den is empty, so Studio goes first because it is first in the room order. In the bottom
+row Den is occupied, so Den goes first. The other room is never sent its mode in the
+clip. The clip ends before either room is within 3 °F of its target; what happens after
+that depends on the mode-switch wait, as described in [How MXZ decides](#how-mxz-decides).
+Tests: `tests/test_comfort_priority_logic.py`, `tests/test_comfort_priority.py`. The TLA+
+model leaves Comfort priority out.
 
 ## Best practice: give the firmware your room sensor too
 

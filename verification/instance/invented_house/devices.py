@@ -30,6 +30,7 @@ class Head:
 class Room:
     temperature: float
     window_open: bool = False
+    occupied: bool = False
 
 
 @dataclass
@@ -64,6 +65,17 @@ class Devices:
         scratch = path.with_suffix(".tmp")
         scratch.write_text(json.dumps(asdict(self), indent=2, sort_keys=True) + "\n")
         os.replace(scratch, path)
+
+
+def reading(temperature: float) -> float:
+    """What a room sensor reports: the room's temperature to a tenth of a degree.
+
+    The model keeps thousandths, so a room it holds at a setpoint alternates
+    between, say, 70.000 and 70.004 every tick. A real sensor never shows that,
+    and MXZ, which evaluates a room at most once per its 10 s refresh cooldown,
+    can then see only the 70.004 readings and never the one at target.
+    """
+    return round(temperature, 1)
 
 
 def load_house(path: Path = HOUSE) -> dict[str, Any]:

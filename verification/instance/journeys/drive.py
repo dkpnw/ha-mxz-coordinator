@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
+from client import form_values
 from expect import (
     Missed,
     Stream,
@@ -153,6 +154,21 @@ class Drive:
         """A person at the head's remote: the head changes and reports it."""
         await self.client.call("invented_house", "remote", head=key, **fields)
         self.record("Person at the head", action)
+
+    async def configure_room(self, action: str, key: str, **changes: Any) -> None:
+        """A person in Home Assistant: Configure, Rooms, the room's page, ``changes``, Save.
+
+        Every other field goes back as the page shows it. Saving reloads the entry.
+        """
+        client, entry = self.client, self.entry_id
+        assert entry is not None
+        page = await client.options_start(entry)
+        page = await client.options_configure(page["flow_id"], {"next_step_id": "rooms"})
+        page = await client.options_configure(page["flow_id"], {"next_step_id": f"room_{self.rooms.index(key) + 1}"})
+        self.check(f"Configure opens {self.names[key]}'s room page", page.get("step_id") == "room", page.get("step_id"))
+        done = await client.options_configure(page["flow_id"], form_values(page["data_schema"], changes))
+        self.record("Person in Home Assistant", action)
+        self.check("the room page saves", done.get("type") == "create_entry", done.get("errors") or done.get("type"))
 
     def check(self, what: str, passed: bool, seen: Any = None) -> None:
         if not self.transcript.steps:

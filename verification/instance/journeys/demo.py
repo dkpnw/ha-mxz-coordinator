@@ -8,11 +8,15 @@ the same real clock, and are filmed for the same window from their start step.
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING
+
+from journeys import filmed
+from journeys.filmed import model_on
 
 if TYPE_CHECKING:
     from journeys.drive import Drive
+
+__all__ = ["START", "START_STEP", "TARGET", "WINDOW", "model_on", "start"]
 
 TARGET = 70
 START = {"studio": 76, "loft": 70, "den": 70}
@@ -22,14 +26,6 @@ WINDOW = 450
 START_STEP = "start: Studio reads 76, Loft and Den read 70"
 
 
-async def model_on(drive: Drive) -> None:
-    await drive.client.call("invented_house", "model", running=True)
-    drive.record("Driver", "turn on the demo's outdoor unit and room model")
-
-
 async def start(drive: Drive) -> float:
     """Set the start temperatures in one step; return the window's start, on the loop clock."""
-    for key, temperature in START.items():
-        await drive.client.call("invented_house", "room", room=key, temperature=temperature)
-    drive.record("Room", START_STEP)
-    return asyncio.get_running_loop().time()
+    return await filmed.start(drive, START, START_STEP)

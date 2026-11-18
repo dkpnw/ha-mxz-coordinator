@@ -97,6 +97,45 @@ def test_a_device_file_from_before_the_model_loads_with_no_direction(tmp_path: P
     assert devices.Devices.load(path, HOUSE).outdoor == "heat"
 
 
+def test_occupancy_is_off_until_set_and_survives_a_stop_and_start(tmp_path: Path) -> None:
+    path = tmp_path / devices.DEVICE_FILE
+    before = devices.Devices.load(path, HOUSE)
+    assert {room.occupied for room in before.rooms.values()} == {False}
+    before.rooms["den"].occupied = True
+    before.save(path)
+    after = devices.Devices.load(path, HOUSE)
+    assert {key: room.occupied for key, room in after.rooms.items()} == {"studio": False, "loft": False, "den": True}
+
+
+def test_a_device_file_from_before_occupancy_loads_every_room_unoccupied(tmp_path: Path) -> None:
+    path = tmp_path / devices.DEVICE_FILE
+    devices.Devices.fresh(HOUSE).save(path)
+    data = json.loads(path.read_text())
+    for room in data["rooms"].values():
+        del room["occupied"]
+    path.write_text(json.dumps(data))
+    assert {room.occupied for room in devices.Devices.load(path, HOUSE).rooms.values()} == {False}
+
+
+def test_a_room_sensor_reports_tenths_so_a_room_held_at_its_setpoint_reads_it() -> None:
+    """Once the model holds a cooled room at 70, it alternates 70.000 and a few thousandths over;
+    the sensor reports 70.0 for every one of them."""
+    house = _house(studio=("cool", None, 70.0))
+    house.rooms["studio"].temperature = 70.5
+    while house.rooms["studio"].temperature > 70.0:
+        model.step(house, CLIMATE, CLIMATE.tick / 60)
+    held = []
+    for _ in range(20):
+        model.step(house, CLIMATE, CLIMATE.tick / 60)
+        held.append(house.rooms["studio"].temperature)
+    assert 70.0 in held and max(held) > 70.0
+    assert {devices.reading(value) for value in held} == {70.0}
+
+
+def test_negative_a_room_sensor_still_reports_a_tenth_away_from_its_setpoint() -> None:
+    assert [devices.reading(value) for value in (70.05001, 70.06, 69.94, 72.0, 70.5)] == [70.1, 70.1, 69.9, 72.0, 70.5]
+
+
 CLIMATE = model.Climate(**HOUSE["climate"])
 
 
@@ -189,6 +228,24 @@ def test_rule_3_an_unattended_room_drifts_toward_ambient_without_passing_it() ->
     house.rooms["den"].temperature = CLIMATE.ambient - CLIMATE.drift_rate / 2
     model.step(house, CLIMATE, 1.0)
     assert house.rooms["den"].temperature == CLIMATE.ambient
+
+
+def test_negative_occupancy_changes_nothing_the_model_does() -> None:
+    """Occupancy is for MXZ's Comfort priority only; the three rules never read it."""
+    houses = [_house(studio=("cool", None, 70.0), den=("heat", 70.0, None)) for _ in range(2)]
+    for room in houses[1].rooms.values():
+        room.occupied = True
+    for house in houses:
+        house.rooms["studio"].temperature, house.rooms["den"].temperature = 76.0, 66.0
+        for _ in range(8):
+            model.step(house, CLIMATE, 1.0)
+    assert houses[0].outdoor == houses[1].outdoor == "cool"
+    assert [room.temperature for room in houses[0].rooms.values()] == [
+        room.temperature for room in houses[1].rooms.values()
+    ]
+    assert [model.action(houses[0].heads[k], houses[0].rooms[k], "cool") for k in houses[0].heads] == [
+        model.action(houses[1].heads[k], houses[1].rooms[k], "cool") for k in houses[1].heads
+    ]
 
 
 def test_the_browser_requirements_follow_dependencies_once(tmp_path: Path) -> None:

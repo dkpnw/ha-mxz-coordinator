@@ -1,4 +1,4 @@
-"""Invented equipment for the throwaway Home Assistant: heads, room sensors, windows.
+"""Invented equipment for the throwaway Home Assistant: heads, room sensors, windows, occupancy.
 
 Development only. It is copied into a throwaway instance's config directory and
 never ships: hassfest, HACS and the release zip see only custom_components/.
@@ -51,13 +51,13 @@ class Bench:
     def modelled(self) -> bool:
         return self._stop_model is not None
 
-    async def changed(self, key: str) -> None:
+    async def changed(self, *changed: str) -> None:
         if self.modelled:
             self.devices.outdoor = direction(self.devices, self.devices.outdoor)
         async with self._writing:
             await self.hass.async_add_executor_job(self.devices.save, self._path)
         # With the model on, one head's change can put another in or out of standby.
-        keys = [*self.devices.heads, OUTDOOR] if self.modelled else [key]
+        keys = [*self.devices.heads, OUTDOOR] if self.modelled else list(changed)
         for each in keys:
             async_dispatcher_send(self.hass, signal(each))
 
@@ -99,9 +99,16 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         state = bench.devices.rooms[call.data["room"]]
         if "temperature" in call.data:
             state.temperature = call.data["temperature"]
-        if "window_open" in call.data:
-            state.window_open = call.data["window_open"]
+        for field in ("window_open", "occupied"):
+            if field in call.data:
+                setattr(state, field, call.data[field])
         await bench.changed(call.data["room"])
+
+    async def temperatures(call: ServiceCall) -> None:
+        """Several rooms report at once, so MXZ never sees one reading without the others."""
+        for key, temperature in call.data["temperatures"].items():
+            bench.devices.rooms[key].temperature = temperature
+        await bench.changed(*call.data["temperatures"])
 
     async def model(call: ServiceCall) -> None:
         await bench.model(call.data["running"])
@@ -121,6 +128,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         vol.Required("room"): vol.In(rooms),
         vol.Optional("temperature"): vol.Coerce(float),
         vol.Optional("window_open"): cv.boolean,
+        vol.Optional("occupied"): cv.boolean,
+    }))
+    hass.services.async_register(DOMAIN, "temperatures", temperatures, vol.Schema({
+        vol.Required("temperatures"): {vol.In(rooms): vol.Coerce(float)},
     }))
     hass.services.async_register(DOMAIN, "model", model, vol.Schema({vol.Required("running"): cv.boolean}))
     hass.services.async_register(DOMAIN, "availability", availability, vol.Schema({

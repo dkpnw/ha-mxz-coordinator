@@ -164,6 +164,12 @@ class Client:
     async def flow_abort(self, flow_id: str) -> None:
         await self.rest("DELETE", f"/api/config/config_entries/flow/{flow_id}")
 
+    async def options_start(self, entry_id: str) -> dict[str, Any]:
+        return await self.rest("POST", "/api/config/config_entries/options/flow", {"handler": entry_id})
+
+    async def options_configure(self, flow_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        return await self.rest("POST", f"/api/config/config_entries/options/flow/{flow_id}", data)
+
     async def history(self, start: str, end: str, entity_ids: list[str]) -> Any:
         return await self.rest(
             "GET", f"/api/history/period/{start}",
@@ -172,6 +178,35 @@ class Client:
 
     async def diagnostics(self, entry_id: str) -> Any:
         return await self.rest("GET", f"/api/diagnostics/config_entry/{entry_id}")
+
+
+def form_values(schema: list[dict[str, Any]], changes: dict[str, Any]) -> dict[str, Any]:
+    """What a person submits on a form page: every field as the page prefills it, plus ``changes``.
+
+    ``schema`` is the page's ``data_schema`` as the API serializes it. A field
+    shows its suggested value, else its default; a section's fields are nested
+    under the section's name. A change names a field anywhere on the page; one
+    the page does not have is refused, so a renamed field fails loudly.
+    """
+    values: dict[str, Any] = {}
+    unknown = dict(changes)
+    for field in schema:
+        if field.get("type") == "expandable":
+            values[field["name"]] = form_values(field["schema"], {})
+            for inner in field["schema"]:
+                if inner["name"] in unknown:
+                    values[field["name"]][inner["name"]] = unknown.pop(inner["name"])
+            continue
+        hint = (field.get("description") or {}).get("suggested_value")
+        if hint not in (None, ""):
+            values[field["name"]] = hint
+        elif "default" in field:
+            values[field["name"]] = field["default"]
+        if field["name"] in unknown:
+            values[field["name"]] = unknown.pop(field["name"])
+    if unknown:
+        raise ApiError(f"the page has no field {sorted(unknown)}")
+    return values
 
 
 def _frames(payload: Any) -> list[dict[str, Any]]:
