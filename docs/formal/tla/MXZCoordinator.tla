@@ -858,12 +858,17 @@ OverrideHolds == ~overrideBroken
 \* a mode since that apply's decision: nothing a head does can leave the record behind.
 RecordLeadsHeads == ~trailing
 
-\* The target never takes a value that only MXZ's own writes put on the head. Three ways
-\* past the memory are open findings in docs/STATE-MACHINES.md, each a rule of its own:
-\* a write from before a process start (SM-1), and a write still queued that a person's
-\* press of a remembered value, or an adoption, dropped from the memory (SM-10).
+\* The target never takes a value that only MXZ's own writes put on the head. The ways
+\* past the memory found in docs/STATE-MACHINES.md are each a rule of their own: a write
+\* from before a process start (SM-1, fixed, checked), and a write still queued that a
+\* person's press of a remembered value, or an adoption, dropped from the memory (SM-10).
 OwnWriteNeverAdopted == "mxz" \notin adopted
 StartWriteNeverAdopted == "start" \notin adopted
+
+\* Not a checked property: SM-10's strict rule, which breaks after a person presses a value
+\* MXZ still has queued (paths (b) and (c), an accepted known cost in
+\* docs/formal/PARKED-FINDINGS.md). No config lists it and no cover needs it to break. It
+\* stays only as the part QueuedWriteKept is built from.
 QueuedWriteNeverAdopted == adopted \cap {"echo", "seen"} = {}
 
 \* The part of SM-10 a report can tell apart: until a person presses a value MXZ still has

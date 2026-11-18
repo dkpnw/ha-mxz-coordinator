@@ -4,16 +4,17 @@ No finding is open for a head that shows MXZ's fan writes in the order it got th
 to the latest, apart from one narrow case at a start. A head that does anything else isn't
 covered. [F1's limits](#f1-limits) has both.
 This page keeps what F1 was and how it was fixed, the one accepted exception on cloud heads,
-one open finding on changes made at a head that waits on a decision, and one that is fixed.
+and two findings on changes made at a head: one fixed, and one fixed in part, with the rest an
+accepted known cost apart from one narrow case still open. No finding is open in
+`tools/formal_tlc.py` (`FINDINGS` is empty); the open case is in the tests only.
 
-## Open: changes made at a head can adopt MXZ's own write
+## Changes made at a head that adopted MXZ's own write
 
-These break the rule that a report MXZ's own writes can explain is never a person, with Accept
+These broke the rule that a report MXZ's own writes can explain is never a person, with Accept
 changes made at the head on (the default). Each was found or confirmed by TLC and run on the real
-code on invented heads; nothing ran on a real head. An open one is a rule that
-`tools/formal_tlc.py cover` requires to keep breaking until it is decided, and
+code on invented heads; nothing ran on a real head.
 [STATE-MACHINES.md](../STATE-MACHINES.md#4-invalid-states-and-transitions-the-code-can-reach) has
-the evidence and the options.
+the evidence.
 
 - **SM-1, `StartWriteNeverAdopted` in `ci-adopt-restart` (fixed).** MXZ's memory of its own head
   writes was in `hass.data`, so a reload kept it and a process start didn't. A write from before
@@ -22,16 +23,35 @@ the evidence and the options.
   room state store, so every start keeps it, and the rule holds in `ci-adopt-restart`.
   `test_a_pre_restart_write_shown_late_is_not_adopted` (41 seconds and an hour after the start)
   fails on the code before the fix. Whether a real head can report that late is still not known.
-- **SM-10, `QueuedWriteNeverAdopted` in `ci-adopt`.** A write a lagging head hasn't shown yet can
-  drop out of the memory once a person presses a value MXZ still has queued: the press reads as
-  MXZ's write landing, so the memory catches up past older writes or uses the write's copy, and
-  `HeadWriteMemory.seen` then replaces it. When that write lands after a person's later press, it
-  is adopted over the press. A rewrite no longer drops one: each copy is counted, and
-  `QueuedWriteKept` holds in `ci-adopt`. The rest can't be closed without changing what two pinned
-  tests require (STATE-MACHINES.md SM-10). A write of the value the head already shows adds no
-  copy, since no report can count it off; one still queued that lands after a person's press of
-  another value is adopted, as before this change. The model writes only values the head
-  doesn't show, so this part is in the tests only.
+- **SM-10 (fixed for a rewrite; the rest an accepted known cost).** A write a lagging head
+  hasn't shown yet could drop out of the memory and be adopted over a person's later press when
+  it landed. Path (a), a rewrite kept once, is fixed: each copy is counted, and `QueuedWriteKept`
+  holds in `ci-adopt` and `ci-adopt-restart` (A4 and A5 break it).
+  Paths (b) and (c) are an accepted known cost (the owner's decision, Nov 17, 2026), like the
+  fan's F1 costs. Each needs a person to press, at the remote, exactly the value MXZ has queued at
+  a head that shows writes late: the press reads as MXZ's write landing, so the memory catches up
+  past older writes or uses the write's copy, and `HeadWriteMemory.seen` then replaces it. When
+  that write lands after the person's next press, it is adopted over it. The reports are the
+  same as in `test_up_and_back_are_both_adopted` (b) and
+  `test_a_press_of_a_write_the_head_has_passed_is_adopted` (c), which require the press to be
+  adopted, so no rule that reads only reports can give both answers.
+  `test_known_cost_a_press_of_the_queued_value_at_a_lagging_head_reads_as_mxzs` and
+  `test_known_cost_a_press_of_an_older_queued_value_reads_as_mxzs` pin them.
+  `QueuedWriteNeverAdopted`, the strict rule they break, stays in the spec only as the form
+  `QueuedWriteKept` is built from; it is no longer a finding TLC must see break.
+  A write of the value the head already shows adds no copy, since no report can count it off.
+  One still queued that lands after a person's press of another value is adopted, as before this
+  change, and is part of the same known cost:
+  `test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_adopted` pins it. The
+  model writes only values the head doesn't show, so this part is in the tests only.
+  Still open: that write, landing late, can also match a later queued write of its value, so
+  the memory passes the writes queued between them and one can be adopted when it lands. The
+  queue oracle fails on it under seeds other than its fixed one, as the base does. It waits on
+  the owner's decision (STATE-MACHINES.md SM-10 and section 7).
+  A call the head refuses takes back the copy it counted
+  (`test_a_refused_write_leaves_no_copy_to_take_a_later_press`, code mutant C55).
+  Whether a real CN105 or cloud head queues commands that way is unknown. A house check is
+  needed before a stable release.
 
 Both were replayed again on the real code at `ca78324`, on invented heads, each with a control
 that passes (SM-1 before its fix): SM-10 on the path the `/statechart` chart draws, where the target ends at 72 over

@@ -53,10 +53,10 @@ COVERS = {
 }
 
 # An open finding's rule, which must keep breaking until the finding is fixed and the
-# rule moves into its config's INVARIANTS (docs/formal/PARKED-FINDINGS.md).
-FINDINGS: dict[str, str] = {
-    "QueuedWriteNeverAdopted": "ci-adopt",
-}
+# rule moves into its config's INVARIANTS (docs/formal/PARKED-FINDINGS.md). None is open.
+# SM-10's QueuedWriteNeverAdopted was here until Nov 17, 2026. Its paths (b) and (c) are now
+# an accepted known cost, so it is checked neither way; QueuedWriteKept is the checked rule.
+FINDINGS: dict[str, str] = {}
 
 # id: (what breaks, exact text once in the spec, its replacement, config, rule that must break).
 MUTANTS = {
