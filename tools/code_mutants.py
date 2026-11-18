@@ -363,13 +363,15 @@ MUTANTS: dict[str, Mutant] = {
     ),
     'C53': Mutant(
         'a write of what the head shows adds a copy', 'wrote',
-        'same(shown, value) and len(self._entries) == 1',
+        'same(shown, value) and same(shown, self._entries[-1][0])\n'
+        '            and not any(copies for _, copies in list(self._entries)[:-1])',
         'False',
         'tests/test_accept_head_changes.py::test_off_and_on_at_the_head_count_after_target_changes',
     ),
     'C54': Mutant(
         'a write of what the head shows adds nothing behind another write', 'wrote',
-        'same(shown, value) and len(self._entries) == 1',
+        'same(shown, value) and same(shown, self._entries[-1][0])\n'
+        '            and not any(copies for _, copies in list(self._entries)[:-1])',
         'same(shown, value)',
         'tests/test_accept_head_changes.py::test_a_write_of_what_the_head_shows_adds_no_copy',
     ),
@@ -385,9 +387,20 @@ MUTANTS: dict[str, Mutant] = {
     # (shape B, fix round 5 of smfix1111): the old no-copy test, the last value remembered.
     'C56': Mutant(
         'a rewrite of the shown value behind another write counts no copy', 'wrote',
-        'same(shown, value) and len(self._entries) == 1',
+        'same(shown, value) and same(shown, self._entries[-1][0])\n'
+        '            and not any(copies for _, copies in list(self._entries)[:-1])',
         'same(shown, value) and same(shown, self._entries[-1][0])',
         'tests/test_accept_head_changes.py::test_a_rewrite_of_the_shown_value_behind_another_write_is_kept',
+    ),
+    # A write of the value the head shows counts no copy when it is the last value remembered
+    # and no value before it counts one, even with an older shown value still remembered, as
+    # after a restart (review 6 of smfix1111): fix round 5's no-copy test, all that is remembered.
+    'C57': Mutant(
+        'a rewrite of the shown value behind an older shown value counts a copy', 'wrote',
+        'same(shown, value) and same(shown, self._entries[-1][0])\n'
+        '            and not any(copies for _, copies in list(self._entries)[:-1])',
+        'same(shown, value) and len(self._entries) == 1',
+        'tests/test_accept_head_changes.py::test_after_a_restart_a_rewrite_of_the_shown_mode_takes_no_later_press',
     ),
     'H1': Mutant(
         'the hold no longer gates a change', 'shared_mode',

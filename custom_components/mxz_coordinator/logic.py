@@ -864,14 +864,19 @@ class HeadWriteMemory:
         What the head shows before a write stays remembered until it reports a
         later one: until then the same report can come again. A rewrite of the
         last value is one more copy of it, not a new place in the order. A write
-        of what the head shows adds nothing when the shown value is all that is
-        remembered: the head shows nothing new for it, so no report could ever
-        count it off. With anything else remembered, it counts a copy, as any
-        write does. Returns whether the write counted a copy.
+        of what the head shows adds nothing when the shown value is the last one
+        remembered and no value before it counts a copy: as far as the memory
+        knows, nothing else of MXZ's is still to come, so the head shows nothing
+        new for it and no report could ever count it off. In every other case it
+        counts a copy, as any write does. Returns whether the write counted a
+        copy.
         """
         if shown is not None and not self.own(shown, same):
             self.seen(shown)
-        if shown is not None and same(shown, value) and len(self._entries) == 1:
+        if (
+            shown is not None and same(shown, value) and same(shown, self._entries[-1][0])
+            and not any(copies for _, copies in list(self._entries)[:-1])
+        ):
             return False
         if self._entries and self._entries[-1][0] == value:
             self._entries[-1][1] += 1

@@ -83,6 +83,7 @@ from tests.property_rig import (
     Rig,
     open_rig,
 )
+from tests.restart import stopped
 from tests.room_state_store import saved_section
 from tests.test_drive import (
     SENSOR_A,
@@ -1187,6 +1188,21 @@ def test_known_cost_a_rewrite_of_the_shown_value_behind_another_write_takes_a_pr
     assert not memory.own("cool")  # and the next on is a person's
 
 
+def test_a_rewrite_of_the_shown_last_write_after_a_restart_adds_no_copy() -> None:
+    """Review 6 of smfix1111, on HeadWriteMemory: a restart restores the head's "off" and
+    MXZ's one queued "cool". The head showed that "cool" while MXZ was down, and MXZ writes
+    "cool" again before the head reports anything. It is the last value remembered and no
+    value before it counts a copy, so nothing of MXZ's is still to come: it counts none.
+    After the head's report, a person's off and then on are both a person's."""
+    memory = HeadWriteMemory.restored(8, [["off", 0], ["cool", 1]])
+    assert memory is not None
+    assert memory.wrote("cool", "cool") is False
+    memory.caught_up("cool")  # the head's first report after the start
+    assert memory.record() == [["cool", 0]]
+    memory.seen("off")  # a person's off
+    assert not memory.own("cool")  # the person's on is a person's
+
+
 def _refuses_the_first_setpoint(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     """The first head refuses MXZ's first setpoint call (a cloud timeout, say), then takes them."""
     head = rig.heads[0]
@@ -1400,6 +1416,112 @@ async def test_a_press_after_a_restart_is_adopted(hass: HomeAssistant, freezer: 
     while await rig.report_next_command():
         await rig.later(HELD)
         assert _target(rig) == 66
+    await rig.close()
+
+
+async def _on_shown_while_mxz_was_down(rig: Rig, copies: int = 1) -> None:
+    """A person's off is adopted. MXZ then turns the room on and sends "cool" ``copies``
+    times to a head that shows writes late, and the head shows the first "cool" while MXZ
+    is down. After the start, a target of 73 is one setpoint write, which sends "cool" too,
+    before the head has reported anything. The queue drains, the head shows MXZ's writes
+    at once from then on, and startup quiet ends.
+
+    The switch's own compute sends one "cool". A second takes more applies, and how many
+    one settle runs depends on Home Assistant's refresh scheduling
+    (``_rewritten_while_lagging``): settle until two are queued, never past it."""
+    head = rig.heads[0]
+    await rig.person_mode("off")
+    await rig.later(HELD)
+    assert _enabled(rig) is False
+    head.lags_commands = True
+    await rig.hass.services.async_call(
+        "switch", "turn_on", {"entity_id": rig.eid("_primary_enable")}, blocking=True,
+    )
+    await rig.hass.async_block_till_done()  # the switch's own compute, and no other
+    for _ in range(2):
+        if len(head.unreported_commands) >= copies:
+            break
+        await rig.settle()
+    assert [command.get("hvac_mode") for command in head.unreported_commands] == ["cool"] * copies
+    saved = await saved_section(rig.hass, rig.entry, SECTION_HEAD_WRITES)
+    assert saved[head.entity_id]["hvac_mode"] == [["off", 0], ["cool", copies]]
+    async with stopped(rig.hass, rig.entry):
+        assert head.report_next_command()  # the head shows MXZ's first "cool"
+    assert head.mode == "cool"
+    queued = len(head.unreported_commands)
+    await _set_target(rig.hass, rig.eid("_primary_target"), 73)
+    assert [
+        (command.get("hvac_mode"), command.get("target_temp_high")) for command in head.unreported_commands[queued:]
+    ] == [("cool", 73)]
+    while await rig.report_next_command():
+        pass
+    head.lags_commands = False
+    await rig.later(STARTUP_RECOVER_DELAY + 1)
+    assert _enabled(rig) is True
+    assert head.mode == "cool"
+
+
+async def test_after_a_restart_a_rewrite_of_the_shown_mode_takes_no_later_press(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """docs/STATE-MACHINES.md SM-10 and SM-1, review 6 of smfix1111: MXZ's "cool" was its
+    last write, and the head showed it while MXZ was down. The setpoint write after the
+    start sends "cool" again, the value the head shows, with nothing else of MXZ's still to
+    come. It counts no copy. A person's off and then on at the head are both adopted.
+
+    Fix round 5's rule counted a copy there, because the memory still held the "off" the
+    head showed before. The head showed nothing new for it, so the person's "on" read as
+    MXZ's: the room stayed off and MXZ turned the head back off."""
+    rig = await _cooling(hass, freezer)
+    head = rig.heads[0]
+    await _on_shown_while_mxz_was_down(rig)
+    await rig.person_mode("off")
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _enabled(rig) is False
+    assert head.mode == "off"
+    await rig.person_mode("cool")
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _enabled(rig) is True
+    assert head.mode == "cool"
+    await rig.close()
+
+
+async def test_known_cost_two_copies_of_the_mode_across_a_restart_take_a_press_back_once(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """Known cost (F1's, docs/formal/PARKED-FINDINGS.md), the one
+    test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once pins for a setpoint. It
+    predates fix round 6 of smfix1111: this test passes unchanged on fix round 4's and
+    fix round 5's wrote(). Review 6 named it.
+
+    As in test_after_a_restart_a_rewrite_of_the_shown_mode_takes_no_later_press, but MXZ
+    sent "cool" twice before the restart. The head shows the first while MXZ is down and
+    the second after the start, with nothing new to show for it, so MXZ still counts that
+    copy. (The setpoint write after the start counts none: the shown "cool" is the last
+    value remembered, with nothing before it still to come.) A person's off at the head is
+    adopted. Their "on" reads as MXZ's copy, once: the room stays off and MXZ turns the
+    head back off. Their next "on" is adopted. It is not free: that one press of the
+    person's is not adopted."""
+    rig = await _cooling(hass, freezer)
+    head = rig.heads[0]
+    await _on_shown_while_mxz_was_down(rig, copies=2)
+    await rig.person_mode("off")
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _enabled(rig) is False
+    assert head.mode == "off"
+    await rig.person_mode("cool")
+    assert not _armed(rig)  # read as MXZ's copy
+    await rig.later(HELD)
+    assert _enabled(rig) is False
+    assert head.mode == "off"  # MXZ turned it back off
+    await rig.person_mode("cool")
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _enabled(rig) is True
+    assert head.mode == "cool"
     await rig.close()
 
 
