@@ -402,6 +402,17 @@ MUTANTS: dict[str, Mutant] = {
         'same(shown, value) and len(self._entries) == 1',
         'tests/test_accept_head_changes.py::test_after_a_restart_a_rewrite_of_the_shown_mode_takes_no_later_press',
     ),
+    # A head's report during a plan waits out the request cooldown on Home Assistant before
+    # 2025.11, as it does from 2025.11 (review 8 of smfix1111). Refreshed right after the plan,
+    # it wrote the target a second time, whose copy took a later press back to it. The broken
+    # branch runs only before 2025.11: run this one with MXZ_PYTHON from a py312-ha2024.12 lane.
+    # It is not in formal_area's adopt area, which runs on any lane.
+    'C58': Mutant(
+        "a report during a plan is refreshed right after it, before HA 2025.11", 'request_for_report',
+        'self._defer_request()',
+        'self._host.hass.async_create_task(self._request())',
+        'tests/test_accept_head_changes.py::test_one_target_change_takes_no_later_press_back_to_it',
+    ),
     'H1': Mutant(
         'the hold no longer gates a change', 'shared_mode',
         'if proposed != current and allowed and (standoff or not still):',

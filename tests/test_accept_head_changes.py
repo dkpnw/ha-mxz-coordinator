@@ -20,6 +20,7 @@ from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COOLDOWN
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 from hypothesis import example, given
@@ -922,10 +923,9 @@ async def test_the_lagging_write_after_an_adopted_press_is_still_mxz_s(hass: Hom
 async def _rewritten_while_lagging(rig: Rig) -> None:
     """MXZ writes 72 on two applies while the head still shows 70: two copies queued.
 
-    How many applies one settle runs depends on Home Assistant's refresh scheduling:
-    on 2024.12.5 the first settle runs two refreshes and queues both copies, the second
-    asked for by the head's report of MXZ's fan write (``_shows_all_writes_late``); on
-    2026.x it runs one. Settle until two are queued, never past it.
+    Each settle is one apply. Before review 8's fix, on Home Assistant 2024.12 the first
+    settle ran a second refresh right after the plan, asked for by the head's report of
+    MXZ's fan write, and queued both copies. Settle until two are queued, never past it.
     """
     head = rig.heads[0]
     head.lags_commands = True
@@ -984,14 +984,11 @@ async def test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once(hass: HomeAs
 def _shows_all_writes_late(rig: Rig) -> RigHead:
     """The first head shows MXZ's writes late: its fan as well as its mode and setpoints.
 
-    So one compute writes the new target once, on every Home Assistant. A fan shown at
-    once is a report while the plan applies, and the refresh it asks for runs right after
-    the plan on Home Assistant before 2025.11, whose ``async_refresh`` doesn't take the
-    request debouncer's lock (``delivery.DeliveryQueue.request_for_report``). The head
-    still shows the old target then, so that refresh writes the target again: a second
-    copy, the case of ``_rewritten_while_lagging`` and
-    test_a_press_of_a_value_written_twice_while_lagging_takes_one_copy. From 2025.11 that
-    refresh waits out the request cooldown, and the press comes first.
+    So no report comes while the plan applies, and nothing asks for a refresh one request
+    cooldown later. A fan shown at once is such a report. Its refresh waits out the cooldown
+    on every Home Assistant (``delivery.DeliveryQueue.request_for_report``); before review
+    8's fix it ran right after the plan on Home Assistant before 2025.11, while the head
+    still showed the old target, and wrote the target a second time.
     """
     head = rig.heads[0]
     head.lags = True
@@ -1005,8 +1002,7 @@ async def test_a_press_of_a_value_written_twice_while_lagging_takes_one_copy(
     """docs/STATE-MACHINES.md SM-10, the counterpart of the known cost below: MXZ wrote 72
     twice to a head that still shows 70. A person presses 72, which takes one copy, then
     66, which is adopted. Both 72s land late: each is a copy MXZ counted, so neither is
-    adopted and the 66 stays. This is the answer on Home Assistant before 2025.11 when the
-    head shows its fan at once (``_shows_all_writes_late``)."""
+    adopted and the 66 stays."""
     rig = await _cooling(hass, freezer)
     await _rewritten_while_lagging(rig)
     await _press(rig, low=70, high=72)
@@ -1023,6 +1019,92 @@ async def test_a_press_of_a_value_written_twice_while_lagging_takes_one_copy(
         assert not _armed(rig)
         await rig.later(HELD)
         assert _target(rig) == 66
+    await rig.close()
+
+
+async def _changed_once_at_a_head_lagging_setpoints(rig: Rig) -> list[float]:
+    """MXZ's target goes to 72 with one compute, at a head that shows MXZ's setpoints late
+    and its fan at once. Returns the setpoints queued at the head after that compute.
+
+    The fan report comes while the plan applies. On Home Assistant before 2025.11 its refresh
+    ran right after the plan, while the head still showed 70, and wrote 72 a second time.
+    """
+    head = rig.heads[0]
+    head.lags_commands = True
+    await _set_target(rig.hass, rig.eid("_primary_target"), 72)
+    await rig.settle()
+    return [command["target_temp_high"] for command in head.unreported_commands]
+
+
+async def _press_70_then_72(rig: Rig) -> None:
+    """A person presses 70, then 72 again, each held: both are presses, and the head keeps the 72."""
+    await _press(rig, low=68, high=70)
+    await rig.later(HELD)
+    assert _target(rig) == 70
+    await _press(rig, low=70, high=72)
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    assert _edges(rig) == (70, 72)
+
+
+async def test_one_target_change_takes_no_later_press_back_to_it(hass: HomeAssistant, freezer: Any) -> None:
+    """Review 8 of smfix1111: one target change, shown once the head has taken every command,
+    then a person's press away and back to that value. On Home Assistant 2024.12 a fan report
+    during the plan made MXZ write 72 twice; the second copy was never spent, so the press
+    back to 72 read as MXZ's and MXZ set the head to 70."""
+    rig = await _cooling(hass, freezer)
+    sent = await _changed_once_at_a_head_lagging_setpoints(rig)
+    rig.heads[0].lags_commands = False
+    while await rig.report_next_command():
+        pass
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    await _press_70_then_72(rig)
+    assert sent == [72]  # one change, one write, on every Home Assistant
+    await rig.close()
+
+
+async def test_one_target_change_takes_no_press_back_to_it_while_the_head_still_lags(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """Review 8's variant: the head has shown MXZ's 72 and still shows MXZ's setpoints late
+    when the person presses 70 and 72. On Home Assistant 2024.12 the second 72 was still
+    queued then, and the press back to 72 was read as MXZ's. Whatever is still queued lands
+    after the presses and leaves the person's 72."""
+    rig = await _cooling(hass, freezer)
+    sent = await _changed_once_at_a_head_lagging_setpoints(rig)
+    assert await rig.report_next_command()
+    assert _edges(rig) == (70, 72)
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    await _press_70_then_72(rig)
+    while await rig.report_next_command():
+        await rig.later(HELD)
+    assert _target(rig) == 72
+    assert _edges(rig) == (70, 72)
+    assert sent == [72]
+    await rig.close()
+
+
+async def test_a_report_during_a_plan_gets_its_refresh_once_the_cooldown_ends(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """A head's report that comes while a plan applies asks for a refresh, so a plan reads it.
+    Here the report is the head showing MXZ's fan write at once. On every Home Assistant that
+    refresh runs one request cooldown after the plan, never right after it, when the head may
+    still show the setpoints the plan just wrote. Only Home Assistant's timers run after the plan."""
+    rig = await _cooling(hass, freezer)
+    head, queue = rig.heads[0], rig.coord.deliveries
+    await _set_target(hass, rig.eid("_primary_target"), 72)
+    plans, fan_writes = queue.generation, len(head.fan_writes)
+    await rig.settle()
+    assert len(head.fan_writes) > fan_writes  # the plan wrote the fan, and the head showed it
+    assert queue.generation == plans + 1  # the plan, and no refresh right after it
+    await _settle_without_a_compute(rig, int(REQUEST_REFRESH_DEFAULT_COOLDOWN) - 1)
+    assert queue.generation == plans + 1
+    await _settle_without_a_compute(rig, 1)
+    assert queue.generation == plans + 2  # the report's refresh, once the cooldown ends
     await rig.close()
 
 
