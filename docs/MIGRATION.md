@@ -1,6 +1,6 @@
 # Upgrading and migrating MXZ Coordinator
 
-## Each room's state is kept in one store (Unreleased)
+## Each room's state is kept in one store (3.23.0)
 
 **Nothing to do.** MXZ now keeps each room's state in its own store,
 `.storage/mxz_coordinator.<entry_id>.room_state`, and writes it at once whenever it changes:
@@ -50,7 +50,7 @@ data is newer than the store. A rollback to a release before 3.22.0 was not chec
 
 A later release will stop writing the old restore data and the two files, and delete the files.
 
-## Each setting is stored in one place (entry v2.3, Unreleased)
+## Each setting is stored in one place (entry v2.3, 3.23.0)
 
 **Nothing to do.** The first start of this version moves the config entry from v2.2 to v2.3.
 No setting changes value, no entity changes, and nothing behaves differently apart from the

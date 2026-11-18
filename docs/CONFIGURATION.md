@@ -68,7 +68,7 @@ The outdoor-unit name and **Notify on drift** service are set in setup and Recon
 - A save merges the page's values into the existing options and reloads once. It never
   touches a setting on another page. Each setting is stored once: Configure settings in
   options, the rooms and **Notify on drift** in entry data (see
-  [MIGRATION.md](MIGRATION.md#each-setting-is-stored-in-one-place-entry-v23-unreleased)).
+  [MIGRATION.md](MIGRATION.md#each-setting-is-stored-in-one-place-entry-v23-3230)).
 - A save that leaves entry data and options unchanged needs no reload.
 - A room page saved with only **Dual setpoint** turned on or off is applied without a
   reload; see
