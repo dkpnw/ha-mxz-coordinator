@@ -61,7 +61,7 @@ them, and run both commands under Run.
 | Model `AdoptFires` | `coordinator.py` `_on_heal_timer`, `_async_adopt_head_change`, `_head_change_seen`; `logic.py` `HeadWriteMemory.seen` |
 | Model `SetTarget` | `number.py` `MXZTargetNumber.async_set_native_value`; `coordinator.py` `drop_head_change` |
 | Model `Reload`, `Restart`, `QuietEnds` | `coordinator.py` `MXZCoordinator.__init__` (`_startup_quiet`), `_resume` and `_head_writes_record` (the ledger in the room state store, `room_state.py` `SECTION_HEAD_WRITES`), `_on_startup_timer`; `logic.py` `HeadWriteMemory.record`, `HeadWriteMemory.restored` |
-| Code mutants C44 to C52 | `remember_head_write`, `_head_change_settling`, `_resume`, `HeadWriteMemory.caught_up`, `HeadWriteMemory.seen`, `HeadWriteMemory.wrote` |
+| Code mutants C44 to C56 | `remember_head_write`, `_head_change_settling`, `_resume`, `HeadWriteMemory.caught_up`, `HeadWriteMemory.seen`, `HeadWriteMemory.wrote`, `DeliveryQueue._async_issue` |
 
 Does a change touch it?
 
@@ -97,7 +97,7 @@ python3 tools/formal_area.py mutants adopt   # under a minute
 `check` runs TLC on `ci-adopt` and `ci-adopt-restart` (each must pass every rule its config
 lists), requires each reachability goal and each open finding's rule to break in its config,
 then runs `tests/test_accept_head_changes.py`. `mutants` breaks a scratch copy, never the
-checkout: A1 to A6 break the spec, C44 to C52 the code, and each must be caught by its named
+checkout: A1 to A6 break the spec, C44 to C56 the code, and each must be caught by its named
 rule or test. `python3 tools/formal_area.py list` prints what each part runs. Output is kept
 in the folder printed on the first line (`--out` chooses it).
 

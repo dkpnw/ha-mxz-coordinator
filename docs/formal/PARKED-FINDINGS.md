@@ -39,7 +39,8 @@ the evidence.
   `test_known_cost_a_press_of_an_older_queued_value_reads_as_mxzs` pin them.
   `QueuedWriteNeverAdopted`, the strict rule they break, stays in the spec only as the form
   `QueuedWriteKept` is built from; it is no longer a finding TLC must see break.
-  A write of the value the head already shows adds no copy, since no report can count it off.
+  A write of the value the head already shows adds no copy when that value is all the memory
+  remembers, since no report can count it off.
   One still queued that lands after a person's press of another value is adopted, as before this
   change, and is part of the same known cost:
   `test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_adopted` pins it. The
@@ -49,12 +50,28 @@ the evidence.
   known cost too (the owner's decision, Nov 17, 2026), part of path (c):
   `test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_after_it` pins it on
   `HeadWriteMemory` alone, and the queue oracle
-  `test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value` leaves the passed
-  writes unchecked and always runs the example. Whether MXZ's real write pattern produces the
-  shown value, another value and the shown value again, all queued, is unknown; a dual-setpoint
-  head where one edge changes is a candidate.
-  Still open: under random seeds the queue oracle fails on two more shapes, as the base does.
-  They wait on the owner's decision (STATE-MACHINES.md SM-10 and section 7).
+  `test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value` always runs the
+  example. Whether MXZ's real write pattern produces the shown value, another value and the
+  shown value again, all queued, is unknown; a dual-setpoint head where one edge changes is a
+  candidate.
+  Under random seeds the queue oracle found two more shapes, which fail on the base too. Under
+  the overnight release mandate (Nov 17, 2026), shape B is fixed and shape A and the F1 rewrite
+  cost are accepted as known costs (STATE-MACHINES.md SM-10 and section 7). Shape B: the head
+  shows 1 and MXZ writes 0, 1, 1; `wrote` counted no copy for the last 1 and a person's press
+  forgot it while it was still queued. `wrote` now counts no copy only when the shown value is
+  all that is remembered (`test_a_rewrite_of_the_shown_value_behind_another_write_is_kept`,
+  code mutant C56; the area's code mutants are C44 to C56). Shape A: the late write of the shown
+  value is taken as a later queued write of its value and uses up its copy, so a person's next
+  press forgets that write while it is still queued
+  (`test_known_cost_a_late_write_of_the_shown_value_uses_up_the_later_writes_copy`). From such
+  a landing until its queue is empty the queue oracle checks no write. The F1 rewrite cost: a
+  rewrite of the shown value with another value of MXZ's queued before it now counts a copy that
+  no report counts off when the head showed that value from the write before, so a person's
+  later press of that value reads as MXZ's once
+  (`test_known_cost_a_rewrite_of_the_shown_value_behind_another_write_takes_a_press_back_once`).
+  Shape A and the F1 rewrite cost are shown on `HeadWriteMemory` alone. Whether MXZ's real
+  write pattern reaches them is unknown; a dual-setpoint head where one edge changes is a
+  candidate.
   A call the head refuses takes back the copy it counted
   (`test_a_refused_write_leaves_no_copy_to_take_a_later_press`, code mutant C55).
   Whether a real CN105 or cloud head queues commands that way is unknown. A house check is
