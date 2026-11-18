@@ -363,13 +363,13 @@ MUTANTS: dict[str, Mutant] = {
     ),
     'C53': Mutant(
         'a write of what the head shows adds a copy', 'wrote',
-        'same(shown, value) and same(shown, self._entries[-1][0])',
+        'same(shown, value) and len(self._entries) == 1',
         'False',
         'tests/test_accept_head_changes.py::test_off_and_on_at_the_head_count_after_target_changes',
     ),
     'C54': Mutant(
         'a write of what the head shows adds nothing behind another write', 'wrote',
-        'same(shown, value) and same(shown, self._entries[-1][0])',
+        'same(shown, value) and len(self._entries) == 1',
         'same(shown, value)',
         'tests/test_accept_head_changes.py::test_a_write_of_what_the_head_shows_adds_no_copy',
     ),
@@ -380,6 +380,14 @@ MUTANTS: dict[str, Mutant] = {
         'self._host.take_back_head_write(climate_id, counted)',
         'pass',
         'tests/test_accept_head_changes.py::test_a_refused_write_leaves_no_copy_to_take_a_later_press',
+    ),
+    # A write of the value the head shows behind another write still to come counts a copy
+    # (shape B, fix round 5 of smfix1111): the old no-copy test, the last value remembered.
+    'C56': Mutant(
+        'a rewrite of the shown value behind another write counts no copy', 'wrote',
+        'same(shown, value) and len(self._entries) == 1',
+        'same(shown, value) and same(shown, self._entries[-1][0])',
+        'tests/test_accept_head_changes.py::test_a_rewrite_of_the_shown_value_behind_another_write_is_kept',
     ),
     'H1': Mutant(
         'the hold no longer gates a change', 'shared_mode',

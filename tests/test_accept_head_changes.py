@@ -1105,6 +1105,61 @@ def test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_aft
     assert not memory.own(1)
 
 
+def test_a_rewrite_of_the_shown_value_behind_another_write_is_kept() -> None:
+    """docs/STATE-MACHINES.md SM-10, shape B (fix round 5 of smfix1111): path (a)'s case
+    reached by another write order. The head shows MXZ's 1. MXZ writes 0, then 1, then 1
+    again, all still queued at a head that shows writes late. The last 1 is a write of the
+    value the head shows, but the 0 is still to come, so the head will show something new
+    for it. It counts a copy. After the 0 and the first 1 land, a person presses 5, and the
+    last 1, still queued, stays MXZ's: when it lands it isn't read as a person's press.
+
+    The oracle's example:
+    [('write', 1), ('land', None), ('write', 0), ('write', 1), ('write', 1), ('land', None),
+    ('land', None), ('press', 5)]"""
+    memory = HeadWriteMemory(8)
+    memory.wrote(1, 0)
+    memory.caught_up(1)  # the head shows MXZ's 1
+    memory.wrote(0, 1)
+    memory.wrote(1, 1)
+    assert memory.wrote(1, 1) is True  # the 0 is still to come: the head will show this 1
+    memory.caught_up(0)
+    memory.caught_up(1)  # the first 1
+    memory.seen(5)  # a person's press
+    assert memory.own(1)  # the last 1 is still queued
+    memory.caught_up(1)  # it lands
+    assert memory.values == (1,)
+
+
+def test_known_cost_a_rewrite_of_the_shown_value_behind_another_write_takes_a_press_back_once() -> None:
+    """Known cost (F1's, docs/formal/PARKED-FINDINGS.md), accepted under the overnight
+    release mandate (Nov 17, 2026), shown on HeadWriteMemory alone. It is the price of
+    test_a_rewrite_of_the_shown_value_behind_another_write_is_kept. The head shows "cool".
+    MXZ sends it off and then on, and a setpoint write then sends "cool" once more, all
+    before the head shows the off. That last "cool" rewrites the value the head shows,
+    with MXZ's off queued before it, so it counts a copy. The head shows the off, then the
+    on, and shows nothing new for the rewrite, so no report counts that copy off. A person
+    then turns the head off and on again at its remote: the memory takes the person's "on"
+    as MXZ's, once. The next off and on are a person's.
+
+    This is the cost test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once pins, where
+    the head showed another value while MXZ wrote twice. It is not free: that one press of
+    the person's is not adopted. It is narrow: it needs MXZ's own rewrite of the shown value
+    with another value of MXZ's queued before it, and it takes only a later person's press
+    of that same value, once."""
+    memory = HeadWriteMemory(8)
+    memory.wrote("off", "cool")
+    memory.wrote("cool", "cool")
+    assert memory.wrote("cool", "cool") is True  # MXZ's off is queued before it: a copy
+    memory.caught_up("off")
+    memory.caught_up("cool")  # the head shows the on, and nothing new for the rewrite
+    assert memory.record() == [["cool", 1]]
+    memory.seen("off")  # a person's off at the head
+    assert memory.own("cool")  # the person's on reads as MXZ's
+    memory.caught_up("cool")
+    memory.seen("off")  # the person's next off
+    assert not memory.own("cool")  # and the next on is a person's
+
+
 def _refuses_the_first_setpoint(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     """The first head refuses MXZ's first setpoint call (a cloud timeout, say), then takes them."""
     head = rig.heads[0]
