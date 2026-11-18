@@ -30,6 +30,7 @@ class Head:
 class Room:
     temperature: float
     window_open: bool = False
+    occupied: bool = False
 
 
 @dataclass

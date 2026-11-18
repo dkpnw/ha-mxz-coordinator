@@ -38,11 +38,12 @@ from home import (
     revision,
     ui_requirements,
 )
+from scenes import ROWS
 
 LANES = ("py312-ha2024.12.5", "py313-ha2026.2.3", "py314-ha2026.9.4")
 JOURNEYS = {"setup-and-enable": "journeys.setup_and_enable", "room-targets": "journeys.room_targets"}
-# Run only by name, never by a bare `drive`: they film, and take half an hour.
-DEMOS = {"demo-stock": "journeys.demo_stock", "demo-coordinated": "journeys.demo_coordinated"}
+# Run only by name, never by a bare `drive`: they are filmed, and take up to half an hour.
+DEMOS = {feature: row.journey for feature, row in ROWS.items()}
 TEST_NET = ("192.0.2.1", 80)
 
 
@@ -249,7 +250,8 @@ async def _drive_one(instance: Instance, feature: str) -> str:
             error = f"{type(failure).__name__}: {failure}"
         finally:
             ended = datetime.now(UTC)
-            entities = [*run.heads, *run.sensors, *(f"binary_sensor.{k}_window" for k in run.rooms), "sensor.outdoor_unit"]
+            binary = [f"binary_sensor.{key}_{kind}" for key in run.rooms for kind in ("window", "occupancy")]
+            entities = [*run.heads, *run.sensors, *binary, "sensor.outdoor_unit"]
             if run.entry_id:
                 entities += list((await run.find_entities()).values())
                 transcript.attach("diagnostics.json", await client.diagnostics(run.entry_id))

@@ -1,15 +1,17 @@
-"""Film one row of the README demo from the instance's own frontend.
+"""Film one row of a demo scene (scenes.py) from the instance's own frontend.
 
-    verification/instance/mxz-instance exec -- python3 verification/instance/film.py stock <out>
-    verification/instance/mxz-instance exec -- python3 verification/instance/film.py mxz <out>
+    verification/instance/mxz-instance exec -- python3 verification/instance/film.py demo-stock <out>
+    verification/instance/mxz-instance exec -- python3 verification/instance/film.py demo-coordinated <out>
 
-Runs inside the instance's namespace, through `exec`, with a Python that has
-Playwright and its Chromium (installed outside the namespace; no lane has them).
-It logs in as the instance's invented owner, saves a one-card dashboard whose
-markdown is rendered by Home Assistant from the live states, and screenshots that
-card in a light and a dark browser every few seconds until stopped. Each file is
-named by the wall-clock millisecond it was taken, so compose.py can line the two
-rows up on their journeys' start steps. Nothing here sets a state.
+The row is named by its journey's feature; its card (cards.py) is the one the
+scene gives it. Runs inside the instance's namespace, through `exec`, with a
+Python that has Playwright and its Chromium (installed outside the namespace; no
+lane has them). It logs in as the instance's invented owner, saves a one-card
+dashboard whose markdown is rendered by Home Assistant from the live states, and
+screenshots that card in a light and a dark browser every few seconds until
+stopped. Each file is named by the wall-clock millisecond it was taken, so
+compose.py can line the rows up on their journeys' start steps. Nothing here
+sets a state.
 """
 
 from __future__ import annotations
@@ -20,48 +22,14 @@ import signal
 import time
 from pathlib import Path
 
+from cards import CARDS
 from home import PORT, Instance
 from playwright.sync_api import Page, sync_playwright
+from scenes import ROWS
 
 URL = f"http://127.0.0.1:{PORT}"
 DASHBOARD = "mxz-demo"
 WIDTH = 440  # CSS pixels; shot at 2x, so 880 wide, the README's column
-
-HEAD = """{%- macro head(e, fan) -%}
-{%- set mode = states(e) -%}{%- set doing = state_attr(e, 'hvac_action') -%}
-{%- if mode == 'off' -%}Off
-{%- elif mode == 'fan_only' -%}Fan only
-{%- elif state_attr(e, 'standby') -%}{{ mode | capitalize }} · waiting
-{%- elif doing in ['heating', 'cooling'] -%}{{ doing | capitalize }}{{ ' · fan ' ~ state_attr(e, 'fan_mode') if fan }}
-{%- else -%}{{ mode | capitalize }} · idle{%- endif -%}
-{%- endmacro -%}
-{%- macro reads(key) -%}{{ '%.1f' | format(states('sensor.' ~ key ~ '_temperature') | float(0)) }} °F{%- endmacro -%}
-"""
-
-ROOMS = (("studio", "Studio"), ("loft", "Loft"), ("den", "Den"))
-
-
-def stock_card() -> str:
-    """The stock row: each head's own setpoint, and the outdoor unit that decides who waits."""
-    lines = [HEAD, "### Stock · outdoor unit: {{ states('sensor.outdoor_unit') }}", "",
-             "| Room | Reads | Head set to | Head |", "|:--|--:|--:|:--|"]
-    for key, name in ROOMS:
-        head = f"climate.{key}_head"
-        setpoint = (f"{{%- set m = states('{head}') -%}}{{{{ (state_attr('{head}', 'target_temp_low') if m == 'heat' "
-                    f"else state_attr('{head}', 'target_temp_high')) | int(0) if m in ['heat', 'cool'] else '–' }}}}"
-                    f"{{{{ ' °F' if m in ['heat', 'cool'] }}}}")
-        lines.append(f"| **{name}** | {{{{ reads('{key}') }}}} | {setpoint} | {{{{ head('{head}', false) }}}} |")
-    return "\n".join(lines)
-
-
-def mxz_card(ids: dict[str, str]) -> str:
-    """The MXZ row: each room's one target, the shared mode, and Studio's fan while it runs."""
-    lines = [HEAD, f"### MXZ Coordinator · shared mode: {{{{ states('{ids['shared_mode']}') }}}}", "",
-             "| Room | Reads | Target | Head |", "|:--|--:|--:|:--|"]
-    for (key, name), slug in zip(ROOMS, ("primary", "secondary", "zone_3"), strict=True):
-        target = f"{{{{ states('{ids[slug + '_target']}') | int(0) }}}} °F"
-        lines.append(f"| **{name}** | {{{{ reads('{key}') }}}} | {target} | {{{{ head('climate.{key}_head', true) }}}} |")
-    return "\n".join(lines)
 
 
 def login(page: Page, auth: dict[str, str]) -> None:
@@ -100,7 +68,7 @@ def save_dashboard(page: Page, content: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("row", choices=("stock", "mxz"))
+    parser.add_argument("feature", choices=sorted(ROWS), help="the row's demo journey")
     parser.add_argument("out", type=Path)
     parser.add_argument("--name", default="demo", help="instance name (default demo)")
     parser.add_argument("--every", type=float, default=5.0, help="seconds between shots (default 5)")
@@ -118,19 +86,20 @@ def main() -> int:
             pages[theme] = context.new_page()
             login(pages[theme], auth)
         first = pages["light"]
-        save_dashboard(first, stock_card() if args.row == "stock" else mxz_card(mxz_ids(first)))
+        card = ROWS[args.feature].card
+        save_dashboard(first, CARDS[card]({} if card == "stock" else mxz_ids(first)))
         for theme, page in pages.items():
             (args.out / theme).mkdir(parents=True, exist_ok=True)
             page.goto(f"{URL}/{DASHBOARD}/row")
             page.wait_for_selector("hui-markdown-card ha-markdown table", timeout=60_000)
-        print(f"FILMING {args.row} every {args.every:g} s into {args.out}", flush=True)
+        print(f"FILMING {args.feature} every {args.every:g} s into {args.out}", flush=True)
         while not stop:
             shot = time.time()
             for theme, page in pages.items():
                 page.locator("hui-markdown-card").screenshot(path=args.out / theme / f"{int(shot * 1000)}.png")
             time.sleep(max(0.0, shot + args.every - time.time()))
         browser.close()
-    print(f"STOPPED {args.row}", flush=True)
+    print(f"STOPPED {args.feature}", flush=True)
     return 0
 
 

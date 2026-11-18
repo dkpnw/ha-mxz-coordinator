@@ -1,4 +1,4 @@
-"""Invented equipment for the throwaway Home Assistant: heads, room sensors, windows.
+"""Invented equipment for the throwaway Home Assistant: heads, room sensors, windows, occupancy.
 
 Development only. It is copied into a throwaway instance's config directory and
 never ships: hassfest, HACS and the release zip see only custom_components/.
@@ -99,8 +99,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         state = bench.devices.rooms[call.data["room"]]
         if "temperature" in call.data:
             state.temperature = call.data["temperature"]
-        if "window_open" in call.data:
-            state.window_open = call.data["window_open"]
+        for field in ("window_open", "occupied"):
+            if field in call.data:
+                setattr(state, field, call.data[field])
         await bench.changed(call.data["room"])
 
     async def model(call: ServiceCall) -> None:
@@ -121,6 +122,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         vol.Required("room"): vol.In(rooms),
         vol.Optional("temperature"): vol.Coerce(float),
         vol.Optional("window_open"): cv.boolean,
+        vol.Optional("occupied"): cv.boolean,
     }))
     hass.services.async_register(DOMAIN, "model", model, vol.Schema({vol.Required("running"): cv.boolean}))
     hass.services.async_register(DOMAIN, "availability", availability, vol.Schema({
