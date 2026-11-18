@@ -92,8 +92,10 @@ Every core feature exists for a reason someone ran into:
 On every update (a room sensor or head report, a setting change, and a 15-minute check)
 MXZ works out one plan for the outdoor unit:
 
-1. **Each enabled room reads its own sensor.** A room with an invalid reading, or a stale
-   one under its [freshness contract](CONFIGURATION.md#choose-a-sensor-freshness-contract),
+1. **Each enabled room reads its sensor**, which other rooms may share
+   ([One sensor for several heads](SETUP.md#one-sensor-for-several-heads)). A room with an
+   invalid reading, or a stale one under its
+   [freshness contract](CONFIGURATION.md#choose-a-sensor-freshness-contract),
    makes no automatic demand. Neither does a room [paused for an open door or
    window](FEATURES.md#doorwindow-pause): it has no demand and no run, and its head is
    off. A pause or resume never moves the mode-change wait; a resume that would flip the
