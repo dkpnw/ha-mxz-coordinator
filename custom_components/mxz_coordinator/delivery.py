@@ -72,7 +72,8 @@ class DeliveryHost(ControllerHost, Protocol):
     def async_update_listeners(self) -> None: ...
     async def async_refresh(self) -> None: ...
     def publish_delivery(self) -> None: ...
-    def remember_head_write(self, climate_id: str, payload: dict[str, Any]) -> None: ...
+    def remember_head_write(self, climate_id: str, payload: dict[str, Any]) -> dict[str, Any]: ...
+    def take_back_head_write(self, climate_id: str, counted: dict[str, Any]) -> None: ...
 
 
 @dataclass(eq=False)
@@ -490,7 +491,7 @@ class DeliveryQueue:
     ) -> None:
         """Observe one software call, never claim physical receipt."""
         # Before the call: the head's report can arrive while it runs.
-        self._host.remember_head_write(climate_id, payload)
+        counted = self._host.remember_head_write(climate_id, payload)
         observed = observation if observation is not None else self._observations.setdefault(climate_id, {})
         if observation is None:
             # Ordinary issuance has waited for both the old handler and its
@@ -507,6 +508,9 @@ class DeliveryQueue:
             observed["command_status"] = "cancelled; outcome unknown"
             raise
         except Exception as err:
+            # A refused call is never shown, so its copies must not wait for a
+            # report. A cancelled one may have gone out: its copies stay.
+            self._host.take_back_head_write(climate_id, counted)
             observed.update(
                 command_status="rejected", command_failed_at=dt_util.utcnow().isoformat(),
                 command_error=str(err),

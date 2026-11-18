@@ -19,6 +19,7 @@ import pytest
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 from hypothesis import given
@@ -974,6 +975,71 @@ async def test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once(hass: HomeAs
     assert _armed(rig)
     await rig.later(HELD)
     assert _target(rig) == 72
+    await rig.close()
+
+
+def _refuses_the_first_setpoint(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """The first head refuses MXZ's first setpoint call (a cloud timeout, say), then takes them."""
+    head = rig.heads[0]
+    set_temperature = type(head).async_set_temperature
+    refused: list[dict[str, Any]] = []
+
+    async def write(**kwargs: Any) -> None:
+        if not refused:
+            refused.append(kwargs)
+            raise HomeAssistantError("invented cloud timeout")
+        await set_temperature(head, **kwargs)
+
+    monkeypatch.setattr(head, "async_set_temperature", write)
+    return refused
+
+
+async def _refused_then_shown(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> None:
+    """MXZ's 72 is refused once, and the next apply's 72 shows at a head that doesn't lag."""
+    refused = _refuses_the_first_setpoint(rig, monkeypatch)
+    await _set_target(rig.hass, rig.eid("_primary_target"), 72)
+    for _ in range(3):
+        if _edges(rig) == (70, 72):
+            break
+        await rig.settle()
+    assert [call["target_temp_high"] for call in refused] == [72]
+    assert _edges(rig) == (70, 72)
+
+
+async def _press_away_and_back(rig: Rig) -> None:
+    """A person presses 66, then 72 again: both are adopted, and the head keeps the 72."""
+    await _press(rig, low=64, high=66)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    await _press(rig, low=70, high=72)
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    assert _edges(rig) == (70, 72)
+
+
+async def test_a_refused_write_leaves_no_copy_to_take_a_later_press(
+    hass: HomeAssistant, freezer: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review 3 of smfix1111: a head that refused a write never takes it, so no report can
+    count that copy off. Kept, it read the press back to 72 as MXZ's and drove the head to 66."""
+    rig = await _cooling(hass, freezer)
+    await _refused_then_shown(rig, monkeypatch)
+    await _press_away_and_back(rig)
+    await rig.close()
+
+
+async def test_a_refused_write_leaves_no_copy_in_the_store(
+    hass: HomeAssistant, freezer: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The memory a restart resumes holds no copy of the refused call either."""
+    rig = await _cooling(hass, freezer)
+    await _refused_then_shown(rig, monkeypatch)
+    saved = await saved_section(hass, rig.entry, SECTION_HEAD_WRITES)
+    assert saved[rig.heads[0].entity_id]["target_temp_high"] == [[72, 0]]
+    await rig.restart()
+    await rig.later(STARTUP_RECOVER_DELAY + 1)
+    await _press_away_and_back(rig)
     await rig.close()
 
 

@@ -342,7 +342,7 @@ MUTANTS: dict[str, Mutant] = {
         'self._entries.clear()\n        self._entries.append([shown, 0])',
         'tests/test_accept_head_changes.py::test_a_person_replaces_what_the_head_last_showed_not_what_is_still_coming',
     ),
-    # A write still queued at a head stays remembered (QueuedWriteNeverAdopted in ci-adopt-queued).
+    # A write still queued at a head stays remembered (QueuedWriteKept in ci-adopt and ci-adopt-restart).
     'C49': Mutant(
         'a rewrite of the last value is kept once', 'wrote',
         'self._entries[-1][1] += 1',
@@ -372,6 +372,14 @@ MUTANTS: dict[str, Mutant] = {
         'same(shown, value) and same(shown, self._entries[-1][0])',
         'same(shown, value)',
         'tests/test_accept_head_changes.py::test_a_write_of_what_the_head_shows_adds_no_copy',
+    ),
+    # A call the head refused is never shown: the copy it counted is taken back (review 3 of
+    # smfix1111). The model has no refused call, so this is a code-only check.
+    'C55': Mutant(
+        "a refused write's copy is kept", '_async_issue',
+        'self._host.take_back_head_write(climate_id, counted)',
+        'pass',
+        'tests/test_accept_head_changes.py::test_a_refused_write_leaves_no_copy_to_take_a_later_press',
     ),
     'H1': Mutant(
         'the hold no longer gates a change', 'shared_mode',

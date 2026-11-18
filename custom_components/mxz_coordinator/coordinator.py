@@ -3316,17 +3316,33 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             return state.state
         return as_float(state.attributes.get(name))
 
-    def remember_head_write(self, climate_id: str, payload: dict[str, Any]) -> None:
-        """Keep a mode or setpoint MXZ is sending, as ``FanEcho.wrote`` does a fan."""
+    def remember_head_write(self, climate_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Keep a mode or setpoint MXZ is sending, as ``FanEcho.wrote`` does a fan.
+
+        Returns the fields that counted a copy, for :meth:`take_back_head_write`.
+        """
         state = self.hass.states.get(climate_id)
         memory = self._head_writes.setdefault(climate_id, {})
+        counted: dict[str, Any] = {}
         for name in _HEAD_WRITE_FIELDS:
             if name in payload:
-                memory.setdefault(name, HeadWriteMemory(HEAD_WRITES_REMEMBERED)).wrote(
+                remembered = memory.setdefault(name, HeadWriteMemory(HEAD_WRITES_REMEMBERED))
+                if remembered.wrote(
                     payload[name], self._head_shows(state, name),
                     self._head_write_same(climate_id, name),
-                )
+                ):
+                    counted[name] = payload[name]
         self.room_state.changed()
+        return counted
+
+    def take_back_head_write(self, climate_id: str, counted: dict[str, Any]) -> None:
+        """The head refused the call: the copies it counted will never show."""
+        memory = self._head_writes.get(climate_id, {})
+        for name, value in counted.items():
+            if name in memory:
+                memory[name].refused(value)
+        if counted:
+            self.room_state.changed()
 
     def _head_writes_caught_up(self, climate_id: str, old_state: Any, state: Any) -> None:
         """A head's report: the writes before it are behind the head for good."""

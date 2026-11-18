@@ -858,7 +858,7 @@ class HeadWriteMemory:
 
     def wrote(
         self, value: Any, shown: Any = None, same: Callable[[Any, Any], bool] = operator.eq
-    ) -> None:
+    ) -> bool:
         """A write is going out while the head shows ``shown`` (None: nothing known).
 
         What the head shows before a write stays remembered until it reports a
@@ -866,16 +866,29 @@ class HeadWriteMemory:
         last value is one more copy of it, not a new place in the order. A write
         of what the head shows, with nothing else of MXZ's still to come, adds
         nothing: the head shows nothing new for it, so no report could ever
-        count it off.
+        count it off. Returns whether the write counted a copy.
         """
         if shown is not None and not self.own(shown, same):
             self.seen(shown)
         if shown is not None and same(shown, value) and same(shown, self._entries[-1][0]):
-            return
+            return False
         if self._entries and self._entries[-1][0] == value:
             self._entries[-1][1] += 1
         else:
             self._entries.append([value, 1])
+        return True
+
+    def refused(self, value: Any) -> None:
+        """The head refused a write that counted a copy: it will never show that copy.
+
+        The copy is taken back, so no press of the value waits on it. The value
+        stays remembered, as the base kept it: a refused call can still have
+        gone through, and its late report is MXZ's own.
+        """
+        for entry in reversed(self._entries):
+            if entry[0] == value and entry[1]:
+                entry[1] -= 1
+                return
 
     def own(self, reported: Any, same: Callable[[Any, Any], bool] = operator.eq) -> bool:
         """Whether this report can be one of MXZ's writes (or the value before them)."""
