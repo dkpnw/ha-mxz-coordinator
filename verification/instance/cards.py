@@ -57,7 +57,7 @@ def mxz_card(ids: dict[str, str], header: tuple[str, ...] = (), column: Column |
 def mode_wait(ids: dict[str, str]) -> str:
     """The mode-change hold as MXZ's room thermostat publishes it (the same on every room)."""
     thermostat = ids["primary_thermostat"]
-    return (f"{{%- set left = state_attr('{thermostat}', 'mode_change_hold_remaining') | int(0) -%}}"
+    return (f"{{% set left = state_attr('{thermostat}', 'mode_change_hold_remaining') | int(0) -%}}"
             "{{ 'can switch in %d:%02d' | format(left // 60, left % 60) if left > 0 else 'can switch now' }}")
 
 
