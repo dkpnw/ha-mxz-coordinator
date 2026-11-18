@@ -15,7 +15,7 @@ Tables (stdlib only):
   ordinary vote; Comfort priority 0 or 1. Every combination, with engaged,
   current, allowed and resting each over every value: 648,000 cases.
 * PAIRS2: two rooms built by the coordinator's own
-  ``MXZCoordinator._zone_arbitration_pair`` (demand, hands-off vote, Safety
+  ``planner.arbitration_entries`` (demand, hands-off vote, Safety
   priority, floor or ceiling, Dry vote, Comfort priority 0 or 1), with
   engaged, current and allowed over every value: 373,248 cases.
 
@@ -75,7 +75,7 @@ def _rooms3():
 
 
 def _pairs2():
-    from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+    from custom_components.mxz_coordinator.planner import arbitration_entries
 
     per_room = list(
         itertools.product(
@@ -90,7 +90,7 @@ def _pairs2():
     built: dict[int, list[tuple[Any, ...]]] = {}
     for index in (0, 1):
         built[index] = [
-            MXZCoordinator._zone_arbitration_pair(
+            arbitration_entries(
                 demand=demand, vote=vote, safety=safety, index=index,
                 floor=floor, dry=dry, boost=boost,
             )

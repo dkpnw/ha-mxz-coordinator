@@ -46,7 +46,7 @@ them, and run both commands under Run.
 
 | Check | Covers (custom_components/mxz_coordinator/) |
 | --- | --- |
-| Model `Decide` (with `WithSplit`) | `coordinator.py` `_compute`, `_apply` (queues every head, then `_write_back_mode`, then `DeliveryQueue.async_wait`, with nothing awaited before the writeback), `_write_back_mode`, `_stamp_mode_change`, `_record_mode`; `delivery.py` `DeliveryQueue.queue` |
+| Model `Decide` (with `WithSplit`) | `coordinator.py` `_compute` (with `planner.py` `decide`), `_apply` (queues every head, then `_write_back_mode`, then `DeliveryQueue.async_wait`, with nothing awaited before the writeback), `_write_back_mode`, `_stamp_mode_change`, `_record_mode`; `delivery.py` `DeliveryQueue.queue` |
 | Model `Deliver`, `Refuse` | `delivery.py` `DeliveryQueue._deliver`, `DeliveryQueue._async_issue` (whatever a head's handler raises is that room's), `DeliveryQueue._finish`; `heads.py` `HeadDrivers.async_deliver`, `LocalDriver.async_deliver`, `CloudDriver.async_deliver` (a head's steps) |
 | Model `Select` during an apply | `select.py` `async_select_option`; `coordinator.py` `async_select_shared_mode` |
 | Model `Reload`, `Restart` during an apply | `delivery.py` `DeliveryQueue.retire`, `DeliveryQueue.owned`; the record's load as in `verify-mxz-formal` |

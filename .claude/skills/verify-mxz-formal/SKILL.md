@@ -75,7 +75,7 @@ the check and the mutants).
 
 | Check | Covers (custom_components/mxz_coordinator/) |
 | --- | --- |
-| Model `Decide` | `coordinator.py` `_compute` (allowed, engaged, running, the `_mode_by_votes` undo rule), `_apply` (the stamp and record rules at its end), `_stamp_mode_change`, `_record_mode`; `logic.py` `room_call`, `engage_with_latch`, `shared_mode`, `arbitrate` (`running`), `head_action` |
+| Model `Decide` | `coordinator.py` `_compute` (the readings it hands the planner); `planner.py` `decide` (allowed, engaged, running, the `_mode_by_votes` undo rule); `coordinator.py` `_apply` (the stamp and record rules at its end), `_stamp_mode_change`, `_record_mode`; `logic.py` `room_call`, `engage_with_latch`, `shared_mode`, `arbitrate` (`running`), `head_action` |
 | Model `Reload` / `Restart` / `Crash` | `__init__.py` `async_setup_entry`; `coordinator.py` `ModeRecord`, `async_load_mode_record`, `mode_change_stamp`, `_mode_change_store`, `MXZCoordinator.__init__` (`_last_mode_change_ts`, the record's mode and `_mode_by_votes`, `_engage_latch`, `_startup_resume`), `restore_shared_mode`; `switch.py` (sets `_startup_resume`); `select.py` `async_added_to_hass` |
 | Model `Select` | `select.py` `async_select_option`; `coordinator.py` `async_select_shared_mode` |
 | Arbitration properties | `logic.py` `shared_mode`, `arbitrate`, `_rank`, `comfort_boost`; `coordinator.py` `_zone_arbitration_pair` |

@@ -71,15 +71,15 @@ HA_BEFORE_2025_11 = Needs(
 
 MUTANTS: dict[str, Mutant] = {
     'C1': Mutant(
-        'the hold is ignored', '_compute',
-        'allowed = elapsed is None or elapsed >= self.hysteresis\n        engaged',
-        'allowed = True\n        engaged',
+        'the hold is ignored', 'decide',
+        'allowed = shared.elapsed is None or shared.elapsed >= shared.hold\n    engaged',
+        'allowed = True\n    engaged',
         'tests/test_properties_mode.py::test_no_flip_inside_the_hold_and_no_wait_after_it',
     ),
     'C2': Mutant(
-        'the hold runs long', '_compute',
-        'allowed = elapsed is None or elapsed >= self.hysteresis\n        engaged',
-        'allowed = elapsed is None or elapsed >= self.hysteresis * 2\n        engaged',
+        'the hold runs long', 'decide',
+        'allowed = shared.elapsed is None or shared.elapsed >= shared.hold\n    engaged',
+        'allowed = shared.elapsed is None or shared.elapsed >= shared.hold * 2\n    engaged',
         'tests/test_properties_mode.py::test_no_flip_inside_the_hold_and_no_wait_after_it',
     ),
     'C3': Mutant(
@@ -155,9 +155,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_properties_window.py::test_a_pause_stops_the_head_and_a_takeover_holds_until_the_window_closes',
     ),
     'C15': Mutant(
-        'a paused room still votes', '_compute',
-        'if paused:\n                demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED',
-        'if False:\n                demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED',
+        'a paused room still votes', 'decide',
+        'if room.paused:\n            demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED',
+        'if False:\n            demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED',
         'tests/test_properties_window.py::test_a_paused_room_never_keeps_or_turns_the_shared_mode',
     ),
     'C16': Mutant(
@@ -514,9 +514,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_modehold_findings.py::test_f1_resting_mode_takes_the_mode_from_a_room_still_running[finding]',
     ),
     'H13': Mutant(
-        'the plan never says a room runs in the shared mode', '_compute',
-        '        running = current in held_engages\n',
-        '        running = False\n',
+        'the plan never says a room runs in the shared mode', 'decide',
+        '    running = current in held_engages\n',
+        '    running = False\n',
         'tests/test_hold_promises.py::test_resting_mode_waits_for_the_run_then_rests',
     ),
     'H14': Mutant(
@@ -544,9 +544,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_hold_promises.py::test_a_start_takes_the_newer_of_the_record_and_the_restore_data[restore_data_newer]',
     ),
     'H18': Mutant(
-        'a paused room still votes', '_compute',
-        '            if paused:\n                demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED\n',
-        '            if False:\n                demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED\n',
+        'a paused room still votes', 'decide',
+        '        if room.paused:\n            demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED\n',
+        '        if False:\n            demand, engage = DEMAND_NEUTRAL, ENGAGE_SATISFIED\n',
         'tests/test_door_window.py::test_a_paused_room_never_votes',
     ),
     'H19': Mutant(

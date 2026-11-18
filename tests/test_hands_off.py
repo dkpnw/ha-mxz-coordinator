@@ -1352,7 +1352,7 @@ async def test_options_reload_subscribes_and_drops_the_safety_sensor(
 # The ranking itself, pure
 # ---------------------------------------------------------------------------
 def _arb_demands(demands, votes, safety=None):
-    """Build the (demand, vote) Demand pairs _zone_arbitration_pair would, for
+    """Build the (demand, vote) Demand pairs planner.arbitration_entries would, for
     a test that wants to call :func:`arbitrate` directly without a Zone."""
     safety = safety or [False] * len(demands)
     pairs = []

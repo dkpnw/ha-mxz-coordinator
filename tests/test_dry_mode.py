@@ -69,6 +69,7 @@ from custom_components.mxz_coordinator.const import (
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
 from custom_components.mxz_coordinator.logic import PRIORITY_SAFETY, PRIORITY_VOTE
+from custom_components.mxz_coordinator.planner import arbitration_entries
 from tests.clocks import pass_time
 from tests.cloud_heads import (
     COMFORT,
@@ -616,13 +617,13 @@ async def test_freeze_floor_beats_dry(hass: HomeAssistant) -> None:
 def test_the_dry_vote_is_always_hands_off_rank() -> None:
     """The arbitration entry for a dry head: a read-only vote at PRIORITY_VOTE, safety or not."""
     for safety in (False, True):
-        entries = MXZCoordinator._zone_arbitration_pair(
+        entries = arbitration_entries(
             demand="neutral", vote=None, safety=safety, index=1, dry="cool"
         )
         dry = entries[-1]
         assert (dry.direction, dry.priority, dry.read_only) == ("cool", (PRIORITY_VOTE, 1), True)
         assert entries[0].priority[0] == (PRIORITY_SAFETY if safety else 0)
-    assert len(MXZCoordinator._zone_arbitration_pair(
+    assert len(arbitration_entries(
         demand="neutral", vote=None, safety=False, index=1,
     )) == 2
 
