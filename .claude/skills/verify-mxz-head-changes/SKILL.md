@@ -23,14 +23,18 @@ Model rules (`docs/formal/tla/MXZCoordinator.tla` with `WithAdopt`, room 1's set
   still remembers writing it. Harm: the target moves with nobody touching it.
 - **HoldBlocksWrite.** While a change made at the head is holding, MXZ writes nothing to that
   head's setpoint. Harm: a person's press is written over before it can be adopted.
-- **StartWriteNeverAdopted.** A write from before a reload is never adopted. It passes in
-  `ci-adopt`, where a reload keeps the memory. In `ci-adopt-restart` it is **open finding
-  SM-1**: a process start loses the memory.
+- **StartWriteNeverAdopted.** A write from before a reload or a restart is never adopted. It
+  passes in `ci-adopt` and `ci-adopt-restart`: the room state store keeps the memory (SM-1,
+  fixed).
+- **QueuedWriteKept.** Until a person presses a value MXZ still has queued at the head, no
+  queued write leaves the memory and is adopted; each copy of a rewrite is counted. Passes in
+  `ci-adopt` and `ci-adopt-restart`.
 - **QueuedWriteNeverAdopted.** A write still queued at the head that the memory has dropped is
-  never adopted. **Open finding SM-10**, in `ci-adopt`.
+  never adopted, also after such a press. Not checked: SM-10 paths (b) and (c) break it, an
+  accepted known cost. It stays in the spec as the form `QueuedWriteKept` is built from.
 - Reachability goals, which must break so the rules above aren't vacuous: `NeverAdopts` (a
-  press is adopted at all) and `NeverLateOwnWriteInQuiet` (a late own write does land inside
-  startup quiet).
+  press is adopted at all) and `NeverLatePreStartWrite` (a write queued before a start is still
+  queued after startup quiet ends).
 
 Code checks (`tests/test_accept_head_changes.py`, in CI on every lane): the integration on
 invented heads, including the Hypothesis tests
@@ -38,8 +42,11 @@ invented heads, including the Hypothesis tests
 `test_every_report_of_a_head_showing_writes_in_order_reads_as_own`, the hold
 (`test_a_change_must_hold_and_isnt_overwritten_while_it_does`), a reload and a restart
 (`test_the_memory_rides_a_reload_with_the_head_still_behind`,
-`test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_write_out`), and the gates
-the model leaves out.
+`test_a_late_own_write_inside_startup_quiet_is_not_adopted`,
+`test_a_pre_restart_write_shown_late_is_not_adopted`), the copies of a rewrite
+(`test_a_rewrite_still_queued_is_not_adopted_over_a_later_press`,
+`test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value`, and the cost,
+`test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once`), and the gates the model leaves out.
 
 ## Coverage record
 
@@ -54,8 +61,8 @@ them, and run both commands under Run.
 | Model `HeadShows`, `PersonPress` (`Report`) | `coordinator.py` `_on_head_change`, `_head_writes_caught_up`, `_watch_head_change`, `_head_adoption`, `_arm_or_cancel`; `delivery.py` `DeliveryQueue.disown`; `logic.py` `HeadWriteMemory.own`, `HeadWriteMemory.caught_up` |
 | Model `AdoptFires` | `coordinator.py` `_on_heal_timer`, `_async_adopt_head_change`, `_head_change_seen`; `logic.py` `HeadWriteMemory.seen` |
 | Model `SetTarget` | `number.py` `MXZTargetNumber.async_set_native_value`; `coordinator.py` `drop_head_change` |
-| Model `Reload`, `Restart`, `QuietEnds` | `coordinator.py` `MXZCoordinator.__init__` (`_head_writes` in `hass.data`, `_startup_quiet`), `_on_startup_timer` |
-| Code mutants C44 to C48 | `remember_head_write`, `_head_change_settling`, `MXZCoordinator.__init__`, `HeadWriteMemory.caught_up`, `HeadWriteMemory.seen` |
+| Model `Reload`, `Restart`, `QuietEnds` | `coordinator.py` `MXZCoordinator.__init__` (`_startup_quiet`), `_resume` and `_head_writes_record` (the ledger in the room state store, `room_state.py` `SECTION_HEAD_WRITES`), `_on_startup_timer`; `logic.py` `HeadWriteMemory.record`, `HeadWriteMemory.restored` |
+| Code mutants C44 to C57 | `remember_head_write`, `_head_change_settling`, `_resume`, `HeadWriteMemory.caught_up`, `HeadWriteMemory.seen`, `HeadWriteMemory.wrote`, `DeliveryQueue._async_issue` |
 
 Does a change touch it?
 
@@ -64,7 +71,7 @@ git diff --stat ca78324aca3d5402252a585693ae98193cee24ca -- \
   custom_components/mxz_coordinator/coordinator.py custom_components/mxz_coordinator/delivery.py \
   custom_components/mxz_coordinator/heads.py \
   custom_components/mxz_coordinator/logic.py custom_components/mxz_coordinator/number.py \
-  docs/formal/tla/MXZCoordinator.tla
+  custom_components/mxz_coordinator/room_state.py docs/formal/tla/MXZCoordinator.tla
 ```
 
 If it lists a file, read the diff against the table. A change inside a listed function needs
@@ -91,7 +98,7 @@ python3 tools/formal_area.py mutants adopt   # under a minute
 `check` runs TLC on `ci-adopt` and `ci-adopt-restart` (each must pass every rule its config
 lists), requires each reachability goal and each open finding's rule to break in its config,
 then runs `tests/test_accept_head_changes.py`. `mutants` breaks a scratch copy, never the
-checkout: A1 to A3 break the spec, C44 to C48 the code, and each must be caught by its named
+checkout: A1 to A6 break the spec, C44 to C57 the code, and each must be caught by its named
 rule or test. `python3 tools/formal_area.py list` prints what each part runs. Output is kept
 in the folder printed on the first line (`--out` chooses it).
 
@@ -116,24 +123,31 @@ A break is a real bug or a modeling error. Tell them apart before reporting:
 3. If the replay does not fail, assume the model is wrong until you show it is not. One case
    is known: the model lets a person set the target in Home Assistant between a process start
    and MXZ's first write after it, and the integration writes first. `adopt-restart.cfg`'s
-   shortest SM-1 path goes that way and does not replay; SM-1 itself does, on the path in
-   `docs/formal/PARKED-FINDINGS.md`.
+   shortest SM-1 path (drawn before SM-1's fix) goes that way and did not replay.
 
 Never weaken a rule, a bound or a test to make a check pass. When the promise changes on
 purpose, change the rule, the docs and the tests together, and say so in the PR.
 
 ## Findings
 
-Two open findings, each waiting on the maintainer's decision. `check` requires both to keep
-breaking until it is made. `docs/STATE-MACHINES.md` sections 4 and 7 have the evidence and the
-options, and `docs/formal/PARKED-FINDINGS.md` the short form.
+No open finding: `FINDINGS` in `tools/formal_tlc.py` is empty. `docs/STATE-MACHINES.md`
+sections 4 and 7 have the evidence and the decisions, and `docs/formal/PARKED-FINDINGS.md` the
+short form.
 
-- **SM-1.** MXZ's memory of its writes is in `hass.data`, so a process start loses it. A
-  pre-restart write that a lagging head shows after startup quiet (40 s) is adopted. Replayed
-  at the sync commit: the target ends at 72 where the person left 74.
-- **SM-10.** A rewrite kept once, a person's press of a remembered value, or
-  `HeadWriteMemory.seen` can drop a write still queued at the head. When that write lands after
-  a later press, it is adopted over the press. Replayed at the sync commit on the chart's path.
+- **SM-10, after a person's press of a value MXZ still has queued: an accepted known cost**
+  (the owner's decision, Nov 17, 2026). The press reads as MXZ's write landing, so
+  `HeadWriteMemory.caught_up` passes older writes or uses the write's copy, and
+  `HeadWriteMemory.seen` can then drop it. When that write lands after a later press, it is
+  adopted over the press. Its events are the same as those of
+  `test_up_and_back_are_both_adopted` and `test_a_press_of_a_write_the_head_has_passed_is_adopted`,
+  which require the opposite answer. The `test_known_cost_` tests in
+  `tests/test_accept_head_changes.py` pin it. A rewrite kept once, the other way, is fixed
+  (`QueuedWriteKept`), and so is a rewrite of the shown value behind another write (shape B,
+  code mutant C56). A rewrite of the shown last write after a restart counts no copy (review 6
+  of smfix1111, code mutant C57). Shape A and the F1 rewrite cost of the shape-B fix are
+  accepted known costs under the overnight release mandate (Nov 17, 2026).
+
+SM-1 (a process start lost the memory) is fixed: the room state store keeps it.
 
 When one is decided and fixed, its rule moves into its config's `INVARIANTS` and out of
 `FINDINGS` in `tools/formal_tlc.py`, and the docs say what MXZ now promises.

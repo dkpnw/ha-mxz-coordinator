@@ -9,10 +9,13 @@
 - the Coordinator, eco and lockout switches;
 - each room's manual fan hold and the memory of the speeds MXZ wrote;
 - a disabled room's freeze floor run;
-- the shared mode and its last change, and each door/window pause.
+- the shared mode and its last change, and each door/window pause;
+- with Accept changes made at the head on, the memory of the modes and setpoints MXZ sent each
+  head, so a head that shows one late after a restart isn't read as a person's press.
 
-Until now all but the last two were kept in Home Assistant's restore data, which reaches disk
-only at a clean stop and every 15 minutes. Two things change because of that:
+Until now the first four were kept in Home Assistant's restore data, which reaches disk only
+at a clean stop and every 15 minutes, and the memory of MXZ's head writes didn't survive a
+restart. Two things change because of the restore data:
 
 - **A crash keeps a recent change.** A target, a fan pick or a switch changed shortly before a
   crash or power cut used to come back as it was up to 15 minutes earlier. It now comes back as

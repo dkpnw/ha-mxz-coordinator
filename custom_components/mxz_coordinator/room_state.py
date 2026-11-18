@@ -3,16 +3,16 @@
 What a reload, a restart or a crash must not change: each room's target, Heat to and Cool to,
 drift override, enable and hands-off release (``rooms``), the Coordinator, eco and lockout
 switches (``switches``), each head's fan hold and echo memory (``fan``), a disabled room's
-floor run (``floor``), the shared mode and its last change (``mode``) and each door/window
-pause (``openings``). Each section is its owner's record, by head where it is per room: a
+floor run (``floor``), the shared mode and its last change (``mode``), each door/window
+pause (``openings``) and each head's memory of MXZ's mode and setpoint writes, which a head
+can still show after a restart (``head_writes``). Each section is its owner's record, by head where it is per room: a
 reorder moves a room's slot, never its head. The file also holds when it was taken
 (``saved_at``, wall clock) and the unit its temperatures are in (``unit``).
 
 A change is written at once, so a crash loses only a write still on its way to disk; HA's
 ``Store`` folds changes made together into one write. The mode and door/window records are
 written even when the rest is unchanged (``save_now``): a head is only sent what the record
-already holds. Another section, such as each head's write memory, is one more ``track`` call
-and one more read at the start.
+already holds. Another section is one more ``track`` call and one more read at the start.
 
 For one release the old channels stay current, so an earlier release finds its own data after
 a rollback: the mode and door/window records are also written to their own files at the same
@@ -48,6 +48,7 @@ SECTION_FAN = "fan"
 SECTION_FLOOR = "floor"
 SECTION_MODE = "mode"
 SECTION_OPENINGS = "openings"
+SECTION_HEAD_WRITES = "head_writes"
 _UNITS = (UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT)
 
 

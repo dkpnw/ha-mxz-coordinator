@@ -19,9 +19,11 @@ import pytest
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COOLDOWN
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from custom_components.mxz_coordinator.const import (
@@ -54,6 +56,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_SENSOR,
 )
 from custom_components.mxz_coordinator.logic import HeadWriteMemory
+from custom_components.mxz_coordinator.room_state import SECTION_HEAD_WRITES
 from tests.cloud_heads import (
     COMFORT,
     ComfortHead,
@@ -79,8 +82,11 @@ from tests.property_rig import (
     SEQUENCES,
     TARGET,
     Rig,
+    RigHead,
     open_rig,
 )
+from tests.restart import stopped
+from tests.room_state_store import saved_section
 from tests.test_drive import (
     SENSOR_A,
     SENSOR_B,
@@ -736,7 +742,7 @@ async def test_a_paused_rooms_head_keeps_its_own_rule(hass: HomeAssistant, freez
 
 
 async def test_while_home_assistant_is_starting_nothing_is_adopted(hass: HomeAssistant, freezer: Any) -> None:
-    """A restart loses the memory: the first reports have nothing to be read against."""
+    """Not even a person's press: a head still loading can report anything."""
     rig = await _cooling(hass, freezer)
     rig.coord._startup_quiet = True
     await _press(rig, low=64, high=66)
@@ -914,6 +920,509 @@ async def test_the_lagging_write_after_an_adopted_press_is_still_mxz_s(hass: Hom
     await rig.close()
 
 
+async def _rewritten_while_lagging(rig: Rig) -> None:
+    """MXZ writes 72 on two applies while the head still shows 70: two copies queued.
+
+    Each settle is one apply. Before review 8's fix, on Home Assistant 2024.12 the first
+    settle ran a second refresh right after the plan, asked for by the head's report of
+    MXZ's fan write, and queued both copies. Settle until two are queued, never past it.
+    """
+    head = rig.heads[0]
+    head.lags_commands = True
+    await _set_target(rig.hass, rig.eid("_primary_target"), 72)
+    for _ in range(2):
+        if len(head.unreported_commands) >= 2:
+            break
+        await rig.settle()
+    assert [command["target_temp_high"] for command in head.unreported_commands] == [72, 72]
+
+
+async def test_a_rewrite_still_queued_is_not_adopted_over_a_later_press(hass: HomeAssistant, freezer: Any) -> None:
+    """docs/STATE-MACHINES.md SM-10, a rewrite kept once: the second 72 lands after the press."""
+    rig = await _cooling(hass, freezer)
+    await _rewritten_while_lagging(rig)
+    assert await rig.report_next_command()
+    assert _edges(rig)[1] == 72
+    await _press(rig, low=64, high=66)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    while await rig.report_next_command():
+        assert not _armed(rig)
+        await rig.later(HELD)
+        assert _target(rig) == 66
+    assert _edges(rig) == (64, 66)
+    await rig.close()
+
+
+async def test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once(hass: HomeAssistant, freezer: Any) -> None:
+    """The cost of keeping each copy (F1), and its end.
+
+    The head took both copies of 72, the second with nothing new to show, so MXZ still
+    counts one. A person's 66 is adopted; a press back to 72 then reads as MXZ's copy and
+    the head goes back to 66. Once the head shows that write, a press of 72 is a press.
+    """
+    rig = await _cooling(hass, freezer)
+    await _rewritten_while_lagging(rig)
+    rig.heads[0].lags_commands = False
+    await rig.report_next_command()
+    await rig.report_next_command()
+    await _press(rig, low=64, high=66)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    await _press(rig, low=70, high=72)
+    assert not _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    assert _edges(rig) == (64, 66)
+    await _press(rig, low=70, high=72)
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    await rig.close()
+
+
+def _shows_all_writes_late(rig: Rig) -> RigHead:
+    """The first head shows MXZ's writes late: its fan as well as its mode and setpoints.
+
+    So no report comes while the plan applies, and nothing asks for a refresh one request
+    cooldown later. A fan shown at once is such a report. Its refresh waits out the cooldown
+    on every Home Assistant (``delivery.DeliveryQueue.request_for_report``); before review
+    8's fix it ran right after the plan on Home Assistant before 2025.11, while the head
+    still showed the old target, and wrote the target a second time.
+    """
+    head = rig.heads[0]
+    head.lags = True
+    head.lags_commands = True
+    return head
+
+
+async def test_a_press_of_a_value_written_twice_while_lagging_takes_one_copy(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """docs/STATE-MACHINES.md SM-10, the counterpart of the known cost below: MXZ wrote 72
+    twice to a head that still shows 70. A person presses 72, which takes one copy, then
+    66, which is adopted. Both 72s land late: each is a copy MXZ counted, so neither is
+    adopted and the 66 stays."""
+    rig = await _cooling(hass, freezer)
+    await _rewritten_while_lagging(rig)
+    await _press(rig, low=70, high=72)
+    assert not _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    await _press(rig, low=64, high=66)
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    for _ in range(2):
+        assert await rig.report_next_command()  # MXZ's 72, late
+        assert _edges(rig)[1] == 72
+        assert not _armed(rig)
+        await rig.later(HELD)
+        assert _target(rig) == 66
+    await rig.close()
+
+
+async def _changed_once_at_a_head_lagging_setpoints(rig: Rig) -> list[float]:
+    """MXZ's target goes to 72 with one compute, at a head that shows MXZ's setpoints late
+    and its fan at once. Returns the setpoints queued at the head after that compute.
+
+    The fan report comes while the plan applies. On Home Assistant before 2025.11 its refresh
+    ran right after the plan, while the head still showed 70, and wrote 72 a second time.
+    """
+    head = rig.heads[0]
+    head.lags_commands = True
+    await _set_target(rig.hass, rig.eid("_primary_target"), 72)
+    await rig.settle()
+    return [command["target_temp_high"] for command in head.unreported_commands]
+
+
+async def _press_70_then_72(rig: Rig) -> None:
+    """A person presses 70, then 72 again, each held: both are presses, and the head keeps the 72."""
+    await _press(rig, low=68, high=70)
+    await rig.later(HELD)
+    assert _target(rig) == 70
+    await _press(rig, low=70, high=72)
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    assert _edges(rig) == (70, 72)
+
+
+async def test_one_target_change_takes_no_later_press_back_to_it(hass: HomeAssistant, freezer: Any) -> None:
+    """Review 8 of smfix1111: one target change, shown once the head has taken every command,
+    then a person's press away and back to that value. On Home Assistant 2024.12 a fan report
+    during the plan made MXZ write 72 twice; the second copy was never spent, so the press
+    back to 72 read as MXZ's and MXZ set the head to 70."""
+    rig = await _cooling(hass, freezer)
+    sent = await _changed_once_at_a_head_lagging_setpoints(rig)
+    rig.heads[0].lags_commands = False
+    while await rig.report_next_command():
+        pass
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    await _press_70_then_72(rig)
+    assert sent == [72]  # one change, one write, on every Home Assistant
+    await rig.close()
+
+
+async def test_one_target_change_takes_no_press_back_to_it_while_the_head_still_lags(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """Review 8's variant: the head has shown MXZ's 72 and still shows MXZ's setpoints late
+    when the person presses 70 and 72. On Home Assistant 2024.12 the second 72 was still
+    queued then, and the press back to 72 was read as MXZ's. Whatever is still queued lands
+    after the presses and leaves the person's 72."""
+    rig = await _cooling(hass, freezer)
+    sent = await _changed_once_at_a_head_lagging_setpoints(rig)
+    assert await rig.report_next_command()
+    assert _edges(rig) == (70, 72)
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    await _press_70_then_72(rig)
+    while await rig.report_next_command():
+        await rig.later(HELD)
+    assert _target(rig) == 72
+    assert _edges(rig) == (70, 72)
+    assert sent == [72]
+    await rig.close()
+
+
+async def test_a_report_during_a_plan_gets_its_refresh_once_the_cooldown_ends(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """A head's report that comes while a plan applies asks for a refresh, so a plan reads it.
+    Here the report is the head showing MXZ's fan write at once. On every Home Assistant that
+    refresh runs one request cooldown after the plan, never right after it, when the head may
+    still show the setpoints the plan just wrote. Only Home Assistant's timers run after the plan."""
+    rig = await _cooling(hass, freezer)
+    head, queue = rig.heads[0], rig.coord.deliveries
+    await _set_target(hass, rig.eid("_primary_target"), 72)
+    plans, fan_writes = queue.generation, len(head.fan_writes)
+    await rig.settle()
+    assert len(head.fan_writes) > fan_writes  # the plan wrote the fan, and the head showed it
+    assert queue.generation == plans + 1  # the plan, and no refresh right after it
+    await _settle_without_a_compute(rig, int(REQUEST_REFRESH_DEFAULT_COOLDOWN) - 1)
+    assert queue.generation == plans + 1
+    await _settle_without_a_compute(rig, 1)
+    assert queue.generation == plans + 2  # the report's refresh, once the cooldown ends
+    await rig.close()
+
+
+async def test_known_cost_a_press_of_the_queued_value_at_a_lagging_head_reads_as_mxzs(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """Known cost, docs/STATE-MACHINES.md SM-10 path (b), accepted (the owner's decision,
+    Nov 17, 2026): MXZ's 72 is still queued at a head that shows writes late. A person
+    presses 72 at the remote, then 66. MXZ's 72 lands after the 66 and is adopted over it.
+
+    MXZ sees only the head's reports: 72 shown, a person's 66, 72 again. They are the
+    reports of test_up_and_back_are_both_adopted, where that last report is a person's press
+    and must be adopted. No rule that reads only reports can give both answers."""
+    rig = await _cooling(hass, freezer)
+    head = _shows_all_writes_late(rig)
+    await _set_target(hass, rig.eid("_primary_target"), 72)
+    await rig.settle()
+    assert [command["target_temp_high"] for command in head.unreported_commands] == [72]
+    await _press(rig, low=70, high=72)
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    await _press(rig, low=64, high=66)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    assert await rig.report_next_command()  # MXZ's 72, late
+    assert _edges(rig)[1] == 72
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    await rig.close()
+
+
+async def test_known_cost_a_press_of_an_older_queued_value_reads_as_mxzs(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """Known cost, docs/STATE-MACHINES.md SM-10 path (c), accepted (the owner's decision,
+    Nov 17, 2026): MXZ's 72 and then 74 are queued at a head that shows writes late. A
+    person presses 72, MXZ writes 74, the person presses 74, then 66. MXZ's 72 lands after
+    the 66 and is adopted over it.
+
+    MXZ sees only the head's reports: 72 and 74, both values it wrote, then a person's 66,
+    then 72 again. To MXZ the head has shown its 72 and passed it, as in
+    test_a_press_of_a_write_the_head_has_passed_is_adopted (72 shown, 74 shown, then 72),
+    where that last 72 is a person's press and must be adopted. The 66 between doesn't tell
+    the two apart. No rule that reads only reports can give both answers."""
+    rig = await _cooling(hass, freezer)
+    head = _shows_all_writes_late(rig)
+    await _set_target(hass, rig.eid("_primary_target"), 72)
+    await rig.settle()
+    await _press(rig, low=70, high=72)
+    await rig.later(HELD)
+    await _set_target(hass, rig.eid("_primary_target"), 74)
+    await rig.settle()
+    assert [command["target_temp_high"] for command in head.unreported_commands][:2] == [72, 74]
+    await _press(rig, low=72, high=74)
+    await rig.later(HELD)
+    assert _target(rig) == 74
+    await _press(rig, low=64, high=66)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    assert await rig.report_next_command()  # MXZ's 72, late
+    assert _edges(rig)[1] == 72
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    await rig.close()
+
+
+async def test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_adopted(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """Known cost, docs/STATE-MACHINES.md SM-10, accepted (the owner's decision, Nov 17,
+    2026), as on the base: a setpoint write also sends the mode the head shows, "cool". MXZ
+    counts no copy of that "cool", since the head shows nothing new for it. Here the head
+    shows writes late, so the command is still queued when a person turns the head off. It
+    lands after the off, and its "cool" is adopted: the room is enabled again.
+
+    A head that took the command at once sends the same reports as one that still has it
+    queued. Kept, that copy would refuse the person's next "cool" at every head, lagging or
+    not (test_off_and_on_at_the_head_count_after_target_changes). This is the one write
+    that test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value doesn't check."""
+    rig = await _cooling(hass, freezer)
+    head = _shows_all_writes_late(rig)
+    await _set_target(hass, rig.eid("_primary_target"), 72)
+    await rig.settle()
+    assert [command.get("hvac_mode") for command in head.unreported_commands] == ["cool"]
+    await rig.person_mode("off")
+    await rig.later(HELD)
+    assert _enabled(rig) is False
+    assert await rig.report_next_command()  # MXZ's "cool" with its 72, late
+    assert head.mode == "cool"
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _enabled(rig) is True
+    await rig.close()
+
+
+def test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_after_it() -> None:
+    """Known cost, docs/STATE-MACHINES.md SM-10 path (c), accepted (the owner's decision,
+    Nov 17, 2026), shown on HeadWriteMemory alone. The head shows MXZ's 1. MXZ writes 1
+    again, which counts no copy (the value the head shows, with nothing else queued), then
+    0, then 1, all still queued at a head that shows writes late. A person presses 5. The
+    first 1 lands late. The memory takes it as the later 1 and ends the 0 queued between
+    them, so when the 0 lands it reads as a person's press. If that 0 is adopted, the
+    memory forgets the later 1 too, so it also reads as a person's when it lands.
+
+    MXZ sees only the head's reports: its 1, a person's 5, then 1 again, a value it wrote
+    after the 0. A report of a later write ends the writes before it
+    (test_a_report_of_the_last_write_ends_all_the_others), and a press of a value the head
+    has passed is a person's (test_a_press_of_a_write_the_head_has_passed_is_adopted).
+    Nothing in the reports tells the late first 1 from the later 1: a head that took the
+    first 1 at once showed nothing for it. No rule that reads only reports can give both
+    answers. It is the second case that
+    test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value doesn't check."""
+    memory = HeadWriteMemory(8)
+    memory.wrote(1, 0)
+    memory.caught_up(1)  # the head shows MXZ's 1
+    assert memory.wrote(1, 1) is False  # the value it shows, nothing else queued: no copy
+    memory.wrote(0, 1)
+    memory.wrote(1, 1)
+    memory.seen(5)  # a person's press
+    assert memory.own(0) and memory.own(1)
+    memory.caught_up(1)  # the first 1, late
+    assert not memory.own(0)
+    assert memory.own(1)
+    memory.seen(0)  # the 0 lands and is adopted as a person's
+    assert not memory.own(1)
+
+
+def test_a_rewrite_of_the_shown_value_behind_another_write_is_kept() -> None:
+    """docs/STATE-MACHINES.md SM-10, shape B (fix round 5 of smfix1111): path (a)'s case
+    reached by another write order. The head shows MXZ's 1. MXZ writes 0, then 1, then 1
+    again, all still queued at a head that shows writes late. The last 1 is a write of the
+    value the head shows, but the 0 is still to come, so the head will show something new
+    for it. It counts a copy. After the 0 and the first 1 land, a person presses 5, and the
+    last 1, still queued, stays MXZ's: when it lands it isn't read as a person's press.
+
+    The oracle's example:
+    [('write', 1), ('land', None), ('write', 0), ('write', 1), ('write', 1), ('land', None),
+    ('land', None), ('press', 5)]"""
+    memory = HeadWriteMemory(8)
+    memory.wrote(1, 0)
+    memory.caught_up(1)  # the head shows MXZ's 1
+    memory.wrote(0, 1)
+    memory.wrote(1, 1)
+    assert memory.wrote(1, 1) is True  # the 0 is still to come: the head will show this 1
+    memory.caught_up(0)
+    memory.caught_up(1)  # the first 1
+    memory.seen(5)  # a person's press
+    assert memory.own(1)  # the last 1 is still queued
+    memory.caught_up(1)  # it lands
+    assert memory.values == (1,)
+
+
+def test_known_cost_a_late_write_of_the_shown_value_uses_up_the_later_writes_copy() -> None:
+    """Known cost, docs/STATE-MACHINES.md SM-10 path (c), shape A, accepted under the
+    overnight release mandate (Nov 17, 2026), shown on HeadWriteMemory alone. The head shows
+    MXZ's 1. MXZ writes 1 again, which counts no copy (the value the head shows, the last one
+    remembered, with nothing before it still to come). A person presses 5. MXZ writes 1 again, which counts a copy. Both
+    1s are still queued at a head that shows writes late. The first 1 lands late. The memory
+    takes it as the later 1 and uses up that write's copy. A person presses 5 again, and the
+    memory forgets the later 1, which is still queued: when it lands, it reads as a person's.
+
+    MXZ sees only the head's reports: its 1, a person's 5, 1 again, a person's 5. A head
+    that took the first 1 at once showed nothing for it and sends the same reports, but
+    there the 1 is the later write, now shown, and a person's next press of 1 must be
+    adopted. No rule that reads only reports can give both answers. It is the case
+    test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value stops checking at,
+    until the queue is empty."""
+    memory = HeadWriteMemory(8)
+    memory.wrote(1, 0)
+    memory.caught_up(1)  # the head shows MXZ's 1
+    assert memory.wrote(1, 1) is False  # the value it shows, nothing before it to come: no copy
+    memory.seen(5)  # a person's press
+    assert memory.wrote(1, 5) is True
+    memory.caught_up(1)  # the first 1, late
+    assert memory.record() == [[1, 0]]  # the later 1's copy is used up
+    memory.seen(5)  # a person's press
+    assert not memory.own(1)  # the later 1, still queued, is forgotten
+
+
+def test_known_cost_a_rewrite_of_the_shown_value_behind_another_write_takes_a_press_back_once() -> None:
+    """Known cost (F1's, docs/formal/PARKED-FINDINGS.md), accepted under the overnight
+    release mandate (Nov 17, 2026), shown on HeadWriteMemory alone. It is the price of
+    test_a_rewrite_of_the_shown_value_behind_another_write_is_kept. The head shows "cool".
+    MXZ sends it off and then on, and a setpoint write then sends "cool" once more, all
+    before the head shows the off. That last "cool" rewrites the value the head shows,
+    with MXZ's off queued before it, so it counts a copy. The head shows the off, then the
+    on, and shows nothing new for the rewrite, so no report counts that copy off. A person
+    then turns the head off and on again at its remote: the memory takes the person's "on"
+    as MXZ's, once. The next off and on are a person's.
+
+    This is the cost test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once pins, where
+    the head showed another value while MXZ wrote twice. It is not free: that one press of
+    the person's is not adopted. It needs MXZ's own rewrite of the shown value while a value
+    remembered before it still counts a copy: here MXZ's off, queued before it. After a
+    restart that copy can also be a write the head took while MXZ was down
+    (test_known_cost_after_a_restart_a_rewrite_behind_a_write_shown_while_mxz_was_down_counts_a_copy).
+    It takes only a later person's press of that same value, once."""
+    memory = HeadWriteMemory(8)
+    memory.wrote("off", "cool")
+    memory.wrote("cool", "cool")
+    assert memory.wrote("cool", "cool") is True  # MXZ's off is queued before it: a copy
+    memory.caught_up("off")
+    memory.caught_up("cool")  # the head shows the on, and nothing new for the rewrite
+    assert memory.record() == [["cool", 1]]
+    memory.seen("off")  # a person's off at the head
+    assert memory.own("cool")  # the person's on reads as MXZ's
+    memory.caught_up("cool")
+    memory.seen("off")  # the person's next off
+    assert not memory.own("cool")  # and the next on is a person's
+
+
+def test_a_rewrite_of_the_shown_last_write_after_a_restart_adds_no_copy() -> None:
+    """Review 6 of smfix1111, on HeadWriteMemory: a restart restores the head's "off" and
+    MXZ's one queued "cool". The head showed that "cool" while MXZ was down, and MXZ writes
+    "cool" again before the head reports anything. It is the last value remembered and no
+    value before it counts a copy, so nothing of MXZ's is still to come: it counts none.
+    After the head's report, a person's off and then on are both a person's."""
+    memory = HeadWriteMemory.restored(8, [["off", 0], ["cool", 1]])
+    assert memory is not None
+    assert memory.wrote("cool", "cool") is False
+    memory.caught_up("cool")  # the head's first report after the start
+    assert memory.record() == [["cool", 0]]
+    memory.seen("off")  # a person's off
+    assert not memory.own("cool")  # the person's on is a person's
+
+
+def test_known_cost_after_a_restart_a_rewrite_behind_a_write_shown_while_mxz_was_down_counts_a_copy() -> None:
+    """Known cost (F1's, docs/formal/PARKED-FINDINGS.md), the F1 rewrite cost's restart
+    trigger, accepted under the overnight release mandate (Nov 17, 2026), shown on
+    HeadWriteMemory alone. A restart restores MXZ's off and then its on, both still to
+    come. The head took both while MXZ was down and shows "cool", but nothing reconciles
+    the restored memory with what the head shows, so the off still counts a copy. MXZ
+    writes "cool" again before the head reports anything. As far as the memory knows, the
+    off is still to come before it, so it counts a copy. The head shows nothing new for it,
+    and no report counts it off. Fix round 4's rule counted none here; fix round 5's
+    counted one too.
+
+    It is not free: like the copy that
+    test_known_cost_a_rewrite_of_the_shown_value_behind_another_write_takes_a_press_back_once
+    pins, it can take a person's later press of "cool" as MXZ's. The restored off's copy
+    already takes a person's off as MXZ's on every rule, as path (b) does. What a person
+    loses after that on the integration is not replayed here. Whether MXZ ever has an off
+    and then an on queued at one head is unknown: in one attempt on invented heads (fix
+    round 6 of smfix1111), MXZ sent nothing more while its off was still queued."""
+    memory = HeadWriteMemory.restored(8, [["cool", 0], ["off", 1], ["cool", 1]])
+    assert memory is not None
+    assert memory.wrote("cool", "cool") is True  # the restored off still counts a copy
+    memory.caught_up("cool", moved=False)  # the head's report of that write moves nothing
+    assert memory.record() == [["cool", 0], ["off", 1], ["cool", 2]]
+
+
+def _refuses_the_first_setpoint(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """The first head refuses MXZ's first setpoint call (a cloud timeout, say), then takes them."""
+    head = rig.heads[0]
+    set_temperature = type(head).async_set_temperature
+    refused: list[dict[str, Any]] = []
+
+    async def write(**kwargs: Any) -> None:
+        if not refused:
+            refused.append(kwargs)
+            raise HomeAssistantError("invented cloud timeout")
+        await set_temperature(head, **kwargs)
+
+    monkeypatch.setattr(head, "async_set_temperature", write)
+    return refused
+
+
+async def _refused_then_shown(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> None:
+    """MXZ's 72 is refused once, and the next apply's 72 shows at a head that doesn't lag."""
+    refused = _refuses_the_first_setpoint(rig, monkeypatch)
+    await _set_target(rig.hass, rig.eid("_primary_target"), 72)
+    for _ in range(3):
+        if _edges(rig) == (70, 72):
+            break
+        await rig.settle()
+    assert [call["target_temp_high"] for call in refused] == [72]
+    assert _edges(rig) == (70, 72)
+
+
+async def _press_away_and_back(rig: Rig) -> None:
+    """A person presses 66, then 72 again: both are adopted, and the head keeps the 72."""
+    await _press(rig, low=64, high=66)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    await _press(rig, low=70, high=72)
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    assert _edges(rig) == (70, 72)
+
+
+async def test_a_refused_write_leaves_no_copy_to_take_a_later_press(
+    hass: HomeAssistant, freezer: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review 3 of smfix1111: a head that refused a write never takes it, so no report can
+    count that copy off. Kept, it read the press back to 72 as MXZ's and drove the head to 66."""
+    rig = await _cooling(hass, freezer)
+    await _refused_then_shown(rig, monkeypatch)
+    await _press_away_and_back(rig)
+    await rig.close()
+
+
+async def test_a_refused_write_leaves_no_copy_in_the_store(
+    hass: HomeAssistant, freezer: Any, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The memory a restart resumes holds no copy of the refused call either."""
+    rig = await _cooling(hass, freezer)
+    await _refused_then_shown(rig, monkeypatch)
+    saved = await saved_section(hass, rig.entry, SECTION_HEAD_WRITES)
+    assert saved[rig.heads[0].entity_id]["target_temp_high"] == [[72, 0]]
+    await rig.restart()
+    await rig.later(STARTUP_RECOVER_DELAY + 1)
+    await _press_away_and_back(rig)
+    await rig.close()
+
+
 async def test_a_press_of_a_write_the_head_has_passed_is_adopted(hass: HomeAssistant, freezer: Any) -> None:
     """The memory is only as wide as the lag."""
     rig = await _cooling(hass, freezer)
@@ -955,6 +1464,23 @@ async def test_off_and_on_and_off_at_the_head_each_count(hass: HomeAssistant, fr
     await rig.close()
 
 
+async def test_off_and_on_at_the_head_count_after_target_changes(hass: HomeAssistant, freezer: Any) -> None:
+    """Each setpoint write also sends the mode the head shows; that mode is no write to wait for."""
+    rig = await _cooling(hass, freezer)
+    for target in (72, 73, 72):
+        await _set_target(hass, rig.eid("_primary_target"), target)
+        await rig.settle()
+        assert _edges(rig) == (target - 2, target)
+    await rig.person_mode("off")
+    await rig.later(HELD)
+    assert _enabled(rig) is False
+    await rig.person_mode("cool")
+    await rig.later(HELD)
+    assert _enabled(rig) is True
+    assert rig.heads[0].mode == "cool"
+    await rig.close()
+
+
 async def test_the_memory_rides_a_reload_with_the_head_still_behind(hass: HomeAssistant, freezer: Any) -> None:
     rig = await _cooling(hass, freezer)
     head = rig.heads[0]
@@ -971,13 +1497,10 @@ async def test_the_memory_rides_a_reload_with_the_head_still_behind(hass: HomeAs
     await rig.close()
 
 
-async def test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_write_out(
+async def test_a_late_own_write_inside_startup_quiet_is_not_adopted(
     hass: HomeAssistant, freezer: Any,
 ) -> None:
-    """A restart starts with no memory, so only startup quiet keeps a late own write out.
-
-    After the window, the same late report moves the target: docs/STATE-MACHINES.md SM-1.
-    """
+    """Startup quiet and the stored memory both keep it out; the next test is past the window."""
     rig = await _cooling(hass, freezer)
     head = rig.heads[0]
     head.lags_commands = True
@@ -996,6 +1519,164 @@ async def test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_writ
     await rig.later(HELD)
     assert _target(rig) == 74
     assert rig.now() - started < STARTUP_RECOVER_DELAY
+    await rig.close()
+
+
+async def _two_writes_queued_then_restart(rig: Rig, wait: float) -> None:
+    """MXZ writes 72, then 74, to a lagging head; a restart; ``wait`` seconds pass."""
+    rig.heads[0].lags_commands = True
+    await _set_target(rig.hass, rig.eid("_primary_target"), 72)
+    await rig.settle()
+    await _set_target(rig.hass, rig.eid("_primary_target"), 74)
+    await rig.settle()
+    await rig.restart()
+    await rig.later(wait)
+
+
+@pytest.mark.parametrize(
+    "wait", [STARTUP_RECOVER_DELAY + 1, 3600], ids=["after_startup_quiet", "an_hour_later"],
+)
+async def test_a_pre_restart_write_shown_late_is_not_adopted(
+    hass: HomeAssistant, freezer: Any, wait: float,
+) -> None:
+    """docs/STATE-MACHINES.md SM-1: the room state store keeps MXZ's memory of its writes."""
+    rig = await _cooling(hass, freezer)
+    await rig.person_fan("quiet")
+    assert rig.fan_held() is True
+    await _two_writes_queued_then_restart(rig, wait)
+    assert await rig.report_next_command()
+    assert _edges(rig)[1] == 72
+    assert not _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 74
+    while await rig.report_next_command():
+        assert not _armed(rig)
+        await rig.later(HELD)
+        assert _target(rig) == 74
+    assert _edges(rig)[1] == 74
+    assert rig.fan_held() is True
+    assert rig.fan_auto_switch() == "off"
+    assert rig.heads[0].fan == "quiet"
+    await rig.close()
+
+
+async def test_a_press_after_a_restart_is_adopted(hass: HomeAssistant, freezer: Any) -> None:
+    """The stored memory is MXZ's writes only: a person's press after the start is a press."""
+    rig = await _cooling(hass, freezer)
+    await _two_writes_queued_then_restart(rig, STARTUP_RECOVER_DELAY + 1)
+    await _press(rig, low=64, high=66)
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    while await rig.report_next_command():
+        await rig.later(HELD)
+        assert _target(rig) == 66
+    await rig.close()
+
+
+async def _on_shown_while_mxz_was_down(rig: Rig, copies: int = 1) -> None:
+    """A person's off is adopted. MXZ then turns the room on and sends "cool" ``copies``
+    times to a head that shows writes late, and the head shows the first "cool" while MXZ
+    is down. After the start, a target of 73 is one setpoint write, which sends "cool" too,
+    before the head has reported anything. The queue drains, the head shows MXZ's writes
+    at once from then on, and startup quiet ends.
+
+    The switch's own compute sends one "cool". A second takes more applies, and how many
+    one settle runs depends on Home Assistant's refresh scheduling
+    (``_rewritten_while_lagging``): settle until two are queued, never past it."""
+    head = rig.heads[0]
+    await rig.person_mode("off")
+    await rig.later(HELD)
+    assert _enabled(rig) is False
+    head.lags_commands = True
+    await rig.hass.services.async_call(
+        "switch", "turn_on", {"entity_id": rig.eid("_primary_enable")}, blocking=True,
+    )
+    await rig.hass.async_block_till_done()  # the switch's own compute, and no other
+    for _ in range(2):
+        if len(head.unreported_commands) >= copies:
+            break
+        await rig.settle()
+    assert [command.get("hvac_mode") for command in head.unreported_commands] == ["cool"] * copies
+    saved = await saved_section(rig.hass, rig.entry, SECTION_HEAD_WRITES)
+    assert saved[head.entity_id]["hvac_mode"] == [["off", 0], ["cool", copies]]
+    async with stopped(rig.hass, rig.entry):
+        assert head.report_next_command()  # the head shows MXZ's first "cool"
+    assert head.mode == "cool"
+    queued = len(head.unreported_commands)
+    await _set_target(rig.hass, rig.eid("_primary_target"), 73)
+    assert [
+        (command.get("hvac_mode"), command.get("target_temp_high")) for command in head.unreported_commands[queued:]
+    ] == [("cool", 73)]
+    while await rig.report_next_command():
+        pass
+    head.lags_commands = False
+    await rig.later(STARTUP_RECOVER_DELAY + 1)
+    assert _enabled(rig) is True
+    assert head.mode == "cool"
+
+
+async def test_after_a_restart_a_rewrite_of_the_shown_mode_takes_no_later_press(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """docs/STATE-MACHINES.md SM-10 and SM-1, review 6 of smfix1111: MXZ's "cool" was its
+    last write, and the head showed it while MXZ was down. The setpoint write after the
+    start sends "cool" again, the value the head shows, with nothing else of MXZ's still to
+    come. It counts no copy. A person's off and then on at the head are both adopted.
+
+    Fix round 5's rule counted a copy there, because the memory still held the "off" the
+    head showed before. The head showed nothing new for it, so the person's "on" read as
+    MXZ's: the room stayed off and MXZ turned the head back off."""
+    rig = await _cooling(hass, freezer)
+    head = rig.heads[0]
+    await _on_shown_while_mxz_was_down(rig)
+    await rig.person_mode("off")
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _enabled(rig) is False
+    assert head.mode == "off"
+    await rig.person_mode("cool")
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _enabled(rig) is True
+    assert head.mode == "cool"
+    await rig.close()
+
+
+async def test_known_cost_two_copies_of_the_mode_across_a_restart_take_a_press_back_once(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """Known cost (F1's, docs/formal/PARKED-FINDINGS.md), the one
+    test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once pins for a setpoint. It
+    predates fix round 6 of smfix1111: this test passes unchanged on fix round 4's and
+    fix round 5's wrote(). Review 6 named it.
+
+    As in test_after_a_restart_a_rewrite_of_the_shown_mode_takes_no_later_press, but MXZ
+    sent "cool" twice before the restart. The head shows the first while MXZ is down and
+    the second after the start, with nothing new to show for it, so MXZ still counts that
+    copy. (The setpoint write after the start counts none: the shown "cool" is the last
+    value remembered, with nothing before it still to come.) A person's off at the head is
+    adopted. Their "on" reads as MXZ's copy, once: the room stays off and MXZ turns the
+    head back off. Their next "on" is adopted. It is not free: that one press of the
+    person's is not adopted."""
+    rig = await _cooling(hass, freezer)
+    head = rig.heads[0]
+    await _on_shown_while_mxz_was_down(rig, copies=2)
+    await rig.person_mode("off")
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _enabled(rig) is False
+    assert head.mode == "off"
+    await rig.person_mode("cool")
+    assert not _armed(rig)  # read as MXZ's copy
+    await rig.later(HELD)
+    assert _enabled(rig) is False
+    assert head.mode == "off"  # MXZ turned it back off
+    await rig.person_mode("cool")
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _enabled(rig) is True
+    assert head.mode == "cool"
     await rig.close()
 
 
@@ -1110,6 +1791,112 @@ def test_a_person_replaces_what_the_head_last_showed_not_what_is_still_coming() 
     assert not memory.own(0)
     memory.wrote(2, 8)  # shown isn't remembered: the same again
     assert memory.values == (8, 1, 2)
+
+
+@given(
+    actions=st.lists(
+        st.one_of(
+            st.integers(0, 4).map(lambda v: ("write", v)),
+            st.just(("land", None)),
+            st.integers(5, 9).map(lambda v: ("press", v)),
+        ),
+        max_size=30,
+    ),
+)
+@example(actions=[("write", 1), ("land", None), ("write", 1), ("write", 0), ("write", 1), ("press", 5), ("land", None)])
+@example(actions=[("write", 1), ("land", None), ("write", 1), ("press", 5), ("write", 1), ("land", None), ("press", 5)])
+@example(actions=[("write", 2), ("land", None), ("write", 2), ("write", 0), ("write", 0), ("write", 2), ("write", 0),
+                  ("press", 5), ("land", None), ("land", None)])
+@example(actions=[("write", 1), ("land", None), ("write", 1), ("press", 5), ("write", 0), ("write", 1), ("land", None),
+                  ("land", None), ("write", 0), ("press", 5)])
+@example(actions=[("write", 1), ("land", None), ("write", 0), ("write", 1), ("write", 1), ("land", None), ("land", None),
+                  ("press", 5)])
+@PURE
+def test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value(actions: list[tuple[str, Any]]) -> None:
+    """SM-10 as far as a report can tell: against an independent queue, a head shows its
+    writes in order, a copy of the value it shows lands with nothing new to show, and a
+    person presses only values MXZ never wrote (a press of a queued value is SM-10 path (b)).
+
+    Some queued writes are not checked. All of them are part of SM-10's accepted known
+    cost, path (c) (the owner's decision, Nov 17, 2026, and the overnight release mandate,
+    Nov 17, 2026):
+
+    - A write of the value the head shows, with only that value queued. A head that takes
+      it at once shows nothing for it, so a kept copy would never be counted off and would
+      take a person's next press of that value (review 2 of smfix1111). If it lands late,
+      after a person's press, it reads as a person's:
+      test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_adopted.
+    - Every write still queued when such a write lands late, and every write made after
+      that, until the queue is empty. "Late" means it lands after a person's press, off
+      the value the head shows, while a later write of the same value is still queued. The
+      memory takes it as that later write: it ends the writes queued between them, as a
+      report of a later write must (test_a_report_of_the_last_write_ends_all_the_others),
+      and it uses up that later write's copy. From then on the memory and the head's queue
+      are out of step until the queue drains. Those writes can read as a person's when
+      they land:
+      test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_after_it and
+      test_known_cost_a_late_write_of_the_shown_value_uses_up_the_later_writes_copy.
+
+    Every other queued write is checked. The examples, in order: the writes between the late
+    write and the later one (fix round 3); the later write itself (shape A, fix round 4); two
+    that seed 12 found in fix round 4, with writes still queued and made after the late
+    landing; and shape B, which no exemption covers
+    (test_a_rewrite_of_the_shown_value_behind_another_write_is_kept). Random runs found each
+    of them only under some seeds."""
+    memory = HeadWriteMemory(64)
+    shown = 100
+    queue: list[tuple[int, bool]] = []  # each write, and whether a report can count it off
+    adrift = False  # from a late landing of an unchecked write until the queue is empty
+    for kind, value in actions:
+        if kind == "write":
+            unseen = adrift or (value == shown and all(queued == shown for queued, _ in queue))
+            memory.wrote(value, shown)
+            queue.append((value, not unseen))
+        elif kind == "land" and queue:
+            landed, checked = queue.pop(0)
+            if not checked and landed != shown and landed in (queued for queued, _ in queue):
+                adrift = True
+                queue[:] = [(queued, False) for queued, _ in queue]
+            adrift = adrift and bool(queue)
+            if landed != shown:
+                memory.caught_up(landed)
+                shown = landed
+        elif kind == "press" and value != shown:
+            memory.seen(value)
+            shown = value
+        assert all(memory.own(queued) for queued, checked in queue if checked), (actions, memory.values, queue)
+
+
+def test_a_write_of_what_the_head_shows_adds_no_copy() -> None:
+    """Every setpoint write sends the mode the head shows too; no report will count that off."""
+    memory = HeadWriteMemory(8)
+    memory.wrote("cool", "cool")
+    memory.wrote("cool", "cool")
+    assert memory.record() == [["cool", 0]]
+    memory.seen("off")
+    assert not memory.own("cool")
+    memory = HeadWriteMemory(8)
+    memory.wrote(70, 72)
+    memory.wrote(72, 72)  # behind the 70 still to come, the head shows it again
+    assert memory.record() == [[72, 0], [70, 1], [72, 1]]
+    memory = HeadWriteMemory(8)
+    memory.wrote(72, 70)
+    memory.wrote(72, 70)  # the head shows 70: both copies of 72 are still to come
+    assert memory.record() == [[70, 0], [72, 2]]
+
+
+def test_a_report_that_moves_nothing_shows_no_copy() -> None:
+    """A fan report, say, while the head shows MXZ's write: that copy may still be coming."""
+    memory = HeadWriteMemory(8)
+    memory.wrote(1)
+    memory.caught_up(1, moved=False)
+    memory.seen(9)
+    assert memory.values == (9, 1)
+    memory = HeadWriteMemory(8)
+    memory.wrote(1)
+    memory.caught_up(1)
+    memory.seen(9)
+    assert memory.values == (9,)
 
 
 def test_the_memory_is_bounded() -> None:
@@ -1256,9 +2043,28 @@ async def test_a_unit_switch_keeps_the_target_and_adopts_nothing(hass: HomeAssis
     await rig.later(HELD)
     assert _target(rig) == target
     assert _enabled(rig) is True
-    # What's remembered in °F isn't compared with a report in °C.
-    remembered = hass.data[f"{DOMAIN}_head_writes"]
-    assert rig.heads[0].entity_id in remembered[UnitOfTemperature.FAHRENHEIT]
+    # What's remembered in °F isn't compared with a report in °C (and see the next test).
+    remembered = (await saved_section(hass, rig.entry, SECTION_HEAD_WRITES))[rig.heads[0].entity_id]
+    assert remembered["target_temp_high"]
+    assert not {TARGET - 2, TARGET} & {
+        value for name, entries in remembered.items() if name != "hvac_mode" for value, _ in entries
+    }
+    await rig.close()
+
+
+async def test_writes_remembered_in_one_unit_dont_resume_in_the_other(hass: HomeAssistant, freezer: Any) -> None:
+    """The store keeps the memory in °F; a start in °C begins without it. The Coordinator is
+    off, so nothing written after the start hides what resumed."""
+    rig = await _cooling(hass, freezer)
+    head = rig.heads[0].entity_id
+    await rig.switch("_coordinator_enable", False)
+    await rig.reload()
+    saved = await saved_section(hass, rig.entry, SECTION_HEAD_WRITES)
+    assert [value for value, _ in saved[head]["target_temp_high"]] == [TARGET]
+    assert await rig.hass.config.async_update(unit_system="metric") is None
+    await hass.async_block_till_done()
+    assert rig.coord.temp_unit == UnitOfTemperature.CELSIUS
+    assert await saved_section(hass, rig.entry, SECTION_HEAD_WRITES) == {}
     await rig.close()
 
 

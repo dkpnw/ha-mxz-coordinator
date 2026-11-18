@@ -230,6 +230,7 @@ from .plan import Plan, RoomPlan
 from .room_state import (
     SECTION_FAN,
     SECTION_FLOOR,
+    SECTION_HEAD_WRITES,
     SECTION_MODE,
     SECTION_OPENINGS,
     SECTION_ROOMS,
@@ -922,6 +923,9 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         )
         # Optional local-weather seasonal changeover (auto-drives the lockouts).
         self.changeover_entity: str | None = conf.get(CONF_CHANGEOVER_ENTITY) or None
+        # Until the source is read once, or the first hourly re-read, a start keeps the
+        # lockouts it restored: a source still loading is no reading (SM-7).
+        self._changeover_waiting = self.changeover_entity is not None
         # Optional external inhibit / low-power standby (grid-down, load-shed):
         # while the watched entity reads `inhibit_active_state` the coordinator
         # parks its heads at `inhibit_action` and self-restores on release.
@@ -1079,6 +1083,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         self.room_state.track(SECTION_SWITCHES, self._switches_record)
         self.room_state.track(SECTION_FAN, self._fan_record)
         self.room_state.track(SECTION_FLOOR, self._floor_record)
+        self.room_state.track(SECTION_HEAD_WRITES, self._head_writes_record)
         self.room_state.track(
             SECTION_MODE, lambda: self._mode_data, _mode_change_store(hass, entry.entry_id)
         )
@@ -1132,12 +1137,10 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         self._applying_plan: Plan | None = None
         self._delivery_listeners: set[Callable[[], None]] = set()
         self.deliveries = DeliveryQueue(self, debouncer, super().async_request_refresh)
-        # Lives with HA like the above, so a reload keeps what the head may still
-        # report. Held per unit: a °F/°C switch's reload must not compare a
-        # remembered 70 °F with a report in °C.
-        self._head_writes: dict[str, dict[str, HeadWriteMemory]] = hass.data.setdefault(
-            f"{DOMAIN}_head_writes", {}
-        ).setdefault(self.temp_unit, {})
+        # MXZ's memory of its mode and setpoint writes, by head and field. The room
+        # state store keeps it, so a reload or a restart keeps what a head may still
+        # report (_resume).
+        self._head_writes: dict[str, dict[str, HeadWriteMemory]] = {}
         # What moved at each head since its adopt timer was armed: "mode", "setpoint".
         self._adopt_moved: dict[str, set[str]] = {}
         # Seed data so entities have something to read before the first refresh.
@@ -3074,7 +3077,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         mode = new_state.state if new_state else None
         if new_state is not None:
             self.fan.head_reported(entity_id, new_state.attributes.get("fan_mode"))
-            self._head_writes_caught_up(entity_id, new_state)
+            self._head_writes_caught_up(entity_id, old_state, new_state)
         refresh_needed = False
         refresh_now = False
         sight = self._sight.get(entity_id)
@@ -3313,23 +3316,46 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             return state.state
         return as_float(state.attributes.get(name))
 
-    def remember_head_write(self, climate_id: str, payload: dict[str, Any]) -> None:
-        """Keep a mode or setpoint MXZ is sending, as ``FanEcho.wrote`` does a fan."""
+    def remember_head_write(self, climate_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Keep a mode or setpoint MXZ is sending, as ``FanEcho.wrote`` does a fan.
+
+        Returns the fields that counted a copy, for :meth:`take_back_head_write`.
+        """
         state = self.hass.states.get(climate_id)
         memory = self._head_writes.setdefault(climate_id, {})
+        counted: dict[str, Any] = {}
         for name in _HEAD_WRITE_FIELDS:
             if name in payload:
-                memory.setdefault(name, HeadWriteMemory(HEAD_WRITES_REMEMBERED)).wrote(
+                remembered = memory.setdefault(name, HeadWriteMemory(HEAD_WRITES_REMEMBERED))
+                if remembered.wrote(
                     payload[name], self._head_shows(state, name),
                     self._head_write_same(climate_id, name),
-                )
+                ):
+                    counted[name] = payload[name]
+        self.room_state.changed()
+        return counted
 
-    def _head_writes_caught_up(self, climate_id: str, state: Any) -> None:
+    def take_back_head_write(self, climate_id: str, counted: dict[str, Any]) -> None:
+        """The head refused the call: the copies it counted will never show."""
+        memory = self._head_writes.get(climate_id, {})
+        for name, value in counted.items():
+            if name in memory:
+                memory[name].refused(value)
+        if counted:
+            self.room_state.changed()
+
+    def _head_writes_caught_up(self, climate_id: str, old_state: Any, state: Any) -> None:
         """A head's report: the writes before it are behind the head for good."""
-        for name, memory in self._head_writes.get(climate_id, {}).items():
+        memories = self._head_writes.get(climate_id, {})
+        for name, memory in memories.items():
             shown = self._head_shows(state, name)
             if shown is not None:
-                memory.caught_up(shown, self._head_write_same(climate_id, name))
+                memory.caught_up(
+                    shown, self._head_write_same(climate_id, name),
+                    moved=shown != self._head_shows(old_state, name),
+                )
+        if memories:
+            self.room_state.changed()
 
     def _head_write_is_own(self, climate_id: str, name: str, shown: Any) -> bool:
         memory = self._head_writes.get(climate_id, {}).get(name)
@@ -3501,6 +3527,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
                 climate_id, name, shown
             ):
                 memory[name].seen(shown)
+        self.room_state.changed()
 
     def _sibling_entity(self, platform: str, key: str) -> str | None:
         """One of this entry's own entities by its key, under whatever it was renamed to."""
@@ -3950,7 +3977,9 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         replaces what the other set; an entity whose restore data is newer
         then takes its value (``store_resumes``). Temperatures saved in the
         other unit are converted, as a restored target number's are, and a
-        target is held to its head's bounds.
+        target is held to its head's bounds. MXZ's memory of its head writes
+        resumes only in the unit it was kept in: a remembered 70 °F is no
+        report in °C.
         """
         if saved.unit is not None:
             self.note_saved_unit(saved.unit)
@@ -3984,6 +4013,11 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             if fan is not None and (record := FanHoldRestoreData.from_dict(fan)) is not None:
                 self.fan.restore_record(cid, record)
                 self._resumed.add(("fan", cid))
+            writes = (saved.item(SECTION_HEAD_WRITES, cid) or {}) if saved.unit == self.temp_unit else {}
+            for name in _HEAD_WRITE_FIELDS:
+                memory = HeadWriteMemory.restored(HEAD_WRITES_REMEMBERED, writes.get(name))
+                if memory is not None:
+                    self._head_writes.setdefault(cid, {})[name] = memory
 
     def _saved_temperature(self, value: Any, unit: str | None) -> float | None:
         """A stored temperature in this unit, on the target step; None if it isn't one."""
@@ -4090,6 +4124,13 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     def _fan_record(self) -> dict[str, Any]:
         """Each head's fan hold and echo memory (``room_state.SECTION_FAN``)."""
         return {zone.climate_id: self.fan.record(zone.climate_id).as_dict() for zone in self.zones}
+
+    def _head_writes_record(self) -> dict[str, Any]:
+        """Each head's memory of MXZ's writes (``room_state.SECTION_HEAD_WRITES``)."""
+        return {
+            cid: {name: memory.record() for name, memory in fields.items()}
+            for cid, fields in self._head_writes.items()
+        }
 
     def _floor_record(self) -> dict[str, Any]:
         """Each disabled room's floor run or yield, by head (``room_state.SECTION_FLOOR``)."""
@@ -4437,13 +4478,21 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     @callback
     def _on_changeover_timer(self, _now: Any) -> None:
         """Hourly changeover re-read (forecasts refresh slowly)."""
+        self._changeover_waiting = False
         self.hass.async_create_task(self._evaluate_changeover())
 
     async def _evaluate_changeover(self) -> None:
-        """Read local weather and auto-drive the heat/cool lockout switches."""
+        """Read local weather and auto-drive the heat/cool lockout switches.
+
+        No reading means no lockout, except after a start: the lockouts it
+        restored stay until the source is read, or until the first hourly re-read.
+        """
         if not self.changeover_entity:
             return
         outdoor_high = await self._read_outdoor_high()
+        if outdoor_high is None and self._changeover_waiting:
+            return
+        self._changeover_waiting = False
         heat_lock, cool_lock = season_lockouts(
             outdoor_high=outdoor_high,
             heat_above=self.changeover_heat_above,

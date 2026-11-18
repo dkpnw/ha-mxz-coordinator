@@ -40,9 +40,9 @@ stay as they are, and this model doesn't repeat them.
 | A person's override holds until the window reads closed. | `OverrideHolds` | `test_a_pause_stops_the_head_and_a_takeover_holds_until_the_window_closes`, `test_an_override_is_never_paused_and_a_closed_reading_ends_it` |
 | A head is never sent a direction the record doesn't hold, so a head's error, a new input or a reload can't leave the record behind. | `RecordLeadsHeads`, in `ci-apply` | `test_a_head_is_sent_a_new_mode_only_once_it_is_the_recorded_mode`, `test_a_head_that_raises_during_a_mode_change_doesnt_undo_the_change` in `tests/test_head_fault.py` |
 | A change made at a head is never MXZ's own write: the target never takes a value only MXZ put on the head, apart from the open findings below. | `OwnWriteNeverAdopted`, in `ci-adopt` and `ci-adopt-restart` | `test_no_person_no_adoption_however_a_head_lags`, `test_every_report_of_a_head_showing_writes_in_order_reads_as_own` in `tests/test_accept_head_changes.py` |
-| A reload keeps MXZ's record of its writes, so a write from before it is never adopted. | `StartWriteNeverAdopted`, in `ci-adopt`; open after a process start (SM-1) | `test_the_memory_rides_a_reload_with_the_head_still_behind`, `test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_write_out` |
+| A reload or a restart keeps MXZ's record of its writes (the room state store), so a write from before it is never adopted, inside startup quiet or after it (SM-1). | `StartWriteNeverAdopted`, in `ci-adopt` and `ci-adopt-restart` | `test_the_memory_rides_a_reload_with_the_head_still_behind`, `test_a_late_own_write_inside_startup_quiet_is_not_adopted`, `test_a_pre_restart_write_shown_late_is_not_adopted` |
 | MXZ doesn't write a head's setpoint while a change made there holds. | `HoldBlocksWrite`, in `ci-adopt` | `test_a_change_must_hold_and_isnt_overwritten_while_it_does`, `test_a_press_while_mxzs_command_waits_for_the_head_is_adopted` |
-| Open, SM-10: a write still queued at a head that the memory has dropped is never adopted. | `QueuedWriteNeverAdopted`, a finding in `ci-adopt` | None: it breaks. [STATE-MACHINES.md](../STATE-MACHINES.md#sm-10-a-write-still-queued-at-a-head-can-drop-out-of-mxzs-memory-and-be-adopted-as-a-press) |
+| A write still queued at a head stays in the memory, each copy of a rewrite too, so it is never adopted when it lands, unless a person has pressed a value MXZ still had queued (SM-10, the part a report can tell apart). A call the head refused counts no copy. | `QueuedWriteKept`, in `ci-adopt` and `ci-adopt-restart` | `test_a_rewrite_still_queued_is_not_adopted_over_a_later_press`, `test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value`; a refused call (not in the model): `test_a_refused_write_leaves_no_copy_to_take_a_later_press` |
 
 ## Documented exceptions
 
@@ -62,6 +62,8 @@ pinned by a passing test that fails if the behavior changes. They aren't xfails 
 | **A hold seeded with no memory can be adopted** if it is a rung the ladder would stay on. `FanHold._seed_matches_boost` accepts this. | `pickKind = "seed"` | `test_restart_adopts_a_rung_held_by_hysteresis` in `tests/test_drive.py` |
 | **A start can hold a speed nobody touched**: `FanHold._reconcile_restored_hold`'s conservative false hold. A speed boost could never have written holds, even right after a hand-back. | `NoFalseHold` counts live reads only | `test_s11b_not_held_seed_above_boost_ceiling` in `tests/test_fan_hold_restore.py` |
 | **A write already sent can land after a Fan auto gesture.** MXZ writes nothing after the gesture, but a head still applying the earlier write can report it next. | `pickKind = "inflight"`; `gesture` | The spec's `ci-fan-lag` |
+| **A press back to a setpoint MXZ wrote again while its head lagged reads as MXZ's write once.** The memory keeps each copy of a rewrite until a report shows it, and a copy that lands while the head already shows the value shows nothing. After a person's press of another value is adopted, a press back to the rewritten one reads as that copy: the head goes back to the room's target, and once it shows that write, a press of the value is a press. A rewrite of the value the head shows counts a copy too when a value remembered before it still counts one, that is, another write of MXZ's still to come before it (the shape-B fix). If the head showed that value from the write before, a person's later press of it reads as MXZ's once (accepted under the overnight release mandate, Nov 17, 2026; shown on `HeadWriteMemory` alone). After a restart the copy before it can also be a write the head took while MXZ was down, since nothing reconciles the restored memory with what the head shows. A rewrite of the shown value counts no copy when that value is the last one remembered and nothing before it counts a copy, so an older shown value that a restart keeps in the memory adds none (review 6 of smfix1111). Two copies of the mode queued across a restart take a press back once the same way. | Each memory entry's copies, `n` | `test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once`, `test_known_cost_a_rewrite_of_the_shown_value_behind_another_write_takes_a_press_back_once`, `test_known_cost_after_a_restart_a_rewrite_behind_a_write_shown_while_mxz_was_down_counts_a_copy` and `test_known_cost_two_copies_of_the_mode_across_a_restart_take_a_press_back_once` in `tests/test_accept_head_changes.py`; the restart case that counts none: `test_after_a_restart_a_rewrite_of_the_shown_mode_takes_no_later_press` |
+| **A press, at the remote, of a value MXZ still has queued at a head that shows writes late** can drop that write from the memory, and when it lands after the person's next press it is adopted over it (SM-10 paths (b) and (c); an accepted known cost, the owner's decision of Nov 17, 2026). The reports are the same as in `test_up_and_back_are_both_adopted` and `test_a_press_of_a_write_the_head_has_passed_is_adopted`, where the press must be adopted, so no rule that reads only reports can give both answers. A write of the value the head already shows, still queued and landing after a press, is adopted the same way, and can pass the writes queued after it or use up a later queued write's copy (shape A, accepted under the overnight release mandate, Nov 17, 2026). Whether a real head queues commands like this is unknown; a house check is needed before a stable release. | `QueuedWriteNeverAdopted` breaks; it is not checked, and `QueuedWriteKept` is | `test_known_cost_a_press_of_the_queued_value_at_a_lagging_head_reads_as_mxzs`, `test_known_cost_a_press_of_an_older_queued_value_reads_as_mxzs`, `test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_adopted`, `test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_after_it` and `test_known_cost_a_late_write_of_the_shown_value_uses_up_the_later_writes_copy` in `tests/test_accept_head_changes.py` |
 | **A change on the head during the close delay** lasts one compute: the window has already closed, so the room goes on closing. It's chart transition W8. | Reachable in `ci-window` | `OverrideHolds` binds only while the window isn't closed |
 | **A head that refuses its command keeps its old mode** while the others run the new one, until it takes a retry at a later update (SM-5). Sending parks before runs would be a change to the delivery queue. | `refused`; `HeadsFollowMode` and `PauseStopsHead` leave a refused head out; reachable by `NeverRefused` in `ci-apply` | `test_a_head_that_raises_during_a_mode_change_doesnt_undo_the_change` |
 | **A fixed standby park sends every head to the park mode**, a paused one included. `PauseStopsHead` holds because standby is outside the model. | Not a step of the machine | `docs/FEATURES.md`, standby hold |
@@ -86,9 +88,11 @@ a person, is the fan memory's rule for a head's mode and setpoints (`logic.py`
 `HeadWriteMemory`). The model has room 1's target, the setpoint its head shows, the writes a
 lagging head hasn't shown yet in order, the memory as `HeadWriteMemory` keeps it, the hold, startup
 quiet, a reload and a process start. Each queued write carries a ghost kind saying how it left the
-memory, if it did, so the strict rule is checked and each way past it is a finding of its own:
-SM-1 (a process start) and SM-10 (a person's press of a remembered value, or `HeadWriteMemory.seen`
-replacing a queued write). The enable (on and off at the head), the heat/cool choice and every gate
+memory, if it did, so the strict rule is checked and each way past it is a rule of its own:
+SM-1 (a process start, fixed: the room state store keeps the memory) and SM-10 (a person's press of a value MXZ still has queued, after which
+`HeadWriteMemory.caught_up` or `HeadWriteMemory.seen` can drop a queued write: an accepted known
+cost, so its strict rule `QueuedWriteNeverAdopted` is not checked). The memory counts
+each value's copies, so a rewrite is not a way past it (`QueuedWriteKept`). The enable (on and off at the head), the heat/cool choice and every gate
 but startup quiet are not in it; the tests in `tests/test_accept_head_changes.py` hold those.
 [STATECHART.md](STATECHART.md#changes-made-at-a-head) charts it.
 
@@ -197,3 +201,18 @@ MXZ_PROPERTY_EXAMPLES=400 MXZ_PROPERTY_RANDOM=1 python -m pytest tests/test_prop
 MXZ_PYTHON="$(command -v python)" python3 tools/code_mutants.py      # every broken copy of the code fails its named property
 python -m pytest verification/findings -q -p no:cacheprovider        # each finding's replay: F1's now passes
 ```
+
+A code mutant whose broken code runs only on some Home Assistant releases declares `needs` in
+`tools/code_mutants.py`, a probe the runner runs in the lane's own `MXZ_PYTHON` first. On a lane
+that lacks it, the mutant is not run: its line starts `N/A` and says what it needs, and it counts
+as not applicable, never as caught. A probe that errors fails the run. The run ends with the
+counts (caught, not applicable, missed, probe errors) and `MUTANTS_ALL_CAUGHT` (exit 0) only if
+nothing was missed, no probe errored and at least one mutant was caught; a run where no mutant
+asked for applies ends `MUTANTS_NONE_APPLICABLE` (exit 1). `formal_area.py` and `verification/run`
+take none of these mutants, so their runs mean the same on every lane.
+
+C58 is the only such mutant. It breaks `DeliveryQueue.request_for_report`'s branch for Home
+Assistant before 2025.11, so it runs and is caught on the py312-ha2024.12.5 lane and shows
+`N/A` on 2025.11 and later. CI's py3.12-ha2024.12.5 job runs its test,
+`test_one_target_change_takes_no_later_press_back_to_it`, in the full suite of every pull
+request and every push to main.

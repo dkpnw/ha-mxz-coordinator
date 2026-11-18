@@ -72,7 +72,8 @@ class DeliveryHost(ControllerHost, Protocol):
     def async_update_listeners(self) -> None: ...
     async def async_refresh(self) -> None: ...
     def publish_delivery(self) -> None: ...
-    def remember_head_write(self, climate_id: str, payload: dict[str, Any]) -> None: ...
+    def remember_head_write(self, climate_id: str, payload: dict[str, Any]) -> dict[str, Any]: ...
+    def take_back_head_write(self, climate_id: str, counted: dict[str, Any]) -> None: ...
 
 
 @dataclass(eq=False)
@@ -114,6 +115,25 @@ def _legacy_busy(debouncer: Debouncer[Any]) -> Callable[[], bool] | None:
     return lock.locked
 
 
+def _legacy_defer(debouncer: Debouncer[Any]) -> Callable[[], None]:
+    """Hold a request until the request cooldown ends, on Home Assistant before 2025.11.
+
+    This is what 2025.11's debouncer does with a request made while a refresh
+    runs: mark it and start the cooldown, unless one is running already. Before
+    2025.11, a refresh MXZ runs itself leaves the debouncer free, so the request
+    would refresh right after the plan. It writes the debouncer's private fields
+    of those releases, which no longer change, and goes with ``_legacy_busy``.
+    """
+
+    @callback
+    def defer() -> None:
+        debouncer._execute_at_end_of_timer = True
+        if debouncer._timer_task is None:
+            debouncer._schedule_timer()
+
+    return defer
+
+
 class DeliveryQueue:
     """Serializes the plan's decisions and each head's commands, across reloads.
 
@@ -133,6 +153,7 @@ class DeliveryQueue:
         # HA before 2025.11 needs MXZ's own follow-up after a refresh a
         # request landed in; later releases schedule it themselves.
         self.legacy = self._debouncer_busy is not None
+        self._defer_request = _legacy_defer(debouncer)
         # Refreshes serialize decisions, not external completion. An input can
         # release the current wait; each head retains its applicable action until
         # its real handler returns. A deferred head retains only current-input
@@ -193,10 +214,12 @@ class DeliveryQueue:
             and not self._debouncer_busy()
             and not self.retired
         ):
-            # A direct refresh leaves HA's debouncer free. Its tracked
-            # task waits for the plan, keeping this echo in the same drain.
+            # A direct refresh leaves HA's debouncer free, and a request now
+            # would refresh right after the plan, while the head may still
+            # show what the plan just wrote: that refresh writes it again.
+            # The request waits out the cooldown, as from 2025.11.
             self._wake.set()
-            self._host.hass.async_create_task(self._request())
+            self._defer_request()
         else:
             self._host.hass.async_create_task(self.async_request_ordinary())
 
@@ -490,7 +513,7 @@ class DeliveryQueue:
     ) -> None:
         """Observe one software call, never claim physical receipt."""
         # Before the call: the head's report can arrive while it runs.
-        self._host.remember_head_write(climate_id, payload)
+        counted = self._host.remember_head_write(climate_id, payload)
         observed = observation if observation is not None else self._observations.setdefault(climate_id, {})
         if observation is None:
             # Ordinary issuance has waited for both the old handler and its
@@ -507,6 +530,9 @@ class DeliveryQueue:
             observed["command_status"] = "cancelled; outcome unknown"
             raise
         except Exception as err:
+            # A refused call is never shown, so its copies must not wait for a
+            # report. A cancelled one may have gone out: its copies stay.
+            self._host.take_back_head_write(climate_id, counted)
             observed.update(
                 command_status="rejected", command_failed_at=dt_util.utcnow().isoformat(),
                 command_error=str(err),

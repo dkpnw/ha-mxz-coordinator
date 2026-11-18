@@ -423,7 +423,10 @@ other rungs.
 write behind, targets set in Home Assistant, presses at the head of the same two values
 (`TwoValues`), no reload or restart: 280 states. Rules that hold: `OwnWriteNeverAdopted`,
 `HoldBlocksWrite`, `StartWriteNeverAdopted`. Rule that breaks: `QueuedWriteNeverAdopted`,
-open finding SM-10.
+SM-10's strict rule. It is no longer checked: since Nov 17, 2026 the path below is an accepted
+known cost, and `QueuedWriteKept` is the checked rule. Drawn before the memory counted each copy
+of a rewrite; not redrawn since. With a head one write behind there is no second copy to count,
+and the path below, a press of the value on its way, is SM-10's path (b).
 
 ```mermaid
 ---
@@ -495,8 +498,10 @@ heat/cool choice, and every gate but startup quiet.
 
 [`charts/adopt-restart.cfg`](charts/adopt-restart.cfg), view `adopt.ts`. The same, with
 process starts and startup quiet instead of `QueuedWriteNeverAdopted`: 2,776 states, past
-the chart budget, so it draws only the path to the bug. Rule that breaks:
-`StartWriteNeverAdopted`, open finding SM-1.
+the chart budget, so it draws only the path to the bug. Rule that broke:
+`StartWriteNeverAdopted`, finding SM-1, now fixed. Drawn before the fix and not redrawn: the
+room state store now keeps the memory across a start, and TLC finds no path to this break in
+`ci-adopt-restart` or here.
 
 ```mermaid
 ---
@@ -555,5 +560,5 @@ change), so the late 72 reads as MXZ's own and nothing is adopted. SM-1 itself i
 its probe in [STATE-MACHINES.md](../STATE-MACHINES.md#sm-1-a-late-report-of-mxzs-own-pre-restart-write-is-adopted-as-a-persons-press) (target 72 then 74 at a lagging head, a
 restart, the reports after startup quiet) the replay at `ca78324` ends at 72 where the person
 left 74. The
-model doesn't make MXZ write first after a start; that would change the spec and is left for
-the SM-1 decision.
+model doesn't make MXZ write first after a start. With SM-1 fixed, the memory the store keeps
+reads the late 72 as MXZ's own on either path.

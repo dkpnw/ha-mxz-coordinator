@@ -49,15 +49,14 @@ COVERS = {
     "NeverRefused": "ci-apply",
     "NeverCutShort": "ci-apply",
     "NeverAdopts": "ci-adopt",
-    "NeverLateOwnWriteInQuiet": "ci-adopt-restart",
+    "NeverLatePreStartWrite": "ci-adopt-restart",
 }
 
 # An open finding's rule, which must keep breaking until the finding is fixed and the
-# rule moves into its config's INVARIANTS (docs/formal/PARKED-FINDINGS.md).
-FINDINGS: dict[str, str] = {
-    "StartWriteNeverAdopted": "ci-adopt-restart",
-    "QueuedWriteNeverAdopted": "ci-adopt",
-}
+# rule moves into its config's INVARIANTS (docs/formal/PARKED-FINDINGS.md). None is open.
+# SM-10's QueuedWriteNeverAdopted was here until Nov 17, 2026. Its paths (b) and (c) are now
+# an accepted known cost, so it is checked neither way; QueuedWriteKept is the checked rule.
+FINDINGS: dict[str, str] = {}
 
 # id: (what breaks, exact text once in the spec, its replacement, config, rule that must break).
 MUTANTS = {
@@ -118,8 +117,16 @@ MUTANTS = {
            "ci-adopt", "OwnWriteNeverAdopted"),
     "A2": ("a hold doesn't stop the write", "/\\ WithAdopt /\\ ~holding /\\ spShown # target",
            "/\\ WithAdopt /\\ spShown # target", "ci-adopt", "HoldBlocksWrite"),
-    "A3": ("a reload loses the memory, as a process start does", "Reload == WithReload /\\ Start(FALSE, FALSE, fanShown)",
-           "Reload == WithReload /\\ Start(TRUE, FALSE, fanShown)", "ci-adopt", "StartWriteNeverAdopted"),
+    "A3": ("a start loses the memory", "/\\ spMem' = spMem\n", "/\\ spMem' = <<>>\n",
+           "ci-adopt", "StartWriteNeverAdopted"),
+    "A6": ("a process start loses the memory, as before the store kept it", "/\\ spMem' = spMem\n",
+           "/\\ spMem' = IF process THEN <<>> ELSE spMem\n", "ci-adopt-restart", "StartWriteNeverAdopted"),
+    "A4": ("a rewrite of the last value is kept once",
+           "THEN [m EXCEPT ![Len(m)].n = IF @ < QueueMax THEN @ + 1 ELSE @]", "THEN m",
+           "ci-adopt", "QueuedWriteKept"),
+    "A5": ("a person's value replaces a value with copies still to come",
+           "ELSE IF mem[1].n > 0 THEN <<[v |-> v, n |-> 0]>> \\o mem",
+           "ELSE IF FALSE THEN <<[v |-> v, n |-> 0]>> \\o mem", "ci-adopt", "QueuedWriteKept"),
 }
 
 def java() -> list[str]:

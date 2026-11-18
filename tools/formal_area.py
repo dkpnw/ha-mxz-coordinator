@@ -59,7 +59,7 @@ AREAS: dict[str, Area] = {
         "verify-mxz-head-changes",
         ("ci-adopt", "ci-adopt-restart"),
         ("tests/test_accept_head_changes.py",),
-        ("C44", "C45", "C46", "C47", "C48"),
+        ("C44", "C45", "C46", "C47", "C48", "C49", "C50", "C51", "C52", "C53", "C54", "C55", "C56", "C57"),
     ),
     "apply": Area(
         "verify-mxz-mode-record",

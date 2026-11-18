@@ -5,6 +5,7 @@ import dataclasses
 import importlib.util
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -229,6 +230,107 @@ def test_a_code_mutant_that_is_not_in_one_place_is_refused(tmp_path, files, plac
         code_mutants.apply(root, mutant)
 
 
+def test_c58_needs_exactly_the_releases_before_2025_11() -> None:
+    """The probe, run in this lane's python, against this lane's Home Assistant version."""
+    from homeassistant.const import __version__
+    from packaging.version import Version
+
+    before = Version(__version__) < Version("2025.11.0.dev0")
+    why = code_mutants.probe(sys.executable, code_mutants.MUTANTS["C58"].needs)
+    assert (why is None) == before
+    assert before or why == "(Debouncer.async_lock present)"
+
+
+def _lane_bound(monkeypatch, probe: str, ran: bool | None) -> list[str]:
+    """Register mutant X1 that needs what ``probe`` says; record whether its test is run."""
+    mutant = code_mutants.Mutant("gate open", "gate", "x >= 1", "True", "tests/x.py::test_x",
+                                 code_mutants.Needs("an invented thing", probe))
+    monkeypatch.setitem(code_mutants.MUTANTS, "X1", mutant)
+    runs: list[str] = []
+
+    def run(name: str, _python: str, _out: Path) -> bool:
+        runs.append(name)
+        assert ran is not None, "a mutant this lane lacks was run"
+        return ran
+
+    monkeypatch.setattr(code_mutants, "run", run)
+    return runs
+
+
+def test_a_mutant_this_lane_lacks_is_not_applicable_and_not_run(monkeypatch, tmp_path, capsys) -> None:
+    runs = _lane_bound(monkeypatch, "print('no (nothing invented here)')", None)
+    assert code_mutants.outcome("X1", sys.executable, tmp_path) == code_mutants.NOT_APPLICABLE
+    assert runs == []
+    assert capsys.readouterr().out == (
+        "N/A  code X1 not run on this lane: needs an invented thing (nothing invented here)\n"
+    )
+
+
+@pytest.mark.parametrize(("ran", "expected"), [(True, "caught"), (False, "missed")])
+def test_a_mutant_this_lane_has_is_run(monkeypatch, tmp_path, ran, expected) -> None:
+    runs = _lane_bound(monkeypatch, "print('yes')", ran)
+    assert code_mutants.outcome("X1", sys.executable, tmp_path) == expected
+    assert runs == ["X1"]
+
+
+@pytest.mark.parametrize("probe", [
+    "import mxz_no_such_module",
+    "raise SystemExit(3)",
+    "print('yes'); raise SystemExit(1)",
+    "print('maybe')",
+    "print('no')",
+    "",
+], ids=["import_error", "exit_3", "yes_then_exit_1", "maybe", "no_without_why", "silent"])
+def test_a_probe_that_fails_or_answers_otherwise_is_an_error(monkeypatch, tmp_path, capsys, probe) -> None:
+    runs = _lane_bound(monkeypatch, probe, None)
+    assert code_mutants.outcome("X1", sys.executable, tmp_path) == code_mutants.PROBE_ERROR
+    assert runs == []
+    assert capsys.readouterr().out.startswith("FAIL code X1: the probe for an invented thing exited ")
+
+
+CAUGHT, NA, MISSED, ERROR = (code_mutants.CAUGHT, code_mutants.NOT_APPLICABLE, code_mutants.MISSED,
+                             code_mutants.PROBE_ERROR)
+
+
+@pytest.mark.parametrize(("outcomes", "expected"), [
+    ({"C1": CAUGHT}, ("caught 1, not applicable 0, missed 0, probe errors 0\nMUTANTS_ALL_CAUGHT", 0)),
+    ({"C1": CAUGHT, "C58": NA},
+     ("caught 1, not applicable 1 (C58), missed 0, probe errors 0\nMUTANTS_ALL_CAUGHT", 0)),
+    ({"C1": CAUGHT, "C2": MISSED, "C58": NA},
+     ("caught 1, not applicable 1 (C58), missed 1 (C2), probe errors 0\nMUTANTS_MISSED", 1)),
+    ({"C1": CAUGHT, "C58": ERROR},
+     ("caught 1, not applicable 0, missed 0, probe errors 1 (C58)\nMUTANTS_MISSED", 1)),
+    ({"C58": NA}, ("caught 0, not applicable 1 (C58), missed 0, probe errors 0\nMUTANTS_NONE_APPLICABLE", 1)),
+    ({}, ("caught 0, not applicable 0, missed 0, probe errors 0\nMUTANTS_NONE_APPLICABLE", 1)),
+], ids=["all_caught", "caught_and_na", "one_missed", "probe_error", "only_na", "none"])
+def test_only_a_run_that_caught_one_and_missed_none_passes(outcomes, expected) -> None:
+    assert code_mutants.verdict(outcomes) == expected
+
+
+@pytest.mark.parametrize(("ran", "counts", "marker", "status"), [
+    (True, "caught 1, not applicable 1 (X2), missed 0, probe errors 0", "MUTANTS_ALL_CAUGHT", 0),
+    (False, "caught 0, not applicable 1 (X2), missed 1 (X1), probe errors 0", "MUTANTS_MISSED", 1),
+], ids=["caught", "missed"])
+def test_the_runner_counts_not_applicable_apart(monkeypatch, tmp_path, capsys, ran, counts, marker, status) -> None:
+    """A run of one mutant this lane has and one it lacks: only the first decides the exit status."""
+    _lane_bound(monkeypatch, "print('yes')", ran)
+    monkeypatch.setitem(code_mutants.MUTANTS, "X2", dataclasses.replace(
+        code_mutants.MUTANTS["X1"], needs=code_mutants.Needs("another invented thing", "print('no (none)')")))
+    monkeypatch.setenv("MXZ_PYTHON", sys.executable)
+    monkeypatch.setattr(sys, "argv", ["code_mutants.py", "X1", "X2", "--out", str(tmp_path)])
+    assert code_mutants.main() == status
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-2:] == [counts, marker]
+    assert "N/A  code X2 not run on this lane: needs another invented thing (none)" in lines
+
+
+def test_no_mutant_an_every_lane_runner_runs_needs_a_lane() -> None:
+    """formal_area's areas and verify.py's H mutants run on any lane, without probing ``needs``."""
+    assert lane_bound(_verify().CODE_MUTANTS) == []
+    assert lane_bound(name for area in formal_area.AREAS.values() for name in area.code) == []
+    assert lane_bound(code_mutants.MUTANTS) == ["C58"]
+
+
 def test_every_rule_has_a_broken_copy_that_breaks_it() -> None:
     """A rule with no negative test proves nothing. TypeOK is a sanity check, not a rule."""
     broken = {rule for *_rest, rule in formal_tlc.MUTANTS.values()}
@@ -322,6 +424,11 @@ def skill_name(path: Path) -> str | None:
     return names[0] if len(names) == 1 else None
 
 
+def lane_bound(names) -> list[str]:
+    """The mutants among ``names`` whose broken code runs only on some lanes."""
+    return [name for name in names if name in code_mutants.MUTANTS and code_mutants.MUTANTS[name].needs]
+
+
 def area_violations(name: str, area: formal_area.Area) -> list[str]:
     """What keeps a subsystem's checks from running, or from being able to fail."""
     errors = []
@@ -331,6 +438,8 @@ def area_violations(name: str, area: formal_area.Area) -> list[str]:
         errors.append("no broken copy of the spec")
     if not area.code or not set(area.code) <= set(code_mutants.MUTANTS):
         errors.append("code mutant")
+    if lane_bound(area.code):
+        errors.append("a code mutant runs only on some lanes")
     if any(not (ROOT / path).is_file() for path in area.tests):
         errors.append("test file")
     if {code_mutants.MUTANTS[m].test.split("::")[0] for m in area.code if m in code_mutants.MUTANTS} - set(area.tests):
@@ -353,11 +462,13 @@ def test_each_subsystem_runs_real_checks_that_can_fail_from_its_own_skill(name) 
     ({"configs": ("ci-arbitration-rest-heat",)}, "no broken copy of the spec"),
     ({"code": ()}, "code mutant"),
     ({"code": ("C999",)}, "code mutant"),
+    ({"code": formal_area.AREAS["adopt"].code + ("C58",)}, "a code mutant runs only on some lanes"),
     ({"tests": ("tests/test_invented.py",)}, "test file"),
     ({"tests": ("tests/test_head_fault.py",)}, "a code mutant's test isn't run by the check"),
     ({"skill": "verify-mxz-invented"}, "skill"),
     ({"skill": "verify-mxz-formal"}, "skill doesn't run its check"),
-], ids=["config", "no_spec_mutant", "no_code_mutant", "unknown_code_mutant", "test_file", "test_not_run",
+], ids=["config", "no_spec_mutant", "no_code_mutant", "unknown_code_mutant", "lane_bound_code_mutant",
+        "test_file", "test_not_run",
         "no_skill", "skill_runs_other"])
 def test_a_subsystem_that_drifts_is_refused(change, expected) -> None:
     area = dataclasses.replace(formal_area.AREAS["adopt"], **change)

@@ -813,58 +813,121 @@ class HeadWriteMemory:
     of a value not remembered is a person's. The first value is what the head last
     showed, and the rest are writes it hasn't shown yet.
 
+    Each value also counts its copies: the writes of it the head hasn't been seen
+    to show. A head that takes a copy while it already shows the value shows
+    nothing new, so a copy is known to be behind the head only once a report
+    passes it.
+
     ``same(reported, written)`` compares a report with a write. A head can hold a
     setpoint only on its own grid, so for a setpoint it isn't equality. Its costs
     are F1's: while a head is behind, a person's pick of one of these older values
-    reads as MXZ's own, and a value written twice stays remembered, with the writes
-    between, until a report rules them out.
+    reads as MXZ's own; a value written twice stays remembered, with the writes
+    between, until a report rules them out; and a value MXZ wrote again before the
+    head showed it keeps its last copy, so once a person's value replaces it, a
+    press back to it reads as MXZ's own until a later write of MXZ's shows.
     """
 
     def __init__(self, size: int) -> None:
-        self._values: deque[Any] = deque(maxlen=size)
+        self._size = size
+        self._entries: deque[list[Any]] = deque(maxlen=size)  # [value, copies]
 
     @property
     def values(self) -> tuple[Any, ...]:
         """What is remembered, oldest first."""
-        return tuple(self._values)
+        return tuple(value for value, _ in self._entries)
+
+    def record(self) -> list[list[Any]]:
+        """What a store keeps: each value with its copies, oldest first."""
+        return [list(entry) for entry in self._entries]
+
+    @classmethod
+    def restored(cls, size: int, record: Any) -> HeadWriteMemory | None:
+        """The memory ``record`` keeps, or None if it isn't one."""
+        if not isinstance(record, list) or not record:
+            return None
+        memory = cls(size)
+        for entry in record[-size:]:
+            if not (
+                isinstance(entry, list) and len(entry) == 2
+                and (isinstance(entry[0], str) or finite_number(entry[0]))
+                and type(entry[1]) is int and entry[1] >= 0
+            ):
+                return None
+            memory._entries.append([entry[0], entry[1]])
+        return memory
 
     def wrote(
         self, value: Any, shown: Any = None, same: Callable[[Any, Any], bool] = operator.eq
-    ) -> None:
+    ) -> bool:
         """A write is going out while the head shows ``shown`` (None: nothing known).
 
         What the head shows before a write stays remembered until it reports a
         later one: until then the same report can come again. A rewrite of the
-        last value adds nothing, or a head slow to take it would pass for caught
-        up on a value MXZ wrote only once.
+        last value is one more copy of it, not a new place in the order. A write
+        of what the head shows adds nothing when the shown value is the last one
+        remembered and no value before it counts a copy: as far as the memory
+        knows, nothing else of MXZ's is still to come, so the head shows nothing
+        new for it and no report could ever count it off. In every other case it
+        counts a copy, as any write does. Returns whether the write counted a
+        copy.
         """
         if shown is not None and not self.own(shown, same):
             self.seen(shown)
-        if not self._values or self._values[-1] != value:
-            self._values.append(value)
+        if (
+            shown is not None and same(shown, value) and same(shown, self._entries[-1][0])
+            and not any(copies for _, copies in list(self._entries)[:-1])
+        ):
+            return False
+        if self._entries and self._entries[-1][0] == value:
+            self._entries[-1][1] += 1
+        else:
+            self._entries.append([value, 1])
+        return True
+
+    def refused(self, value: Any) -> None:
+        """The head refused a write that counted a copy: it will never show that copy.
+
+        The copy is taken back, so no press of the value waits on it. The value
+        stays remembered, as the base kept it: a refused call can still have
+        gone through, and its late report is MXZ's own.
+        """
+        for entry in reversed(self._entries):
+            if entry[0] == value and entry[1]:
+                entry[1] -= 1
+                return
 
     def own(self, reported: Any, same: Callable[[Any, Any], bool] = operator.eq) -> bool:
         """Whether this report can be one of MXZ's writes (or the value before them)."""
-        return any(same(reported, value) for value in self._values)
+        return any(same(reported, value) for value, _ in self._entries)
 
-    def caught_up(self, reported: Any, same: Callable[[Any, Any], bool] = operator.eq) -> None:
+    def caught_up(
+        self, reported: Any, same: Callable[[Any, Any], bool] = operator.eq, *, moved: bool = True
+    ) -> None:
         """A report of a remembered value: the writes older than it are behind the head.
 
         A value written twice counts as its earliest write left: this report may
-        be that one, with the writes after it still coming.
+        be that one, with the writes after it still coming. One copy of it is
+        shown now, unless the report shows the first value remembered and didn't
+        move the setting (``moved``), which shows nothing new.
         """
-        if self.own(reported, same):
-            while not same(reported, self._values[0]):
-                self._values.popleft()
+        if not self.own(reported, same):
+            return
+        passed = False
+        while not same(reported, self._entries[0][0]):
+            self._entries.popleft()
+            passed = True
+        if (passed or moved) and self._entries[0][1]:
+            self._entries[0][1] -= 1
 
     def seen(self, shown: Any) -> None:
         """The head shows a value of a person's: it replaces the last one it showed.
 
-        The writes it hasn't shown yet stay, since they can still arrive after it.
+        The writes it hasn't shown yet stay, since they can still arrive after
+        it, and so does the value it showed while copies of it are still to come.
         """
-        if self._values:
-            self._values.popleft()
-        self._values.appendleft(shown)
+        if self._entries and (not self._entries[0][1] or len(self._entries) == self._size):
+            self._entries.popleft()
+        self._entries.appendleft([shown, 0])
 
 
 class HeadSight:

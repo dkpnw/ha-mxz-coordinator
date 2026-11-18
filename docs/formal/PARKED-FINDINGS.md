@@ -3,32 +3,97 @@
 No finding is open for a head that shows MXZ's fan writes in the order it got them, or jumps
 to the latest, apart from one narrow case at a start. A head that does anything else isn't
 covered. [F1's limits](#f1-limits) has both.
-This page keeps what F1 was and how it was fixed, the one accepted exception on cloud heads, and
-two open findings on changes made at a head, each waiting on a decision.
+This page keeps what F1 was and how it was fixed, the one accepted exception on cloud heads,
+and two findings on changes made at a head: one fixed, and one fixed in part, with the rest an
+accepted known cost apart from one narrow case still open. No finding is open in
+`tools/formal_tlc.py` (`FINDINGS` is empty); the open case is in the tests only.
 
-## Open: changes made at a head can adopt MXZ's own write
+## Changes made at a head that adopted MXZ's own write
 
-Both break the rule that a report MXZ's own writes can explain is never a person, with Accept
-changes made at the head on (the default). Both were found or confirmed by TLC and run on the real
-code on invented heads; nothing ran on a real head. Each is a rule that `tools/formal_tlc.py cover`
-requires to keep breaking until it is decided, and
+These broke the rule that a report MXZ's own writes can explain is never a person, with Accept
+changes made at the head on (the default). Each was found or confirmed by TLC and run on the real
+code on invented heads; nothing ran on a real head.
 [STATE-MACHINES.md](../STATE-MACHINES.md#4-invalid-states-and-transitions-the-code-can-reach) has
-the evidence and the options.
+the evidence.
 
-- **SM-1, `StartWriteNeverAdopted` in `ci-adopt-restart`.** MXZ's memory of its own head writes is
-  in `hass.data`, so a reload keeps it and a process start doesn't. A write from before the start
-  that a lagging head shows more than 40 seconds after Home Assistant starts (after startup quiet)
-  reads as a press and moves the room's target. Whether a real head can report that late is not
-  known. `test_a_restart_loses_the_memory_and_the_start_window_keeps_a_late_write_out` pins the
-  quiet window, which holds.
-- **SM-10, `QueuedWriteNeverAdopted` in `ci-adopt`.** A write a lagging head hasn't shown yet can
-  drop out of the memory: a rewrite of the same target is kept once, a person's press of a
-  remembered value catches the memory up past older writes, and `HeadWriteMemory.seen` replaces
-  the value it takes for the one shown. When that write lands after a person's later press, it is
-  adopted over the press.
+- **SM-1, `StartWriteNeverAdopted` in `ci-adopt-restart` (fixed).** MXZ's memory of its own head
+  writes was in `hass.data`, so a reload kept it and a process start didn't. A write from before
+  the start that a lagging head showed more than 40 seconds after Home Assistant started (after
+  startup quiet) read as a press and moved the room's target. The memory is now a section of the
+  room state store, so every start keeps it, and the rule holds in `ci-adopt-restart`.
+  `test_a_pre_restart_write_shown_late_is_not_adopted` (41 seconds and an hour after the start)
+  fails on the code before the fix. Whether a real head can report that late is still not known.
+- **SM-10 (fixed for a rewrite; the rest an accepted known cost).** A write a lagging head
+  hasn't shown yet could drop out of the memory and be adopted over a person's later press when
+  it landed. Path (a), a rewrite kept once, is fixed: each copy is counted, and `QueuedWriteKept`
+  holds in `ci-adopt` and `ci-adopt-restart` (A4 and A5 break it).
+  Paths (b) and (c) are an accepted known cost (the owner's decision, Nov 17, 2026), like the
+  fan's F1 costs. Each needs a person to press, at the remote, exactly the value MXZ has queued at
+  a head that shows writes late: the press reads as MXZ's write landing, so the memory catches up
+  past older writes or uses the write's copy, and `HeadWriteMemory.seen` then replaces it. When
+  that write lands after the person's next press, it is adopted over it. The reports are the
+  same as in `test_up_and_back_are_both_adopted` (b) and
+  `test_a_press_of_a_write_the_head_has_passed_is_adopted` (c), which require the press to be
+  adopted, so no rule that reads only reports can give both answers.
+  `test_known_cost_a_press_of_the_queued_value_at_a_lagging_head_reads_as_mxzs` and
+  `test_known_cost_a_press_of_an_older_queued_value_reads_as_mxzs` pin them.
+  `QueuedWriteNeverAdopted`, the strict rule they break, stays in the spec only as the form
+  `QueuedWriteKept` is built from; it is no longer a finding TLC must see break.
+  A write of the value the head already shows adds no copy when that value is the last one
+  the memory remembers and no value before it counts a copy, since no report can count it off.
+  One still queued that lands after a person's press of another value is adopted, as before this
+  change, and is part of the same known cost:
+  `test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_adopted` pins it. The
+  model writes only values the head doesn't show, so this part is in the tests only.
+  That write, landing late, can also match a later queued write of its value, so the memory
+  passes the writes queued between them and one is adopted when it lands. This is an accepted
+  known cost too (the owner's decision, Nov 17, 2026), part of path (c):
+  `test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_after_it` pins it on
+  `HeadWriteMemory` alone, and the queue oracle
+  `test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value` always runs the
+  example. Whether MXZ's real write pattern produces the shown value, another value and the
+  shown value again, all queued, is unknown; a dual-setpoint head where one edge changes is a
+  candidate.
+  Under random seeds the queue oracle found two more shapes, which fail on the base too. Under
+  the overnight release mandate (Nov 17, 2026), shape B is fixed and shape A and the F1 rewrite
+  cost are accepted as known costs (STATE-MACHINES.md SM-10 and section 7). Shape B: the head
+  shows 1 and MXZ writes 0, 1, 1; `wrote` counted no copy for the last 1 and a person's press
+  forgot it while it was still queued. `wrote` now counts no copy only when the shown value is
+  the last one remembered and no value before it counts a copy
+  (`test_a_rewrite_of_the_shown_value_behind_another_write_is_kept`, code mutant C56; the
+  area's code mutants are C44 to C57). Fix round 5 first fixed it by counting no copy only when
+  the shown value was all that was remembered. After a restart that kept the head's older shown
+  value, that counted a copy for a rewrite of MXZ's last write, which the head had shown while
+  MXZ was down, and a person's later "on" at the head read as MXZ's (review 6 of smfix1111;
+  `test_after_a_restart_a_rewrite_of_the_shown_mode_takes_no_later_press` and
+  `test_a_rewrite_of_the_shown_last_write_after_a_restart_adds_no_copy`, code mutant C57). Shape A: the late write of the shown
+  value is taken as a later queued write of its value and uses up its copy, so a person's next
+  press forgets that write while it is still queued
+  (`test_known_cost_a_late_write_of_the_shown_value_uses_up_the_later_writes_copy`). From such
+  a landing until its queue is empty the queue oracle checks no write. The F1 rewrite cost: a
+  rewrite of the shown value counts a copy when a value remembered before it still counts one,
+  that is, another write of MXZ's still to come before it. When the head showed that value from
+  the write before, no report counts the copy off, so a person's later press of that value
+  reads as MXZ's once
+  (`test_known_cost_a_rewrite_of_the_shown_value_behind_another_write_takes_a_press_back_once`).
+  After a restart, the copy before it can also be a write the head took while MXZ was down,
+  since nothing reconciles the restored memory with what the head shows
+  (`test_known_cost_after_a_restart_a_rewrite_behind_a_write_shown_while_mxz_was_down_counts_a_copy`).
+  Shape A and the F1 rewrite cost are shown on `HeadWriteMemory` alone. Whether MXZ's real
+  write pattern reaches them is unknown; a dual-setpoint head where one edge changes is a
+  candidate. In one attempt on invented heads, MXZ sent nothing more to a head while its off
+  was still queued there, so it made no rewrite behind it.
+  Two copies of "cool" queued across a restart, the second shown after the start with nothing
+  new to show, take a person's "on" back once, as any value MXZ wrote twice does. This
+  predates fix round 6 and does not depend on the rule above
+  (`test_known_cost_two_copies_of_the_mode_across_a_restart_take_a_press_back_once`).
+  A call the head refuses takes back the copy it counted
+  (`test_a_refused_write_leaves_no_copy_to_take_a_later_press`, code mutant C55).
+  Whether a real CN105 or cloud head queues commands that way is unknown. A house check is
+  needed before a stable release.
 
 Both were replayed again on the real code at `ca78324`, on invented heads, each with a control
-that passes: SM-10 on the path the `/statechart` chart draws, where the target ends at 72 over
+that passes (SM-1 before its fix): SM-10 on the path the `/statechart` chart draws, where the target ends at 72 over
 the person's 70, and SM-1 on its probe in [STATE-MACHINES.md](../STATE-MACHINES.md#sm-1-a-late-report-of-mxzs-own-pre-restart-write-is-adopted-as-a-persons-press) (target 72 then 74 at a
 lagging head, a restart, the reports after startup quiet), where it ends at 72 where the person
 left 74.

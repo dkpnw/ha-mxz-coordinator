@@ -46,3 +46,10 @@ async def forget_saved_fan(hass: HomeAssistant, entry: Any, climate_ids: list[st
     for climate_id in list(fan) if climate_ids is None else climate_ids:
         fan.pop(climate_id, None)
     await store.async_save(data)
+
+
+async def saved_section(hass: HomeAssistant, entry: Any, name: str) -> dict[str, Any]:
+    """One section of what the store holds now, a write still waiting included."""
+    data = await _room_state_store(hass, entry.entry_id).async_load()
+    section = data.get(name) if isinstance(data, dict) else None
+    return section if isinstance(section, dict) else {}

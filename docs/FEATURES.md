@@ -115,9 +115,11 @@ doesn't keep them. There is no button to skip the wait.
 drives the **Heat lockout** and **Cool lockout** switches. A daily high at or above **Lock
 out heat when the high is at least** (default 68 °F / 20 °C) locks out heat; one at or
 below **Lock out cool when the high is at most** (default 50 °F / 10 °C) locks out cool;
-in between, neither. No weather reading means no lockout. A locked-out mode still runs
-for a room below **Heat anyway below** (default 58 °F / 14 °C) or above **Cool anyway
-above** (default 80 °F / 27 °C). The two switches can also be set by hand or by an
+in between, neither. No weather reading means no lockout, except just after a start: until
+the source is read once, or for at most an hour if it never is, the lockouts stay as they
+were before the start, so a source that is still loading doesn't lift them. A locked-out
+mode still runs for a room below **Heat anyway below** (default 58 °F / 14 °C) or above
+**Cool anyway above** (default 80 °F / 27 °C). The two switches can also be set by hand or by an
 automation; with a weather source set, it re-drives them when the source updates and at
 least hourly.
 
