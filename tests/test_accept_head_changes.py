@@ -1130,6 +1130,33 @@ def test_a_rewrite_of_the_shown_value_behind_another_write_is_kept() -> None:
     assert memory.values == (1,)
 
 
+def test_known_cost_a_late_write_of_the_shown_value_uses_up_the_later_writes_copy() -> None:
+    """Known cost, docs/STATE-MACHINES.md SM-10 path (c), shape A, accepted under the
+    overnight release mandate (Nov 17, 2026), shown on HeadWriteMemory alone. The head shows
+    MXZ's 1. MXZ writes 1 again, which counts no copy (the value the head shows, and all
+    that is remembered). A person presses 5. MXZ writes 1 again, which counts a copy. Both
+    1s are still queued at a head that shows writes late. The first 1 lands late. The memory
+    takes it as the later 1 and uses up that write's copy. A person presses 5 again, and the
+    memory forgets the later 1, which is still queued: when it lands, it reads as a person's.
+
+    MXZ sees only the head's reports: its 1, a person's 5, 1 again, a person's 5. A head
+    that took the first 1 at once showed nothing for it and sends the same reports, but
+    there the 1 is the later write, now shown, and a person's next press of 1 must be
+    adopted. No rule that reads only reports can give both answers. It is the case
+    test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value stops checking at,
+    until the queue is empty."""
+    memory = HeadWriteMemory(8)
+    memory.wrote(1, 0)
+    memory.caught_up(1)  # the head shows MXZ's 1
+    assert memory.wrote(1, 1) is False  # the value it shows, all that is remembered: no copy
+    memory.seen(5)  # a person's press
+    assert memory.wrote(1, 5) is True
+    memory.caught_up(1)  # the first 1, late
+    assert memory.record() == [[1, 0]]  # the later 1's copy is used up
+    memory.seen(5)  # a person's press
+    assert not memory.own(1)  # the later 1, still queued, is forgotten
+
+
 def test_known_cost_a_rewrite_of_the_shown_value_behind_another_write_takes_a_press_back_once() -> None:
     """Known cost (F1's, docs/formal/PARKED-FINDINGS.md), accepted under the overnight
     release mandate (Nov 17, 2026), shown on HeadWriteMemory alone. It is the price of
@@ -1500,43 +1527,60 @@ def test_a_person_replaces_what_the_head_last_showed_not_what_is_still_coming() 
     ),
 )
 @example(actions=[("write", 1), ("land", None), ("write", 1), ("write", 0), ("write", 1), ("press", 5), ("land", None)])
+@example(actions=[("write", 1), ("land", None), ("write", 1), ("press", 5), ("write", 1), ("land", None), ("press", 5)])
+@example(actions=[("write", 2), ("land", None), ("write", 2), ("write", 0), ("write", 0), ("write", 2), ("write", 0),
+                  ("press", 5), ("land", None), ("land", None)])
+@example(actions=[("write", 1), ("land", None), ("write", 1), ("press", 5), ("write", 0), ("write", 1), ("land", None),
+                  ("land", None), ("write", 0), ("press", 5)])
+@example(actions=[("write", 1), ("land", None), ("write", 0), ("write", 1), ("write", 1), ("land", None), ("land", None),
+                  ("press", 5)])
 @PURE
 def test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value(actions: list[tuple[str, Any]]) -> None:
     """SM-10 as far as a report can tell: against an independent queue, a head shows its
     writes in order, a copy of the value it shows lands with nothing new to show, and a
     person presses only values MXZ never wrote (a press of a queued value is SM-10 path (b)).
 
-    Two kinds of queued write are not checked. Both are part of SM-10's accepted known
-    cost (the owner's decision, Nov 17, 2026), path (c):
+    Some queued writes are not checked. All of them are part of SM-10's accepted known
+    cost, path (c) (the owner's decision, Nov 17, 2026, and the overnight release mandate,
+    Nov 17, 2026):
 
     - A write of the value the head shows, with only that value queued. A head that takes
       it at once shows nothing for it, so a kept copy would never be counted off and would
       take a person's next press of that value (review 2 of smfix1111). If it lands late,
       after a person's press, it reads as a person's:
       test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_adopted.
-    - The writes such a write passes. If it lands after a person's press while a later
-      write of the same value is still queued, the memory takes it as that later write and
-      ends the writes queued between them, as a report of a later write must
-      (test_a_report_of_the_last_write_ends_all_the_others). Those writes then read as a
-      person's when they land:
-      test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_after_it.
+    - Every write still queued when such a write lands late, and every write made after
+      that, until the queue is empty. "Late" means it lands after a person's press, off
+      the value the head shows, while a later write of the same value is still queued. The
+      memory takes it as that later write: it ends the writes queued between them, as a
+      report of a later write must (test_a_report_of_the_last_write_ends_all_the_others),
+      and it uses up that later write's copy. From then on the memory and the head's queue
+      are out of step until the queue drains. Those writes can read as a person's when
+      they land:
+      test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_after_it and
+      test_known_cost_a_late_write_of_the_shown_value_uses_up_the_later_writes_copy.
 
-    Every other queued write is checked. The example is the second case, which a run
-    finds only under some seeds."""
+    Every other queued write is checked. The examples, in order: the writes between the late
+    write and the later one (fix round 3); the later write itself (shape A, fix round 4); two
+    that seed 12 found in fix round 4, with writes still queued and made after the late
+    landing; and shape B, which no exemption covers
+    (test_a_rewrite_of_the_shown_value_behind_another_write_is_kept). Random runs found each
+    of them only under some seeds."""
     memory = HeadWriteMemory(64)
     shown = 100
     queue: list[tuple[int, bool]] = []  # each write, and whether a report can count it off
+    adrift = False  # from a late landing of an unchecked write until the queue is empty
     for kind, value in actions:
         if kind == "write":
-            unseen = value == shown and all(queued == shown for queued, _ in queue)
+            unseen = adrift or (value == shown and all(queued == shown for queued, _ in queue))
             memory.wrote(value, shown)
             queue.append((value, not unseen))
         elif kind == "land" and queue:
             landed, checked = queue.pop(0)
-            later = [queued for queued, _ in queue]
-            if not checked and landed != shown and landed in later:
-                passed = later.index(landed)
-                queue[:passed] = [(queued, False) for queued, _ in queue[:passed]]
+            if not checked and landed != shown and landed in (queued for queued, _ in queue):
+                adrift = True
+                queue[:] = [(queued, False) for queued, _ in queue]
+            adrift = adrift and bool(queue)
             if landed != shown:
                 memory.caught_up(landed)
                 shown = landed
