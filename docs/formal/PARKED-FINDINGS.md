@@ -44,10 +44,17 @@ the evidence.
   change, and is part of the same known cost:
   `test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_adopted` pins it. The
   model writes only values the head doesn't show, so this part is in the tests only.
-  Still open: that write, landing late, can also match a later queued write of its value, so
-  the memory passes the writes queued between them and one can be adopted when it lands. The
-  queue oracle fails on it under seeds other than its fixed one, as the base does. It waits on
-  the owner's decision (STATE-MACHINES.md SM-10 and section 7).
+  That write, landing late, can also match a later queued write of its value, so the memory
+  passes the writes queued between them and one is adopted when it lands. This is an accepted
+  known cost too (the owner's decision, Nov 17, 2026), part of path (c):
+  `test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_after_it` pins it on
+  `HeadWriteMemory` alone, and the queue oracle
+  `test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value` leaves the passed
+  writes unchecked and always runs the example. Whether MXZ's real write pattern produces the
+  shown value, another value and the shown value again, all queued, is unknown; a dual-setpoint
+  head where one edge changes is a candidate.
+  Still open: under random seeds the queue oracle fails on two more shapes, as the base does.
+  They wait on the owner's decision (STATE-MACHINES.md SM-10 and section 7).
   A call the head refuses takes back the copy it counted
   (`test_a_refused_write_leaves_no_copy_to_take_a_later_press`, code mutant C55).
   Whether a real CN105 or cloud head queues commands that way is unknown. A house check is

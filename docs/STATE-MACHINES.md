@@ -37,7 +37,7 @@ store has landed (`room_state.py`); section 3.21 says what it keeps.
 | SM-7 a start releases restored season lockouts | Fixed | `test_a_start_keeps_the_restored_lockouts_until_the_source_loads`, `test_a_source_that_never_loads_holds_the_lockouts_until_the_hourly_re_read` |
 | SM-8 a reload inside an apply loses the hold | Closed by the SM-4 fix | `RecordLeadsHeads` in `ci-apply`, with reloads and restarts inside an apply (`NeverCutShort` reaches them) |
 | SM-9 restore data up to 15 minutes old after a crash | Fixed by the room state store | `tests/test_room_state.py` (`test_a_crash_right_after_a_change_keeps_it`, `test_a_crash_right_after_a_fan_auto_gesture_keeps_it`, `test_a_hands_off_room_released_after_the_last_dump_stays_released_after_a_crash`) |
-| SM-10 a queued write that dropped out of the memory is adopted | Fixed for path (a), a rewrite kept once. Paths (b) and (c), after a person's press of a value MXZ has queued, are an accepted known cost (the owner's decision, Nov 17, 2026) | `test_a_rewrite_still_queued_is_not_adopted_over_a_later_press`, `test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value`, `QueuedWriteKept` in `ci-adopt` and `ci-adopt-restart`; a write of what the head shows adds no copy: `test_off_and_on_at_the_head_count_after_target_changes`; a refused write keeps no copy: `test_a_refused_write_leaves_no_copy_to_take_a_later_press`, `test_a_refused_write_leaves_no_copy_in_the_store`; the known costs: `test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once`, `test_known_cost_a_press_of_the_queued_value_at_a_lagging_head_reads_as_mxzs`, `test_known_cost_a_press_of_an_older_queued_value_reads_as_mxzs`, `test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_adopted` |
+| SM-10 a queued write that dropped out of the memory is adopted | Fixed for path (a), a rewrite kept once. Paths (b) and (c), after a person's press of a value MXZ has queued, are an accepted known cost (the owner's decision, Nov 17, 2026) | `test_a_rewrite_still_queued_is_not_adopted_over_a_later_press`, `test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value`, `QueuedWriteKept` in `ci-adopt` and `ci-adopt-restart`; a write of what the head shows adds no copy: `test_off_and_on_at_the_head_count_after_target_changes`; a refused write keeps no copy: `test_a_refused_write_leaves_no_copy_to_take_a_later_press`, `test_a_refused_write_leaves_no_copy_in_the_store`; the known costs: `test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once`, `test_known_cost_a_press_of_the_queued_value_at_a_lagging_head_reads_as_mxzs`, `test_known_cost_a_press_of_an_older_queued_value_reads_as_mxzs`, `test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_adopted`, `test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_after_it`; two shapes the queue oracle finds under random seeds are open (section 7) |
 
 ---
 
@@ -1068,13 +1068,27 @@ mode's "cool" that a setpoint write sends, and the queue oracle
 `test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value` leaves exactly this write
 unchecked. The model doesn't cover it: its `WriteSp` writes only a value the head doesn't show.
 
-Open: the same write, landing late after a press, can also match a later queued write of its
-value. The memory then passes the writes queued between them, and one of those can be adopted
-when it lands. The queue oracle checks those writes and fails on it under seeds other than its
-fixed one (with Hypothesis, `MXZ_PROPERTY_RANDOM=1`): write 1 while the head shows 1, then 0,
-then 1, a press of 5, the first 1 lands, and the queued 0 is no longer remembered. The base
-fails the same example. Whether to accept it with the rest, and how to check it, is the owner's
-decision (section 7).
+The same write, landing late after a press, can also match a later queued write of its value.
+The memory then passes the writes queued between them, and one of those is adopted when it
+lands. This is an accepted known cost too (the owner's decision, Nov 17, 2026), part of path
+(c): the reports are those of `test_a_report_of_the_last_write_ends_all_the_others` and
+`test_a_press_of_a_write_the_head_has_passed_is_adopted`, where passing the older writes is
+required. `test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_after_it`
+pins it: write 1 while the head shows 1, then 0, then 1, a press of 5, and the first 1 lands
+late. The queued 0 is then no longer remembered. If the 0 is adopted when it lands, the later 1
+is forgotten too. The queue oracle leaves the passed writes unchecked and always runs this
+example (`@example`). The base fails the same example. It is shown on `HeadWriteMemory` alone.
+Whether MXZ's real write pattern produces the shown value, another value and the shown value
+again, all queued, is unknown; a dual-setpoint head where one edge changes is a candidate.
+
+Open: under random Hypothesis seeds (`MXZ_PROPERTY_RANDOM=1`) the queue oracle still fails on two
+more shapes, which fail on the base as well. In the first, the late write of the shown value
+uses up the copy of the later queued write of its value (rather than passing writes before it),
+and a person's next press forgets that later write. In the second, no such write is involved:
+the head shows 1, MXZ writes 0, 1 and 1, and `wrote` counts no copy for the last 1, because its
+no-copy test compares the shown value with the last value remembered, not with everything still
+to come. Both wait on the owner's decision (section 7). The oracle passes under its fixed seed,
+which is how CI runs it.
 
 A call the head refuses (it raises, say a cloud timeout) is never shown, so the copy it counted
 is taken back, and the value stays remembered in case the call went through after all. Before
@@ -1135,7 +1149,7 @@ Ranked by what a household would feel, then by how sure the evidence is.
 |---|---|---|---|---|---|
 | 1 | SM-2, with SM-4 | The unit reverses with no hold; the room thermostats and plan sensor unavailable; the select shows the wrong mode | run | Fixed | M1 |
 | 2 | SM-1 | A room's target or enable changes with nobody touching it, after a restart, under a default-on option | run on invented heads; hardware unknown | Fixed: the room state store keeps the ledger | M9, M10, H2 |
-| 3 | SM-10 | A person's press at a lagging head is lost to MXZ's own later write | run on invented heads | Fixed for a rewrite (a); after a press of a queued value (b, c), an accepted known cost; hardware unknown | M6 |
+| 3 | SM-10 | A person's press at a lagging head is lost to MXZ's own later write | run on invented heads | Fixed for a rewrite (a); after a press of a queued value (b, c), an accepted known cost; two shapes the queue oracle finds under random seeds open; hardware unknown | M6 |
 | 4 | SM-3 | A cloud room, or a freeze floor on a cloud head, waits out the confirm wait after one rejected call; the row reads pending | run | Fixed | — |
 | 5 | SM-6 | A press at the head is lost | run | Fixed | M9 |
 | 6 | SM-7 | A season lockout lapses at a start | run | Fixed: held until the source is read, at most an hour | — |
@@ -1232,9 +1246,14 @@ Each needs the owner's decision or a fact from a real head; none needs a patch u
   `test_a_press_of_a_write_the_head_has_passed_is_adopted` pin) or a time bound. Whether a real
   CN105 or cloud head queues commands and shows them late is unknown. A house check is needed
   before a stable release that ships this.
-- **SM-10, a write of the value the head shows, landing late and matching a later write of
-  MXZ's.** Still open (section 4, SM-10): accept it with the rest, which needs the queue
-  oracle's exemption widened to it and a test that pins it, or find a check that tells it apart.
+- **SM-10, a write of the value the head shows, landing late and passing the writes queued
+  after it: decided.** The owner accepted it (Nov 17, 2026) as part of path (c)'s known cost.
+  `test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_after_it` pins it,
+  and the queue oracle leaves those passed writes unchecked.
+- **SM-10, two more shapes the queue oracle finds under random seeds.** Open (section 4,
+  SM-10): the late write of the shown value using up a later queued copy of its value, and
+  `wrote` counting no copy for a rewrite of the shown value while another value is still to
+  come. Accept them, remodel the oracle, or change `wrote`: the owner's decision.
 - **SM-5, as a change.** Send parks before runs: the delivery queue of chunk 5.
 
 **House rules for the tests.** No new test reads or writes a coordinator private (audit H3); the
