@@ -978,6 +978,101 @@ async def test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once(hass: HomeAs
     await rig.close()
 
 
+async def test_known_cost_a_press_of_the_queued_value_at_a_lagging_head_reads_as_mxzs(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """Known cost, docs/STATE-MACHINES.md SM-10 path (b), accepted (the owner's decision,
+    Nov 17, 2026): MXZ's 72 is still queued at a head that shows writes late. A person
+    presses 72 at the remote, then 66. MXZ's 72 lands after the 66 and is adopted over it.
+
+    MXZ sees only the head's reports: 72 shown, a person's 66, 72 again. They are the
+    reports of test_up_and_back_are_both_adopted, where that last report is a person's press
+    and must be adopted. No rule that reads only reports can give both answers."""
+    rig = await _cooling(hass, freezer)
+    rig.heads[0].lags_commands = True
+    await _set_target(hass, rig.eid("_primary_target"), 72)
+    await rig.settle()
+    assert [command["target_temp_high"] for command in rig.heads[0].unreported_commands] == [72]
+    await _press(rig, low=70, high=72)
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    await _press(rig, low=64, high=66)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    assert await rig.report_next_command()  # MXZ's 72, late
+    assert _edges(rig)[1] == 72
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    await rig.close()
+
+
+async def test_known_cost_a_press_of_an_older_queued_value_reads_as_mxzs(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """Known cost, docs/STATE-MACHINES.md SM-10 path (c), accepted (the owner's decision,
+    Nov 17, 2026): MXZ's 72 and then 74 are queued at a head that shows writes late. A
+    person presses 72, MXZ writes 74, the person presses 74, then 66. MXZ's 72 lands after
+    the 66 and is adopted over it.
+
+    MXZ sees only the head's reports: 72 and 74, both values it wrote, then a person's 66,
+    then 72 again. To MXZ the head has shown its 72 and passed it, as in
+    test_a_press_of_a_write_the_head_has_passed_is_adopted (72 shown, 74 shown, then 72),
+    where that last 72 is a person's press and must be adopted. The 66 between doesn't tell
+    the two apart. No rule that reads only reports can give both answers."""
+    rig = await _cooling(hass, freezer)
+    rig.heads[0].lags_commands = True
+    await _set_target(hass, rig.eid("_primary_target"), 72)
+    await rig.settle()
+    await _press(rig, low=70, high=72)
+    await rig.later(HELD)
+    await _set_target(hass, rig.eid("_primary_target"), 74)
+    await rig.settle()
+    assert [command["target_temp_high"] for command in rig.heads[0].unreported_commands][:2] == [72, 74]
+    await _press(rig, low=72, high=74)
+    await rig.later(HELD)
+    assert _target(rig) == 74
+    await _press(rig, low=64, high=66)
+    await rig.later(HELD)
+    assert _target(rig) == 66
+    assert await rig.report_next_command()  # MXZ's 72, late
+    assert _edges(rig)[1] == 72
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _target(rig) == 72
+    await rig.close()
+
+
+async def test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_adopted(
+    hass: HomeAssistant, freezer: Any,
+) -> None:
+    """Known cost, docs/STATE-MACHINES.md SM-10, accepted (the owner's decision, Nov 17,
+    2026), as on the base: a setpoint write also sends the mode the head shows, "cool". MXZ
+    counts no copy of that "cool", since the head shows nothing new for it. Here the head
+    shows writes late, so the command is still queued when a person turns the head off. It
+    lands after the off, and its "cool" is adopted: the room is enabled again.
+
+    A head that took the command at once sends the same reports as one that still has it
+    queued. Kept, that copy would refuse the person's next "cool" at every head, lagging or
+    not (test_off_and_on_at_the_head_count_after_target_changes). This is the one write
+    that test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value doesn't check."""
+    rig = await _cooling(hass, freezer)
+    head = rig.heads[0]
+    head.lags_commands = True
+    await _set_target(hass, rig.eid("_primary_target"), 72)
+    await rig.settle()
+    assert [command.get("hvac_mode") for command in head.unreported_commands] == ["cool"]
+    await rig.person_mode("off")
+    await rig.later(HELD)
+    assert _enabled(rig) is False
+    assert await rig.report_next_command()  # MXZ's "cool" with its 72, late
+    assert head.mode == "cool"
+    assert _armed(rig)
+    await rig.later(HELD)
+    assert _enabled(rig) is True
+    await rig.close()
+
+
 def _refuses_the_first_setpoint(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     """The first head refuses MXZ's first setpoint call (a cloud timeout, say), then takes them."""
     head = rig.heads[0]
