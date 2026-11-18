@@ -637,8 +637,87 @@ async def test_s17_unsupported_idle_default_forces_the_advanced_screen(
 # ---------- S18-S21: sensors ------------------------------------------------
 
 
-async def test_s18_one_sensor_cannot_serve_two_rooms(hass: HomeAssistant) -> None:
-    """S18 / W14: `duplicate_sensors`, naming the shared sensor."""
+async def test_s18_one_sensor_can_serve_two_rooms(hass: HomeAssistant) -> None:
+    """S18 / W14 (#145): two heads in one room may both read one sensor.
+
+    Each head stays its own room. The review names the shared sensor and both
+    rooms, and the saved entry gives both rooms that sensor.
+    """
+    result = await _to_review(hass, sensors=[HALL_SENSOR, HALL_SENSOR])
+
+    assert result["type"] is FlowResultType.MENU, result
+    assert result["step_id"] == "review"
+    summary = result["description_placeholders"]["summary"]
+    assert (
+        f"{HALL_SENSOR} is the sensor for Living Room and Bedroom, so both heads"
+        " follow its reading." in summary
+    ), summary
+    result = await _press(hass, result, "finish")
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    zones = result["data"][CONF_ZONES]
+    assert [zone[ZONE_CLIMATE] for zone in zones] == [LIVING, BEDROOM]
+    assert [zone[ZONE_SENSOR] for zone in zones] == [HALL_SENSOR, HALL_SENSOR]
+    assert [zone[ZONE_NAME] for zone in zones] == ["Living Room", "Bedroom"]
+
+
+async def test_s18_review_names_each_shared_sensor_with_all_of_its_rooms(
+    hass: HomeAssistant,
+) -> None:
+    """S18 / W14: three rooms on one sensor are named together, in priority order."""
+    result = await _to_review(
+        hass, heads=[LIVING, BEDROOM, SPARE], sensors=[HALL_SENSOR] * 3
+    )
+
+    summary = result["description_placeholders"]["summary"]
+    assert (
+        f"{HALL_SENSOR} is the sensor for Living Room, Bedroom and Spare," in summary
+    ), summary
+    assert summary.count(" is the sensor for ") == 1, summary
+
+
+@pytest.mark.parametrize(
+    "sensors",
+    [
+        [LIVING_SENSOR, BEDROOM_SENSOR, HALL_SENSOR],
+        [LIVING_SENSOR, BEDROOM_SENSOR, BEDROOM_SENSOR],
+    ],
+    ids=["distinct", "two_of_three_share"],
+)
+async def test_s18_control_only_a_shared_sensor_gets_the_note(
+    hass: HomeAssistant, sensors: list[str]
+) -> None:
+    """S18 CONTROL / W14: a sensor that one room uses gets no note."""
+    result = await _to_review(hass, heads=[LIVING, BEDROOM, SPARE], sensors=sensors)
+
+    summary = result["description_placeholders"]["summary"]
+    shared = sensors[2] == sensors[1]
+    assert (" is the sensor for " in summary) is shared, summary
+    assert LIVING_SENSOR + " is the sensor" not in summary
+    if shared:
+        assert f"{BEDROOM_SENSOR} is the sensor for Bedroom and Spare," in summary
+
+
+async def test_s18_a_missing_shared_sensor_is_refused_and_named_once(
+    hass: HomeAssistant,
+) -> None:
+    """S18 / W14: sharing lifts no other check, and the sensor is named once."""
+    gone = "sensor.gone_temperature"
+    result = await _start(hass)
+    result = await _submit(hass, result, {"heads": [LIVING, BEDROOM]})
+    result = await _submit(hass, result, {})
+    result = await _submit(hass, result, {"sensor_1": gone, "sensor_2": gone})
+
+    assert result["step_id"] == "sensors"
+    assert result["errors"] == {"base": "sensor_missing"}
+    assert result["description_placeholders"]["problem_sensors"] == gone
+    assert hass.config_entries.async_entries(DOMAIN) == []
+
+
+async def test_s18_an_unreadable_shared_sensor_is_refused_and_named_once(
+    hass: HomeAssistant,
+) -> None:
+    """S18 / W14a: the unit check still applies to a shared sensor."""
+    _sensor(hass, HALL_SENSOR, "42", "%")
     result = await _start(hass)
     result = await _submit(hass, result, {"heads": [LIVING, BEDROOM]})
     result = await _submit(hass, result, {})
@@ -647,7 +726,22 @@ async def test_s18_one_sensor_cannot_serve_two_rooms(hass: HomeAssistant) -> Non
     )
 
     assert result["step_id"] == "sensors"
-    assert result["errors"] == {"base": "duplicate_sensors"}
+    assert result["errors"] == {"base": "sensor_unit_unsupported"}
+    assert result["description_placeholders"]["problem_sensors"] == HALL_SENSOR
+    assert hass.config_entries.async_entries(DOMAIN) == []
+
+
+async def test_s18_a_shared_sensor_lost_on_review_is_refused_at_the_save(
+    hass: HomeAssistant,
+) -> None:
+    """S18 / W14: the final recheck still refuses a shared sensor that went away."""
+    result = await _to_review(hass, sensors=[HALL_SENSOR, HALL_SENSOR])
+    hass.states.async_remove(HALL_SENSOR)
+
+    result = await _press(hass, result, "finish")
+
+    assert result["step_id"] == "sensors"
+    assert result["errors"] == {"base": "sensor_missing"}
     assert result["description_placeholders"]["problem_sensors"] == HALL_SENSOR
     assert hass.config_entries.async_entries(DOMAIN) == []
 
@@ -1237,6 +1331,74 @@ async def test_reconfigure_blank_name_returns_to_the_head_name(
     assert entry.data[CONF_ZONES][0][ZONE_NAME] == "Living Room"
 
 
+async def _reconfigure_to_review(
+    hass: HomeAssistant, entry: MockConfigEntry, sensors: list[str]
+) -> config_entries.ConfigFlowResult:
+    """Walk Reconfigure with the heads and names kept, and these sensors."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": entry.entry_id,
+        },
+    )
+    result = await _submit(hass, result, {"heads": [LIVING, BEDROOM]})
+    result = await _submit(hass, result, {})
+    assert result["step_id"] == "reconfigure_sensors", result
+    return await _submit(
+        hass,
+        result,
+        {f"sensor_{index + 1}": entity for index, entity in enumerate(sensors)},
+    )
+
+
+async def test_reconfigure_lets_two_rooms_share_a_sensor_and_keeps_each_room(
+    hass: HomeAssistant,
+) -> None:
+    """#145: Reconfigure accepts a shared sensor; only the sensor changes."""
+    entry = _v2_entry(hass)
+    before = deepcopy(entry.data[CONF_ZONES])
+    options = dict(entry.options)
+
+    result = await _reconfigure_to_review(hass, entry, [HALL_SENSOR, HALL_SENSOR])
+    assert result["type"] is FlowResultType.MENU, result
+    assert result["step_id"] == "reconfigure_review"
+    summary = result["description_placeholders"]["summary"]
+    assert (
+        f"{HALL_SENSOR} is the sensor for Living Room and Bedroom, so both heads"
+        " follow its reading." in summary
+    ), summary
+
+    result = await _press(hass, result, "reconfigure_finish")
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    after = entry.data[CONF_ZONES]
+    assert [zone[ZONE_SENSOR] for zone in after] == [HALL_SENSOR, HALL_SENSOR]
+    for old, new in zip(before, after, strict=True):
+        assert {k: v for k, v in new.items() if k != ZONE_SENSOR} == {
+            k: v for k, v in old.items() if k != ZONE_SENSOR
+        }
+    assert dict(entry.options) == options
+    assert entry.unique_id == f"{LIVING}|{BEDROOM}"
+
+
+async def test_reconfigure_still_refuses_a_shared_sensor_lost_on_review(
+    hass: HomeAssistant,
+) -> None:
+    """#145: the Reconfigure final recheck names a missing shared sensor once."""
+    entry = _v2_entry(hass)
+    before = deepcopy(entry.data[CONF_ZONES])
+    result = await _reconfigure_to_review(hass, entry, [HALL_SENSOR, HALL_SENSOR])
+    hass.states.async_remove(HALL_SENSOR)
+
+    result = await _press(hass, result, "reconfigure_finish")
+
+    assert result["step_id"] == "reconfigure_sensors"
+    assert result["errors"] == {"base": "sensor_missing"}
+    assert result["description_placeholders"]["problem_sensors"] == HALL_SENSOR
+    assert entry.data[CONF_ZONES] == before
+
+
 async def test_r8_reconfigure_rejects_another_entrys_head_and_changes_nothing(
     hass: HomeAssistant,
 ) -> None:
@@ -1333,13 +1495,14 @@ def test_every_new_error_key_exists_in_both_string_files() -> None:
     strings = json.loads(raw.decode("utf-8"))
     errors = strings["config"]["error"]
     for key in (
-        "duplicate_sensors",
         "sensor_missing",
         "sensor_unit_unsupported",
         "room_name_empty",
         "duplicate_room_names",
     ):
         assert key in errors, key
+    # One sensor may serve several rooms (#145), so no error refuses it.
+    assert "duplicate_sensors" not in errors
     steps = strings["config"]["step"]
     for step in ("rooms", "review", "reconfigure_rooms", "reconfigure_review"):
         assert step in steps, step
