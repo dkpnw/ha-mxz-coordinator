@@ -1,0 +1,6954 @@
+[
+ {
+  "step": "opened",
+  "resumed": [
+   {
+    "rooms": [
+     {
+      "target": 70.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": null,
+      "enable": false,
+      "released": false,
+      "floor": {}
+     },
+     {
+      "target": 70.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": null,
+      "enable": false,
+      "released": false,
+      "floor": {}
+     }
+    ],
+    "latch": [
+     [
+      "primary",
+      ""
+     ],
+     [
+      "secondary",
+      ""
+     ]
+    ],
+    "startup": [],
+    "switches": {
+     "coordinator_enable": false,
+     "eco_idle": false,
+     "heat_lockout": false,
+     "cool_lockout": false
+    },
+    "restored_on": false,
+    "mode": "cool",
+    "by_votes": false,
+    "record": {
+     "changed_at": null,
+     "mode": null,
+     "mode_at": 0.0,
+     "by_votes": false
+    },
+    "mode_data": null,
+    "changed_at": null,
+    "stamp_ago": null,
+    "hold_left": 0.0,
+    "resumed": [],
+    "fan": {
+     "climate.property_head_a": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": null,
+       "restore_problem": null
+      },
+      "keys": [],
+      "record": {
+       "held": false,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     },
+     "climate.property_head_b": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": null,
+       "restore_problem": null
+      },
+      "keys": [],
+      "record": {
+       "held": false,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     }
+    },
+    "head_writes": {},
+    "saved": {
+     "saved_at": null,
+     "unit": null,
+     "readable": true,
+     "sections": []
+    }
+   }
+  ],
+  "asked": [
+   [
+    "restore_shared_mode",
+    null,
+    null,
+    "cool"
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "primary",
+    null,
+    false
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "secondary",
+    null,
+    false
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "primary",
+    null,
+    false
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "secondary",
+    null,
+    false
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_a",
+    null,
+    false
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_b",
+    null,
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "cool_lockout",
+    null,
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "coordinator_enable",
+    null,
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "eco_idle",
+    null,
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "heat_lockout",
+    null,
+    false
+   ],
+   [
+    "store_resumes",
+    "target",
+    "primary",
+    null,
+    false
+   ],
+   [
+    "store_resumes",
+    "target",
+    "secondary",
+    null,
+    false
+   ]
+  ],
+  "calls": [
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "cool",
+     "target_temp_low": 68.0,
+     "target_temp_high": 70.0
+    }
+   },
+   {
+    "call": "climate.set_fan_mode",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "fan_mode": "middle"
+    }
+   },
+   {
+    "call": "climate.set_hvac_mode",
+    "data": {
+     "entity_id": "climate.property_head_b",
+     "hvac_mode": "fan_only"
+    }
+   }
+  ],
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "middle",
+    "low": 68.0,
+    "high": 70.0
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "low": null,
+    "high": null
+   }
+  ],
+  "coordinator": {
+   "rooms": [
+    {
+     "target": 70.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": null,
+     "enable": true,
+     "released": false,
+     "floor": {}
+    },
+    {
+     "target": 70.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": null,
+     "enable": true,
+     "released": false,
+     "floor": {}
+    }
+   ],
+   "latch": [
+    [
+     "primary",
+     "cool"
+    ],
+    [
+     "secondary",
+     ""
+    ]
+   ],
+   "startup": [],
+   "switches": {
+    "coordinator_enable": true,
+    "eco_idle": false,
+    "heat_lockout": false,
+    "cool_lockout": false
+   },
+   "restored_on": false,
+   "mode": "cool",
+   "by_votes": false,
+   "record": {
+    "changed_at": null,
+    "mode": null,
+    "mode_at": 0.0,
+    "by_votes": false
+   },
+   "mode_data": null,
+   "changed_at": null,
+   "stamp_ago": null,
+   "hold_left": 0.0,
+   "resumed": [],
+   "fan": {
+    "climate.property_head_a": {
+     "hold": {
+      "latched": false,
+      "commanded": "middle",
+      "previous": "auto",
+      "older": [],
+      "ladder_index": 3,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched",
+      "rung"
+     ],
+     "record": {
+      "held": false,
+      "last_fan_command": "middle",
+      "prior_fan_command": "auto"
+     },
+     "problem": null
+    },
+    "climate.property_head_b": {
+     "hold": {
+      "latched": false,
+      "commanded": "auto",
+      "previous": "auto",
+      "older": [],
+      "ladder_index": null,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched"
+     ],
+     "record": {
+      "held": false,
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto"
+     },
+     "problem": null
+    }
+   },
+   "head_writes": {
+    "climate.property_head_a": {
+     "hvac_mode": [
+      [
+       "cool",
+       0
+      ]
+     ],
+     "target_temp_low": [
+      [
+       68.0,
+       0
+      ]
+     ],
+     "target_temp_high": [
+      [
+       70.0,
+       0
+      ]
+     ]
+    },
+    "climate.property_head_b": {
+     "hvac_mode": [
+      [
+       "fan_only",
+       0
+      ]
+     ]
+    }
+   },
+   "saved": {
+    "saved_at": null,
+    "unit": null,
+    "readable": true,
+    "sections": []
+   }
+  },
+  "entities": [
+   [
+    "button.mxz_coordinator_den_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "button.mxz_coordinator_study_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "climate.mxz_coordinator_den_thermostat",
+    "heat_cool"
+   ],
+   [
+    "climate.mxz_coordinator_study_thermostat",
+    "heat_cool"
+   ],
+   [
+    "number.mxz_coordinator_den_drift",
+    "1.0"
+   ],
+   [
+    "number.mxz_coordinator_den_target",
+    "70.0"
+   ],
+   [
+    "number.mxz_coordinator_study_drift",
+    "1.0"
+   ],
+   [
+    "number.mxz_coordinator_study_target",
+    "70.0"
+   ],
+   [
+    "select.mxz_coordinator_shared_mode",
+    "cool"
+   ],
+   [
+    "sensor.mxz_coordinator_plan",
+    "cool"
+   ],
+   [
+    "switch.mxz_coordinator_cool_lockout",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_coordinator_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_den_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_den_fan_auto",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_eco_idle",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_heat_lockout",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_study_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_fan_auto",
+    "on"
+   ]
+  ],
+  "plan": {
+   "primary_demand": "neutral",
+   "secondary_demand": "neutral",
+   "primary_engage": "cool",
+   "secondary_engage": "satisfied",
+   "zones": [
+    {
+     "name": "Study",
+     "demand": "neutral",
+     "engage": "cool",
+     "temp": 73.0,
+     "target": 70.0,
+     "enabled": true,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": 69.0,
+     "cool_start": 71.0,
+     "heat_demand_below": 67.0,
+     "cool_demand_above": 73.0,
+     "start_points_mode": "comfort",
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 601,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": 50.0,
+     "floor_high": null,
+     "floor_state": "enabled",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "2026-11-18T12:00:01+00:00",
+     "command_returned_at": "2026-11-18T12:00:01+00:00",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "returned",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:00:01+00:00"
+    },
+    {
+     "name": "Den",
+     "demand": "neutral",
+     "engage": "satisfied",
+     "temp": 70.0,
+     "target": 70.0,
+     "enabled": true,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": 69.0,
+     "cool_start": 71.0,
+     "heat_demand_below": 67.0,
+     "cool_demand_above": 73.0,
+     "start_points_mode": "comfort",
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 601,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "2026-11-18T12:00:01+00:00",
+     "command_returned_at": "2026-11-18T12:00:01+00:00",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "returned",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:00:01+00:00"
+    }
+   ],
+   "standoff": false,
+   "mode_by_hands_off": false,
+   "mode_by_safety": false,
+   "mode_by_comfort_priority": false,
+   "mode_by_floor": false,
+   "sensors_ok": true,
+   "seconds_since_mode_change": null,
+   "mode_change_allowed": true,
+   "inhibited": false,
+   "idle_action": "fan_only",
+   "icon": "mdi:head-cog",
+   "friendly_name": "MXZ Coordinator Plan"
+  }
+ },
+ {
+  "step": "no_store_restore_data_only",
+  "resumed": [
+   {
+    "rooms": [
+     {
+      "target": 70.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": null,
+      "enable": false,
+      "released": false,
+      "floor": {}
+     },
+     {
+      "target": 70.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": null,
+      "enable": false,
+      "released": false,
+      "floor": {}
+     }
+    ],
+    "latch": [
+     [
+      "primary",
+      ""
+     ],
+     [
+      "secondary",
+      ""
+     ]
+    ],
+    "startup": [],
+    "switches": {
+     "coordinator_enable": false,
+     "eco_idle": false,
+     "heat_lockout": false,
+     "cool_lockout": false
+    },
+    "restored_on": false,
+    "mode": "cool",
+    "by_votes": false,
+    "record": {
+     "changed_at": null,
+     "mode": null,
+     "mode_at": 0.0,
+     "by_votes": false
+    },
+    "mode_data": null,
+    "changed_at": null,
+    "stamp_ago": null,
+    "hold_left": 0.0,
+    "resumed": [],
+    "fan": {
+     "climate.property_head_a": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": null,
+       "restore_problem": null
+      },
+      "keys": [],
+      "record": {
+       "held": false,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     },
+     "climate.property_head_b": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": null,
+       "restore_problem": null
+      },
+      "keys": [],
+      "record": {
+       "held": false,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     }
+    },
+    "head_writes": {},
+    "saved": {
+     "saved_at": null,
+     "unit": null,
+     "readable": true,
+     "sections": []
+    }
+   }
+  ],
+  "asked": [
+   [
+    "restore_shared_mode",
+    "cool",
+    1795003201.0,
+    "cool"
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "primary",
+    "2026-11-18T12:00:01+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "secondary",
+    "2026-11-18T12:00:01+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "primary",
+    "2026-11-18T12:00:01+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "secondary",
+    "2026-11-18T12:00:01+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_a",
+    "2026-11-18T12:00:01+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_b",
+    "2026-11-18T12:00:01+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "cool_lockout",
+    "2026-11-18T12:00:01+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "coordinator_enable",
+    "2026-11-18T12:00:01+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "eco_idle",
+    "2026-11-18T12:00:01+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "heat_lockout",
+    "2026-11-18T12:00:01+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "target",
+    "primary",
+    "2026-11-18T12:00:01+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "target",
+    "secondary",
+    "2026-11-18T12:00:01+00:00",
+    false
+   ]
+  ],
+  "calls": [],
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "middle",
+    "low": 68.0,
+    "high": 70.0
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "low": null,
+    "high": null
+   }
+  ],
+  "coordinator": {
+   "rooms": [
+    {
+     "target": 70.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": null,
+     "enable": true,
+     "released": false,
+     "floor": {}
+    },
+    {
+     "target": 70.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": null,
+     "enable": true,
+     "released": false,
+     "floor": {}
+    }
+   ],
+   "latch": [
+    [
+     "primary",
+     "cool"
+    ],
+    [
+     "secondary",
+     ""
+    ]
+   ],
+   "startup": [],
+   "switches": {
+    "coordinator_enable": true,
+    "eco_idle": false,
+    "heat_lockout": false,
+    "cool_lockout": false
+   },
+   "restored_on": true,
+   "mode": "cool",
+   "by_votes": false,
+   "record": {
+    "changed_at": null,
+    "mode": null,
+    "mode_at": 0.0,
+    "by_votes": false
+   },
+   "mode_data": null,
+   "changed_at": null,
+   "stamp_ago": null,
+   "hold_left": 0.0,
+   "resumed": [],
+   "fan": {
+    "climate.property_head_a": {
+     "hold": {
+      "latched": false,
+      "commanded": "middle",
+      "previous": "auto",
+      "older": [],
+      "ladder_index": 3,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched",
+      "rung"
+     ],
+     "record": {
+      "held": false,
+      "last_fan_command": "middle",
+      "prior_fan_command": "auto"
+     },
+     "problem": null
+    },
+    "climate.property_head_b": {
+     "hold": {
+      "latched": false,
+      "commanded": "auto",
+      "previous": "auto",
+      "older": [],
+      "ladder_index": null,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched"
+     ],
+     "record": {
+      "held": false,
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto"
+     },
+     "problem": null
+    }
+   },
+   "head_writes": {},
+   "saved": {
+    "saved_at": null,
+    "unit": null,
+    "readable": true,
+    "sections": []
+   }
+  },
+  "entities": [
+   [
+    "button.mxz_coordinator_den_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "button.mxz_coordinator_study_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "climate.mxz_coordinator_den_thermostat",
+    "heat_cool"
+   ],
+   [
+    "climate.mxz_coordinator_study_thermostat",
+    "heat_cool"
+   ],
+   [
+    "number.mxz_coordinator_den_drift",
+    "1.0"
+   ],
+   [
+    "number.mxz_coordinator_den_target",
+    "70.0"
+   ],
+   [
+    "number.mxz_coordinator_study_drift",
+    "1.0"
+   ],
+   [
+    "number.mxz_coordinator_study_target",
+    "70.0"
+   ],
+   [
+    "select.mxz_coordinator_shared_mode",
+    "cool"
+   ],
+   [
+    "sensor.mxz_coordinator_plan",
+    "cool"
+   ],
+   [
+    "switch.mxz_coordinator_cool_lockout",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_coordinator_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_den_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_den_fan_auto",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_eco_idle",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_heat_lockout",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_study_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_fan_auto",
+    "on"
+   ]
+  ],
+  "plan": {
+   "primary_demand": "neutral",
+   "secondary_demand": "neutral",
+   "primary_engage": "cool",
+   "secondary_engage": "satisfied",
+   "zones": [
+    {
+     "name": "Study",
+     "demand": "neutral",
+     "engage": "cool",
+     "temp": 73.0,
+     "target": 70.0,
+     "enabled": true,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": 69.0,
+     "cool_start": 71.0,
+     "heat_demand_below": 67.0,
+     "cool_demand_above": 73.0,
+     "start_points_mode": "comfort",
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 601,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": 50.0,
+     "floor_high": null,
+     "floor_state": "enabled",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:00:01+00:00"
+    },
+    {
+     "name": "Den",
+     "demand": "neutral",
+     "engage": "satisfied",
+     "temp": 70.0,
+     "target": 70.0,
+     "enabled": true,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": 69.0,
+     "cool_start": 71.0,
+     "heat_demand_below": 67.0,
+     "cool_demand_above": 73.0,
+     "start_points_mode": "comfort",
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 601,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:00:01+00:00"
+    }
+   ],
+   "standoff": false,
+   "mode_by_hands_off": false,
+   "mode_by_safety": false,
+   "mode_by_comfort_priority": false,
+   "mode_by_floor": false,
+   "sensors_ok": true,
+   "seconds_since_mode_change": null,
+   "mode_change_allowed": true,
+   "inhibited": false,
+   "idle_action": "fan_only",
+   "icon": "mdi:head-cog",
+   "friendly_name": "MXZ Coordinator Plan"
+  }
+ },
+ {
+  "step": "store_without_its_time",
+  "resumed": [
+   {
+    "rooms": [
+     {
+      "target": 70.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": null,
+      "enable": true,
+      "released": false,
+      "floor": {}
+     },
+     {
+      "target": 70.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": null,
+      "enable": true,
+      "released": false,
+      "floor": {}
+     }
+    ],
+    "latch": [
+     [
+      "primary",
+      ""
+     ],
+     [
+      "secondary",
+      ""
+     ]
+    ],
+    "startup": [
+     [
+      "primary",
+      null
+     ],
+     [
+      "secondary",
+      null
+     ]
+    ],
+    "switches": {
+     "coordinator_enable": true,
+     "eco_idle": false,
+     "heat_lockout": false,
+     "cool_lockout": false
+    },
+    "restored_on": true,
+    "mode": "cool",
+    "by_votes": false,
+    "record": {
+     "changed_at": null,
+     "mode": null,
+     "mode_at": 0.0,
+     "by_votes": false
+    },
+    "mode_data": null,
+    "changed_at": null,
+    "stamp_ago": null,
+    "hold_left": 0.0,
+    "resumed": [
+     [
+      "drift",
+      "primary"
+     ],
+     [
+      "drift",
+      "secondary"
+     ],
+     [
+      "enable",
+      "primary"
+     ],
+     [
+      "enable",
+      "secondary"
+     ],
+     [
+      "fan",
+      "climate.property_head_a"
+     ],
+     [
+      "fan",
+      "climate.property_head_b"
+     ],
+     [
+      "switch",
+      "cool_lockout"
+     ],
+     [
+      "switch",
+      "coordinator_enable"
+     ],
+     [
+      "switch",
+      "eco_idle"
+     ],
+     [
+      "switch",
+      "heat_lockout"
+     ],
+     [
+      "target",
+      "primary"
+     ],
+     [
+      "target",
+      "secondary"
+     ]
+    ],
+    "fan": {
+     "climate.property_head_a": {
+      "hold": {
+       "latched": false,
+       "commanded": "middle",
+       "previous": "auto",
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": false,
+       "restore_problem": null
+      },
+      "keys": [
+       "restore"
+      ],
+      "record": {
+       "held": false,
+       "last_fan_command": "middle",
+       "prior_fan_command": "auto"
+      },
+      "problem": null
+     },
+     "climate.property_head_b": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": true,
+       "restore_problem": null
+      },
+      "keys": [
+       "restore"
+      ],
+      "record": {
+       "held": true,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     }
+    },
+    "head_writes": {},
+    "saved": {
+     "saved_at": null,
+     "unit": "\u00b0F",
+     "readable": true,
+     "sections": [
+      "fan",
+      "floor",
+      "head_writes",
+      "openings",
+      "rooms",
+      "switches"
+     ]
+    }
+   }
+  ],
+  "asked": [
+   [
+    "restore_shared_mode",
+    "cool",
+    1795003802.0,
+    "cool"
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "primary",
+    "2026-11-18T12:10:02+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "secondary",
+    "2026-11-18T12:10:02+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "primary",
+    "2026-11-18T12:10:02+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "secondary",
+    "2026-11-18T12:10:02+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_a",
+    "2026-11-18T12:10:02+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_b",
+    "2026-11-18T12:10:07+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "cool_lockout",
+    "2026-11-18T12:10:02+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "coordinator_enable",
+    "2026-11-18T12:10:02+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "eco_idle",
+    "2026-11-18T12:10:02+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "heat_lockout",
+    "2026-11-18T12:10:02+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "target",
+    "primary",
+    "2026-11-18T12:10:02+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "target",
+    "secondary",
+    "2026-11-18T12:10:02+00:00",
+    false
+   ]
+  ],
+  "calls": [],
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "middle",
+    "low": 68.0,
+    "high": 70.0
+   },
+   {
+    "mode": "fan_only",
+    "fan": "quiet",
+    "low": null,
+    "high": null
+   }
+  ],
+  "coordinator": {
+   "rooms": [
+    {
+     "target": 70.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": null,
+     "enable": true,
+     "released": false,
+     "floor": {}
+    },
+    {
+     "target": 70.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": null,
+     "enable": true,
+     "released": false,
+     "floor": {}
+    }
+   ],
+   "latch": [
+    [
+     "primary",
+     "cool"
+    ],
+    [
+     "secondary",
+     ""
+    ]
+   ],
+   "startup": [],
+   "switches": {
+    "coordinator_enable": true,
+    "eco_idle": false,
+    "heat_lockout": false,
+    "cool_lockout": false
+   },
+   "restored_on": true,
+   "mode": "cool",
+   "by_votes": false,
+   "record": {
+    "changed_at": null,
+    "mode": null,
+    "mode_at": 0.0,
+    "by_votes": false
+   },
+   "mode_data": null,
+   "changed_at": null,
+   "stamp_ago": null,
+   "hold_left": 0.0,
+   "resumed": [
+    [
+     "drift",
+     "primary"
+    ],
+    [
+     "drift",
+     "secondary"
+    ],
+    [
+     "enable",
+     "primary"
+    ],
+    [
+     "enable",
+     "secondary"
+    ],
+    [
+     "fan",
+     "climate.property_head_a"
+    ],
+    [
+     "fan",
+     "climate.property_head_b"
+    ],
+    [
+     "switch",
+     "cool_lockout"
+    ],
+    [
+     "switch",
+     "coordinator_enable"
+    ],
+    [
+     "switch",
+     "eco_idle"
+    ],
+    [
+     "switch",
+     "heat_lockout"
+    ],
+    [
+     "target",
+     "primary"
+    ],
+    [
+     "target",
+     "secondary"
+    ]
+   ],
+   "fan": {
+    "climate.property_head_a": {
+     "hold": {
+      "latched": false,
+      "commanded": "middle",
+      "previous": "auto",
+      "older": [],
+      "ladder_index": 3,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched",
+      "rung"
+     ],
+     "record": {
+      "held": false,
+      "last_fan_command": "middle",
+      "prior_fan_command": "auto"
+     },
+     "problem": null
+    },
+    "climate.property_head_b": {
+     "hold": {
+      "latched": true,
+      "commanded": "quiet",
+      "previous": "quiet",
+      "older": [],
+      "ladder_index": null,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched"
+     ],
+     "record": {
+      "held": true,
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet"
+     },
+     "problem": null
+    }
+   },
+   "head_writes": {},
+   "saved": {
+    "saved_at": null,
+    "unit": "\u00b0F",
+    "readable": true,
+    "sections": [
+     "fan",
+     "floor",
+     "head_writes",
+     "openings",
+     "rooms",
+     "switches"
+    ]
+   }
+  },
+  "entities": [
+   [
+    "button.mxz_coordinator_den_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "button.mxz_coordinator_study_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "climate.mxz_coordinator_den_thermostat",
+    "heat_cool"
+   ],
+   [
+    "climate.mxz_coordinator_study_thermostat",
+    "heat_cool"
+   ],
+   [
+    "number.mxz_coordinator_den_drift",
+    "1.0"
+   ],
+   [
+    "number.mxz_coordinator_den_target",
+    "70.0"
+   ],
+   [
+    "number.mxz_coordinator_study_drift",
+    "1.0"
+   ],
+   [
+    "number.mxz_coordinator_study_target",
+    "70.0"
+   ],
+   [
+    "select.mxz_coordinator_shared_mode",
+    "cool"
+   ],
+   [
+    "sensor.mxz_coordinator_plan",
+    "cool"
+   ],
+   [
+    "switch.mxz_coordinator_cool_lockout",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_coordinator_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_den_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_den_fan_auto",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_eco_idle",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_heat_lockout",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_study_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_fan_auto",
+    "on"
+   ]
+  ],
+  "plan": {
+   "primary_demand": "neutral",
+   "secondary_demand": "neutral",
+   "primary_engage": "cool",
+   "secondary_engage": "satisfied",
+   "zones": [
+    {
+     "name": "Study",
+     "demand": "neutral",
+     "engage": "cool",
+     "temp": 73.0,
+     "target": 70.0,
+     "enabled": true,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": 69.0,
+     "cool_start": 71.0,
+     "heat_demand_below": 67.0,
+     "cool_demand_above": 73.0,
+     "start_points_mode": "comfort",
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 606,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": 50.0,
+     "floor_high": null,
+     "floor_state": "enabled",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:00:01+00:00"
+    },
+    {
+     "name": "Den",
+     "demand": "neutral",
+     "engage": "satisfied",
+     "temp": 70.0,
+     "target": 70.0,
+     "enabled": true,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": 69.0,
+     "cool_start": 71.0,
+     "heat_demand_below": 67.0,
+     "cool_demand_above": 73.0,
+     "start_points_mode": "comfort",
+     "start_points_lockouts": [],
+     "fan_hold": true,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 606,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:10:07+00:00"
+    }
+   ],
+   "standoff": false,
+   "mode_by_hands_off": false,
+   "mode_by_safety": false,
+   "mode_by_comfort_priority": false,
+   "mode_by_floor": false,
+   "sensors_ok": true,
+   "seconds_since_mode_change": null,
+   "mode_change_allowed": true,
+   "inhibited": false,
+   "idle_action": "fan_only",
+   "icon": "mdi:head-cog",
+   "friendly_name": "MXZ Coordinator Plan"
+  }
+ },
+ {
+  "step": "malformed_values",
+  "resumed": [
+   {
+    "rooms": [
+     {
+      "target": 70.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": null,
+      "enable": false,
+      "released": false,
+      "floor": {}
+     },
+     {
+      "target": 88.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": 5.0,
+      "enable": false,
+      "released": false,
+      "floor": {}
+     }
+    ],
+    "latch": [
+     [
+      "primary",
+      ""
+     ],
+     [
+      "secondary",
+      ""
+     ]
+    ],
+    "startup": [],
+    "switches": {
+     "coordinator_enable": false,
+     "eco_idle": false,
+     "heat_lockout": true,
+     "cool_lockout": false
+    },
+    "restored_on": false,
+    "mode": "cool",
+    "by_votes": false,
+    "record": {
+     "changed_at": null,
+     "mode": null,
+     "mode_at": 0.0,
+     "by_votes": false
+    },
+    "mode_data": null,
+    "changed_at": null,
+    "stamp_ago": null,
+    "hold_left": 0.0,
+    "resumed": [
+     [
+      "drift",
+      "primary"
+     ],
+     [
+      "drift",
+      "secondary"
+     ],
+     [
+      "enable",
+      "secondary"
+     ],
+     [
+      "fan",
+      "climate.property_head_b"
+     ],
+     [
+      "switch",
+      "heat_lockout"
+     ],
+     [
+      "target",
+      "secondary"
+     ]
+    ],
+    "fan": {
+     "climate.property_head_a": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": null,
+       "restore_problem": null
+      },
+      "keys": [],
+      "record": {
+       "held": false,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     },
+     "climate.property_head_b": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": true,
+       "restore_problem": null
+      },
+      "keys": [
+       "restore"
+      ],
+      "record": {
+       "held": true,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     }
+    },
+    "head_writes": {},
+    "saved": {
+     "saved_at": 1795003812.0,
+     "unit": "\u00b0F",
+     "readable": true,
+     "sections": [
+      "fan",
+      "floor",
+      "head_writes",
+      "openings",
+      "rooms",
+      "switches"
+     ]
+    }
+   }
+  ],
+  "asked": [
+   [
+    "restore_shared_mode",
+    "cool",
+    1795003807.0,
+    "cool"
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "primary",
+    "2026-11-18T12:10:07+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "secondary",
+    "2026-11-18T12:10:07+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "primary",
+    "2026-11-18T12:10:07+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "secondary",
+    "2026-11-18T12:10:07+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_a",
+    "2026-11-18T12:10:07+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_b",
+    "2026-11-18T12:10:12+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "cool_lockout",
+    "2026-11-18T12:10:07+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "coordinator_enable",
+    "2026-11-18T12:10:07+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "eco_idle",
+    "2026-11-18T12:10:07+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "heat_lockout",
+    "2026-11-18T12:10:07+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "target",
+    "primary",
+    "2026-11-18T12:10:07+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "target",
+    "secondary",
+    "2026-11-18T12:10:07+00:00",
+    true
+   ]
+  ],
+  "calls": [
+   {
+    "call": "climate.set_hvac_mode",
+    "data": {
+     "entity_id": "climate.property_head_b",
+     "hvac_mode": "off"
+    }
+   }
+  ],
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "middle",
+    "low": 68.0,
+    "high": 70.0
+   },
+   {
+    "mode": "off",
+    "fan": "low",
+    "low": null,
+    "high": null
+   }
+  ],
+  "coordinator": {
+   "rooms": [
+    {
+     "target": 70.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": null,
+     "enable": true,
+     "released": false,
+     "floor": {}
+    },
+    {
+     "target": 88.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": 5.0,
+     "enable": false,
+     "released": false,
+     "floor": {}
+    }
+   ],
+   "latch": [
+    [
+     "primary",
+     "cool"
+    ],
+    [
+     "secondary",
+     ""
+    ]
+   ],
+   "startup": [],
+   "switches": {
+    "coordinator_enable": true,
+    "eco_idle": false,
+    "heat_lockout": true,
+    "cool_lockout": false
+   },
+   "restored_on": true,
+   "mode": "cool",
+   "by_votes": false,
+   "record": {
+    "changed_at": null,
+    "mode": null,
+    "mode_at": 0.0,
+    "by_votes": false
+   },
+   "mode_data": null,
+   "changed_at": null,
+   "stamp_ago": null,
+   "hold_left": 0.0,
+   "resumed": [
+    [
+     "drift",
+     "primary"
+    ],
+    [
+     "drift",
+     "secondary"
+    ],
+    [
+     "enable",
+     "secondary"
+    ],
+    [
+     "fan",
+     "climate.property_head_b"
+    ],
+    [
+     "switch",
+     "heat_lockout"
+    ],
+    [
+     "target",
+     "secondary"
+    ]
+   ],
+   "fan": {
+    "climate.property_head_a": {
+     "hold": {
+      "latched": false,
+      "commanded": "middle",
+      "previous": "auto",
+      "older": [],
+      "ladder_index": 3,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched",
+      "rung"
+     ],
+     "record": {
+      "held": false,
+      "last_fan_command": "middle",
+      "prior_fan_command": "auto"
+     },
+     "problem": null
+    },
+    "climate.property_head_b": {
+     "hold": {
+      "latched": true,
+      "commanded": "low",
+      "previous": "low",
+      "older": [],
+      "ladder_index": null,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched"
+     ],
+     "record": {
+      "held": true,
+      "last_fan_command": "low",
+      "prior_fan_command": "low"
+     },
+     "problem": null
+    }
+   },
+   "head_writes": {
+    "climate.property_head_b": {
+     "hvac_mode": [
+      [
+       "off",
+       0
+      ]
+     ]
+    }
+   },
+   "saved": {
+    "saved_at": 1795003812.0,
+    "unit": "\u00b0F",
+    "readable": true,
+    "sections": [
+     "fan",
+     "floor",
+     "head_writes",
+     "openings",
+     "rooms",
+     "switches"
+    ]
+   }
+  },
+  "entities": [
+   [
+    "button.mxz_coordinator_den_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "button.mxz_coordinator_study_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "climate.mxz_coordinator_den_thermostat",
+    "off"
+   ],
+   [
+    "climate.mxz_coordinator_study_thermostat",
+    "heat_cool"
+   ],
+   [
+    "number.mxz_coordinator_den_drift",
+    "5.0"
+   ],
+   [
+    "number.mxz_coordinator_den_target",
+    "88.0"
+   ],
+   [
+    "number.mxz_coordinator_study_drift",
+    "1.0"
+   ],
+   [
+    "number.mxz_coordinator_study_target",
+    "70.0"
+   ],
+   [
+    "select.mxz_coordinator_shared_mode",
+    "cool"
+   ],
+   [
+    "sensor.mxz_coordinator_plan",
+    "cool"
+   ],
+   [
+    "switch.mxz_coordinator_cool_lockout",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_coordinator_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_den_enable",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_den_fan_auto",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_eco_idle",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_heat_lockout",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_fan_auto",
+    "on"
+   ]
+  ],
+  "plan": {
+   "primary_demand": "neutral",
+   "secondary_demand": "off",
+   "primary_engage": "cool",
+   "secondary_engage": "off",
+   "zones": [
+    {
+     "name": "Study",
+     "demand": "neutral",
+     "engage": "cool",
+     "temp": 73.0,
+     "target": 70.0,
+     "enabled": true,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": 58.0,
+     "cool_start": 71.0,
+     "heat_demand_below": 58.0,
+     "cool_demand_above": 73.0,
+     "start_points_mode": "comfort",
+     "start_points_lockouts": [
+      "heat"
+     ],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 611,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": 50.0,
+     "floor_high": null,
+     "floor_state": "enabled",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:00:01+00:00"
+    },
+    {
+     "name": "Den",
+     "demand": "off",
+     "engage": "off",
+     "temp": 70.0,
+     "target": 88.0,
+     "enabled": false,
+     "drift": 5.0,
+     "drift_heat": 5.0,
+     "drift_cool": 5.0,
+     "drift_source": "room",
+     "drift_heat_from": "room",
+     "drift_cool_from": "room",
+     "heat_start": null,
+     "cool_start": null,
+     "heat_demand_below": null,
+     "cool_demand_above": null,
+     "start_points_mode": null,
+     "start_points_lockouts": [],
+     "fan_hold": true,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 611,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "2026-11-18T12:10:12+00:00",
+     "command_returned_at": "2026-11-18T12:10:12+00:00",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "returned",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:10:12+00:00"
+    }
+   ],
+   "standoff": false,
+   "mode_by_hands_off": false,
+   "mode_by_safety": false,
+   "mode_by_comfort_priority": false,
+   "mode_by_floor": false,
+   "sensors_ok": true,
+   "seconds_since_mode_change": null,
+   "mode_change_allowed": true,
+   "inhibited": false,
+   "idle_action": "fan_only",
+   "icon": "mdi:head-cog",
+   "friendly_name": "MXZ Coordinator Plan"
+  }
+ },
+ {
+  "step": "mode_record_without_a_mode",
+  "resumed": [
+   {
+    "rooms": [
+     {
+      "target": 70.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": null,
+      "enable": true,
+      "released": false,
+      "floor": {}
+     },
+     {
+      "target": 88.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": 5.0,
+      "enable": false,
+      "released": false,
+      "floor": {}
+     }
+    ],
+    "latch": [
+     [
+      "primary",
+      ""
+     ],
+     [
+      "secondary",
+      ""
+     ]
+    ],
+    "startup": [
+     [
+      "primary",
+      null
+     ]
+    ],
+    "switches": {
+     "coordinator_enable": true,
+     "eco_idle": false,
+     "heat_lockout": true,
+     "cool_lockout": false
+    },
+    "restored_on": true,
+    "mode": "cool",
+    "by_votes": false,
+    "record": {
+     "changed_at": 5.0,
+     "mode": null,
+     "mode_at": 0.0,
+     "by_votes": false
+    },
+    "mode_data": {
+     "last_mode_change": 5.0
+    },
+    "changed_at": 5.0,
+    "stamp_ago": 1795003812.0,
+    "hold_left": 0.0,
+    "resumed": [
+     [
+      "drift",
+      "primary"
+     ],
+     [
+      "drift",
+      "secondary"
+     ],
+     [
+      "enable",
+      "primary"
+     ],
+     [
+      "enable",
+      "secondary"
+     ],
+     [
+      "fan",
+      "climate.property_head_a"
+     ],
+     [
+      "fan",
+      "climate.property_head_b"
+     ],
+     [
+      "switch",
+      "cool_lockout"
+     ],
+     [
+      "switch",
+      "coordinator_enable"
+     ],
+     [
+      "switch",
+      "eco_idle"
+     ],
+     [
+      "switch",
+      "heat_lockout"
+     ],
+     [
+      "target",
+      "primary"
+     ],
+     [
+      "target",
+      "secondary"
+     ]
+    ],
+    "fan": {
+     "climate.property_head_a": {
+      "hold": {
+       "latched": false,
+       "commanded": "middle",
+       "previous": "auto",
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": false,
+       "restore_problem": null
+      },
+      "keys": [
+       "restore"
+      ],
+      "record": {
+       "held": false,
+       "last_fan_command": "middle",
+       "prior_fan_command": "auto"
+      },
+      "problem": null
+     },
+     "climate.property_head_b": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": true,
+       "restore_problem": null
+      },
+      "keys": [
+       "restore"
+      ],
+      "record": {
+       "held": true,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     }
+    },
+    "head_writes": {
+     "climate.property_head_b": {
+      "hvac_mode": [
+       [
+        "off",
+        0
+       ]
+      ]
+     }
+    },
+    "saved": {
+     "saved_at": 1795003817.0,
+     "unit": "\u00b0F",
+     "readable": true,
+     "sections": [
+      "fan",
+      "floor",
+      "head_writes",
+      "openings",
+      "rooms",
+      "switches"
+     ]
+    }
+   }
+  ],
+  "asked": [
+   [
+    "restore_shared_mode",
+    "cool",
+    1795003812.0,
+    "cool"
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "primary",
+    "2026-11-18T12:10:12+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "secondary",
+    "2026-11-18T12:10:12+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "primary",
+    "2026-11-18T12:10:12+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "secondary",
+    "2026-11-18T12:10:12+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_a",
+    "2026-11-18T12:10:12+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_b",
+    "2026-11-18T12:10:17+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "cool_lockout",
+    "2026-11-18T12:10:12+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "coordinator_enable",
+    "2026-11-18T12:10:12+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "eco_idle",
+    "2026-11-18T12:10:12+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "heat_lockout",
+    "2026-11-18T12:10:12+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "target",
+    "primary",
+    "2026-11-18T12:10:12+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "target",
+    "secondary",
+    "2026-11-18T12:10:12+00:00",
+    true
+   ]
+  ],
+  "calls": [],
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "middle",
+    "low": 68.0,
+    "high": 70.0
+   },
+   {
+    "mode": "off",
+    "fan": "quiet",
+    "low": null,
+    "high": null
+   }
+  ],
+  "coordinator": {
+   "rooms": [
+    {
+     "target": 70.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": null,
+     "enable": true,
+     "released": false,
+     "floor": {}
+    },
+    {
+     "target": 88.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": 5.0,
+     "enable": false,
+     "released": false,
+     "floor": {}
+    }
+   ],
+   "latch": [
+    [
+     "primary",
+     "cool"
+    ],
+    [
+     "secondary",
+     ""
+    ]
+   ],
+   "startup": [],
+   "switches": {
+    "coordinator_enable": true,
+    "eco_idle": false,
+    "heat_lockout": true,
+    "cool_lockout": false
+   },
+   "restored_on": true,
+   "mode": "cool",
+   "by_votes": false,
+   "record": {
+    "changed_at": 5.0,
+    "mode": null,
+    "mode_at": 0.0,
+    "by_votes": false
+   },
+   "mode_data": {
+    "last_mode_change": 5.0
+   },
+   "changed_at": 5.0,
+   "stamp_ago": 1795003812.0,
+   "hold_left": 0.0,
+   "resumed": [
+    [
+     "drift",
+     "primary"
+    ],
+    [
+     "drift",
+     "secondary"
+    ],
+    [
+     "enable",
+     "primary"
+    ],
+    [
+     "enable",
+     "secondary"
+    ],
+    [
+     "fan",
+     "climate.property_head_a"
+    ],
+    [
+     "fan",
+     "climate.property_head_b"
+    ],
+    [
+     "switch",
+     "cool_lockout"
+    ],
+    [
+     "switch",
+     "coordinator_enable"
+    ],
+    [
+     "switch",
+     "eco_idle"
+    ],
+    [
+     "switch",
+     "heat_lockout"
+    ],
+    [
+     "target",
+     "primary"
+    ],
+    [
+     "target",
+     "secondary"
+    ]
+   ],
+   "fan": {
+    "climate.property_head_a": {
+     "hold": {
+      "latched": false,
+      "commanded": "middle",
+      "previous": "auto",
+      "older": [],
+      "ladder_index": 3,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched",
+      "rung"
+     ],
+     "record": {
+      "held": false,
+      "last_fan_command": "middle",
+      "prior_fan_command": "auto"
+     },
+     "problem": null
+    },
+    "climate.property_head_b": {
+     "hold": {
+      "latched": true,
+      "commanded": "quiet",
+      "previous": "quiet",
+      "older": [],
+      "ladder_index": null,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched"
+     ],
+     "record": {
+      "held": true,
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet"
+     },
+     "problem": null
+    }
+   },
+   "head_writes": {
+    "climate.property_head_b": {
+     "hvac_mode": [
+      [
+       "off",
+       0
+      ]
+     ]
+    }
+   },
+   "saved": {
+    "saved_at": 1795003817.0,
+    "unit": "\u00b0F",
+    "readable": true,
+    "sections": [
+     "fan",
+     "floor",
+     "head_writes",
+     "openings",
+     "rooms",
+     "switches"
+    ]
+   }
+  },
+  "entities": [
+   [
+    "button.mxz_coordinator_den_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "button.mxz_coordinator_study_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "climate.mxz_coordinator_den_thermostat",
+    "off"
+   ],
+   [
+    "climate.mxz_coordinator_study_thermostat",
+    "heat_cool"
+   ],
+   [
+    "number.mxz_coordinator_den_drift",
+    "5.0"
+   ],
+   [
+    "number.mxz_coordinator_den_target",
+    "88.0"
+   ],
+   [
+    "number.mxz_coordinator_study_drift",
+    "1.0"
+   ],
+   [
+    "number.mxz_coordinator_study_target",
+    "70.0"
+   ],
+   [
+    "select.mxz_coordinator_shared_mode",
+    "cool"
+   ],
+   [
+    "sensor.mxz_coordinator_plan",
+    "cool"
+   ],
+   [
+    "switch.mxz_coordinator_cool_lockout",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_coordinator_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_den_enable",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_den_fan_auto",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_eco_idle",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_heat_lockout",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_fan_auto",
+    "on"
+   ]
+  ],
+  "plan": {
+   "primary_demand": "neutral",
+   "secondary_demand": "off",
+   "primary_engage": "cool",
+   "secondary_engage": "off",
+   "zones": [
+    {
+     "name": "Study",
+     "demand": "neutral",
+     "engage": "cool",
+     "temp": 73.0,
+     "target": 70.0,
+     "enabled": true,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": 58.0,
+     "cool_start": 71.0,
+     "heat_demand_below": 58.0,
+     "cool_demand_above": 73.0,
+     "start_points_mode": "comfort",
+     "start_points_lockouts": [
+      "heat"
+     ],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 616,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": 50.0,
+     "floor_high": null,
+     "floor_state": "enabled",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:00:01+00:00"
+    },
+    {
+     "name": "Den",
+     "demand": "off",
+     "engage": "off",
+     "temp": 70.0,
+     "target": 88.0,
+     "enabled": false,
+     "drift": 5.0,
+     "drift_heat": 5.0,
+     "drift_cool": 5.0,
+     "drift_source": "room",
+     "drift_heat_from": "room",
+     "drift_cool_from": "room",
+     "heat_start": null,
+     "cool_start": null,
+     "heat_demand_below": null,
+     "cool_demand_above": null,
+     "start_points_mode": null,
+     "start_points_lockouts": [],
+     "fan_hold": true,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 616,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:10:17+00:00"
+    }
+   ],
+   "standoff": false,
+   "mode_by_hands_off": false,
+   "mode_by_safety": false,
+   "mode_by_comfort_priority": false,
+   "mode_by_floor": false,
+   "sensors_ok": true,
+   "seconds_since_mode_change": 1795003812,
+   "mode_change_allowed": true,
+   "inhibited": false,
+   "idle_action": "fan_only",
+   "icon": "mdi:head-cog",
+   "friendly_name": "MXZ Coordinator Plan"
+  }
+ },
+ {
+  "step": "unreadable_change_time",
+  "resumed": [
+   {
+    "rooms": [
+     {
+      "target": 70.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": null,
+      "enable": true,
+      "released": false,
+      "floor": {}
+     },
+     {
+      "target": 88.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": 5.0,
+      "enable": false,
+      "released": false,
+      "floor": {}
+     }
+    ],
+    "latch": [
+     [
+      "primary",
+      ""
+     ],
+     [
+      "secondary",
+      ""
+     ]
+    ],
+    "startup": [
+     [
+      "primary",
+      null
+     ]
+    ],
+    "switches": {
+     "coordinator_enable": true,
+     "eco_idle": false,
+     "heat_lockout": true,
+     "cool_lockout": false
+    },
+    "restored_on": true,
+    "mode": "cool",
+    "by_votes": false,
+    "record": {
+     "changed_at": 1795003822.0,
+     "mode": null,
+     "mode_at": 0.0,
+     "by_votes": false
+    },
+    "mode_data": {
+     "last_mode_change": 1795003822.0
+    },
+    "changed_at": 1795003822.0,
+    "stamp_ago": 0.0,
+    "hold_left": 600.0,
+    "resumed": [
+     [
+      "drift",
+      "primary"
+     ],
+     [
+      "drift",
+      "secondary"
+     ],
+     [
+      "enable",
+      "primary"
+     ],
+     [
+      "enable",
+      "secondary"
+     ],
+     [
+      "fan",
+      "climate.property_head_a"
+     ],
+     [
+      "fan",
+      "climate.property_head_b"
+     ],
+     [
+      "switch",
+      "cool_lockout"
+     ],
+     [
+      "switch",
+      "coordinator_enable"
+     ],
+     [
+      "switch",
+      "eco_idle"
+     ],
+     [
+      "switch",
+      "heat_lockout"
+     ],
+     [
+      "target",
+      "primary"
+     ],
+     [
+      "target",
+      "secondary"
+     ]
+    ],
+    "fan": {
+     "climate.property_head_a": {
+      "hold": {
+       "latched": false,
+       "commanded": "middle",
+       "previous": "auto",
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": false,
+       "restore_problem": null
+      },
+      "keys": [
+       "restore"
+      ],
+      "record": {
+       "held": false,
+       "last_fan_command": "middle",
+       "prior_fan_command": "auto"
+      },
+      "problem": null
+     },
+     "climate.property_head_b": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": true,
+       "restore_problem": null
+      },
+      "keys": [
+       "restore"
+      ],
+      "record": {
+       "held": true,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     }
+    },
+    "head_writes": {
+     "climate.property_head_b": {
+      "hvac_mode": [
+       [
+        "off",
+        0
+       ]
+      ]
+     }
+    },
+    "saved": {
+     "saved_at": 1795003822.0,
+     "unit": "\u00b0F",
+     "readable": true,
+     "sections": [
+      "fan",
+      "floor",
+      "head_writes",
+      "mode",
+      "openings",
+      "rooms",
+      "switches"
+     ]
+    }
+   }
+  ],
+  "asked": [
+   [
+    "restore_shared_mode",
+    "cool",
+    1795003817.0,
+    "cool"
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "primary",
+    "2026-11-18T12:10:17+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "secondary",
+    "2026-11-18T12:10:17+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "primary",
+    "2026-11-18T12:10:17+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "secondary",
+    "2026-11-18T12:10:17+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_a",
+    "2026-11-18T12:10:17+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_b",
+    "2026-11-18T12:10:22+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "cool_lockout",
+    "2026-11-18T12:10:17+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "coordinator_enable",
+    "2026-11-18T12:10:17+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "eco_idle",
+    "2026-11-18T12:10:17+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "heat_lockout",
+    "2026-11-18T12:10:17+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "target",
+    "primary",
+    "2026-11-18T12:10:17+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "target",
+    "secondary",
+    "2026-11-18T12:10:17+00:00",
+    true
+   ],
+   [
+    "warning",
+    "MXZ: the stored time of the last mode change is unreadable ({'last_mode_change': 'x'}); holding the next cool/heat change for the full window"
+   ]
+  ],
+  "calls": [],
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "middle",
+    "low": 68.0,
+    "high": 70.0
+   },
+   {
+    "mode": "off",
+    "fan": "low",
+    "low": null,
+    "high": null
+   }
+  ],
+  "coordinator": {
+   "rooms": [
+    {
+     "target": 70.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": null,
+     "enable": true,
+     "released": false,
+     "floor": {}
+    },
+    {
+     "target": 88.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": 5.0,
+     "enable": false,
+     "released": false,
+     "floor": {}
+    }
+   ],
+   "latch": [
+    [
+     "primary",
+     "cool"
+    ],
+    [
+     "secondary",
+     ""
+    ]
+   ],
+   "startup": [],
+   "switches": {
+    "coordinator_enable": true,
+    "eco_idle": false,
+    "heat_lockout": true,
+    "cool_lockout": false
+   },
+   "restored_on": true,
+   "mode": "cool",
+   "by_votes": false,
+   "record": {
+    "changed_at": 1795003822.0,
+    "mode": null,
+    "mode_at": 0.0,
+    "by_votes": false
+   },
+   "mode_data": {
+    "last_mode_change": 1795003822.0
+   },
+   "changed_at": 1795003822.0,
+   "stamp_ago": 0.0,
+   "hold_left": 600.0,
+   "resumed": [
+    [
+     "drift",
+     "primary"
+    ],
+    [
+     "drift",
+     "secondary"
+    ],
+    [
+     "enable",
+     "primary"
+    ],
+    [
+     "enable",
+     "secondary"
+    ],
+    [
+     "fan",
+     "climate.property_head_a"
+    ],
+    [
+     "fan",
+     "climate.property_head_b"
+    ],
+    [
+     "switch",
+     "cool_lockout"
+    ],
+    [
+     "switch",
+     "coordinator_enable"
+    ],
+    [
+     "switch",
+     "eco_idle"
+    ],
+    [
+     "switch",
+     "heat_lockout"
+    ],
+    [
+     "target",
+     "primary"
+    ],
+    [
+     "target",
+     "secondary"
+    ]
+   ],
+   "fan": {
+    "climate.property_head_a": {
+     "hold": {
+      "latched": false,
+      "commanded": "middle",
+      "previous": "auto",
+      "older": [],
+      "ladder_index": 3,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched",
+      "rung"
+     ],
+     "record": {
+      "held": false,
+      "last_fan_command": "middle",
+      "prior_fan_command": "auto"
+     },
+     "problem": null
+    },
+    "climate.property_head_b": {
+     "hold": {
+      "latched": true,
+      "commanded": "low",
+      "previous": "low",
+      "older": [],
+      "ladder_index": null,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched"
+     ],
+     "record": {
+      "held": true,
+      "last_fan_command": "low",
+      "prior_fan_command": "low"
+     },
+     "problem": null
+    }
+   },
+   "head_writes": {
+    "climate.property_head_b": {
+     "hvac_mode": [
+      [
+       "off",
+       0
+      ]
+     ]
+    }
+   },
+   "saved": {
+    "saved_at": 1795003822.0,
+    "unit": "\u00b0F",
+    "readable": true,
+    "sections": [
+     "fan",
+     "floor",
+     "head_writes",
+     "mode",
+     "openings",
+     "rooms",
+     "switches"
+    ]
+   }
+  },
+  "entities": [
+   [
+    "button.mxz_coordinator_den_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "button.mxz_coordinator_study_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "climate.mxz_coordinator_den_thermostat",
+    "off"
+   ],
+   [
+    "climate.mxz_coordinator_study_thermostat",
+    "heat_cool"
+   ],
+   [
+    "number.mxz_coordinator_den_drift",
+    "5.0"
+   ],
+   [
+    "number.mxz_coordinator_den_target",
+    "88.0"
+   ],
+   [
+    "number.mxz_coordinator_study_drift",
+    "1.0"
+   ],
+   [
+    "number.mxz_coordinator_study_target",
+    "70.0"
+   ],
+   [
+    "select.mxz_coordinator_shared_mode",
+    "cool"
+   ],
+   [
+    "sensor.mxz_coordinator_plan",
+    "cool"
+   ],
+   [
+    "switch.mxz_coordinator_cool_lockout",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_coordinator_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_den_enable",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_den_fan_auto",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_eco_idle",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_heat_lockout",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_fan_auto",
+    "on"
+   ]
+  ],
+  "plan": {
+   "primary_demand": "neutral",
+   "secondary_demand": "off",
+   "primary_engage": "cool",
+   "secondary_engage": "off",
+   "zones": [
+    {
+     "name": "Study",
+     "demand": "neutral",
+     "engage": "cool",
+     "temp": 73.0,
+     "target": 70.0,
+     "enabled": true,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": 58.0,
+     "cool_start": 71.0,
+     "heat_demand_below": 58.0,
+     "cool_demand_above": 73.0,
+     "start_points_mode": "comfort",
+     "start_points_lockouts": [
+      "heat"
+     ],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 621,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": 50.0,
+     "floor_high": null,
+     "floor_state": "enabled",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:00:01+00:00"
+    },
+    {
+     "name": "Den",
+     "demand": "off",
+     "engage": "off",
+     "temp": 70.0,
+     "target": 88.0,
+     "enabled": false,
+     "drift": 5.0,
+     "drift_heat": 5.0,
+     "drift_cool": 5.0,
+     "drift_source": "room",
+     "drift_heat_from": "room",
+     "drift_cool_from": "room",
+     "heat_start": null,
+     "cool_start": null,
+     "heat_demand_below": null,
+     "cool_demand_above": null,
+     "start_points_mode": null,
+     "start_points_lockouts": [],
+     "fan_hold": true,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 621,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:10:22+00:00"
+    }
+   ],
+   "standoff": false,
+   "mode_by_hands_off": false,
+   "mode_by_safety": false,
+   "mode_by_comfort_priority": false,
+   "mode_by_floor": false,
+   "sensors_ok": true,
+   "seconds_since_mode_change": 0,
+   "mode_change_allowed": false,
+   "inhibited": false,
+   "idle_action": "fan_only",
+   "icon": "mdi:head-cog",
+   "friendly_name": "MXZ Coordinator Plan"
+  }
+ },
+ {
+  "step": "mode_only_in_the_store",
+  "resumed": [
+   {
+    "rooms": [
+     {
+      "target": 70.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": null,
+      "enable": true,
+      "released": false,
+      "floor": {}
+     },
+     {
+      "target": 88.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": 5.0,
+      "enable": false,
+      "released": false,
+      "floor": {}
+     }
+    ],
+    "latch": [
+     [
+      "primary",
+      ""
+     ],
+     [
+      "secondary",
+      ""
+     ]
+    ],
+    "startup": [
+     [
+      "primary",
+      null
+     ]
+    ],
+    "switches": {
+     "coordinator_enable": true,
+     "eco_idle": false,
+     "heat_lockout": true,
+     "cool_lockout": false
+    },
+    "restored_on": true,
+    "mode": "heat",
+    "by_votes": true,
+    "record": {
+     "changed_at": null,
+     "mode": "heat",
+     "mode_at": 1.0,
+     "by_votes": true
+    },
+    "mode_data": {
+     "mode": "heat",
+     "mode_at": 1.0,
+     "mode_by_votes": true
+    },
+    "changed_at": null,
+    "stamp_ago": null,
+    "hold_left": 0.0,
+    "resumed": [
+     [
+      "drift",
+      "primary"
+     ],
+     [
+      "drift",
+      "secondary"
+     ],
+     [
+      "enable",
+      "primary"
+     ],
+     [
+      "enable",
+      "secondary"
+     ],
+     [
+      "fan",
+      "climate.property_head_a"
+     ],
+     [
+      "fan",
+      "climate.property_head_b"
+     ],
+     [
+      "switch",
+      "cool_lockout"
+     ],
+     [
+      "switch",
+      "coordinator_enable"
+     ],
+     [
+      "switch",
+      "eco_idle"
+     ],
+     [
+      "switch",
+      "heat_lockout"
+     ],
+     [
+      "target",
+      "primary"
+     ],
+     [
+      "target",
+      "secondary"
+     ]
+    ],
+    "fan": {
+     "climate.property_head_a": {
+      "hold": {
+       "latched": false,
+       "commanded": "middle",
+       "previous": "auto",
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": false,
+       "restore_problem": null
+      },
+      "keys": [
+       "restore"
+      ],
+      "record": {
+       "held": false,
+       "last_fan_command": "middle",
+       "prior_fan_command": "auto"
+      },
+      "problem": null
+     },
+     "climate.property_head_b": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": true,
+       "restore_problem": null
+      },
+      "keys": [
+       "restore"
+      ],
+      "record": {
+       "held": true,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     }
+    },
+    "head_writes": {
+     "climate.property_head_b": {
+      "hvac_mode": [
+       [
+        "off",
+        0
+       ]
+      ]
+     }
+    },
+    "saved": {
+     "saved_at": 1795003827.0,
+     "unit": "\u00b0F",
+     "readable": true,
+     "sections": [
+      "fan",
+      "floor",
+      "head_writes",
+      "mode",
+      "openings",
+      "rooms",
+      "switches"
+     ]
+    }
+   }
+  ],
+  "asked": [
+   [
+    "restore_shared_mode",
+    "cool",
+    1795003822.0,
+    "cool"
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "primary",
+    "2026-11-18T12:10:22+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "secondary",
+    "2026-11-18T12:10:22+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "primary",
+    "2026-11-18T12:10:22+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "secondary",
+    "2026-11-18T12:10:22+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_a",
+    "2026-11-18T12:10:22+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_b",
+    "2026-11-18T12:10:27+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "cool_lockout",
+    "2026-11-18T12:10:22+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "coordinator_enable",
+    "2026-11-18T12:10:22+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "eco_idle",
+    "2026-11-18T12:10:22+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "heat_lockout",
+    "2026-11-18T12:10:22+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "target",
+    "primary",
+    "2026-11-18T12:10:22+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "target",
+    "secondary",
+    "2026-11-18T12:10:22+00:00",
+    true
+   ]
+  ],
+  "calls": [],
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "middle",
+    "low": 68.0,
+    "high": 70.0
+   },
+   {
+    "mode": "off",
+    "fan": "quiet",
+    "low": null,
+    "high": null
+   }
+  ],
+  "coordinator": {
+   "rooms": [
+    {
+     "target": 70.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": null,
+     "enable": true,
+     "released": false,
+     "floor": {}
+    },
+    {
+     "target": 88.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": 5.0,
+     "enable": false,
+     "released": false,
+     "floor": {}
+    }
+   ],
+   "latch": [
+    [
+     "primary",
+     "cool"
+    ],
+    [
+     "secondary",
+     ""
+    ]
+   ],
+   "startup": [],
+   "switches": {
+    "coordinator_enable": true,
+    "eco_idle": false,
+    "heat_lockout": true,
+    "cool_lockout": false
+   },
+   "restored_on": true,
+   "mode": "cool",
+   "by_votes": false,
+   "record": {
+    "changed_at": null,
+    "mode": "heat",
+    "mode_at": 1.0,
+    "by_votes": true
+   },
+   "mode_data": {
+    "mode": "cool",
+    "mode_at": 1795003827.0,
+    "mode_by_votes": false
+   },
+   "changed_at": null,
+   "stamp_ago": null,
+   "hold_left": 0.0,
+   "resumed": [
+    [
+     "drift",
+     "primary"
+    ],
+    [
+     "drift",
+     "secondary"
+    ],
+    [
+     "enable",
+     "primary"
+    ],
+    [
+     "enable",
+     "secondary"
+    ],
+    [
+     "fan",
+     "climate.property_head_a"
+    ],
+    [
+     "fan",
+     "climate.property_head_b"
+    ],
+    [
+     "switch",
+     "cool_lockout"
+    ],
+    [
+     "switch",
+     "coordinator_enable"
+    ],
+    [
+     "switch",
+     "eco_idle"
+    ],
+    [
+     "switch",
+     "heat_lockout"
+    ],
+    [
+     "target",
+     "primary"
+    ],
+    [
+     "target",
+     "secondary"
+    ]
+   ],
+   "fan": {
+    "climate.property_head_a": {
+     "hold": {
+      "latched": false,
+      "commanded": "middle",
+      "previous": "auto",
+      "older": [],
+      "ladder_index": 3,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched",
+      "rung"
+     ],
+     "record": {
+      "held": false,
+      "last_fan_command": "middle",
+      "prior_fan_command": "auto"
+     },
+     "problem": null
+    },
+    "climate.property_head_b": {
+     "hold": {
+      "latched": true,
+      "commanded": "quiet",
+      "previous": "quiet",
+      "older": [],
+      "ladder_index": null,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched"
+     ],
+     "record": {
+      "held": true,
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet"
+     },
+     "problem": null
+    }
+   },
+   "head_writes": {
+    "climate.property_head_b": {
+     "hvac_mode": [
+      [
+       "off",
+       0
+      ]
+     ]
+    }
+   },
+   "saved": {
+    "saved_at": 1795003827.0,
+    "unit": "\u00b0F",
+    "readable": true,
+    "sections": [
+     "fan",
+     "floor",
+     "head_writes",
+     "mode",
+     "openings",
+     "rooms",
+     "switches"
+    ]
+   }
+  },
+  "entities": [
+   [
+    "button.mxz_coordinator_den_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "button.mxz_coordinator_study_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "climate.mxz_coordinator_den_thermostat",
+    "off"
+   ],
+   [
+    "climate.mxz_coordinator_study_thermostat",
+    "heat_cool"
+   ],
+   [
+    "number.mxz_coordinator_den_drift",
+    "5.0"
+   ],
+   [
+    "number.mxz_coordinator_den_target",
+    "88.0"
+   ],
+   [
+    "number.mxz_coordinator_study_drift",
+    "1.0"
+   ],
+   [
+    "number.mxz_coordinator_study_target",
+    "70.0"
+   ],
+   [
+    "select.mxz_coordinator_shared_mode",
+    "cool"
+   ],
+   [
+    "sensor.mxz_coordinator_plan",
+    "cool"
+   ],
+   [
+    "switch.mxz_coordinator_cool_lockout",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_coordinator_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_den_enable",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_den_fan_auto",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_eco_idle",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_heat_lockout",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_fan_auto",
+    "on"
+   ]
+  ],
+  "plan": {
+   "primary_demand": "neutral",
+   "secondary_demand": "off",
+   "primary_engage": "cool",
+   "secondary_engage": "off",
+   "zones": [
+    {
+     "name": "Study",
+     "demand": "neutral",
+     "engage": "cool",
+     "temp": 73.0,
+     "target": 70.0,
+     "enabled": true,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": 58.0,
+     "cool_start": 71.0,
+     "heat_demand_below": 58.0,
+     "cool_demand_above": 73.0,
+     "start_points_mode": "comfort",
+     "start_points_lockouts": [
+      "heat"
+     ],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 626,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": 50.0,
+     "floor_high": null,
+     "floor_state": "enabled",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:00:01+00:00"
+    },
+    {
+     "name": "Den",
+     "demand": "off",
+     "engage": "off",
+     "temp": 70.0,
+     "target": 88.0,
+     "enabled": false,
+     "drift": 5.0,
+     "drift_heat": 5.0,
+     "drift_cool": 5.0,
+     "drift_source": "room",
+     "drift_heat_from": "room",
+     "drift_cool_from": "room",
+     "heat_start": null,
+     "cool_start": null,
+     "heat_demand_below": null,
+     "cool_demand_above": null,
+     "start_points_mode": null,
+     "start_points_lockouts": [],
+     "fan_hold": true,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 626,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:10:27+00:00"
+    }
+   ],
+   "standoff": false,
+   "mode_by_hands_off": false,
+   "mode_by_safety": false,
+   "mode_by_comfort_priority": false,
+   "mode_by_floor": false,
+   "sensors_ok": true,
+   "seconds_since_mode_change": null,
+   "mode_change_allowed": true,
+   "inhibited": false,
+   "idle_action": "fan_only",
+   "icon": "mdi:head-cog",
+   "friendly_name": "MXZ Coordinator Plan"
+  }
+ },
+ {
+  "step": "floor_record_for_an_enabled_room",
+  "resumed": [
+   {
+    "rooms": [
+     {
+      "target": 70.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": null,
+      "enable": true,
+      "released": false,
+      "floor": {}
+     },
+     {
+      "target": 88.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": 5.0,
+      "enable": false,
+      "released": false,
+      "floor": {}
+     }
+    ],
+    "latch": [
+     [
+      "primary",
+      ""
+     ],
+     [
+      "secondary",
+      ""
+     ]
+    ],
+    "startup": [
+     [
+      "primary",
+      null
+     ]
+    ],
+    "switches": {
+     "coordinator_enable": true,
+     "eco_idle": false,
+     "heat_lockout": true,
+     "cool_lockout": false
+    },
+    "restored_on": true,
+    "mode": "cool",
+    "by_votes": false,
+    "record": {
+     "changed_at": null,
+     "mode": "cool",
+     "mode_at": 1795003827.0,
+     "by_votes": false
+    },
+    "mode_data": {
+     "mode": "cool",
+     "mode_at": 1795003827.0,
+     "mode_by_votes": false
+    },
+    "changed_at": null,
+    "stamp_ago": null,
+    "hold_left": 0.0,
+    "resumed": [
+     [
+      "drift",
+      "primary"
+     ],
+     [
+      "drift",
+      "secondary"
+     ],
+     [
+      "enable",
+      "primary"
+     ],
+     [
+      "enable",
+      "secondary"
+     ],
+     [
+      "fan",
+      "climate.property_head_a"
+     ],
+     [
+      "fan",
+      "climate.property_head_b"
+     ],
+     [
+      "switch",
+      "cool_lockout"
+     ],
+     [
+      "switch",
+      "coordinator_enable"
+     ],
+     [
+      "switch",
+      "eco_idle"
+     ],
+     [
+      "switch",
+      "heat_lockout"
+     ],
+     [
+      "target",
+      "primary"
+     ],
+     [
+      "target",
+      "secondary"
+     ]
+    ],
+    "fan": {
+     "climate.property_head_a": {
+      "hold": {
+       "latched": false,
+       "commanded": "middle",
+       "previous": "auto",
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": false,
+       "restore_problem": null
+      },
+      "keys": [
+       "restore"
+      ],
+      "record": {
+       "held": false,
+       "last_fan_command": "middle",
+       "prior_fan_command": "auto"
+      },
+      "problem": null
+     },
+     "climate.property_head_b": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": true,
+       "restore_problem": null
+      },
+      "keys": [
+       "restore"
+      ],
+      "record": {
+       "held": true,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     }
+    },
+    "head_writes": {
+     "climate.property_head_b": {
+      "hvac_mode": [
+       [
+        "off",
+        0
+       ]
+      ]
+     }
+    },
+    "saved": {
+     "saved_at": 1795003832.0,
+     "unit": "\u00b0F",
+     "readable": true,
+     "sections": [
+      "fan",
+      "floor",
+      "head_writes",
+      "mode",
+      "openings",
+      "rooms",
+      "switches"
+     ]
+    }
+   }
+  ],
+  "asked": [
+   [
+    "restore_shared_mode",
+    "cool",
+    1795003827.0,
+    "cool"
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "primary",
+    "2026-11-18T12:10:27+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "secondary",
+    "2026-11-18T12:10:27+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "primary",
+    "2026-11-18T12:10:27+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "secondary",
+    "2026-11-18T12:10:27+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_a",
+    "2026-11-18T12:10:27+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_b",
+    "2026-11-18T12:10:32+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "cool_lockout",
+    "2026-11-18T12:10:27+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "coordinator_enable",
+    "2026-11-18T12:10:27+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "eco_idle",
+    "2026-11-18T12:10:27+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "heat_lockout",
+    "2026-11-18T12:10:27+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "target",
+    "primary",
+    "2026-11-18T12:10:27+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "target",
+    "secondary",
+    "2026-11-18T12:10:27+00:00",
+    true
+   ]
+  ],
+  "calls": [],
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "middle",
+    "low": 68.0,
+    "high": 70.0
+   },
+   {
+    "mode": "off",
+    "fan": "low",
+    "low": null,
+    "high": null
+   }
+  ],
+  "coordinator": {
+   "rooms": [
+    {
+     "target": 70.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": null,
+     "enable": true,
+     "released": false,
+     "floor": {}
+    },
+    {
+     "target": 88.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": 5.0,
+     "enable": false,
+     "released": false,
+     "floor": {}
+    }
+   ],
+   "latch": [
+    [
+     "primary",
+     "cool"
+    ],
+    [
+     "secondary",
+     ""
+    ]
+   ],
+   "startup": [],
+   "switches": {
+    "coordinator_enable": true,
+    "eco_idle": false,
+    "heat_lockout": true,
+    "cool_lockout": false
+   },
+   "restored_on": true,
+   "mode": "cool",
+   "by_votes": false,
+   "record": {
+    "changed_at": null,
+    "mode": "cool",
+    "mode_at": 1795003827.0,
+    "by_votes": false
+   },
+   "mode_data": {
+    "mode": "cool",
+    "mode_at": 1795003827.0,
+    "mode_by_votes": false
+   },
+   "changed_at": null,
+   "stamp_ago": null,
+   "hold_left": 0.0,
+   "resumed": [
+    [
+     "drift",
+     "primary"
+    ],
+    [
+     "drift",
+     "secondary"
+    ],
+    [
+     "enable",
+     "primary"
+    ],
+    [
+     "enable",
+     "secondary"
+    ],
+    [
+     "fan",
+     "climate.property_head_a"
+    ],
+    [
+     "fan",
+     "climate.property_head_b"
+    ],
+    [
+     "switch",
+     "cool_lockout"
+    ],
+    [
+     "switch",
+     "coordinator_enable"
+    ],
+    [
+     "switch",
+     "eco_idle"
+    ],
+    [
+     "switch",
+     "heat_lockout"
+    ],
+    [
+     "target",
+     "primary"
+    ],
+    [
+     "target",
+     "secondary"
+    ]
+   ],
+   "fan": {
+    "climate.property_head_a": {
+     "hold": {
+      "latched": false,
+      "commanded": "middle",
+      "previous": "auto",
+      "older": [],
+      "ladder_index": 3,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched",
+      "rung"
+     ],
+     "record": {
+      "held": false,
+      "last_fan_command": "middle",
+      "prior_fan_command": "auto"
+     },
+     "problem": null
+    },
+    "climate.property_head_b": {
+     "hold": {
+      "latched": true,
+      "commanded": "low",
+      "previous": "low",
+      "older": [],
+      "ladder_index": null,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched"
+     ],
+     "record": {
+      "held": true,
+      "last_fan_command": "low",
+      "prior_fan_command": "low"
+     },
+     "problem": null
+    }
+   },
+   "head_writes": {
+    "climate.property_head_b": {
+     "hvac_mode": [
+      [
+       "off",
+       0
+      ]
+     ]
+    }
+   },
+   "saved": {
+    "saved_at": 1795003832.0,
+    "unit": "\u00b0F",
+    "readable": true,
+    "sections": [
+     "fan",
+     "floor",
+     "head_writes",
+     "mode",
+     "openings",
+     "rooms",
+     "switches"
+    ]
+   }
+  },
+  "entities": [
+   [
+    "button.mxz_coordinator_den_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "button.mxz_coordinator_study_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "climate.mxz_coordinator_den_thermostat",
+    "off"
+   ],
+   [
+    "climate.mxz_coordinator_study_thermostat",
+    "heat_cool"
+   ],
+   [
+    "number.mxz_coordinator_den_drift",
+    "5.0"
+   ],
+   [
+    "number.mxz_coordinator_den_target",
+    "88.0"
+   ],
+   [
+    "number.mxz_coordinator_study_drift",
+    "1.0"
+   ],
+   [
+    "number.mxz_coordinator_study_target",
+    "70.0"
+   ],
+   [
+    "select.mxz_coordinator_shared_mode",
+    "cool"
+   ],
+   [
+    "sensor.mxz_coordinator_plan",
+    "cool"
+   ],
+   [
+    "switch.mxz_coordinator_cool_lockout",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_coordinator_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_den_enable",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_den_fan_auto",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_eco_idle",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_heat_lockout",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_fan_auto",
+    "on"
+   ]
+  ],
+  "plan": {
+   "primary_demand": "neutral",
+   "secondary_demand": "off",
+   "primary_engage": "cool",
+   "secondary_engage": "off",
+   "zones": [
+    {
+     "name": "Study",
+     "demand": "neutral",
+     "engage": "cool",
+     "temp": 73.0,
+     "target": 70.0,
+     "enabled": true,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": 58.0,
+     "cool_start": 71.0,
+     "heat_demand_below": 58.0,
+     "cool_demand_above": 73.0,
+     "start_points_mode": "comfort",
+     "start_points_lockouts": [
+      "heat"
+     ],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 631,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": 50.0,
+     "floor_high": null,
+     "floor_state": "enabled",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:00:01+00:00"
+    },
+    {
+     "name": "Den",
+     "demand": "off",
+     "engage": "off",
+     "temp": 70.0,
+     "target": 88.0,
+     "enabled": false,
+     "drift": 5.0,
+     "drift_heat": 5.0,
+     "drift_cool": 5.0,
+     "drift_source": "room",
+     "drift_heat_from": "room",
+     "drift_cool_from": "room",
+     "heat_start": null,
+     "cool_start": null,
+     "heat_demand_below": null,
+     "cool_demand_above": null,
+     "start_points_mode": null,
+     "start_points_lockouts": [],
+     "fan_hold": true,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 631,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:10:32+00:00"
+    }
+   ],
+   "standoff": false,
+   "mode_by_hands_off": false,
+   "mode_by_safety": false,
+   "mode_by_comfort_priority": false,
+   "mode_by_floor": false,
+   "sensors_ok": true,
+   "seconds_since_mode_change": null,
+   "mode_change_allowed": true,
+   "inhibited": false,
+   "idle_action": "fan_only",
+   "icon": "mdi:head-cog",
+   "friendly_name": "MXZ Coordinator Plan"
+  }
+ },
+ {
+  "step": "floor_record_for_a_disabled_room",
+  "resumed": [
+   {
+    "rooms": [
+     {
+      "target": 70.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": null,
+      "enable": false,
+      "released": false,
+      "floor": {
+       "floor_run": {
+        "direction": "heat",
+        "mark": 49.0,
+        "worst": 48.0,
+        "driven": 30.0,
+        "stalled": false,
+        "window": [
+         [
+          1795003000.0,
+          48.5
+         ]
+        ]
+       },
+       "floor_prior": {
+        "mode": "heat",
+        "low": 66.0,
+        "high": 74.0
+       }
+      }
+     },
+     {
+      "target": 88.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": 5.0,
+      "enable": false,
+      "released": false,
+      "floor": {}
+     }
+    ],
+    "latch": [
+     [
+      "primary",
+      ""
+     ],
+     [
+      "secondary",
+      ""
+     ]
+    ],
+    "startup": [],
+    "switches": {
+     "coordinator_enable": true,
+     "eco_idle": false,
+     "heat_lockout": true,
+     "cool_lockout": false
+    },
+    "restored_on": true,
+    "mode": "cool",
+    "by_votes": false,
+    "record": {
+     "changed_at": null,
+     "mode": "cool",
+     "mode_at": 1795003827.0,
+     "by_votes": false
+    },
+    "mode_data": {
+     "mode": "cool",
+     "mode_at": 1795003827.0,
+     "mode_by_votes": false
+    },
+    "changed_at": null,
+    "stamp_ago": null,
+    "hold_left": 0.0,
+    "resumed": [
+     [
+      "drift",
+      "primary"
+     ],
+     [
+      "drift",
+      "secondary"
+     ],
+     [
+      "enable",
+      "primary"
+     ],
+     [
+      "enable",
+      "secondary"
+     ],
+     [
+      "fan",
+      "climate.property_head_a"
+     ],
+     [
+      "fan",
+      "climate.property_head_b"
+     ],
+     [
+      "switch",
+      "cool_lockout"
+     ],
+     [
+      "switch",
+      "coordinator_enable"
+     ],
+     [
+      "switch",
+      "eco_idle"
+     ],
+     [
+      "switch",
+      "heat_lockout"
+     ],
+     [
+      "target",
+      "primary"
+     ],
+     [
+      "target",
+      "secondary"
+     ]
+    ],
+    "fan": {
+     "climate.property_head_a": {
+      "hold": {
+       "latched": false,
+       "commanded": "middle",
+       "previous": "auto",
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": false,
+       "restore_problem": null
+      },
+      "keys": [
+       "restore"
+      ],
+      "record": {
+       "held": false,
+       "last_fan_command": "middle",
+       "prior_fan_command": "auto"
+      },
+      "problem": null
+     },
+     "climate.property_head_b": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": true,
+       "restore_problem": null
+      },
+      "keys": [
+       "restore"
+      ],
+      "record": {
+       "held": true,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     }
+    },
+    "head_writes": {
+     "climate.property_head_b": {
+      "hvac_mode": [
+       [
+        "off",
+        0
+       ]
+      ]
+     }
+    },
+    "saved": {
+     "saved_at": 1795003837.0,
+     "unit": "\u00b0F",
+     "readable": true,
+     "sections": [
+      "fan",
+      "floor",
+      "head_writes",
+      "mode",
+      "openings",
+      "rooms",
+      "switches"
+     ]
+    }
+   }
+  ],
+  "asked": [
+   [
+    "restore_shared_mode",
+    "cool",
+    1795003832.0,
+    "cool"
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "primary",
+    "2026-11-18T12:10:32+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "secondary",
+    "2026-11-18T12:10:32+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "primary",
+    "2026-11-18T12:10:32+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "secondary",
+    "2026-11-18T12:10:32+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_a",
+    "2026-11-18T12:10:32+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_b",
+    "2026-11-18T12:10:37+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "cool_lockout",
+    "2026-11-18T12:10:32+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "coordinator_enable",
+    "2026-11-18T12:10:32+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "eco_idle",
+    "2026-11-18T12:10:32+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "heat_lockout",
+    "2026-11-18T12:10:32+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "target",
+    "primary",
+    "2026-11-18T12:10:32+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "target",
+    "secondary",
+    "2026-11-18T12:10:32+00:00",
+    true
+   ]
+  ],
+  "calls": [
+   {
+    "call": "climate.set_hvac_mode",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "off"
+    }
+   }
+  ],
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "middle",
+    "low": 68.0,
+    "high": 70.0
+   },
+   {
+    "mode": "off",
+    "fan": "quiet",
+    "low": null,
+    "high": null
+   }
+  ],
+  "coordinator": {
+   "rooms": [
+    {
+     "target": 70.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": null,
+     "enable": false,
+     "released": true,
+     "floor": {}
+    },
+    {
+     "target": 88.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": 5.0,
+     "enable": false,
+     "released": false,
+     "floor": {}
+    }
+   ],
+   "latch": [
+    [
+     "primary",
+     ""
+    ],
+    [
+     "secondary",
+     ""
+    ]
+   ],
+   "startup": [],
+   "switches": {
+    "coordinator_enable": true,
+    "eco_idle": false,
+    "heat_lockout": true,
+    "cool_lockout": false
+   },
+   "restored_on": true,
+   "mode": "cool",
+   "by_votes": false,
+   "record": {
+    "changed_at": null,
+    "mode": "cool",
+    "mode_at": 1795003827.0,
+    "by_votes": false
+   },
+   "mode_data": {
+    "mode": "cool",
+    "mode_at": 1795003827.0,
+    "mode_by_votes": false
+   },
+   "changed_at": null,
+   "stamp_ago": null,
+   "hold_left": 0.0,
+   "resumed": [
+    [
+     "drift",
+     "primary"
+    ],
+    [
+     "drift",
+     "secondary"
+    ],
+    [
+     "enable",
+     "primary"
+    ],
+    [
+     "enable",
+     "secondary"
+    ],
+    [
+     "fan",
+     "climate.property_head_a"
+    ],
+    [
+     "fan",
+     "climate.property_head_b"
+    ],
+    [
+     "switch",
+     "cool_lockout"
+    ],
+    [
+     "switch",
+     "coordinator_enable"
+    ],
+    [
+     "switch",
+     "eco_idle"
+    ],
+    [
+     "switch",
+     "heat_lockout"
+    ],
+    [
+     "target",
+     "primary"
+    ],
+    [
+     "target",
+     "secondary"
+    ]
+   ],
+   "fan": {
+    "climate.property_head_a": {
+     "hold": {
+      "latched": false,
+      "commanded": "middle",
+      "previous": "auto",
+      "older": [],
+      "ladder_index": null,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched"
+     ],
+     "record": {
+      "held": false,
+      "last_fan_command": "middle",
+      "prior_fan_command": "auto"
+     },
+     "problem": null
+    },
+    "climate.property_head_b": {
+     "hold": {
+      "latched": true,
+      "commanded": "quiet",
+      "previous": "quiet",
+      "older": [],
+      "ladder_index": null,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched"
+     ],
+     "record": {
+      "held": true,
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet"
+     },
+     "problem": null
+    }
+   },
+   "head_writes": {
+    "climate.property_head_b": {
+     "hvac_mode": [
+      [
+       "off",
+       0
+      ]
+     ]
+    },
+    "climate.property_head_a": {
+     "hvac_mode": [
+      [
+       "off",
+       0
+      ]
+     ]
+    }
+   },
+   "saved": {
+    "saved_at": 1795003837.0,
+    "unit": "\u00b0F",
+    "readable": true,
+    "sections": [
+     "fan",
+     "floor",
+     "head_writes",
+     "mode",
+     "openings",
+     "rooms",
+     "switches"
+    ]
+   }
+  },
+  "entities": [
+   [
+    "button.mxz_coordinator_den_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "button.mxz_coordinator_study_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "climate.mxz_coordinator_den_thermostat",
+    "off"
+   ],
+   [
+    "climate.mxz_coordinator_study_thermostat",
+    "off"
+   ],
+   [
+    "number.mxz_coordinator_den_drift",
+    "5.0"
+   ],
+   [
+    "number.mxz_coordinator_den_target",
+    "88.0"
+   ],
+   [
+    "number.mxz_coordinator_study_drift",
+    "1.0"
+   ],
+   [
+    "number.mxz_coordinator_study_target",
+    "70.0"
+   ],
+   [
+    "select.mxz_coordinator_shared_mode",
+    "cool"
+   ],
+   [
+    "sensor.mxz_coordinator_plan",
+    "cool"
+   ],
+   [
+    "switch.mxz_coordinator_cool_lockout",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_coordinator_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_den_enable",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_den_fan_auto",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_eco_idle",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_heat_lockout",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_enable",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_study_fan_auto",
+    "on"
+   ]
+  ],
+  "plan": {
+   "primary_demand": "off",
+   "secondary_demand": "off",
+   "primary_engage": "off",
+   "secondary_engage": "off",
+   "zones": [
+    {
+     "name": "Study",
+     "demand": "off",
+     "engage": "off",
+     "temp": 73.0,
+     "target": 70.0,
+     "enabled": false,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": null,
+     "cool_start": null,
+     "heat_demand_below": null,
+     "cool_demand_above": null,
+     "start_points_mode": null,
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 636,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": 50.0,
+     "floor_high": null,
+     "floor_state": "armed",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "2026-11-18T12:10:37+00:00",
+     "command_returned_at": "2026-11-18T12:10:37+00:00",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "returned",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:10:37+00:00"
+    },
+    {
+     "name": "Den",
+     "demand": "off",
+     "engage": "off",
+     "temp": 70.0,
+     "target": 88.0,
+     "enabled": false,
+     "drift": 5.0,
+     "drift_heat": 5.0,
+     "drift_cool": 5.0,
+     "drift_source": "room",
+     "drift_heat_from": "room",
+     "drift_cool_from": "room",
+     "heat_start": null,
+     "cool_start": null,
+     "heat_demand_below": null,
+     "cool_demand_above": null,
+     "start_points_mode": null,
+     "start_points_lockouts": [],
+     "fan_hold": true,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 636,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:10:37+00:00"
+    }
+   ],
+   "standoff": false,
+   "mode_by_hands_off": false,
+   "mode_by_safety": false,
+   "mode_by_comfort_priority": false,
+   "mode_by_floor": false,
+   "sensors_ok": true,
+   "seconds_since_mode_change": null,
+   "mode_change_allowed": true,
+   "inhibited": false,
+   "idle_action": "fan_only",
+   "icon": "mdi:head-cog",
+   "friendly_name": "MXZ Coordinator Plan"
+  }
+ },
+ {
+  "step": "entry_without_its_creation_time",
+  "resumed": [
+   {
+    "rooms": [
+     {
+      "target": 70.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": null,
+      "enable": false,
+      "released": false,
+      "floor": {}
+     },
+     {
+      "target": 88.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": 5.0,
+      "enable": false,
+      "released": false,
+      "floor": {}
+     }
+    ],
+    "latch": [
+     [
+      "primary",
+      ""
+     ],
+     [
+      "secondary",
+      ""
+     ]
+    ],
+    "startup": [],
+    "switches": {
+     "coordinator_enable": true,
+     "eco_idle": false,
+     "heat_lockout": true,
+     "cool_lockout": false
+    },
+    "restored_on": true,
+    "mode": "cool",
+    "by_votes": false,
+    "record": {
+     "changed_at": null,
+     "mode": "cool",
+     "mode_at": 1795003827.0,
+     "by_votes": false
+    },
+    "mode_data": {
+     "mode": "cool",
+     "mode_at": 1795003827.0,
+     "mode_by_votes": false
+    },
+    "changed_at": null,
+    "stamp_ago": null,
+    "hold_left": 0.0,
+    "resumed": [
+     [
+      "drift",
+      "primary"
+     ],
+     [
+      "drift",
+      "secondary"
+     ],
+     [
+      "enable",
+      "primary"
+     ],
+     [
+      "enable",
+      "secondary"
+     ],
+     [
+      "fan",
+      "climate.property_head_a"
+     ],
+     [
+      "switch",
+      "cool_lockout"
+     ],
+     [
+      "switch",
+      "coordinator_enable"
+     ],
+     [
+      "switch",
+      "eco_idle"
+     ],
+     [
+      "switch",
+      "heat_lockout"
+     ],
+     [
+      "target",
+      "primary"
+     ],
+     [
+      "target",
+      "secondary"
+     ]
+    ],
+    "fan": {
+     "climate.property_head_a": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": false,
+       "restore_problem": null
+      },
+      "keys": [
+       "restore"
+      ],
+      "record": {
+       "held": false,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     },
+     "climate.property_head_b": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": null,
+       "restore_problem": null
+      },
+      "keys": [],
+      "record": {
+       "held": false,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     }
+    },
+    "head_writes": {
+     "climate.property_head_a": {
+      "hvac_mode": [
+       [
+        "off",
+        0
+       ]
+      ]
+     },
+     "climate.property_head_b": {
+      "hvac_mode": [
+       [
+        "off",
+        0
+       ]
+      ]
+     }
+    },
+    "saved": {
+     "saved_at": 1795003842.0,
+     "unit": "\u00b0F",
+     "readable": true,
+     "sections": [
+      "fan",
+      "floor",
+      "head_writes",
+      "mode",
+      "openings",
+      "rooms",
+      "switches"
+     ]
+    }
+   }
+  ],
+  "asked": [
+   [
+    "restore_shared_mode",
+    "cool",
+    1795003837.0,
+    "cool"
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "primary",
+    "2026-11-18T12:10:37+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "secondary",
+    "2026-11-18T12:10:37+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "primary",
+    "2026-11-18T12:10:37+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "secondary",
+    "2026-11-18T12:10:37+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_a",
+    "2026-11-18T12:10:37+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_b",
+    "2026-11-18T12:10:42+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "cool_lockout",
+    "2026-11-18T12:10:37+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "coordinator_enable",
+    "2026-11-18T12:10:37+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "eco_idle",
+    "2026-11-18T12:10:37+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "heat_lockout",
+    "2026-11-18T12:10:37+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "target",
+    "primary",
+    "2026-11-18T12:10:37+00:00",
+    true
+   ],
+   [
+    "store_resumes",
+    "target",
+    "secondary",
+    "2026-11-18T12:10:37+00:00",
+    true
+   ]
+  ],
+  "calls": [],
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "middle",
+    "low": 68.0,
+    "high": 70.0
+   },
+   {
+    "mode": "off",
+    "fan": "low",
+    "low": null,
+    "high": null
+   }
+  ],
+  "coordinator": {
+   "rooms": [
+    {
+     "target": 70.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": null,
+     "enable": false,
+     "released": false,
+     "floor": {}
+    },
+    {
+     "target": 88.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": 5.0,
+     "enable": false,
+     "released": false,
+     "floor": {}
+    }
+   ],
+   "latch": [
+    [
+     "primary",
+     ""
+    ],
+    [
+     "secondary",
+     ""
+    ]
+   ],
+   "startup": [],
+   "switches": {
+    "coordinator_enable": true,
+    "eco_idle": false,
+    "heat_lockout": true,
+    "cool_lockout": false
+   },
+   "restored_on": true,
+   "mode": "cool",
+   "by_votes": false,
+   "record": {
+    "changed_at": null,
+    "mode": "cool",
+    "mode_at": 1795003827.0,
+    "by_votes": false
+   },
+   "mode_data": {
+    "mode": "cool",
+    "mode_at": 1795003827.0,
+    "mode_by_votes": false
+   },
+   "changed_at": null,
+   "stamp_ago": null,
+   "hold_left": 0.0,
+   "resumed": [
+    [
+     "drift",
+     "primary"
+    ],
+    [
+     "drift",
+     "secondary"
+    ],
+    [
+     "enable",
+     "primary"
+    ],
+    [
+     "enable",
+     "secondary"
+    ],
+    [
+     "fan",
+     "climate.property_head_a"
+    ],
+    [
+     "switch",
+     "cool_lockout"
+    ],
+    [
+     "switch",
+     "coordinator_enable"
+    ],
+    [
+     "switch",
+     "eco_idle"
+    ],
+    [
+     "switch",
+     "heat_lockout"
+    ],
+    [
+     "target",
+     "primary"
+    ],
+    [
+     "target",
+     "secondary"
+    ]
+   ],
+   "fan": {
+    "climate.property_head_a": {
+     "hold": {
+      "latched": false,
+      "commanded": "middle",
+      "previous": "middle",
+      "older": [],
+      "ladder_index": null,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched"
+     ],
+     "record": {
+      "held": false,
+      "last_fan_command": "middle",
+      "prior_fan_command": "middle"
+     },
+     "problem": null
+    },
+    "climate.property_head_b": {
+     "hold": {
+      "latched": true,
+      "commanded": "low",
+      "previous": "low",
+      "older": [],
+      "ladder_index": null,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched"
+     ],
+     "record": {
+      "held": true,
+      "last_fan_command": "low",
+      "prior_fan_command": "low"
+     },
+     "problem": null
+    }
+   },
+   "head_writes": {
+    "climate.property_head_a": {
+     "hvac_mode": [
+      [
+       "off",
+       0
+      ]
+     ]
+    },
+    "climate.property_head_b": {
+     "hvac_mode": [
+      [
+       "off",
+       0
+      ]
+     ]
+    }
+   },
+   "saved": {
+    "saved_at": 1795003842.0,
+    "unit": "\u00b0F",
+    "readable": true,
+    "sections": [
+     "fan",
+     "floor",
+     "head_writes",
+     "mode",
+     "openings",
+     "rooms",
+     "switches"
+    ]
+   }
+  },
+  "entities": [
+   [
+    "button.mxz_coordinator_den_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "button.mxz_coordinator_study_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "climate.mxz_coordinator_den_thermostat",
+    "off"
+   ],
+   [
+    "climate.mxz_coordinator_study_thermostat",
+    "off"
+   ],
+   [
+    "number.mxz_coordinator_den_drift",
+    "5.0"
+   ],
+   [
+    "number.mxz_coordinator_den_target",
+    "88.0"
+   ],
+   [
+    "number.mxz_coordinator_study_drift",
+    "1.0"
+   ],
+   [
+    "number.mxz_coordinator_study_target",
+    "70.0"
+   ],
+   [
+    "select.mxz_coordinator_shared_mode",
+    "cool"
+   ],
+   [
+    "sensor.mxz_coordinator_plan",
+    "cool"
+   ],
+   [
+    "switch.mxz_coordinator_cool_lockout",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_coordinator_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_den_enable",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_den_fan_auto",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_eco_idle",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_heat_lockout",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_enable",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_study_fan_auto",
+    "on"
+   ]
+  ],
+  "plan": {
+   "primary_demand": "off",
+   "secondary_demand": "off",
+   "primary_engage": "off",
+   "secondary_engage": "off",
+   "zones": [
+    {
+     "name": "Study",
+     "demand": "off",
+     "engage": "off",
+     "temp": 73.0,
+     "target": 70.0,
+     "enabled": false,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": null,
+     "cool_start": null,
+     "heat_demand_below": null,
+     "cool_demand_above": null,
+     "start_points_mode": null,
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 641,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": 50.0,
+     "floor_high": null,
+     "floor_state": "armed",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:10:37+00:00"
+    },
+    {
+     "name": "Den",
+     "demand": "off",
+     "engage": "off",
+     "temp": 70.0,
+     "target": 88.0,
+     "enabled": false,
+     "drift": 5.0,
+     "drift_heat": 5.0,
+     "drift_cool": 5.0,
+     "drift_source": "room",
+     "drift_heat_from": "room",
+     "drift_cool_from": "room",
+     "heat_start": null,
+     "cool_start": null,
+     "heat_demand_below": null,
+     "cool_demand_above": null,
+     "start_points_mode": null,
+     "start_points_lockouts": [],
+     "fan_hold": true,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 641,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:10:42+00:00"
+    }
+   ],
+   "standoff": false,
+   "mode_by_hands_off": false,
+   "mode_by_safety": false,
+   "mode_by_comfort_priority": false,
+   "mode_by_floor": false,
+   "sensors_ok": true,
+   "seconds_since_mode_change": null,
+   "mode_change_allowed": true,
+   "inhibited": false,
+   "idle_action": "fan_only",
+   "icon": "mdi:head-cog",
+   "friendly_name": "MXZ Coordinator Plan"
+  }
+ },
+ {
+  "step": "store_from_a_later_release",
+  "resumed": [
+   {
+    "rooms": [
+     {
+      "target": 70.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": null,
+      "enable": false,
+      "released": false,
+      "floor": {}
+     },
+     {
+      "target": 70.0,
+      "low": null,
+      "high": null,
+      "saved_range": null,
+      "drift": null,
+      "enable": false,
+      "released": false,
+      "floor": {}
+     }
+    ],
+    "latch": [
+     [
+      "primary",
+      ""
+     ],
+     [
+      "secondary",
+      ""
+     ]
+    ],
+    "startup": [],
+    "switches": {
+     "coordinator_enable": false,
+     "eco_idle": false,
+     "heat_lockout": false,
+     "cool_lockout": false
+    },
+    "restored_on": false,
+    "mode": "cool",
+    "by_votes": false,
+    "record": {
+     "changed_at": null,
+     "mode": "cool",
+     "mode_at": 1795003827.0,
+     "by_votes": false
+    },
+    "mode_data": {
+     "mode": "cool",
+     "mode_at": 1795003827.0,
+     "mode_by_votes": false
+    },
+    "changed_at": null,
+    "stamp_ago": null,
+    "hold_left": 0.0,
+    "resumed": [],
+    "fan": {
+     "climate.property_head_a": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": null,
+       "restore_problem": null
+      },
+      "keys": [],
+      "record": {
+       "held": false,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     },
+     "climate.property_head_b": {
+      "hold": {
+       "latched": false,
+       "commanded": null,
+       "previous": null,
+       "older": [],
+       "ladder_index": null,
+       "turn_on_pending": false,
+       "restored_latch": null,
+       "restore_problem": null
+      },
+      "keys": [],
+      "record": {
+       "held": false,
+       "last_fan_command": null,
+       "prior_fan_command": null
+      },
+      "problem": null
+     }
+    },
+    "head_writes": {},
+    "saved": {
+     "saved_at": null,
+     "unit": null,
+     "readable": false,
+     "sections": []
+    }
+   }
+  ],
+  "asked": [
+   [
+    "restore_shared_mode",
+    "cool",
+    1795003842.0,
+    "cool"
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "primary",
+    "2026-11-18T12:10:42+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "drift",
+    "secondary",
+    "2026-11-18T12:10:42+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "primary",
+    "2026-11-18T12:10:42+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "enable",
+    "secondary",
+    "2026-11-18T12:10:42+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_a",
+    "2026-11-18T12:10:42+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "fan",
+    "climate.property_head_b",
+    "2026-11-18T12:10:47+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "cool_lockout",
+    "2026-11-18T12:10:42+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "coordinator_enable",
+    "2026-11-18T12:10:42+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "eco_idle",
+    "2026-11-18T12:10:42+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "switch",
+    "heat_lockout",
+    "2026-11-18T12:10:42+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "target",
+    "primary",
+    "2026-11-18T12:10:42+00:00",
+    false
+   ],
+   [
+    "store_resumes",
+    "target",
+    "secondary",
+    "2026-11-18T12:10:42+00:00",
+    false
+   ],
+   [
+    "warning",
+    "MXZ: the room state store can't be read (<Home Assistant's error>), perhaps because a later release wrote it; this one neither reads nor writes it, and rooms resume from Home Assistant's restore data"
+   ]
+  ],
+  "calls": [],
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "middle",
+    "low": 68.0,
+    "high": 70.0
+   },
+   {
+    "mode": "off",
+    "fan": "quiet",
+    "low": null,
+    "high": null
+   }
+  ],
+  "coordinator": {
+   "rooms": [
+    {
+     "target": 70.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": null,
+     "enable": false,
+     "released": false,
+     "floor": {}
+    },
+    {
+     "target": 88.0,
+     "low": null,
+     "high": null,
+     "saved_range": null,
+     "drift": 5.0,
+     "enable": false,
+     "released": false,
+     "floor": {}
+    }
+   ],
+   "latch": [
+    [
+     "primary",
+     ""
+    ],
+    [
+     "secondary",
+     ""
+    ]
+   ],
+   "startup": [],
+   "switches": {
+    "coordinator_enable": true,
+    "eco_idle": false,
+    "heat_lockout": true,
+    "cool_lockout": false
+   },
+   "restored_on": true,
+   "mode": "cool",
+   "by_votes": false,
+   "record": {
+    "changed_at": null,
+    "mode": "cool",
+    "mode_at": 1795003827.0,
+    "by_votes": false
+   },
+   "mode_data": {
+    "mode": "cool",
+    "mode_at": 1795003827.0,
+    "mode_by_votes": false
+   },
+   "changed_at": null,
+   "stamp_ago": null,
+   "hold_left": 0.0,
+   "resumed": [],
+   "fan": {
+    "climate.property_head_a": {
+     "hold": {
+      "latched": false,
+      "commanded": "middle",
+      "previous": "middle",
+      "older": [],
+      "ladder_index": null,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched"
+     ],
+     "record": {
+      "held": false,
+      "last_fan_command": "middle",
+      "prior_fan_command": "middle"
+     },
+     "problem": null
+    },
+    "climate.property_head_b": {
+     "hold": {
+      "latched": true,
+      "commanded": "quiet",
+      "previous": "quiet",
+      "older": [],
+      "ladder_index": null,
+      "turn_on_pending": false,
+      "restored_latch": null,
+      "restore_problem": null
+     },
+     "keys": [
+      "latched"
+     ],
+     "record": {
+      "held": true,
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet"
+     },
+     "problem": null
+    }
+   },
+   "head_writes": {},
+   "saved": {
+    "saved_at": null,
+    "unit": null,
+    "readable": false,
+    "sections": []
+   }
+  },
+  "entities": [
+   [
+    "button.mxz_coordinator_den_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "button.mxz_coordinator_study_follow_global_drift",
+    "unknown"
+   ],
+   [
+    "climate.mxz_coordinator_den_thermostat",
+    "off"
+   ],
+   [
+    "climate.mxz_coordinator_study_thermostat",
+    "off"
+   ],
+   [
+    "number.mxz_coordinator_den_drift",
+    "5.0"
+   ],
+   [
+    "number.mxz_coordinator_den_target",
+    "88.0"
+   ],
+   [
+    "number.mxz_coordinator_study_drift",
+    "1.0"
+   ],
+   [
+    "number.mxz_coordinator_study_target",
+    "70.0"
+   ],
+   [
+    "select.mxz_coordinator_shared_mode",
+    "cool"
+   ],
+   [
+    "sensor.mxz_coordinator_plan",
+    "cool"
+   ],
+   [
+    "switch.mxz_coordinator_cool_lockout",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_coordinator_enable",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_den_enable",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_den_fan_auto",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_eco_idle",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_heat_lockout",
+    "on"
+   ],
+   [
+    "switch.mxz_coordinator_study_enable",
+    "off"
+   ],
+   [
+    "switch.mxz_coordinator_study_fan_auto",
+    "on"
+   ]
+  ],
+  "plan": {
+   "primary_demand": "off",
+   "secondary_demand": "off",
+   "primary_engage": "off",
+   "secondary_engage": "off",
+   "zones": [
+    {
+     "name": "Study",
+     "demand": "off",
+     "engage": "off",
+     "temp": 73.0,
+     "target": 70.0,
+     "enabled": false,
+     "drift": 1.0,
+     "drift_heat": 1.0,
+     "drift_cool": 1.0,
+     "drift_source": "global",
+     "drift_heat_from": "allowed_drift",
+     "drift_cool_from": "allowed_drift",
+     "heat_start": null,
+     "cool_start": null,
+     "heat_demand_below": null,
+     "cool_demand_above": null,
+     "start_points_mode": null,
+     "start_points_lockouts": [],
+     "fan_hold": false,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 646,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": 50.0,
+     "floor_high": null,
+     "floor_state": "armed",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:10:37+00:00"
+    },
+    {
+     "name": "Den",
+     "demand": "off",
+     "engage": "off",
+     "temp": 70.0,
+     "target": 88.0,
+     "enabled": false,
+     "drift": 5.0,
+     "drift_heat": 5.0,
+     "drift_cool": 5.0,
+     "drift_source": "room",
+     "drift_heat_from": "room",
+     "drift_cool_from": "room",
+     "heat_start": null,
+     "cool_start": null,
+     "heat_demand_below": null,
+     "cool_demand_above": null,
+     "start_points_mode": null,
+     "start_points_lockouts": [],
+     "fan_hold": true,
+     "sensor_health": "cadence_unknown",
+     "sensor_age": 646,
+     "control_reasons": [
+      {
+       "reason": "Default fan settings used for: maximum fan speed.",
+       "next_step": "The stored entry does not establish whether defaults were intended; review Configure."
+      }
+     ],
+     "hands_off": null,
+     "hands_off_vote": null,
+     "vote_status": "live",
+     "lost_since": null,
+     "safety_priority": false,
+     "comfort_priority_entity": null,
+     "comfort_priority": 0.0,
+     "comfort_priority_status": "not_set",
+     "floor_low": null,
+     "floor_high": null,
+     "floor_state": "none",
+     "floor_reason": null,
+     "floor_want": null,
+     "command_attempted_at": "not yet recorded",
+     "command_returned_at": "not yet recorded",
+     "command_failed_at": "not yet recorded",
+     "command_retired_at": "not yet recorded",
+     "command_status": "not yet recorded",
+     "command_error": null,
+     "command_ownership_retired": false,
+     "vane_retirement_cleanup": {},
+     "command_deferred": false,
+     "command_timestamp_basis": "Home Assistant software observations; not physical receipt",
+     "plan_target_basis": "computed intent; command return does not prove physical application",
+     "head_state_updated_at": "2026-11-18T12:10:47+00:00"
+    }
+   ],
+   "standoff": false,
+   "mode_by_hands_off": false,
+   "mode_by_safety": false,
+   "mode_by_comfort_priority": false,
+   "mode_by_floor": false,
+   "sensors_ok": true,
+   "seconds_since_mode_change": null,
+   "mode_change_allowed": true,
+   "inhibited": false,
+   "idle_action": "fan_only",
+   "icon": "mdi:head-cog",
+   "friendly_name": "MXZ Coordinator Plan"
+  }
+ }
+]
