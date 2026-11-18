@@ -14,7 +14,11 @@ import pytest
 from custom_components.mxz_coordinator.const import (
     DEMAND_NEUTRAL,
     ENGAGE_SATISFIED,
+    IDLE_ACTION_FAN_ONLY,
+    IDLE_ACTION_OFF,
+    IDLE_ACTION_OFF_AFTER_DRY,
     MODE_COOL,
+    MODE_FAN_ONLY,
     MODE_HEAT,
     MODE_OFF,
     VOTE_EXPIRED,
@@ -28,12 +32,15 @@ from custom_components.mxz_coordinator.logic import (
 from custom_components.mxz_coordinator.planner import (
     CallLimits,
     RoomInput,
+    SetpointSettings,
     Shared,
     arbitration_entries,
     arbitration_mode,
     decide,
     demand_bands,
+    head_command,
     holds,
+    idle_park,
     mode_change_stamp,
     mode_write_back,
 )
@@ -385,3 +392,101 @@ def test_a_start_keeps_what_is_left_of_the_hold() -> None:
 def test_a_stored_time_in_the_future_counts_as_now() -> None:
     wall, now = 1_800_000_000.0, 5_000.0
     assert mode_change_stamp(wall + 3600.0, now, wall) == now
+
+
+# --- each head's command ------------------------------------------------------------
+
+# °F: a 2° band on whole degrees, clamped to 50..88, with eco at 76/78 and 59/61.
+SETTINGS = SetpointSettings(
+    clamp_min=50.0, clamp_max=88.0, band=2.0, step=1.0, eco_cool=(76.0, 78.0), eco_heat=(59.0, 61.0)
+)
+
+
+def command(**changes):
+    kw = {
+        "engage": MODE_COOL, "floor_run": None, "temp": 70.0, "enabled": True,
+        "mode": MODE_COOL, "idle": MODE_FAN_ONLY, "eco": False, "target": 70.0,
+        "heat_target": 70.0, "cool_target": 70.0, "taken": None, "settings": SETTINGS,
+    }
+    kw.update(changes)
+    sent = head_command(**kw)
+    return sent.mode, sent.low, sent.high, sent.delta, sent.fan
+
+
+def test_a_running_head_runs_the_shared_mode_below_or_above_its_target() -> None:
+    assert command(temp=73.0) == (MODE_COOL, 68.0, 70.0, 3.0, MODE_COOL)
+    assert command(engage=MODE_HEAT, mode=MODE_HEAT, temp=66.5) == (
+        MODE_HEAT, 70.0, 72.0, 3.5, MODE_HEAT
+    )
+
+
+def test_a_head_not_running_the_shared_mode_parks_at_its_idle_action() -> None:
+    assert command(engage=ENGAGE_SATISFIED)[:1] == (MODE_FAN_ONLY,)
+    assert command(engage=ENGAGE_SATISFIED, idle=MODE_OFF)[:1] == (MODE_OFF,)
+    # A room engaged the other way waits parked too (a standoff it lost).
+    assert command(engage=MODE_HEAT, mode=MODE_COOL)[:1] == (MODE_FAN_ONLY,)
+
+
+def test_a_disabled_room_is_off_and_never_idles_in_fan_only() -> None:
+    assert command(engage=MODE_OFF, enabled=False)[:1] == (MODE_OFF,)
+    assert command(engage=MODE_HEAT, mode=MODE_COOL, enabled=False)[:1] == (MODE_OFF,)
+
+
+def test_eco_parks_a_satisfied_head_off_and_runs_the_eco_band() -> None:
+    assert command(engage=ENGAGE_SATISFIED, eco=True)[:1] == (MODE_OFF,)
+    assert command(eco=True)[:3] == (MODE_COOL, 76.0, 78.0)
+    assert command(eco=True, engage=MODE_HEAT, mode=MODE_HEAT)[:3] == (MODE_HEAT, 59.0, 61.0)
+
+
+def test_a_dual_setpoint_head_runs_from_the_side_the_mode_is_on() -> None:
+    dual = {"heat_target": 68.0, "cool_target": 72.0}
+    assert command(mode=MODE_COOL, temp=73.0, **dual) == (MODE_COOL, 70.0, 72.0, 1.0, MODE_COOL)
+    assert command(engage=MODE_HEAT, mode=MODE_HEAT, temp=66.0, **dual) == (
+        MODE_HEAT, 68.0, 70.0, 2.0, MODE_HEAT
+    )
+    assert command(temp=70.0, **dual)[3] == 0.0  # inside the range: no distance
+
+
+def test_setpoints_round_to_the_step_and_stay_inside_the_clamp() -> None:
+    assert command(target=95.0, cool_target=95.0, heat_target=95.0)[1:3] == (86.0, 88.0)
+    assert command(engage=MODE_HEAT, mode=MODE_HEAT, target=45.0, heat_target=45.0)[1:3] == (50.0, 52.0)
+    assert command(target=70.4, cool_target=70.4, heat_target=70.4)[1:3] == (68.0, 70.0)
+
+
+def test_a_rejected_reading_has_no_distance() -> None:
+    assert command(temp=None)[3] == 0.0
+
+
+def test_a_floor_runs_to_its_clear_line_without_eco_or_a_fan_write() -> None:
+    floor = {"engage": MODE_HEAT, "mode": MODE_HEAT, "enabled": False, "temp": 45.0}
+    assert command(floor_run=(MODE_HEAT, 59.0), eco=True, **floor) == (
+        MODE_HEAT, 59.0, 61.0, 25.0, None
+    )
+
+
+def test_a_taken_over_run_keeps_the_persons_setpoints_where_they_protect_more() -> None:
+    floor = {"engage": MODE_HEAT, "mode": MODE_HEAT, "enabled": False, "floor_run": (MODE_HEAT, 59.0)}
+    assert command(taken=(56.0, 58.0), **floor)[1:3] == (59.0, 61.0)
+    assert command(taken=(70.0, 72.0), **floor)[1:3] == (70.0, 72.0)
+    ceiling = {"engage": MODE_COOL, "mode": MODE_COOL, "enabled": False, "floor_run": (MODE_COOL, 87.0)}
+    assert command(**ceiling)[1:3] == (85.0, 87.0)
+    assert command(taken=(88.0, 90.0), **ceiling)[1:3] == (85.0, 87.0)
+    assert command(taken=(80.0, 82.0), **ceiling)[1:3] == (80.0, 82.0)
+
+
+# --- the idle action and coil dry ---------------------------------------------------
+
+def test_fan_only_and_off_ignore_the_coil() -> None:
+    for last_run in (None, (MODE_COOL, 900.0), (MODE_HEAT, 900.0)):
+        assert idle_park(IDLE_ACTION_FAN_ONLY, last_run, 600.0, 1000.0) == (MODE_FAN_ONLY, None)
+        assert idle_park(IDLE_ACTION_OFF, last_run, 600.0, 1000.0) == (MODE_OFF, None)
+
+
+def test_off_after_dry_runs_the_fan_only_after_cooling_and_only_until_the_coil_is_dry() -> None:
+    assert idle_park(IDLE_ACTION_OFF_AFTER_DRY, None, 600.0, 1000.0) == (MODE_OFF, None)
+    assert idle_park(IDLE_ACTION_OFF_AFTER_DRY, (MODE_HEAT, 900.0), 600.0, 1000.0) == (MODE_OFF, None)
+    assert idle_park(IDLE_ACTION_OFF_AFTER_DRY, (MODE_COOL, 900.0), 600.0, 1000.0) == (
+        MODE_FAN_ONLY, 500.0
+    )
+    assert idle_park(IDLE_ACTION_OFF_AFTER_DRY, (MODE_COOL, 400.0), 600.0, 1000.0) == (MODE_OFF, None)
+    assert idle_park(IDLE_ACTION_OFF_AFTER_DRY, (MODE_COOL, 399.0), 600.0, 1000.0) == (MODE_OFF, None)

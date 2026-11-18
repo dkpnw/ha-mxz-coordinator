@@ -126,7 +126,6 @@ from .const import (
     HEALTH_REPORT_SENSITIVE,
     HEALTH_STALE,
     HEALTH_UNHEALTHY,
-    IDLE_ACTION_OFF,
     IDLE_ACTION_OFF_AFTER_DRY,
     INHIBIT_ACTION_ECO,
     INHIBIT_ACTION_FAN_ONLY,
@@ -209,11 +208,9 @@ from .logic import (
     finite_number,
     freshness_window,
     head_action,
-    range_delta,
     sample_evidence,
     season_lockouts,
     sensor_health,
-    setpoints,
     shift_range,
     snapped_midpoint,
 )
@@ -222,12 +219,15 @@ from .plan import Plan, RoomPlan
 from .planner import (
     CallLimits,
     RoomInput,
+    SetpointSettings,
     Shared,
     arbitration_entries,
     arbitration_mode,
     decide,
     demand_bands,
+    head_command,
     holds,
+    idle_park,
     mode_change_stamp,
     mode_write_back,
 )
@@ -2400,61 +2400,36 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
                 # once told. Dry is never sent back.
                 self.dry.notice_parked(zone)
             idle = self._idle_act_for(zone.climate_id)
-            if not zone.enable:
-                # A disabled room never idles in fan_only: a floor waiting out
-                # the mode is held off. (Without a floor, engage is off and
-                # decides first.)
-                idle = MODE_OFF
-            act = head_action(
-                engage=engage,
-                mode=state,
-                eco=self.eco_active(),
-                idle=idle,
-            )
             heat_target, cool_target = self.zone_side_targets(zone)
-            low, high = setpoints(
-                mode=state,
-                # A floor runs the head to its clear line, never the eco band.
-                target=(
-                    self.floor.clear(zone, floor) if floor else float(zone.target)
-                ),
-                # Heat to while the shared mode is heat, Cool to while it's
-                # cool (the one target, twice, in a single-target room). A
-                # floor's clear line is its own target.
-                heat_target=None if floor else float(heat_target),
-                cool_target=None if floor else float(cool_target),
-                eco=self.eco_active() and not floor,
-                clamp_min=self.clamp_min,
-                clamp_max=self.clamp_max,
-                band=self.setpoint_band,
-                step=self.target_step,
-                eco_cool=self.eco_cool,
-                eco_heat=self.eco_heat,
-            )
             taken = self.floor.taken_over(zone.slug) if floor == state else None
-            if taken is not None:
-                # A run taken over from a person's own heat keeps their
-                # setpoints where those are warmer than the clear line's
-                # (cooler, for a ceiling over their cool) (P10): their latest,
-                # if they changed them during the run (P15).
-                keep = max if floor == MODE_HEAT else min
-                low, high = keep(low, taken[1]), keep(high, taken[2])
-            shown = room.temp
-            # How far the room sits outside its range (off its target, for a
-            # single target, where the range is the target itself).
-            delta = 0.0 if shown is None else range_delta(
-                temp=shown, low=float(heat_target), high=float(cool_target)
+            command = head_command(
+                engage=engage,
+                floor_run=(floor, self.floor.clear(zone, floor)) if floor else None,
+                temp=room.temp,
+                enabled=zone.enable,
+                mode=state,
+                idle=idle,
+                eco=self.eco_active(),
+                target=float(zone.target),
+                heat_target=float(heat_target),
+                cool_target=float(cool_target),
+                taken=None if taken is None else (taken[1], taken[2]),
+                settings=SetpointSettings(
+                    clamp_min=self.clamp_min,
+                    clamp_max=self.clamp_max,
+                    band=self.setpoint_band,
+                    step=self.target_step,
+                    eco_cool=self.eco_cool,
+                    eco_heat=self.eco_heat,
+                ),
             )
-            # A floor delivery takes the fan-free path (engage None, as the
-            # standby park does): mode and setpoint only, so a manual fan pick
-            # is kept and MXZ never writes this head's fan.
             task = self.deliveries.queue(
-                zone.climate_id, act, low, high, delta, None if floor else engage
+                zone.climate_id, command.mode, command.low, command.high, command.delta, command.fan
             )
             if task is not None:
                 tasks.append(task)
                 if taken is not None:
-                    self.floor.expect_command(zone, state, low, high)
+                    self.floor.expect_command(zone, state, command.low, command.high)
         self._write_back_mode(plan, engages)
         await self.deliveries.async_wait(tasks)
         await self.openings.async_restore_vanes()
@@ -2570,36 +2545,20 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     def _idle_act_for(self, climate_id: str) -> str:
         """The terminal parking mode (fan_only|off) for a non-running head now.
 
-        ``off_after_dry`` resolves per head: off immediately unless the head
-        was actively COOLING within the coil-dry window (a wet coil sealed
-        behind closed vanes is what grows the smell), in which case it dwells
-        in fan_only until the coil-dry clock runs out.
+        :func:`planner.idle_park` decides. For ``off_after_dry``, a head with no
+        coil-dry memory (after a restart) has it rebuilt from what the head shows
+        first. A coil-dry run with time left gets a one-shot nudge, which only
+        makes its end prompt (the 15-min heartbeat would otherwise stretch a
+        10-min dwell).
         """
-        if self.idle_action == IDLE_ACTION_OFF:
-            return MODE_OFF
-        if self.idle_action == IDLE_ACTION_OFF_AFTER_DRY:
-            return self._resolve_dry_idle(climate_id)
-        return MODE_FAN_ONLY
-
-    def _resolve_dry_idle(self, climate_id: str) -> str:
-        """off_after_dry: fan_only while the post-cooling dry dwell runs, else off.
-
-        The dwell is a monotonic timestamp comparison — the recompute cycle is
-        the clock, so a restart can never strand a head in fan_only. The one-shot nudge
-        timer only makes the flip prompt (the 15-min heartbeat would otherwise
-        stretch a 10-min dwell).
-        """
-        rec = self._last_active.get(climate_id)
-        if rec is None:
-            rec = self._seed_last_active(climate_id)
-        if rec is None or rec[0] != MODE_COOL:
-            return MODE_OFF  # heat leaves no wet coil; never-ran owes no dwell
-        remaining = self.coil_dry_seconds - (self.clock() - rec[1])
-        if remaining <= 0:
-            return MODE_OFF
-        if not self.clock.waiting("dry", climate_id):  # the stamp doesn't move while idle
-            self.clock.call_later(remaining + 1, self._wake, name="dry", key=climate_id)
-        return MODE_FAN_ONLY
+        last_run = self._last_active.get(climate_id)
+        if last_run is None and self.idle_action == IDLE_ACTION_OFF_AFTER_DRY:
+            last_run = self._seed_last_active(climate_id)
+        idle, coil_dry = idle_park(self.idle_action, last_run, self.coil_dry_seconds, self.clock())
+        if coil_dry is not None and not self.clock.waiting("dry", climate_id):
+            # The stamp doesn't move while idle.
+            self.clock.call_later(coil_dry + 1, self._wake, name="dry", key=climate_id)
+        return idle
 
     def _seed_last_active(self, climate_id: str) -> tuple[str, float] | None:
         """Reconstruct dwell memory after a restart from the observed head.

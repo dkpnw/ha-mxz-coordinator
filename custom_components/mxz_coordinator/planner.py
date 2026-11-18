@@ -2,9 +2,10 @@
 
 ``MXZCoordinator._compute`` reads each room's sensor, head and controllers, hands the
 readings to :func:`decide` as one :class:`RoomInput` per room and one :class:`Shared`,
-and builds the plan from the :class:`Decision`. ``_apply`` writes the plan's mode back
-as :func:`mode_write_back` says. Time comes in as numbers: the seconds since the last
-mode change, the hold's length, and the clocks a start reads (:func:`mode_change_stamp`).
+and builds the plan from the :class:`Decision`. ``_apply`` queues each head's
+:func:`head_command` and writes the plan's mode back as :func:`mode_write_back` says.
+Time comes in as numbers: the seconds since the last mode change, the hold's length,
+the coil-dry clock, and the clocks a start reads (:func:`mode_change_stamp`).
 The engage latch and the startup seeds come in as they are and go out advanced; nothing
 here keeps state.
 """
@@ -17,8 +18,12 @@ from dataclasses import asdict, dataclass, replace
 from .const import (
     DEMAND_NEUTRAL,
     ENGAGE_SATISFIED,
+    IDLE_ACTION_OFF,
+    IDLE_ACTION_OFF_AFTER_DRY,
     MODE_COOL,
+    MODE_FAN_ONLY,
     MODE_HEAT,
+    MODE_OFF,
     UNAVAILABLE_STATES,
     VOTE_EXPIRED,
 )
@@ -31,7 +36,10 @@ from .logic import (
     arbitrate,
     comfort_boost,
     engage_with_latch,
+    head_action,
+    range_delta,
     room_call,
+    setpoints,
 )
 
 
@@ -442,3 +450,120 @@ def mode_change_stamp(stored: float | None, now: float, wall: float) -> float | 
         return None
     ago = max(0.0, wall - stored)
     return now - ago
+
+
+@dataclass(frozen=True, slots=True)
+class SetpointSettings:
+    """How a head's setpoints are built, in the system unit (see logic.setpoints)."""
+
+    clamp_min: float
+    clamp_max: float
+    band: float
+    step: float
+    eco_cool: tuple[float, float]
+    eco_heat: tuple[float, float]
+
+
+@dataclass(frozen=True, slots=True)
+class HeadCommand:
+    """What one apply queues for a head."""
+
+    mode: str
+    low: float
+    high: float
+    # How far the room sits outside its range: the fan boost's distance.
+    delta: float
+    # The engage the delivery's fan step follows; None for a floor run, which
+    # never writes the head's fan.
+    fan: str | None
+
+
+def idle_park(
+    idle_action: str,
+    last_run: tuple[str, float] | None,
+    coil_dry_seconds: float,
+    clock: float,
+) -> tuple[str, float | None]:
+    """The parking mode (fan_only|off) for a non-running head now, and the seconds
+    its coil-dry run has left (None when none is owed).
+
+    ``off_after_dry`` resolves per head from its last run (``last_run``, the mode
+    and the clock reading it was sent at): off immediately unless the head was
+    actively COOLING within the coil-dry window (a wet coil sealed behind closed
+    vanes is what grows the smell), in which case it dwells in fan_only until the
+    coil-dry clock runs out. The dwell is a clock comparison, so a restart can
+    never strand a head in fan_only.
+    """
+    if idle_action == IDLE_ACTION_OFF:
+        return MODE_OFF, None
+    if idle_action != IDLE_ACTION_OFF_AFTER_DRY:
+        return MODE_FAN_ONLY, None
+    if last_run is None or last_run[0] != MODE_COOL:
+        return MODE_OFF, None  # heat leaves no wet coil; never-ran owes no dwell
+    remaining = coil_dry_seconds - (clock - last_run[1])
+    if remaining <= 0:
+        return MODE_OFF, None
+    return MODE_FAN_ONLY, remaining
+
+
+def head_command(
+    *,
+    engage: str,
+    floor_run: tuple[str, float] | None,
+    temp: float | None,
+    enabled: bool,
+    mode: str,
+    idle: str,
+    eco: bool,
+    target: float,
+    heat_target: float,
+    cool_target: float,
+    taken: tuple[float, float] | None,
+    settings: SetpointSettings,
+) -> HeadCommand:
+    """The mode, setpoints, range delta and fan step one head is sent for the plan.
+
+    ``engage`` and ``temp`` are the plan's room (its engage, and the reading it
+    shows: None when rejected); ``mode`` is the plan's shared mode and ``idle`` the
+    head's parking mode (:func:`idle_park`). ``floor_run`` is a tripped floor's
+    want and its clear line; ``taken`` the low and high of a person's own run in
+    the floor's direction that the run took over (P10).
+    """
+    if not enabled:
+        # A disabled room never idles in fan_only: a floor waiting out the mode
+        # is held off. (Without a floor, engage is off and decides first.)
+        idle = MODE_OFF
+    act = head_action(engage=engage, mode=mode, eco=eco, idle=idle)
+    low, high = setpoints(
+        mode=mode,
+        # A floor runs the head to its clear line, never the eco band.
+        target=target if floor_run is None else floor_run[1],
+        # Heat to while the shared mode is heat, Cool to while it's cool (the
+        # one target, twice, in a single-target room). A floor's clear line is
+        # its own target.
+        heat_target=heat_target if floor_run is None else None,
+        cool_target=cool_target if floor_run is None else None,
+        eco=eco and floor_run is None,
+        clamp_min=settings.clamp_min,
+        clamp_max=settings.clamp_max,
+        band=settings.band,
+        step=settings.step,
+        eco_cool=settings.eco_cool,
+        eco_heat=settings.eco_heat,
+    )
+    if floor_run is not None and taken is not None:
+        # A run taken over from a person's own heat keeps their setpoints where
+        # those are warmer than the clear line's (cooler, for a ceiling over
+        # their cool) (P10): their latest, if they changed them during the run
+        # (P15).
+        keep = max if floor_run[0] == MODE_HEAT else min
+        low, high = keep(low, taken[0]), keep(high, taken[1])
+    # How far the room sits outside its range (off its target, for a single
+    # target, where the range is the target itself).
+    delta = 0.0 if temp is None else range_delta(temp=temp, low=heat_target, high=cool_target)
+    # A floor delivery takes the fan-free path (engage None, as the standby park
+    # does): mode and setpoint only, so a manual fan pick is kept and MXZ never
+    # writes this head's fan.
+    return HeadCommand(
+        mode=act, low=low, high=high, delta=delta, fan=engage if floor_run is None else None
+    )
