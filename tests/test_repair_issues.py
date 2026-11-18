@@ -93,6 +93,7 @@ async def _setup(
     hass: HomeAssistant,
     *,
     study: dict[str, Any] | None = None,
+    den: dict[str, Any] | None = None,
     options: dict[str, Any] | None = None,
     states: dict[str, str] | None = None,
 ) -> MockConfigEntry:
@@ -113,7 +114,12 @@ async def _setup(
         data={
             CONF_ZONES: [
                 {ZONE_NAME: "Study", ZONE_CLIMATE: HEAD, ZONE_SENSOR: SENSOR, **(study or {})},
-                {ZONE_NAME: "Den", ZONE_CLIMATE: OTHER_HEAD, ZONE_SENSOR: OTHER_SENSOR},
+                {
+                    ZONE_NAME: "Den",
+                    ZONE_CLIMATE: OTHER_HEAD,
+                    ZONE_SENSOR: OTHER_SENSOR,
+                    **(den or {}),
+                },
             ],
             **(options or {}),
         },
@@ -526,6 +532,23 @@ async def test_a_deleted_head_or_sensor_raises_only_the_deleted_issue(
     await _later(hass, JUST_AFTER)
 
     assert _mxz_issues(hass) == {_id(hass, FAULT_DELETED, entity_id)}
+
+
+async def test_a_deleted_shared_sensor_raises_one_issue_naming_both_rooms(
+    hass: HomeAssistant,
+) -> None:
+    """#145: a sensor two rooms read is one reference with two uses."""
+    _register(hass, SENSOR)
+    await _setup(hass, den={ZONE_SENSOR: SENSOR})
+    await _delete(hass, SENSOR)
+
+    await _later(hass, JUST_AFTER)
+
+    assert _mxz_issues(hass) == {_id(hass, FAULT_DELETED, SENSOR)}
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, _id(hass, FAULT_DELETED, SENSOR))
+    assert issue.translation_placeholders["uses"] == (
+        "Study: temperature sensor; Den: temperature sensor"
+    )
 
 
 async def test_deleting_a_real_head_entity_raises_it_end_to_end(hass: HomeAssistant, freezer) -> None:
