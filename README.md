@@ -253,27 +253,28 @@ still downloads.
   read without them. Open the file and replace any you'd rather not share. It's plain JSON.
 
 <!-- "whats-new" stays above the newest What's new section; the others are old links. -->
-<a id="whats-new"></a><a id="whats-new-in-3210"></a><a id="whats-new-in-3200"></a><a id="whats-new-in-3190"></a><a id="whats-new-in-3180"></a><a id="whats-new-in-3170"></a><a id="whats-new-in-3160"></a><a id="whats-new-in-3150"></a><a id="whats-new-in-3130"></a><a id="whats-new-in-3120"></a><a id="whats-new-in-3111"></a>
+<a id="whats-new"></a><a id="whats-new-in-3220"></a><a id="whats-new-in-3210"></a><a id="whats-new-in-3200"></a><a id="whats-new-in-3190"></a><a id="whats-new-in-3180"></a><a id="whats-new-in-3170"></a><a id="whats-new-in-3160"></a><a id="whats-new-in-3150"></a><a id="whats-new-in-3130"></a><a id="whats-new-in-3120"></a><a id="whats-new-in-3111"></a>
 
-## What's new in 3.22.0
+## What's new in 3.23.0
 
-**Changes made at a head count.** A setpoint or off set at a head, with its remote or its own
-app, becomes the room's setting once it has held for about 5 seconds, instead of being written
-over. Off at the head turns the room off, and heat or cool at the head of a room that is off
-turns it on. MXZ still picks heat or cool for the whole system. This is on for every install,
-existing ones included. To make MXZ the only writer again, turn off **Accept changes made at the
-head** in Configure → Comfort. Thanks to [@BHSPitMonkey](https://github.com/BHSPitMonkey), who
-asked for it and built the first version on a fork. See
-[Migration](docs/MIGRATION.md#changes-made-at-a-head-are-accepted-3220).
+**One sensor for several heads.** Two heads in one space can now both follow one thermostat's
+sensor. Setup and Reconfigure accept a sensor that another room already uses, and each head
+stays its own room with its own target and switches. Thanks to
+[@danolson1](https://github.com/danolson1), who asked for it in
+[Discussion #145](https://github.com/dkpnw/ha-mxz-coordinator/discussions/145). See
+[One sensor for several heads](docs/SETUP.md#one-sensor-for-several-heads).
 
-**Fewer drift alerts.** A drift alert now names the room and head and goes out at most once per
-head per hour, and every heal is logged as `MXZ heal:`. The alert's text changed, so an
-automation that matched the old text needs the new one.
+**A crash keeps your recent changes.** MXZ now keeps each room's state in its own store and
+writes it at once, so a crash or power cut no longer takes back a target, fan speed or switch
+changed shortly before it. A helper disabled in the entity registry no longer resets its room
+at the next start.
 
-**Fixes.** A head whose integration fails in an unexpected way no longer makes the room
-thermostats unavailable or leaves a mode change unrecorded. A press at a head is no longer
-written over by a command MXZ queued before it. A cloud or generic head's refused write is sent
-again once the write interval allows, instead of after the whole confirm wait.
+**Fixes.** After a restart, a head that shows MXZ's own setpoint late is no longer read as a
+press at the head, and the Heat and Cool lockouts stay as they were until the weather source
+has been read. A setpoint MXZ sent twice no longer overrides a person's later press.
+
+The first start moves the settings and room state over with every value kept, so there is
+nothing to do. See [Migration](docs/MIGRATION.md#each-rooms-state-is-kept-in-one-store-3230).
 
 Earlier releases are in the [changelog](CHANGELOG.md).
 Upgrading from 3.3.0 or earlier? Read [Migration](docs/MIGRATION.md#upgrading-to-340) first.
@@ -349,6 +350,7 @@ Heads keep their last commanded state; use their own controls if they stay parke
 
 MXZ Coordinator got this good because people ran it on their own systems, found the edges, and took the time to write them up. Some sent the fix too. Thank you all. [Credits](docs/CREDITS.md) has what each person did, with every issue and pull request.
 
+- [@danolson1](https://github.com/danolson1) (Daniel Olson): one temperature sensor for several heads (3.23.0).
 - [@BHSPitMonkey](https://github.com/BHSPitMonkey) (Stephen Eisenhauer): Accept changes made at the head, built first on a fork (3.22.0).
 - [@calvindomenico](https://github.com/calvindomenico): restart fixes, the °C setpoint rounding fix, a ducted unit's vane fix, and the standby hold.
 - [@amosyuen](https://github.com/amosyuen): the room tile's mode fix, per-room drift, and the Integrations listing fix.

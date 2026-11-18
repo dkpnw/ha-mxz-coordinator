@@ -10,12 +10,27 @@ on your equipment.
 
 ## Unreleased
 
+## 3.23.0 (November 18, 2026)
+
+One temperature sensor can now serve several heads, so two heads in one space can both follow
+one thermostat's sensor
+([Discussion #145](https://github.com/dkpnw/ha-mxz-coordinator/discussions/145)). Each room's
+state is kept in one store that MXZ writes at once, so a crash or power cut no longer loses a
+recent change. The config entry moves to v2.3, which stores each setting once and changes no
+value. Three fixes from [#147](https://github.com/dkpnw/ha-mxz-coordinator/pull/147) cover a
+head that shows MXZ's setpoint late after a restart, a setpoint MXZ sent twice, and the
+lockouts while the weather source loads at the start. The first start migrates the entry to
+v2.3 and the old restore data into the room-state store; there is nothing to do. A rollback to
+3.22.0 was checked by running 3.22.0 on what this release leaves. See
+[MIGRATION.md](docs/MIGRATION.md#each-rooms-state-is-kept-in-one-store-3230).
+
 - **One temperature sensor can serve several rooms
   ([Discussion #145](https://github.com/dkpnw/ha-mxz-coordinator/discussions/145)).** Setup and
   Reconfigure accept a sensor that another room already uses, so two heads in one space can both
   follow one thermostat's sensor. Each head is still its own room with its own target, switches,
   freshness limit, freeze floor and fan hold. The summary names each shared sensor and its rooms.
-  See [One sensor for several heads](docs/SETUP.md#one-sensor-for-several-heads).
+  See [One sensor for several heads](docs/SETUP.md#one-sensor-for-several-heads). Thanks to
+  [@danolson1](https://github.com/danolson1) (Daniel Olson), who asked for it.
 - Fix: with Accept changes made at the head on, MXZ remembers its own writes to each head across
   a restart. Before, a setpoint MXZ sent before a restart that a slow head showed more than 40
   seconds after Home Assistant started was read as a person's press and became the room's
@@ -45,12 +60,13 @@ on your equipment.
   longer resets its value at the next start; a disabled Coordinator switch that was on stays on.
   The first start migrates the old data, and for this release the old data is kept current so a
   rollback to 3.22.0 finds it, which was checked by running 3.22.0. Dry is not kept, as before.
-  See [MIGRATION.md](docs/MIGRATION.md).
+  See [MIGRATION.md](docs/MIGRATION.md#each-rooms-state-is-kept-in-one-store-3230).
 - **Each setting is stored once (config entry v2.3).** Configure settings live in the entry's
   options and the rooms, **Notify on drift** and the saved-temperature unit in its data, where
   every Configure save used to write each setting to both. The first start migrates an entry
   with every value unchanged. A rollback to 3.22.0 reads it the same, which was checked by
-  running 3.22.0. See [MIGRATION.md](docs/MIGRATION.md).
+  running 3.22.0. See
+  [MIGRATION.md](docs/MIGRATION.md#each-setting-is-stored-in-one-place-entry-v23-3230).
 - Fix: Reconfigure on an entry whose rooms were stored in options now takes effect. Before, it
   saved and the rooms in options stayed in use.
 - Fix: saving a Configure page on an entry that still had a 2.x flat vane key (such as
