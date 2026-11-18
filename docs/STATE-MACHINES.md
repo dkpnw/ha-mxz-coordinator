@@ -37,7 +37,7 @@ store has landed (`room_state.py`); section 3.21 says what it keeps.
 | SM-7 a start releases restored season lockouts | Fixed | `test_a_start_keeps_the_restored_lockouts_until_the_source_loads`, `test_a_source_that_never_loads_holds_the_lockouts_until_the_hourly_re_read` |
 | SM-8 a reload inside an apply loses the hold | Closed by the SM-4 fix | `RecordLeadsHeads` in `ci-apply`, with reloads and restarts inside an apply (`NeverCutShort` reaches them) |
 | SM-9 restore data up to 15 minutes old after a crash | Fixed by the room state store | `tests/test_room_state.py` (`test_a_crash_right_after_a_change_keeps_it`, `test_a_crash_right_after_a_fan_auto_gesture_keeps_it`, `test_a_hands_off_room_released_after_the_last_dump_stays_released_after_a_crash`) |
-| SM-10 a queued write that dropped out of the memory is adopted | Fixed for path (a), a rewrite kept once, and for shape B, a rewrite of the shown value behind another write. Paths (b) and (c), after a person's press of a value MXZ has queued, are an accepted known cost (the owner's decision, Nov 17, 2026); shape A and the F1 rewrite cost are accepted known costs too (the overnight release mandate, Nov 17, 2026) | `test_a_rewrite_still_queued_is_not_adopted_over_a_later_press`, `test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value`, `QueuedWriteKept` in `ci-adopt` and `ci-adopt-restart`; a write of what the head shows adds no copy: `test_off_and_on_at_the_head_count_after_target_changes`; a refused write keeps no copy: `test_a_refused_write_leaves_no_copy_to_take_a_later_press`, `test_a_refused_write_leaves_no_copy_in_the_store`; the known costs: `test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once`, `test_known_cost_a_press_of_the_queued_value_at_a_lagging_head_reads_as_mxzs`, `test_known_cost_a_press_of_an_older_queued_value_reads_as_mxzs`, `test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_adopted`, `test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_after_it`; shape B: `test_a_rewrite_of_the_shown_value_behind_another_write_is_kept`, code mutant C56; shape A: `test_known_cost_a_late_write_of_the_shown_value_uses_up_the_later_writes_copy`; the F1 rewrite cost: `test_known_cost_a_rewrite_of_the_shown_value_behind_another_write_takes_a_press_back_once` |
+| SM-10 a queued write that dropped out of the memory is adopted | Fixed for path (a), a rewrite kept once, and for shape B, a rewrite of the shown value behind another write. Paths (b) and (c), after a person's press of a value MXZ has queued, are an accepted known cost (the owner's decision, Nov 17, 2026); shape A and the F1 rewrite cost are accepted known costs too (the overnight release mandate, Nov 17, 2026) | `test_a_rewrite_still_queued_is_not_adopted_over_a_later_press`, `test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value`, `QueuedWriteKept` in `ci-adopt` and `ci-adopt-restart`; a write of what the head shows adds no copy: `test_off_and_on_at_the_head_count_after_target_changes`; a refused write keeps no copy: `test_a_refused_write_leaves_no_copy_to_take_a_later_press`, `test_a_refused_write_leaves_no_copy_in_the_store`; the known costs: `test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once`, `test_known_cost_a_press_of_the_queued_value_at_a_lagging_head_reads_as_mxzs`, `test_known_cost_a_press_of_an_older_queued_value_reads_as_mxzs`, `test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_adopted`, `test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_after_it`; shape B: `test_a_rewrite_of_the_shown_value_behind_another_write_is_kept`, code mutant C56; a rewrite of the shown last write after a restart adds no copy: `test_after_a_restart_a_rewrite_of_the_shown_mode_takes_no_later_press`, `test_a_rewrite_of_the_shown_last_write_after_a_restart_adds_no_copy`, code mutant C57; shape A: `test_known_cost_a_late_write_of_the_shown_value_uses_up_the_later_writes_copy`; the F1 rewrite cost: `test_known_cost_a_rewrite_of_the_shown_value_behind_another_write_takes_a_press_back_once`, `test_known_cost_after_a_restart_a_rewrite_behind_a_write_shown_while_mxz_was_down_counts_a_copy`; two copies across a restart: `test_known_cost_two_copies_of_the_mode_across_a_restart_take_a_press_back_once` |
 
 ---
 
@@ -1054,8 +1054,9 @@ press). In the model, the memory's entries count copies too, and `QueuedWriteKep
 write is dropped and adopted until a person presses a value MXZ still has queued) holds in
 `ci-adopt`; A4 (a rewrite kept once) and A5 (`seen` replaces a value with copies to come) break it.
 
-A write of the value the head already shows adds no copy when that value is all the memory
-remembers. The head shows nothing new for it, so no report could count it off. Every setpoint write to
+A write of the value the head already shows adds no copy when that value is the last one the
+memory remembers and no value before it counts a copy: as far as the memory knows, nothing else
+of MXZ's is still to come. The head shows nothing new for it, so no report could count it off. Every setpoint write to
 a head already in the right mode sends that mode too (`heads.py` `_async_set_mode_and_setpoints`),
 so a counted copy would stay forever, and after any target change a person's off and then on at
 the head would read the "on" as MXZ's (review 2 of this change;
@@ -1091,9 +1092,23 @@ cost.
   remembered, which was the queued 1. After the 0 and the first 1 landed, a person's press
   forgot the last 1 while it was still queued, and it read as a press when it landed: path
   (a)'s case, reached by another write order. `wrote` now counts no copy only when the shown
-  value is all that is remembered. `test_a_rewrite_of_the_shown_value_behind_another_write_is_kept`
-  fails on the old condition, the queue oracle always runs the example, and code mutant C56
-  (the old condition) is caught. The head-change area's code mutants are now C44 to C56.
+  value is the last one remembered and no value before it counts a copy.
+  `test_a_rewrite_of_the_shown_value_behind_another_write_is_kept` fails on fix round 4's
+  condition, the queue oracle always runs the example, and code mutant C56 (fix round 4's
+  condition) is caught.
+
+  Fix round 5 first fixed shape B by counting no copy only when the shown value was all that
+  was remembered. Review 6 found that this took a person's press as MXZ's after a restart. The
+  store keeps the head's older shown value and MXZ's last write, the head shows that write
+  while MXZ is down, and MXZ's first write after the start, before the head reports anything,
+  rewrites it. Fix round 5's rule counted a copy, because the older shown value was still
+  remembered. The head showed nothing new for it, so a person's off and then on at the head
+  read the "on" as MXZ's: the room stayed off and MXZ turned the head back off. Fix round 6
+  takes the rule above, which counts no copy there.
+  `test_after_a_restart_a_rewrite_of_the_shown_mode_takes_no_later_press` replays it on the
+  integration with `tests/restart.py` and `test_a_rewrite_of_the_shown_last_write_after_a_restart_adds_no_copy`
+  on `HeadWriteMemory`. Both fail on fix round 5's condition, and code mutant C57 (that
+  condition) is caught. The head-change area's code mutants are now C44 to C57.
 - *Shape A, an accepted known cost, part of path (c).* The late write of the shown value can
   also be taken as the later queued write of its value and use up that write's copy, so a
   person's next press forgets the later write while it is still queued.
@@ -1121,19 +1136,31 @@ write, a press of the value is a press. `test_a_press_back_to_a_rewritten_value_
 pins it.
 
 The shape-B fix adds one more case of this cost, accepted as a known cost under the overnight
-release mandate (Nov 17, 2026). A rewrite of the value the head shows, with another value of
-MXZ's queued before it, now counts a copy. If the head already showed that value from the write
-before the rewrite, the rewrite shows nothing new, so no report counts its copy off, and a
-person's later press of that value reads as MXZ's once. For the mode field: MXZ sends an off and
-then an on to a lagging head and writes the mode again (every setpoint write sends it) before
-the head shows the off. A person's off and then on at the head then reads the "on" as MXZ's
-once, and the person's next on is taken. The cost is narrow: it needs MXZ's own rewrite of the
-shown value with another value of MXZ's queued before it, and it takes a later press of that
-value only once. It is not free, since that one press is not adopted.
+release mandate (Nov 17, 2026). A rewrite of the value the head shows counts a copy when a value
+remembered before it still counts one, that is, another write of MXZ's still to come before it.
+If the head already showed that value from the write before the rewrite, the rewrite shows
+nothing new, so no report counts its copy off, and a person's later press of that value reads
+as MXZ's once. For the mode field: MXZ sends an off and then an on to a lagging head and writes
+the mode again (every setpoint write sends it) before the head shows the off. A person's off and
+then on at the head then reads the "on" as MXZ's once, and the person's next on is taken. It is
+not free, since that one press is not adopted.
 `test_known_cost_a_rewrite_of_the_shown_value_behind_another_write_takes_a_press_back_once`
-pins it and fails on the old condition. It is shown on `HeadWriteMemory` alone. Whether MXZ's
-real write pattern reaches it is unknown; a dual-setpoint head where one edge changes is a
-candidate.
+pins it and fails on fix round 4's condition. After a restart, the copy before the rewrite can
+also be a write the head took while MXZ was down, since nothing reconciles the restored memory
+with what the head shows: MXZ's off and then its on, both shown during the outage, and a
+rewrite of the on after the start counts a copy.
+`test_known_cost_after_a_restart_a_rewrite_behind_a_write_shown_while_mxz_was_down_counts_a_copy`
+pins that; there the restored off already takes a person's off as MXZ's, on every rule, as
+path (b) does. Both triggers are shown on `HeadWriteMemory` alone. Whether MXZ's real write
+pattern reaches them is unknown; a dual-setpoint head where one edge changes is a candidate. In
+one attempt on invented heads (fix round 6), MXZ sent nothing more to a head while its off was
+still queued there, so it made no rewrite behind it.
+
+Two copies of "cool" queued at a lagging head across a restart are the cost above, not this
+one: the head shows one while MXZ is down and the other after the start, with nothing new to
+show, so a person's "on" reads as MXZ's once.
+`test_known_cost_two_copies_of_the_mode_across_a_restart_take_a_press_back_once` pins it on the
+integration. It predates fix round 6 and passes on fix rounds 4 and 5 as well.
 
 *Paths (b) and (c), an accepted known cost.* The second and third ways start with a person's
 press of a value MXZ still has queued. No rule over the reports can tell that press from MXZ's
@@ -1283,14 +1310,18 @@ Each needs the owner's decision or a fact from a real head; none needs a patch u
   and the queue oracle leaves those passed writes unchecked.
 - **SM-10, two more shapes the queue oracle found under random seeds: decided.** Under the
   overnight release mandate (Nov 17, 2026), shape B is fixed: `wrote` counts no copy only when
-  the shown value is all that is remembered
-  (`test_a_rewrite_of_the_shown_value_behind_another_write_is_kept`, code mutant C56). Shape A,
-  the late write of the shown value using up a later queued copy of its value, and the F1
-  rewrite cost of that fix are accepted as known costs:
-  `test_known_cost_a_late_write_of_the_shown_value_uses_up_the_later_writes_copy` and
+  the shown value is the last one remembered and no value before it counts a copy
+  (`test_a_rewrite_of_the_shown_value_behind_another_write_is_kept`, code mutant C56; after a
+  restart, `test_after_a_restart_a_rewrite_of_the_shown_mode_takes_no_later_press`, code
+  mutant C57). Shape A, the late write of the shown value using up a later queued copy of its
+  value, and the F1 rewrite cost of that fix (a rewrite of the shown value behind a value that
+  still counts a copy, which after a restart can be a write the head took while MXZ was down)
+  are accepted as known costs:
+  `test_known_cost_a_late_write_of_the_shown_value_uses_up_the_later_writes_copy`,
   `test_known_cost_a_rewrite_of_the_shown_value_behind_another_write_takes_a_press_back_once`
+  and `test_known_cost_after_a_restart_a_rewrite_behind_a_write_shown_while_mxz_was_down_counts_a_copy`
   pin them, and the queue oracle stops checking from such a late landing until its queue is
-  empty. Both are shown on `HeadWriteMemory` alone. Whether MXZ's real write pattern reaches
+  empty. They are shown on `HeadWriteMemory` alone. Whether MXZ's real write pattern reaches
   them is unknown; a dual-setpoint head where one edge changes is a candidate.
 - **SM-5, as a change.** Send parks before runs: the delivery queue of chunk 5.
 

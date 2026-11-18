@@ -1134,8 +1134,8 @@ def test_a_rewrite_of_the_shown_value_behind_another_write_is_kept() -> None:
 def test_known_cost_a_late_write_of_the_shown_value_uses_up_the_later_writes_copy() -> None:
     """Known cost, docs/STATE-MACHINES.md SM-10 path (c), shape A, accepted under the
     overnight release mandate (Nov 17, 2026), shown on HeadWriteMemory alone. The head shows
-    MXZ's 1. MXZ writes 1 again, which counts no copy (the value the head shows, and all
-    that is remembered). A person presses 5. MXZ writes 1 again, which counts a copy. Both
+    MXZ's 1. MXZ writes 1 again, which counts no copy (the value the head shows, the last one
+    remembered, with nothing before it still to come). A person presses 5. MXZ writes 1 again, which counts a copy. Both
     1s are still queued at a head that shows writes late. The first 1 lands late. The memory
     takes it as the later 1 and uses up that write's copy. A person presses 5 again, and the
     memory forgets the later 1, which is still queued: when it lands, it reads as a person's.
@@ -1149,7 +1149,7 @@ def test_known_cost_a_late_write_of_the_shown_value_uses_up_the_later_writes_cop
     memory = HeadWriteMemory(8)
     memory.wrote(1, 0)
     memory.caught_up(1)  # the head shows MXZ's 1
-    assert memory.wrote(1, 1) is False  # the value it shows, all that is remembered: no copy
+    assert memory.wrote(1, 1) is False  # the value it shows, nothing before it to come: no copy
     memory.seen(5)  # a person's press
     assert memory.wrote(1, 5) is True
     memory.caught_up(1)  # the first 1, late
@@ -1171,9 +1171,11 @@ def test_known_cost_a_rewrite_of_the_shown_value_behind_another_write_takes_a_pr
 
     This is the cost test_a_press_back_to_a_rewritten_value_reads_as_mxzs_once pins, where
     the head showed another value while MXZ wrote twice. It is not free: that one press of
-    the person's is not adopted. It is narrow: it needs MXZ's own rewrite of the shown value
-    with another value of MXZ's queued before it, and it takes only a later person's press
-    of that same value, once."""
+    the person's is not adopted. It needs MXZ's own rewrite of the shown value while a value
+    remembered before it still counts a copy: here MXZ's off, queued before it. After a
+    restart that copy can also be a write the head took while MXZ was down
+    (test_known_cost_after_a_restart_a_rewrite_behind_a_write_shown_while_mxz_was_down_counts_a_copy).
+    It takes only a later person's press of that same value, once."""
     memory = HeadWriteMemory(8)
     memory.wrote("off", "cool")
     memory.wrote("cool", "cool")

@@ -39,8 +39,8 @@ the evidence.
   `test_known_cost_a_press_of_an_older_queued_value_reads_as_mxzs` pin them.
   `QueuedWriteNeverAdopted`, the strict rule they break, stays in the spec only as the form
   `QueuedWriteKept` is built from; it is no longer a finding TLC must see break.
-  A write of the value the head already shows adds no copy when that value is all the memory
-  remembers, since no report can count it off.
+  A write of the value the head already shows adds no copy when that value is the last one
+  the memory remembers and no value before it counts a copy, since no report can count it off.
   One still queued that lands after a person's press of another value is adopted, as before this
   change, and is part of the same known cost:
   `test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_adopted` pins it. The
@@ -59,19 +59,34 @@ the evidence.
   cost are accepted as known costs (STATE-MACHINES.md SM-10 and section 7). Shape B: the head
   shows 1 and MXZ writes 0, 1, 1; `wrote` counted no copy for the last 1 and a person's press
   forgot it while it was still queued. `wrote` now counts no copy only when the shown value is
-  all that is remembered (`test_a_rewrite_of_the_shown_value_behind_another_write_is_kept`,
-  code mutant C56; the area's code mutants are C44 to C56). Shape A: the late write of the shown
+  the last one remembered and no value before it counts a copy
+  (`test_a_rewrite_of_the_shown_value_behind_another_write_is_kept`, code mutant C56; the
+  area's code mutants are C44 to C57). Fix round 5 first fixed it by counting no copy only when
+  the shown value was all that was remembered. After a restart that kept the head's older shown
+  value, that counted a copy for a rewrite of MXZ's last write, which the head had shown while
+  MXZ was down, and a person's later "on" at the head read as MXZ's (review 6 of smfix1111;
+  `test_after_a_restart_a_rewrite_of_the_shown_mode_takes_no_later_press` and
+  `test_a_rewrite_of_the_shown_last_write_after_a_restart_adds_no_copy`, code mutant C57). Shape A: the late write of the shown
   value is taken as a later queued write of its value and uses up its copy, so a person's next
   press forgets that write while it is still queued
   (`test_known_cost_a_late_write_of_the_shown_value_uses_up_the_later_writes_copy`). From such
   a landing until its queue is empty the queue oracle checks no write. The F1 rewrite cost: a
-  rewrite of the shown value with another value of MXZ's queued before it now counts a copy that
-  no report counts off when the head showed that value from the write before, so a person's
-  later press of that value reads as MXZ's once
+  rewrite of the shown value counts a copy when a value remembered before it still counts one,
+  that is, another write of MXZ's still to come before it. When the head showed that value from
+  the write before, no report counts the copy off, so a person's later press of that value
+  reads as MXZ's once
   (`test_known_cost_a_rewrite_of_the_shown_value_behind_another_write_takes_a_press_back_once`).
+  After a restart, the copy before it can also be a write the head took while MXZ was down,
+  since nothing reconciles the restored memory with what the head shows
+  (`test_known_cost_after_a_restart_a_rewrite_behind_a_write_shown_while_mxz_was_down_counts_a_copy`).
   Shape A and the F1 rewrite cost are shown on `HeadWriteMemory` alone. Whether MXZ's real
   write pattern reaches them is unknown; a dual-setpoint head where one edge changes is a
-  candidate.
+  candidate. In one attempt on invented heads, MXZ sent nothing more to a head while its off
+  was still queued there, so it made no rewrite behind it.
+  Two copies of "cool" queued across a restart, the second shown after the start with nothing
+  new to show, take a person's "on" back once, as any value MXZ wrote twice does. This
+  predates fix round 6 and does not depend on the rule above
+  (`test_known_cost_two_copies_of_the_mode_across_a_restart_take_a_press_back_once`).
   A call the head refuses takes back the copy it counted
   (`test_a_refused_write_leaves_no_copy_to_take_a_later_press`, code mutant C55).
   Whether a real CN105 or cloud head queues commands that way is unknown. A house check is
