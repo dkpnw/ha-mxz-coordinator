@@ -228,6 +228,8 @@ from .planner import (
     decide,
     demand_bands,
     holds,
+    mode_change_stamp,
+    mode_write_back,
 )
 from .room_state import (
     SECTION_FAN,
@@ -682,21 +684,6 @@ async def async_remove_last_mode_change(hass: HomeAssistant, entry_id: str) -> N
     hass.data.get(f"{DOMAIN}_mode_change_stores", {}).pop(entry_id, None)
 
 
-def mode_change_stamp(stored: float | None, now: float) -> float | None:
-    """The stamp on MXZ's clock, read as ``now``, for a stored wall-clock change time.
-
-    The gate itself runs on the monotonic clock (an NTP step inside one run
-    must not move it), so the stored time becomes "this many seconds ago" on
-    that clock once, at startup. A stored time in the future (the clock was
-    set back, or it ran ahead when the change was written) counts as now:
-    the hold is then the full window from this start, never longer.
-    """
-    if stored is None:
-        return None
-    ago = max(0.0, dt_util.utcnow().timestamp() - stored)
-    return now - ago
-
-
 # ---------------------------------------------------------------------------
 # Door/window pause, kept across reloads and restarts
 # What an entry saves in the system unit, by how it follows a °F/°C switch.
@@ -1049,7 +1036,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         # dwell read off a 0.0 stand-in).
         record = record or ModeRecord()
         self._last_mode_change_ts: float | None = mode_change_stamp(
-            record.changed_at, self.clock()
+            record.changed_at, self.clock(), dt_util.utcnow().timestamp()
         )
         # The same change on the wall clock, written back with every record.
         self._last_mode_change_at: float | None = record.changed_at
@@ -2475,28 +2462,24 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     def _write_back_mode(self, plan: Plan, engages: list[str]) -> None:
         """The plan's mode becomes the shared mode, stamped and recorded.
 
-        Called with the heads' commands queued and none of them run yet. Stamp
-        the flip only on a real mode change (cool<->heat). A flip only
-        hands-off heads asked for is not one the coordinator caused, so it
-        starts no dwell (see logic.arbitrate()). Once a coordinated room runs
-        in that mode, the mode is ours: stamp it then, as if that room had
-        flipped it, so the next reversal is dwelled. The vote's undoing (back
-        to the resting bias) starts no dwell either, but leaves a mode that
-        owes the vote nothing: a run there is no flip.
+        Called with the heads' commands queued and none of them run yet.
+        :func:`planner.mode_write_back` says what changes, whether the hold
+        starts, and whether the record is written; this does it, in that order.
         """
-        state = plan.state
-        if state != self.current_shared_mode:
-            self.current_shared_mode = state
-            self._mode_by_votes = plan.mode_by_hands_off and state != self._resting_bias()
-            if not plan.mode_by_hands_off:
-                self._stamp_mode_change()
-            self.async_update_listeners()  # let the shared-mode select re-render
-            self._record_mode()
-        elif self._mode_by_votes and state in (
-            *engages, *(room.demand for room in plan.rooms)
-        ):
-            self._mode_by_votes = False
+        step = mode_write_back(
+            self.current_shared_mode,
+            self._mode_by_votes,
+            state=plan.state,
+            by_hands_off=plan.mode_by_hands_off,
+            calls=(*engages, *(room.demand for room in plan.rooms)),
+            resting=self._resting_bias(),
+        )
+        self.current_shared_mode, self._mode_by_votes = step.mode, step.by_votes
+        if step.stamp:
             self._stamp_mode_change()
+        if step.changed:
+            self.async_update_listeners()  # let the shared-mode select re-render
+        if step.record:
             self._record_mode()
 
     def room_details(self) -> list[dict[str, Any]]:

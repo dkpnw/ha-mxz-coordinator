@@ -29,7 +29,6 @@ from custom_components.mxz_coordinator.coordinator import (
     MXZCoordinator,
     _mode_change_store,
     async_load_mode_record,
-    mode_change_stamp,
 )
 from custom_components.mxz_coordinator.logic import (
     PRIORITY_DEMAND,
@@ -39,6 +38,7 @@ from custom_components.mxz_coordinator.logic import (
     Demand,
     arbitrate,
 )
+from custom_components.mxz_coordinator.planner import mode_change_stamp
 from tests.property_rig import HOLD, PURE, SEQUENCES, TARGET, Rig, open_rig
 
 MODES = (MODE_COOL, MODE_HEAT)
@@ -196,7 +196,7 @@ def test_a_start_keeps_what_is_left_of_the_hold_and_never_more(ago: float) -> No
     """The stamp reads as ``ago`` seconds back; a stored time in the future reads as now."""
     stored = dt_util.utcnow().timestamp() - ago
     now = time.monotonic()
-    stamp = mode_change_stamp(stored, now)
+    stamp = mode_change_stamp(stored, now, dt_util.utcnow().timestamp())
     assert stamp is not None
     # Rounding in the epoch-seconds round trip, plus a slow runner's pause.
     slack = 1.0
@@ -205,7 +205,7 @@ def test_a_start_keeps_what_is_left_of_the_hold_and_never_more(ago: float) -> No
 
 
 def test_no_stored_change_holds_nothing() -> None:
-    assert mode_change_stamp(None, time.monotonic()) is None
+    assert mode_change_stamp(None, time.monotonic(), dt_util.utcnow().timestamp()) is None
 
 
 _finite = st.floats(allow_nan=False, allow_infinity=False, min_value=0, max_value=4e9)

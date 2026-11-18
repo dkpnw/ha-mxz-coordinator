@@ -34,6 +34,8 @@ from custom_components.mxz_coordinator.planner import (
     decide,
     demand_bands,
     holds,
+    mode_change_stamp,
+    mode_write_back,
 )
 
 LIMITS = CallLimits(
@@ -327,3 +329,59 @@ def test_arbitration_entries_rank_each_kind() -> None:
     ]
     ceiling = arbitration_entries(demand=DEMAND_NEUTRAL, vote=None, safety=False, index=1, floor=MODE_COOL)
     assert (ceiling[-1].direction, ceiling[-1].priority) == (MODE_COOL, (PRIORITY_SAFETY, 1))
+
+
+# --- the mode's write-back --------------------------------------------------------
+
+def _write_back(mode, by_votes, state, by_hands_off=False, calls=(), resting=None):
+    step = mode_write_back(
+        mode, by_votes, state=state, by_hands_off=by_hands_off, calls=calls, resting=resting
+    )
+    return step.mode, step.by_votes, step.changed, step.stamp, step.record
+
+
+def test_a_change_the_rooms_made_is_stamped_and_recorded() -> None:
+    assert _write_back(MODE_COOL, False, MODE_HEAT) == (MODE_HEAT, False, True, True, True)
+    assert _write_back(MODE_HEAT, True, MODE_COOL, calls=(MODE_COOL,)) == (
+        MODE_COOL, False, True, True, True
+    )
+
+
+def test_a_change_votes_made_is_recorded_but_starts_no_hold() -> None:
+    assert _write_back(MODE_COOL, False, MODE_HEAT, by_hands_off=True) == (
+        MODE_HEAT, True, True, False, True
+    )
+    # Back to the resting mode the votes' way: no hold, and it owes the votes nothing.
+    assert _write_back(MODE_HEAT, True, MODE_COOL, by_hands_off=True, resting=MODE_COOL) == (
+        MODE_COOL, False, True, False, True
+    )
+
+
+def test_a_room_running_in_the_voted_mode_makes_it_mxzs() -> None:
+    for calls in ((MODE_HEAT,), (ENGAGE_SATISFIED, MODE_HEAT, DEMAND_NEUTRAL)):
+        assert _write_back(MODE_HEAT, True, MODE_HEAT, calls=calls) == (
+            MODE_HEAT, False, False, True, True
+        )
+
+
+def test_nothing_changed_writes_nothing() -> None:
+    assert _write_back(MODE_HEAT, True, MODE_HEAT, calls=(MODE_COOL, ENGAGE_SATISFIED)) == (
+        MODE_HEAT, True, False, False, False
+    )
+    assert _write_back(MODE_HEAT, False, MODE_HEAT, calls=(MODE_HEAT,)) == (
+        MODE_HEAT, False, False, False, False
+    )
+
+
+# --- the hold after a start -------------------------------------------------------
+
+def test_a_start_keeps_what_is_left_of_the_hold() -> None:
+    wall, now = 1_800_000_000.0, 5_000.0
+    assert mode_change_stamp(None, now, wall) is None
+    assert mode_change_stamp(wall - 100.0, now, wall) == now - 100.0
+    assert mode_change_stamp(wall, now, wall) == now
+
+
+def test_a_stored_time_in_the_future_counts_as_now() -> None:
+    wall, now = 1_800_000_000.0, 5_000.0
+    assert mode_change_stamp(wall + 3600.0, now, wall) == now

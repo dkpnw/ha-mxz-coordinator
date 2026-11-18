@@ -2,14 +2,16 @@
 
 ``MXZCoordinator._compute`` reads each room's sensor, head and controllers, hands the
 readings to :func:`decide` as one :class:`RoomInput` per room and one :class:`Shared`,
-and builds the plan from the :class:`Decision`. Time comes in as numbers: the seconds
-since the last mode change and the hold's length. The engage latch and the startup
-seeds come in as they are and go out advanced; nothing here keeps state.
+and builds the plan from the :class:`Decision`. ``_apply`` writes the plan's mode back
+as :func:`mode_write_back` says. Time comes in as numbers: the seconds since the last
+mode change, the hold's length, and the clocks a start reads (:func:`mode_change_stamp`).
+The engage latch and the startup seeds come in as they are and go out advanced; nothing
+here keeps state.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 
 from .const import (
@@ -372,3 +374,71 @@ def decide(
         standoff=MODE_COOL in calls and MODE_HEAT in calls,
         allowed=allowed,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class ModeWriteBack:
+    """What one plan's mode does to the shared mode and its record."""
+
+    mode: str
+    by_votes: bool
+    # The shared mode changed: the shared-mode select re-renders.
+    changed: bool
+    # Start the hold.
+    stamp: bool
+    # Write the record.
+    record: bool
+
+
+def mode_write_back(
+    mode: str,
+    by_votes: bool,
+    *,
+    state: str,
+    by_hands_off: bool,
+    calls: Collection[str],
+    resting: str | None,
+) -> ModeWriteBack:
+    """The shared mode ``mode`` (set by votes alone if ``by_votes``) after a plan for ``state``.
+
+    ``calls`` is every room's engage and demand in that plan. Stamp the flip only on
+    a real mode change (cool<->heat). A flip only hands-off heads asked for is not
+    one the coordinator caused, so it starts no dwell (see logic.arbitrate()). Once
+    a coordinated room runs in that mode, the mode is ours: stamp it then, as if
+    that room had flipped it, so the next reversal is dwelled. The vote's undoing
+    (back to the resting bias) starts no dwell either, but leaves a mode that owes
+    the vote nothing: a run there is no flip.
+    """
+    if state != mode:
+        return ModeWriteBack(
+            mode=state,
+            by_votes=by_hands_off and state != resting,
+            changed=True,
+            stamp=not by_hands_off,
+            record=True,
+        )
+    if by_votes and state in calls:
+        return ModeWriteBack(
+            mode=mode,
+            by_votes=False,
+            changed=False,
+            stamp=True,
+            record=True,
+        )
+    return ModeWriteBack(mode=mode, by_votes=by_votes, changed=False, stamp=False, record=False)
+
+
+def mode_change_stamp(stored: float | None, now: float, wall: float) -> float | None:
+    """The stamp on MXZ's clock, read as ``now``, for a stored wall-clock change time.
+
+    ``wall`` is the wall clock read at the same start. The gate itself runs on
+    the monotonic clock (an NTP step inside one run must not move it), so the
+    stored time becomes "this many seconds ago" on that clock once, at startup.
+    A stored time in the future (the clock was set back, or it ran ahead when
+    the change was written) counts as now: the hold is then the full window
+    from this start, never longer.
+    """
+    if stored is None:
+        return None
+    ago = max(0.0, wall - stored)
+    return now - ago

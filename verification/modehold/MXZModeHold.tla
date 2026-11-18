@@ -142,7 +142,7 @@ SharedMode(ds, current, allowed, running) ==
     IN IF proposed # current /\ allowed /\ (standoff \/ ~still)
        THEN proposed ELSE current
 
-\* coordinator.mode_change_stamp of what async_load_last_mode_change read:
+\* planner.mode_change_stamp of what async_load_last_mode_change read:
 \* time.monotonic() - max(0.0, utcnow - stored), read at this start.
 StartStamp(rec, wallNow, monoNow) ==
     IF rec = NoTime THEN NoTime ELSE monoNow - Max0(wallNow - rec)

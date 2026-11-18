@@ -40,7 +40,7 @@ Model rules (`verification/modehold/MXZModeHold.tla`, checked by TLC):
 
 Code properties (`tests/test_modehold_properties.py`, in CI on every lane),
 on the real `logic.arbitrate` over every case of two tables (648,000 three-room
-cases; 373,248 two-room cases built by `MXZCoordinator._zone_arbitration_pair`):
+cases; 373,248 two-room cases built by `planner.arbitration_entries`):
 
 - `hold_blocks_every_change`: while the hold holds, the shared mode does not change.
 - `vote_never_beats_a_call_or_a_run`: a hands-off vote never takes the mode
@@ -75,11 +75,11 @@ the check and the mutants).
 
 | Check | Covers (custom_components/mxz_coordinator/) |
 | --- | --- |
-| Model `Decide` | `coordinator.py` `_compute` (the readings it hands the planner); `planner.py` `decide` (allowed, engaged, running, the `_mode_by_votes` undo rule); `coordinator.py` `_apply` (the stamp and record rules at its end), `_stamp_mode_change`, `_record_mode`; `logic.py` `room_call`, `engage_with_latch`, `shared_mode`, `arbitrate` (`running`), `head_action` |
-| Model `Reload` / `Restart` / `Crash` | `__init__.py` `async_setup_entry`; `coordinator.py` `ModeRecord`, `async_load_mode_record`, `mode_change_stamp`, `_mode_change_store`, `MXZCoordinator.__init__` (`_last_mode_change_ts`, the record's mode and `_mode_by_votes`, `_engage_latch`, `_startup_resume`), `restore_shared_mode`; `switch.py` (sets `_startup_resume`); `select.py` `async_added_to_hass` |
+| Model `Decide` | `coordinator.py` `_compute` (the readings it hands the planner); `planner.py` `decide` (allowed, engaged, running, the `_mode_by_votes` undo rule); `coordinator.py` `_apply` (the stamp and record at its end, as `planner.py` `mode_write_back` says), `_stamp_mode_change`, `_record_mode`; `logic.py` `room_call`, `engage_with_latch`, `shared_mode`, `arbitrate` (`running`), `head_action` |
+| Model `Reload` / `Restart` / `Crash` | `__init__.py` `async_setup_entry`; `coordinator.py` `ModeRecord`, `async_load_mode_record`, `_mode_change_store`, `planner.py` `mode_change_stamp`, `coordinator.py` `MXZCoordinator.__init__` (`_last_mode_change_ts`, the record's mode and `_mode_by_votes`, `_engage_latch`, `_startup_resume`), `restore_shared_mode`; `switch.py` (sets `_startup_resume`); `select.py` `async_added_to_hass` |
 | Model `Select` | `select.py` `async_select_option`; `coordinator.py` `async_select_shared_mode` |
-| Arbitration properties | `logic.py` `shared_mode`, `arbitrate`, `_rank`, `comfort_boost`; `coordinator.py` `_zone_arbitration_pair` |
-| Start properties | `coordinator.py` `mode_change_stamp`, `async_load_last_mode_change` (`async_load_mode_record`) |
+| Arbitration properties | `logic.py` `shared_mode`, `arbitrate`, `_rank`, `comfort_boost`; `planner.py` `arbitration_entries` |
+| Start properties | `planner.py` `mode_change_stamp`, `coordinator.py` `async_load_last_mode_change` (`async_load_mode_record`) |
 | Replays F1–F3, `tests/test_hold_promises.py` | the integration end to end (setup, `_compute`, `_apply`, reload, restart, crash, restore, the record's contents) |
 
 Does a change touch it?

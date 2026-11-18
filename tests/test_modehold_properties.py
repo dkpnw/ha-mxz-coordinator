@@ -233,21 +233,18 @@ def _offsets() -> list[float]:
     return edges + spread
 
 
-def test_a_start_keeps_what_is_left_of_the_hold_and_never_more(monkeypatch) -> None:
+def test_a_start_keeps_what_is_left_of_the_hold_and_never_more() -> None:
     """After a start, the hold left is the full window less the time since the
     stored change, and never more than the full window: a stored time in the
     future counts as now (docs/FEATURES.md "Mode-change wait")."""
-    from homeassistant.util import dt as dt_util
+    from custom_components.mxz_coordinator.planner import mode_change_stamp
 
-    from custom_components.mxz_coordinator.coordinator import mode_change_stamp
-
-    monkeypatch.setattr(dt_util, "utcnow", lambda: NOW)
     now = NOW.timestamp()
     clock = time.monotonic()
-    assert mode_change_stamp(None, clock) is None  # nothing on record, nothing to wait out
+    assert mode_change_stamp(None, clock, now) is None  # nothing on record, nothing to wait out
     for ago in _offsets():
         stored = now - ago
-        stamp = mode_change_stamp(stored, clock)
+        stamp = mode_change_stamp(stored, clock, now)
         waited = max(0.0, now - stored)  # what the record says has passed
         slack = 1e-6 * max(1.0, abs(waited))
         assert stamp <= clock, (ago, stamp, clock)  # never longer than the window
