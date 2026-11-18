@@ -70,8 +70,10 @@ async def run(drive: Drive, occupied: bool) -> None:
     window = drive.stream.since(marked)
     modes = [e["data"]["new_state"]["state"] for e in window
              if e["event_type"] == "state_changed" and e["data"]["entity_id"] == plan]
-    drive.check(f"the shared mode stays {mode[winner]} for the whole window",
-                set(modes) <= {mode[winner]}, sorted(set(modes)))
+    # Occupied, the plan reads cool until MXZ turns it to heat; that turn is the decision.
+    decided = modes[modes.index(mode[winner]):] if mode[winner] in modes else modes
+    drive.check(f"once the shared mode is {mode[winner]}, it stays {mode[winner]} to the end of the window",
+                set(decided) == {mode[winner]}, modes)
     sent = [commanded_mode(e) for e in head_calls(window, [head[loser]], by_person=False)]
     drive.check(f"MXZ never sends {drive.names[loser]}'s head {mode[loser]} in the window",
                 mode[loser] not in sent, sent)
