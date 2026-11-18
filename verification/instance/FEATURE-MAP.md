@@ -529,11 +529,12 @@ prove.
     the doctor should check that a head's state survives a stop and start of the
     equipment alone.
 
-## 6. The demo path: stock versus coordinated
+## 6. The demo scenes
 
-One afternoon, shown twice for the README: the sun has warmed Studio to 76 °F while Loft
-and Den sit at their 70 °F targets after a morning of heating. Stock, Studio waits behind
-the others' heat. Coordinated, MXZ turns the system to cool for Studio alone.
+Filmed clips for the README and `docs/HOW-IT-WORKS.md`. Each scene (`scenes.py`) stacks
+one or more rows, and each row is one demo journey below, filmed on its own fresh
+instance. A row is stock (no MXZ entry, a person works the heads) only where the model's
+rule 1 has something to show; a scene about an MXZ setting or rule has MXZ rows only.
 
 **What the equipment models, and no more** (`invented_house/model.py`, off unless a demo
 journey turns it on). Each rule is invented and the capture says so:
@@ -545,9 +546,14 @@ journey turns it on). Each rule is invented and the capture says so:
    cool: the high one) at 1 °F a minute, then idles in its mode.
 3. A room no head is moving drifts toward 76 °F at 0.05 °F a minute. No randomness.
 
-Both arms start from the same temperatures (Studio 76, Loft 70, Den 70), use the same
-model, and are filmed for the same 450 seconds from their start step. Each runs on its
-own fresh instance.
+Every row of a scene starts from the same temperatures, uses the same model, and is
+filmed for the same window from its start step.
+
+### 6.1 The README's top demo: mixed heat and cool (`stock-vs-mxz`)
+
+One afternoon, shown twice: the sun has warmed Studio to 76 °F while Loft and Den sit at
+their 70 °F targets after a morning of heating. Stock, Studio waits behind the others'
+heat. Coordinated, MXZ turns the system to cool for Studio alone. Window 450 seconds.
 
 **Arm A, stock** (`demo-stock`). No MXZ entry.
 
@@ -577,8 +583,13 @@ switch threshold off target, so the mode leaves Studio once it is back within 3 
 Loft still calls (`docs/FEATURES.md` and `docs/HOW-IT-WORKS.md` step 4 say the same). That
 version was never run. Run it before trusting any number for it.
 
+<!-- SCENES -->
+
+### 6.6 Capture and honesty limits
+
 **Capture.** `film.py` films each row from the instance's own frontend; `compose.py`
-stacks them on the journeys' start steps, sped up evenly. See [README.md](README.md#the-readme-demo).
+stacks a scene's rows on their journeys' start steps, sped up evenly. See
+[README.md](README.md#the-demo-scenes).
 
 **Honesty limits.**
 

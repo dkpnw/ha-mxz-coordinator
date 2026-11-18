@@ -56,10 +56,11 @@ async def run(drive: Drive) -> None:
                       watching(fan_auto, plan)(lambda states: states[fan_auto]["state"] == "off"
                                                and drive.row("Studio").get("fan_hold") is True), NOTICED)
     drive.record("MXZ", f"Studio's fan held at {PICK}")
-    await drive.until(f"Studio reaches {TARGET} and its head stops cooling (dries the coil with the fan)",
-                      watching("sensor.studio_temperature", studio)(
-                          lambda states: float(states["sensor.studio_temperature"]["state"]) <= TARGET
-                          and states[studio]["state"] == "fan_only"), filmed.left(began, WINDOW - 10))
+    await drive.until(f"Studio reaches {TARGET}", watching("sensor.studio_temperature")(
+        lambda states: float(states["sensor.studio_temperature"]["state"]) <= TARGET), filmed.left(began, WINDOW - 30))
+    # The model then lets the room drift up a few thousandths a tick, so the park is its own beat.
+    await drive.until("then its head stops cooling and dries the coil with the fan", watching(studio)(
+        lambda states: states[studio]["state"] == "fan_only"), SETTLE)
     drive.record("MXZ", "Studio at target; its head dries the coil")
     await filmed.window_ends(drive, began, WINDOW)
 

@@ -1,7 +1,7 @@
 """What every filmed demo journey (scenes.py) does the same way.
 
 The model goes on before the story, the start step sets the start temperatures
-in one recorded step that compose.py lines the rows up on, and the window ends
+in one report and one recorded step that compose.py lines the rows up on, and the window ends
 a fixed time after it. A coordinated journey also waits, before its start, until
 MXZ has every head off, so no clip opens on the coil dry setup-and-enable leaves.
 """
@@ -31,9 +31,11 @@ async def parked(drive: Drive) -> None:
 
 
 async def start(drive: Drive, temperatures: dict[str, float], step: str) -> float:
-    """Set the start temperatures in one step; return the window's start, on the loop clock."""
-    for key, temperature in temperatures.items():
-        await drive.client.call("invented_house", "room", room=key, temperature=temperature)
+    """Set the start temperatures in one report and one step; return the window's start, on the loop clock.
+
+    One report, so MXZ never decides on one room's new reading without the others'.
+    """
+    await drive.client.call("invented_house", "temperatures", temperatures=temperatures)
     drive.record("Room", step)
     return asyncio.get_running_loop().time()
 

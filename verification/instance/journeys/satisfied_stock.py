@@ -27,8 +27,8 @@ async def run(drive: Drive) -> None:
     for key in drive.rooms:
         await drive.at_head(f"last night: {drive.names[key]}'s head set to heat at {TARGET}", key,
                             hvac_mode="heat", target_temp_low=TARGET)
-    began = await filmed.start(drive, START, START_STEP)
     marked = drive.stream.mark()
+    began = await filmed.start(drive, START, START_STEP)
     await drive.until("every head heats its room; the outdoor unit runs heat", watching(*drive.heads, OUTDOOR)(
         lambda states: states[OUTDOOR]["state"] == "heat"
         and all(states[head]["attributes"].get("hvac_action") == "heating" for head in drive.heads)), SETTLE)

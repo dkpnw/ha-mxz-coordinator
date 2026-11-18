@@ -66,11 +66,13 @@ One driver per instance at a time; a second is refused. Each journey is one modu
 in `journeys/`, a sequence of actions by a named actor, each followed by expectations
 with a deadline:
 
-- a person in Home Assistant: a service call on MXZ's entities, or the setup flow
-  over `/api/config/config_entries/flow`;
+- a person in Home Assistant: a service call on MXZ's entities, the setup flow
+  over `/api/config/config_entries/flow`, or a Configure page over
+  `/api/config/config_entries/options/flow`, submitted with every other field as the
+  page shows it;
 - a person at the head: `invented_house.remote` (mode, setpoints, fan), which changes
   the head the way its remote does, with no `climate.*` call MXZ could see;
-- the room: `invented_house.room` (temperature, window open);
+- the room: `invented_house.room` (temperature, window open, occupied);
 - time: waiting on the real clock. Nothing moves a clock or writes a coordinator
   field.
 
@@ -106,40 +108,57 @@ A transcript is written pass or fail; a crash is a failed journey with its error
 A journey that fails is a finding: report its step and the state seen. Never loosen
 a journey to make it pass.
 
-## The README demo
+## The demo scenes
 
-One afternoon shown twice: Studio warmed to 76 °F while Loft and Den sit at 70 °F
-after a morning of heating. The equipment's outdoor unit and room model
-(`invented_house/model.py`) makes that a story. It is off until a demo journey turns
-it on, so the proof journeys see the equipment exactly as before. Three invented rules
-and no more: one outdoor unit runs one direction and a head set to the other waits in
-standby; a running head moves its room to its setpoint at 1 °F a minute; a room no head
-is moving drifts toward 76 °F at 0.05 °F a minute. While it runs, each head reports
-`hvac_action` and `standby`, and `sensor.outdoor_unit` shows the direction.
+The README's top demo and the clips in
+[How it works, More scenarios](../../docs/HOW-IT-WORKS.md#more-scenarios) are filmed
+here. Each is a scene in `scenes.py`: its rows from top to bottom, each one demo journey
+and the card `film.py` shows for it (`cards.py`), and the window, start step and speed
+`compose.py` uses. FEATURE-MAP section 6 gives each scene's beats.
 
-The demo journeys run only by name, each while `film.py` films one row, and each arm on
+| Scene | Rows: feature (card) | Window |
+|---|---|---|
+| `stock-vs-mxz`, the README's top demo | `demo-stock` (`stock`), `demo-coordinated` (`mxz`) | 450 s |
+| `satisfied` | `satisfied-stock` (`stock`), `satisfied-coordinated` (`mxz-outdoor`) | 450 s |
+| `fan-hold` | `fan-hold` (`mxz-fan`) | 450 s |
+| `mode-wait` | `mode-wait` (`mxz-wait`) | 600 s |
+| `comfort-priority` | `comfort-off` (`mxz-comfort`), `comfort-on` (`mxz-comfort`) | 330 s |
+
+The equipment's outdoor unit and room model (`invented_house/model.py`) makes each
+scene a story. It is off until a demo journey turns it on, so the proof journeys see
+the equipment exactly as before. Three invented rules and no more: one outdoor unit runs
+one direction and a head set to the other waits in standby; a running head moves its
+room to its setpoint at 1 °F a minute; a room no head is moving drifts toward 76 °F at
+0.05 °F a minute. While it runs, each head reports `hvac_action` and `standby`, and
+`sensor.outdoor_unit` shows the direction. The rooms' occupancy sensors are not part of
+the model; MXZ reads one only where `comfort-priority` wires it as a room's Comfort
+priority entity.
+
+The demo journeys run only by name, each while `film.py` films its row, and each row on
 a fresh instance: a demo journey leaves the model running and the heads where the story
-left them, which the proof journeys do not expect.
+left them, which the proof journeys do not expect. Every row but a stock one needs
+setup-and-enable first, and waits until MXZ has every head off before its start.
 
 ```sh
 mxz-instance up
-mxz-instance drive setup-and-enable
-mxz-instance exec -- python3 verification/instance/film.py mxz <frames>/mxz &
-mxz-instance drive demo-coordinated      # about 20 minutes: two 10-minute mode-switch waits come first
-mxz-instance down && mxz-instance reset && mxz-instance up
-mxz-instance exec -- python3 verification/instance/film.py stock <frames>/stock &
-mxz-instance drive demo-stock            # no MXZ entry
-python3 verification/instance/compose.py <stock run> <frames>/stock <mxz run> <frames>/mxz <out>
+mxz-instance drive setup-and-enable            # not for a stock row: it has no MXZ entry
+mxz-instance exec -- python3 verification/instance/film.py <feature> <frames>/<feature> &
+mxz-instance drive <feature>                   # 10 to 25 minutes
+mxz-instance down && mxz-instance reset        # then the scene's next row, on a fresh instance
+python3 verification/instance/compose.py <scene> <out> <run> <frames> [<run> <frames> ...]
 ```
 
-Stop `film.py` with SIGTERM once its journey ends.
+Stop `film.py` with SIGTERM once its journey ends. `--name` on both `mxz-instance` and
+`film.py` runs rows side by side, each instance in its own namespace.
 
 `film.py` needs a Python with Playwright and its Chromium, installed outside the
 namespace. It saves a one-card dashboard whose markdown Home Assistant renders from the
 live states, and screenshots it in a light and a dark browser every 5 seconds until it
-is stopped. `compose.py` (Pillow) starts each row's clock at its journey's start step,
-stacks the rows, and speeds both up evenly, 25 times. Each demo journey checks its own
-beats; one that does not happen is a finding, not a caption to change.
+is stopped. `compose.py` (Pillow) takes one run and one frames folder per row, top to
+bottom, and refuses a run of another feature. It starts each row's clock at its
+journey's start step, stacks the rows, and speeds them all up evenly, 25 times. Each demo
+journey checks its own beats; one that does not happen is a finding, not a caption to
+change.
 
 ## Cleanup
 
@@ -160,14 +179,19 @@ an environment yourself when no checkout needs it.
 - `home.py`: the instance (directory, namespace, process, lock). Knows nothing
   about MXZ.
 - `invented_house/`: the equipment, three rooms (Studio, Loft, Den) from
-  `house.json`, each with a head, a temperature sensor and a window sensor, and the
-  demo's outdoor unit. Its device
+  `house.json`, each with a head, a temperature sensor, a window sensor and an
+  occupancy sensor, and the demo's outdoor unit. Its device
   state lives in `config/invented_house.json` and outlives the process. It is copied
   into the instance at `up` and never ships.
 - `client.py`: Home Assistant's REST and WebSocket API. Knows nothing about MXZ's
   rules.
 - `journeys/drive.py`: actors, MXZ's entities, snapshots, expectations.
+- `scenes.py`, `cards.py`, `film.py`, `compose.py`, `journeys/filmed.py`: the demo
+  scenes, what each row's card shows, filming, composing, and what every filmed journey
+  does the same way.
 - `expect.py`, `evidence.py`: the event stream with deadlines and the cross-journey
   checks; the transcript and attachments.
 
-The pure parts are tested in the ordinary suite (`tests/test_verify_instance.py`).
+The pure parts are tested in the ordinary suite (`tests/test_verify_instance.py`,
+`tests/test_demo_scenes.py`, and `tests/test_instance_form_values.py` for the room page
+a journey submits).

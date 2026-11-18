@@ -37,6 +37,12 @@ room:
     occupied:
       selector:
         boolean:
+temperatures:
+  fields:
+    temperatures:
+      required: true
+      selector:
+        object:
 availability:
   fields:
     head:

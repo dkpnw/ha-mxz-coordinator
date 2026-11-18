@@ -51,13 +51,13 @@ class Bench:
     def modelled(self) -> bool:
         return self._stop_model is not None
 
-    async def changed(self, key: str) -> None:
+    async def changed(self, *changed: str) -> None:
         if self.modelled:
             self.devices.outdoor = direction(self.devices, self.devices.outdoor)
         async with self._writing:
             await self.hass.async_add_executor_job(self.devices.save, self._path)
         # With the model on, one head's change can put another in or out of standby.
-        keys = [*self.devices.heads, OUTDOOR] if self.modelled else [key]
+        keys = [*self.devices.heads, OUTDOOR] if self.modelled else list(changed)
         for each in keys:
             async_dispatcher_send(self.hass, signal(each))
 
@@ -104,6 +104,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 setattr(state, field, call.data[field])
         await bench.changed(call.data["room"])
 
+    async def temperatures(call: ServiceCall) -> None:
+        """Several rooms report at once, so MXZ never sees one reading without the others."""
+        for key, temperature in call.data["temperatures"].items():
+            bench.devices.rooms[key].temperature = temperature
+        await bench.changed(*call.data["temperatures"])
+
     async def model(call: ServiceCall) -> None:
         await bench.model(call.data["running"])
 
@@ -123,6 +129,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         vol.Optional("temperature"): vol.Coerce(float),
         vol.Optional("window_open"): cv.boolean,
         vol.Optional("occupied"): cv.boolean,
+    }))
+    hass.services.async_register(DOMAIN, "temperatures", temperatures, vol.Schema({
+        vol.Required("temperatures"): {vol.In(rooms): vol.Coerce(float)},
     }))
     hass.services.async_register(DOMAIN, "model", model, vol.Schema({vol.Required("running"): cv.boolean}))
     hass.services.async_register(DOMAIN, "availability", availability, vol.Schema({

@@ -66,9 +66,9 @@ async def run(drive: Drive) -> None:
                 (hold.get("mode_change_hold_remaining") or 0) > SHOWN, hold.get("mode_change_hold_remaining"))
     ends = when(hold["mode_change_hold_until"])
 
+    marked = drive.stream.mark()
     began = await filmed.start(drive, {"studio": HOT}, START_STEP)
     began_wall = time.time()
-    marked = drive.stream.mark()
     await drive.until("Studio's row asks for cool", watching(plan)(
         lambda _: drive.row("Studio").get("demand") == "cool"), SETTLE)
     drive.check("the shared mode is still heat, and the plan says a mode change is not yet allowed",

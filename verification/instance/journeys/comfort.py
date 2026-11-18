@@ -44,8 +44,8 @@ async def run(drive: Drive, occupied: bool) -> None:
     await filmed.model_on(drive)
     await filmed.parked(drive)
 
-    began = await filmed.start(drive, START, START_STEP)
     marked = drive.stream.mark()
+    began = await filmed.start(drive, START, START_STEP)
     winner, loser = ("den", "studio") if occupied else ("studio", "den")
     mode = {"studio": "cool", "den": "heat"}
     head = {key: f"climate.{key}_head" for key in mode}

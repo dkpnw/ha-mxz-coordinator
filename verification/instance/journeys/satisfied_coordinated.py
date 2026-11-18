@@ -32,8 +32,8 @@ async def run(drive: Drive) -> None:
     await filmed.model_on(drive)
     await filmed.parked(drive)
 
-    began = await filmed.start(drive, START, START_STEP)
     marked = drive.stream.mark()
+    began = await filmed.start(drive, START, START_STEP)
     await drive.until("the shared mode is heat and every head heats its room", watching(plan, *drive.heads)(
         lambda states: states[plan]["state"] == "heat"
         and all(states[head]["state"] == "heat" and states[head]["attributes"].get("hvac_action") == "heating"
