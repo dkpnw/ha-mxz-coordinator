@@ -65,11 +65,11 @@ def fan_auto(ids: dict[str, str], key: str, slug: str, name: str) -> str:
     return f"{{{{ states('{ids[slug + '_fan_auto']}') | capitalize }}}}"
 
 
-def comfort_priority(ids: dict[str, str], key: str, slug: str, name: str) -> str:
-    """The room's comfort_priority_status from MXZ's plan row; a dash when none is wired."""
-    return (f"{{%- set row = (state_attr('{ids['plan']}', 'zones') or []) | selectattr('name', 'eq', '{name}') | list -%}}"
-            "{%- set status = row[0].comfort_priority_status if row else 'not_set' -%}"
-            "{{ '–' if status == 'not_set' else status }}")
+def comfort_priority(ids: dict[str, str]) -> str:
+    """Each room with a Comfort priority entity, and its comfort_priority_status from MXZ's plan row."""
+    return (f"comfort priority:{{%- for row in state_attr('{ids['plan']}', 'zones') or [] "
+            "if row.comfort_priority_status != 'not_set' %} {{ row.name }} {{ row.comfort_priority_status }}"
+            "{%- endfor %}")
 
 
 CARDS: dict[str, Callable[[dict[str, str]], str]] = {
@@ -78,5 +78,5 @@ CARDS: dict[str, Callable[[dict[str, str]], str]] = {
     "mxz-outdoor": lambda ids: mxz_card(ids, header=(OUTDOOR,)),
     "mxz-fan": lambda ids: mxz_card(ids, column=("Fan auto", fan_auto)),
     "mxz-wait": lambda ids: mxz_card(ids, header=(mode_wait(ids),)),
-    "mxz-comfort": lambda ids: mxz_card(ids, column=("Comfort priority", comfort_priority)),
+    "mxz-comfort": lambda ids: mxz_card(ids, header=(comfort_priority(ids),)),
 }
