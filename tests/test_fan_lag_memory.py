@@ -181,7 +181,7 @@ async def test_the_memory_rides_a_start_with_the_head_still_behind(hass: HomeAss
 
 
 async def test_a_record_without_the_memory_still_holds_conservatively(hass: HomeAssistant, freezer: Any) -> None:
-    """A record from before this field: ``FanHold._reconcile_restored_hold``'s documented false hold,
+    """A record from before this field: ``fan_latch.reconcile_restored_hold``'s documented false hold,
     unchanged. It is what the memory above is for, so a start with it lost must show it."""
     rig = await _lagging_walk(hass, freezer)
     rig.coord.fan.restore(rig.heads[0].entity_id, False, last="low", prior="medium")

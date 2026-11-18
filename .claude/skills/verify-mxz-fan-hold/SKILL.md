@@ -1,6 +1,6 @@
 ---
 name: verify-mxz-fan-hold
-description: "Formal checks of MXZ Coordinator's manual fan hold and Fan auto: a fan speed a person picks at the head is held and never written over until it is handed back, a speed MXZ wrote is never mistaken for a person's pick (also from a head that reports late), and both survive a restart or crash as documented. A TLA+ model checked with TLC (ci-fan, ci-fan-crash, ci-fan-lag), Hypothesis properties and tests on the real code, and broken copies of both that each check must catch. Use before and after any change to fan_hold.py (FanHold: _observe_latch, async_apply, cloud_token, _hold_at, _reconcile_restored_hold, async_set_auto, restore; FanEcho: wrote, own, caught_up), or the Fan auto switch's restore data in switch.py, and when the model or a replay reports a break."
+description: "Formal checks of MXZ Coordinator's manual fan hold and Fan auto: a fan speed a person picks at the head is held and never written over until it is handed back, a speed MXZ wrote is never mistaken for a person's pick (also from a head that reports late), and both survive a restart or crash as documented. A TLA+ model checked with TLC (ci-fan, ci-fan-crash, ci-fan-lag), Hypothesis properties and tests on the real code, and broken copies of both that each check must catch. Use before and after any change to fan_hold.py (FanHold: _observe_latch, async_apply, cloud_token, async_set_auto, restore), fan_latch.py (observe_fan, reconcile_restored_hold, hold_at, adopt, restored, fan_auto; FanEcho: wrote, own, caught_up), or the Fan auto switch's restore data in switch.py, and when the model or a replay reports a break."
 ---
 
 # Verify the manual fan hold
@@ -48,10 +48,10 @@ them, and run both commands under Run.
 
 | Check | Covers (custom_components/mxz_coordinator/) |
 | --- | --- |
-| Model `Decide` (`Observe`, `ApplyFan`, `Rolled`) | `fan_hold.py` `FanHold._observe_latch`, `FanHold._seed_matches_boost`, `FanHold._seed_is_own_idle`, `FanHold._hold_at`, `FanHold.async_apply`, `FanHold._async_write`, `FanHold.cloud_token`, `FanEcho.own`, `FanEcho.wrote`, `FanEcho.caught_up`; `logic.py` `fan_for_delta` |
-| Model `PersonFan`, `HeadReports` | `coordinator.py` `_on_head_change` (the fan report); `fan_hold.py` `FanHold.head_reported`, `FanEcho.caught_up` |
-| Model `FanAutoOnGesture`, `FanAutoOffGesture` | `fan_hold.py` `FanHold.async_set_auto`, `FanHold._adopt` |
-| Model `Restart`, `Crash`, `Dump` (`Reconcile`) | `switch.py` `MXZZoneFanAutoSwitch.async_added_to_hass`, `MXZZoneFanAutoSwitch.extra_restore_state_data`; `fan_hold.py` `FanHold.restore`, `FanHold.command_memory`, `FanHold.older_record`, `FanHold._reconcile_restored_hold` |
+| Model `Decide` (`Observe`, `ApplyFan`, `Rolled`) | `fan_hold.py` `FanHold._observe_latch`, `FanHold.async_apply`, `FanHold._async_write`, `FanHold.cloud_token`; `fan_latch.py` `observe_fan`, `seed_matches_boost`, `seed_is_own_idle`, `hold_at`, `FanEcho.own`, `FanEcho.wrote`, `FanEcho.caught_up`; `logic.py` `fan_for_delta` |
+| Model `PersonFan`, `HeadReports` | `coordinator.py` `_on_head_change` (the fan report); `fan_hold.py` `FanHold.head_reported`; `fan_latch.py` `FanEcho.caught_up` |
+| Model `FanAutoOnGesture`, `FanAutoOffGesture` | `fan_hold.py` `FanHold.async_set_auto`; `fan_latch.py` `fan_auto`, `adopt` |
+| Model `Restart`, `Crash`, `Dump` (`Reconcile`) | `switch.py` `MXZZoneFanAutoSwitch.async_added_to_hass`, `MXZZoneFanAutoSwitch.extra_restore_state_data`; `fan_hold.py` `FanHold.restore`, `FanHold.command_memory`, `FanHold.older_record`; `fan_latch.py` `restored`, `reconcile_restored_hold` |
 | Code mutants C8 to C13, C22, C23, C31 to C41 | the functions above; each mutant names its function in `tools/code_mutants.py` |
 
 Does a change touch it?
@@ -59,7 +59,8 @@ Does a change touch it?
 ```sh
 git diff --stat ca78324aca3d5402252a585693ae98193cee24ca -- \
   custom_components/mxz_coordinator/coordinator.py custom_components/mxz_coordinator/fan_hold.py \
-  custom_components/mxz_coordinator/switch.py docs/formal/tla/MXZCoordinator.tla
+  custom_components/mxz_coordinator/fan_latch.py custom_components/mxz_coordinator/switch.py \
+  docs/formal/tla/MXZCoordinator.tla
 ```
 
 If it lists a file, read the diff against the table. A change inside a listed function needs

@@ -12,10 +12,9 @@ from __future__ import annotations
 
 import logging
 import math
-from collections import defaultdict, deque
+from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Protocol
 
 from homeassistant.helpers.restore_state import ExtraStoredData
@@ -25,13 +24,11 @@ from .const import (
     CLOUD_FAN_STEP_SECONDS,
     FAN_AUTO,
     FAN_LADDER,
-    FAN_OLDER_WRITES,
-    IDLE_ACTION_FAN_ONLY,
-    IDLE_SEED_MIN_ENTRY_AGE,
     MODE_COOL,
     MODE_FAN_ONLY,
     MODE_HEAT,
 )
+from .fan_latch import FanEcho, FanLatch, FanLimits, fan_auto, observe_fan, restored
 from .host import ControllerHost, HeadCommands
 from .logic import fan_for_delta
 
@@ -145,6 +142,14 @@ class FanHoldRestoreData(ExtraStoredData):
         )
 
 
+def _keep_or_drop[V](kept: dict[str, V], climate_id: str, value: V | None) -> None:
+    """Set the head's value, or leave none for None."""
+    if value is None:
+        kept.pop(climate_id, None)
+    else:
+        kept[climate_id] = value
+
+
 class FanHost(ControllerHost, Protocol):
     """The coordinator members the fan reads or calls, beyond every controller's.
 
@@ -170,99 +175,6 @@ class FanHost(ControllerHost, Protocol):
     def deliveries(self) -> HeadCommands: ...
     @property
     def heads(self) -> CloudRecords: ...
-
-
-class FanEcho:
-    """The fan speeds MXZ wrote to one head that the head may still show.
-
-    ``last`` is the last speed commanded or adopted, and ``prior`` the one
-    before it: a head can briefly still show that one, so a speed is a
-    person's only if it is neither. A head can lag further than that (F1,
-    docs/formal/PARKED-FINDINGS.md): ``older`` holds the speeds MXZ wrote that
-    this head may yet show, in the order written, a speed written twice
-    appearing twice. Its reports drop what came before them, so a head caught
-    up leaves the last write alone in it (see ``caught_up``). ``None`` means no
-    memory yet, and an empty ``older`` no older write.
-
-    The latch sets its own baseline by starting a new one: a hold, an adopted
-    speed, a stamp of ``auto``, a restore.
-    """
-
-    def __init__(
-        self, last: str | None = None, prior: str | None = None, older: Iterable[str] = (),
-    ) -> None:
-        self.last = last
-        self.prior = prior
-        self.older: deque[str] = deque(older, maxlen=FAN_OLDER_WRITES + 2)
-
-    def wrote(self, token: str) -> None:
-        """Roll the memory for a fan speed MXZ is sending.
-
-        A rewrite of the token already commanded rolls nothing (see
-        ``FanHold._async_write``). With no memory yet, as after a start or a
-        hold, it starts from the two before this one, which the head may still
-        show (F1's cost, docs/formal/PARKED-FINDINGS.md). ``auto`` counts like a
-        speed in it: a later report of ``auto`` may be that first one.
-        """
-        last = self.last
-        if token == last:
-            return
-        prev = self.prior
-        self.prior = token if last is None else last
-        self.last = token
-        if last is None:
-            return
-        memory = self.older
-        if not memory:
-            memory.extend(dict.fromkeys(written for written in (prev, last) if written is not None))
-        memory.append(token)
-
-    def own(self, observed: str) -> bool:
-        """Whether a speed the head shows can be one MXZ wrote: never a person's pick.
-
-        One of the last two, or an older write the head's reports haven't
-        passed yet. ``auto`` is not asked about: its report releases a hold
-        whatever is remembered.
-        """
-        if observed in (self.last, self.prior):
-            return True
-        return observed in self.older_commands()
-
-    def caught_up(self, observed: Any) -> bool:
-        """A head's report: the writes before it are behind the head for good.
-
-        A head shows its writes in order, so it can't show those again, and a
-        pick of one from here is a pick. A speed written more than once counts as
-        its earliest write left: this report may be that one, with the rest of
-        the writes still coming. A report of ``prior`` drops nothing, which is
-        wider than it has to be and only for a head still one write behind.
-
-        A report of the last command with no other write left has caught up, and
-        the memory stays as that one write. The next write adds to it, so a speed
-        the head has passed doesn't come back. That can't tell a head that jumped
-        straight to the last of two writes of a speed, so the writes between
-        stay echoes until a report rules them out (F1's cost,
-        docs/formal/PARKED-FINDINGS.md).
-
-        Returns whether the memory changed.
-        """
-        memory = self.older
-        if not memory or observed not in memory:
-            return False
-        changed = False
-        if observed == self.last or observed != self.prior:
-            changed = memory[0] != observed
-            while memory[0] != observed:
-                memory.popleft()
-        return changed
-
-    def older_commands(self) -> list[str]:
-        """The older writes this adds to the last two, oldest first, each once.
-
-        Never one of the last two, and never auto.
-        """
-        skip = (self.last, self.prior, FAN_AUTO)
-        return [token for token in dict.fromkeys(self.older) if token not in skip]
 
 
 class FanHold:
@@ -531,258 +443,51 @@ class FanHold:
     def _observe_latch(
         self, climate_id: str, observed: str, act: str, delta: float
     ) -> bool:
-        """Update and return the manual-fan latch for a head from its state.
+        """Update and return the manual-fan latch for a head from the speed it shows.
 
         Called once per apply per head, guaranteed the head has fan_modes with an
-        "auto" token and reports a current speed (``observed``). Latch
-        transitions off that OBSERVED fan_mode:
-
-        * a pending restore (the first speed observed after a restart, reload or
-          standby release) is reconciled by ``_reconcile_restored_hold``:
-          restored truth beats token guessing
-        * observed "auto"                 -> released (user handed control back)
-        * observed token MXZ can't have written -> latched (a user departure;
-          ``FanEcho.own`` absorbs the echo race where the head still reports
-          the token we wrote one cycle ago, or an older write the head's
-          reports haven't passed yet)
-        * no echo memory yet (first compute with nothing restored): a
-          non-"auto" reading seeds LATCHED, mirroring the engage-latch's "resume
-          from the head's own state" — a manual pick that predates the restart
-          is honored — UNLESS the reading is a speed the ladder would hold at
-          the current delta, which is our own boost speed echoing back (see
-          ``_seed_matches_boost``), or our own fan_only idle on an established
-          entry (see ``_seed_is_own_idle``).
-
-        A hold ends ONLY on a gesture: the Fan-auto switch, or an observed "auto".
-        Room drift, target changes, and slider moves between speeds never release
-        one, at any speed including max.
-
-        History, because this rule got simpler twice: through v2.17.0 a slider-set
-        hold at the head's top token ALSO merged back into auto on any cycle where
-        the ladder would have commanded max anyway — a hold releasing itself with
-        no user gesture. Through v2.18.0 a *departure* to that top token was
-        likewise read as "hand it back", because HomeKit's fan slider has no
-        "auto" stop and a user who latched a zone from Apple Home had no on-slider
-        way out. The per-zone Fan-auto switch bridges to HomeKit as a plain toggle
-        and is that way out, so both readings of "max means give it back" are
-        gone: max now holds like any other speed.
-
-        Because the coordinator only sees observed state per cycle — not events —
-        a re-gesture to the SAME token the head already reports is invisible; that
-        limitation is accepted.
+        "auto" token and reports a current speed (``observed``). The report is
+        passed to the echo memory first (``head_reported``), then
+        ``fan_latch.observe_fan`` decides.
         """
         self.head_reported(climate_id, observed)
-        if climate_id in self._on_pending:
-            self._on_pending.remove(climate_id)
-            self._restore.pop(climate_id, None)
-            self._adopt(climate_id, observed)
-            return False
-        restored = self._restore.pop(climate_id, None)
-        if restored is not None:
-            return self._reconcile_restored_hold(climate_id, observed, restored, act)
+        latch = observe_fan(self._latch(climate_id), observed, act, delta, self._limits())
+        self._keep(climate_id, latch)
+        return latch.held is True
 
-        echo = self._echo[climate_id]
-        if observed == FAN_AUTO:
-            # Observed auto releases everything.
-            self._latched[climate_id] = False
-            if echo.last is None:
-                # Baseline stamp: without it a head idle-at-auto since startup
-                # keeps an empty command memory (the return-to-auto write is
-                # idempotency-skipped), so a LATER live pick would arrive as an
-                # ambiguous seed instead of a clean departure.
-                self._echo[climate_id] = FanEcho(FAN_AUTO, FAN_AUTO)
-            return False
-
-        seeding = echo.last is None
-        departed = not seeding and not echo.own(observed)
-        if not (seeding or departed):
-            # A standing hold: no gesture this cycle, so nothing changes.
-            return self._latched.get(climate_id, False)
-
-        # A seed at exactly the speed the ladder would command right now is our
-        # own boost speed echoing back, not a manual pick -> adopt it and keep
-        # driving. A DEPARTURE never adopts: every slider move is a hold.
-        if seeding:
-            if self._seed_is_own_idle(observed, act):
-                # Baseline stamped so a slow echo of this token isn't a
-                # departure; the return-to-auto write then proceeds.
-                self._latched[climate_id] = False
-                self._echo[climate_id] = FanEcho(observed, observed)
-                return False
-            idx = self._seed_matches_boost(climate_id, observed, act, delta)
-            if idx is not None:
-                self._adopt(climate_id, observed, idx)
-                return False
-
-        # Seed latched (not at auto, not our rung); a departure always latches.
-        self._hold_at(climate_id, observed)
-        return True
-
-    def _reconcile_restored_hold(
-        self, climate_id: str, observed: str, held: bool, act: str
-    ) -> bool:
-        """Consume a restored hold truth against the first speed the head reports.
-
-        The Fan-auto switch restores the held/not-held bool and, for a zone that
-        was not held, the previous incarnation's command/observation baselines
-        (already in the echo memory, see ``restore``). The token itself is
-        always taken from the OBSERVED head.
-
-        * observed "auto": released — including a hold the user let go of during
-          the outage. Restored command memory stays, so a late report of a
-          pre-restart token is still read as our own echo, not a departure.
-        * held: still held, at the observed token (same token: the hold simply
-          survived; different non-auto token: the user moved the hold during the
-          outage — theirs either way).
-        * not held: boost was driving. A token boost could never have written —
-          outside the ladder, above the ceiling — holds, even if remembered:
-          memory can contain user picks. An in-ceiling ladder token is ours
-          when there is no memory, when it is remembered, or when the
-          room is idling in fan_only under idle_action fan_only (#25): such a
-          head can report a speed of its own while idling, and a hold there never
-          self-corrects because the room never reads a clean "auto". Otherwise
-          (an active room, another idle action) a nonmatching token
-          conservatively holds; a stale dump can cause a false hold, so this is
-          NOT proof of a manual gesture. The documented edge: a pick made while
-          HA itself was down is indistinguishable from residue wherever the
-          token is read as ours. Never a fixed-point guess: a mere change of
-          delta is not a manual gesture. An active room resumes the ladder from
-          the observed rung.
-        """
-        if observed == FAN_AUTO:
-            self._latched[climate_id] = False
-            if self._echo[climate_id].last is None:
-                self._echo[climate_id] = FanEcho(FAN_AUTO, FAN_AUTO)
-            return False
-        if held:
-            self._hold_at(climate_id, observed)
-            return True
-        echo = self._echo[climate_id]
-        remembered = echo.own(observed)
-        ours = (
-            observed in FAN_LADDER
-            and FAN_LADDER.index(observed) <= self._max_idx()
-            and (
-                echo.last is None
-                or remembered
-                or (act == MODE_FAN_ONLY and self._host.idle_action == IDLE_ACTION_FAN_ONLY)
-            )
+    def _latch(self, climate_id: str) -> FanLatch:
+        """This head's hold as ``fan_latch`` reads it."""
+        return FanLatch(
+            echo=self._echo[climate_id],
+            held=self._latched.get(climate_id),
+            restored=self._restore.get(climate_id),
+            on_pending=climate_id in self._on_pending,
+            rung=self._idx.get(climate_id),
         )
-        if not ours:
-            self._hold_at(climate_id, observed)
-            return True
-        self._latched[climate_id] = False
-        if not remembered:
-            # Baseline stamped so a slow echo of this token isn't a departure.
-            self._echo[climate_id] = FanEcho(observed, observed)
-        if act in (MODE_COOL, MODE_HEAT) and observed in FAN_LADDER:
-            self._idx[climate_id] = min(FAN_LADDER.index(observed), self._max_idx())
-        return False
 
-    def _hold_at(self, climate_id: str, observed: str) -> None:
-        """Latch the head at the token it reports, as a STANDING hold.
+    def _keep(self, climate_id: str, latch: FanLatch) -> None:
+        """Keep what ``fan_latch`` left of this head's hold; a None leaves nothing set."""
+        self._echo[climate_id] = latch.echo
+        _keep_or_drop(self._latched, climate_id, latch.held)
+        _keep_or_drop(self._restore, climate_id, latch.restored)
+        _keep_or_drop(self._idx, climate_id, latch.rung)
+        if latch.on_pending:
+            self._on_pending.add(climate_id)
+        else:
+            self._on_pending.discard(climate_id)
 
-        Records the held token as the command baseline so the zone stays held
-        next cycle (the same trick async_set_auto OFF uses). Without this
-        the identical reading re-reads as a fresh seed/departure every cycle and
-        the latch decision is re-litigated forever — which is how the v2.18.0
-        "standing merge" removal was defeated for slider holds: the departure
-        branch kept re-running the max handback, so a max hold still released
-        itself on drift.
-        """
-        self._latched[climate_id] = True
-        self._echo[climate_id] = FanEcho(observed, observed)
-
-    def _adopt(self, climate_id: str, observed: str, idx: int | None = None) -> None:
-        """Release the latch and adopt the observed token into the boost's memory.
-
-        Rolls prior, records the observed token as the last command, and pins
-        the rung so the ladder continues from where the head actually is: the
-        natural ramp proceeds idempotently under DOWN_AT hysteresis, and the head
-        doesn't read as a fresh departure and re-latch once the ladder steps off
-        that token. ``idx`` is the ladder index to resume from — the seed adopt
-        passes the index it matched; the Fan-auto switch passes none and resumes
-        from the top, which only ever ramps down from there.
-        """
-        self._latched[climate_id] = False
-        last = self._echo[climate_id].last
-        self._echo[climate_id] = FanEcho(observed, observed if last is None else last)
-        self._idx[climate_id] = self._max_idx() if idx is None else idx
-
-    def _seed_matches_boost(
-        self, climate_id: str, observed: str, act: str, delta: float
-    ) -> int | None:
-        """Ladder index if a seed reading is our own boost speed, else ``None``.
-
-        The latch seeds from whatever the head reports on the first compute after
-        a restart, and a head boost had been driving is reporting OUR speed — not
-        a manual pick. Latching that parks the zone silently (Fan auto reads OFF,
-        boost stops driving it) until a human hands it back, after EVERY restart
-        that catches a room conditioning — including the weekly update.
-
-        So: while actively conditioning, if the observed token is a rung the
-        ladder would STAY on at the current delta — a fixed point under the
-        UP_AT/DOWN_AT hysteresis — it's a speed the boost could legitimately
-        have parked the head at, so it's ours: adopt it and keep driving. The
-        hysteresis makes this a BAND, not a single value (as a room closes in,
-        DOWN_AT holds the fan a rung or two above what a cold read would pick;
-        that is the boost's normal resting state, not a manual hold). Checking
-        only the cold read (cur_idx=0) — as v2.19.0/beta.18 did — matched just
-        the bottom rung of that band, so a restart mid-ramp-down still parked
-        the head as "held".
-
-        A real manual hold that predates the restart reads as a token OUTSIDE
-        the band — above the boost ceiling, or past a hysteresis edge — so it
-        still latches. The accepted tradeoff: a hold deliberately placed inside
-        the band is indistinguishable from the boost's own speed and is lost to
-        adoption. Only reachable on a seed — a departure is always a hold.
-        """
+    def _limits(self) -> FanLimits:
+        """The settings and the clock reading the fan hold's decision reads."""
         host = self._host
-        if act not in (MODE_COOL, MODE_HEAT) or host.eco_idle:
-            return None
-        if observed not in FAN_LADDER:
-            return None
-        obs_idx = FAN_LADDER.index(observed)
-        if obs_idx > self._max_idx():
-            return None  # above the boost ceiling: never ours
-        idx = fan_for_delta(
-            delta=delta,
-            cur_idx=obs_idx,
+        created = host.config_entry.created_at
+        return FanLimits(
+            ceiling=self._max_idx(),
             up_at=host.fan_up_at,
             down_at=host.fan_down_at,
-            max_idx=self._max_idx(),
-        )
-        return obs_idx if idx == obs_idx else None
-
-    def _seed_is_own_idle(self, observed: str, act: str) -> bool:
-        """True if a seed with no restore data is our own fan_only idle (#25).
-
-        idle_action="fan_only" drives a satisfied head to "auto" every cycle,
-        yet a real head can report a concrete token while idling that way.
-        Seeding that as a hold never self-corrects: unlike an active seed, the
-        zone never leaves fan_only for a clean "auto" reading. So on a restart
-        of an ESTABLISHED coordinator — this entry's own coordinator switch
-        restored ON (it was running before), and the entry at least
-        ``IDLE_SEED_MIN_ENTRY_AGE`` old — an in-ceiling ladder token boost
-        could have written is read as ours. A first-ever compute (fresh
-        install or re-added entry: nothing restored ON; or a first live
-        enable, however long after install) keeps honoring a pre-install
-        manual pick (S10). The accepted edge: a pick made while the zone
-        idled in fan_only, followed by a restart that loses the Fan-auto
-        restore, is indistinguishable and is not held.
-        """
-        host = self._host
-        if (
-            act != MODE_FAN_ONLY
-            or host.idle_action != IDLE_ACTION_FAN_ONLY
-            or not host.restored_coordinator_on
-            or observed not in FAN_LADDER
-            or FAN_LADDER.index(observed) > self._max_idx()
-        ):
-            return False
-        created = host.config_entry.created_at
-        return created is not None and dt_util.utcnow() - created >= timedelta(
-            seconds=IDLE_SEED_MIN_ENTRY_AGE
+            eco_idle=host.eco_idle,
+            idle_action=host.idle_action,
+            resumed=host.restored_coordinator_on,
+            age=None if created is None else dt_util.utcnow() - created,
         )
 
     # -- what a restart carries (the Fan auto switch's restore data) ----------
@@ -803,45 +508,14 @@ class FanHold:
         is newer, and consumed once by the seed, which reconciles it against the
         observed head state. Stale restores (older than the entry) are
         filtered by the switch and never reach here. With fan boost disabled
-        the data is simply never consumed (the fan machinery is inert).
-
-        ``last``/``prior`` are command/adopted-observation baselines from the
-        previous incarnation, when the restored record carried them. For a
-        zone that was NOT held they re-arm the echo tolerance across the
-        restart, so a head that reports a pre-restart token late — after a
-        provisional ``auto``, or once its missing speed arrives — is read as
-        our own echo, not as a departure. A held zone's memory is the held
-        token itself: the seed records it from the observed head, so nothing
-        is carried for it (a hold released during the outage stays released,
-        and a later non-auto report on it is a new hold either way).
-
-        ``older`` is the same for a head that was further behind at the stop
-        (see ``older_record``). Only speeds boost could write are taken back:
-        anything else is no echo.
+        the data is simply never consumed (the fan machinery is inert). What it
+        keeps of the record is ``fan_latch.restored``'s rule.
         """
-        self._echo.pop(climate_id, None)
-        self._restore[climate_id] = held
         self._restore_problem.pop(climate_id, None)
-        self._on_pending.discard(climate_id)
-        # Only a strictly parsed fresh not-held record can carry this explicit
-        # instruction. It adopts ONE first usable report, including a user
-        # token above the ceiling, just like live ON; it proves no own echo.
-        if on_pending is True and held is False:
-            self._on_pending.add(climate_id)
-        if not held and last is not None:
-            # Memory includes adopted user tokens, not just our commands.
-            # S11b wins even when an impossible token is reported AFTER a
-            # provisional auto. Such a token cannot arm restored echo tolerance.
-            def eligible(token: str) -> str:
-                if token in FAN_LADDER and FAN_LADDER.index(token) <= self._max_idx():
-                    return token
-                return FAN_AUTO
-
-            command = eligible(last)
-            before = eligible(last if prior is None else prior)
-            kept = [token for token in older if eligible(token) == token]
-            last_two = dict.fromkeys((before, command))
-            self._echo[climate_id] = FanEcho(command, before, (*kept, *last_two) if kept else ())
+        self._keep(climate_id, restored(
+            self._latch(climate_id), held,
+            last=last, prior=prior, older=older, on_pending=on_pending, ceiling=self._max_idx(),
+        ))
 
     def restore_record(self, climate_id: str, record: FanHoldRestoreData) -> None:
         """``restore`` from a saved record; replaces what an earlier record restored.
@@ -981,67 +655,26 @@ class FanHold:
     async def async_set_auto(self, climate_id: str, on: bool) -> None:
         """Drive the fan-auto switch: ON hands control back, OFF holds the speed.
 
-        ON  -> release the latch and ADOPT the head's current observed token into
-               the boost memory (the same trick as the max handback), so the
-               still-at-manual-speed head doesn't read as a fresh departure and
-               immediately re-latch; then recompute so boost reasserts promptly.
-        OFF -> latch at whatever the head is doing right now (a deliberate hold).
-               Latching "at auto" is meaningless, so an observed ``auto`` is a
-               no-op (the switch stays ON) — documented, pinned in a test. We
-               seed the echo memory with the observed token so the observation
-               path treats the hold as already-accounted-for, not a new departure.
-               The hold sticks at any speed, max included, until the switch (or
-               an observed ``auto``) releases it.
-
-        With fan boost disabled the fan machinery is inert: OFF still records the
-        latch (it simply has no effect until boost is re-enabled), and ON still
-        clears it — the switch stays honest either way.
+        The gesture's rule is ``fan_latch.fan_auto``, against the speed the head
+        shows now. ON also clears a restore problem. A gesture that acted is
+        published and asks for a recompute, so boost reasserts promptly; one that
+        was ignored (OFF at ``auto``, or with no speed and no ON waiting) is only
+        logged. With boost disabled, restored truth stays pending even with a
+        live head, and a switch gesture supersedes it.
         """
-        # With boost disabled, restored truth stays pending even with a live head.
-        # A switch gesture supersedes that pending truth.
         state = self._host.hass.states.get(climate_id)
         observed = state.attributes.get("fan_mode") if state is not None else None
         if on:
             self._restore_problem.pop(climate_id, None)
-            self._restore.pop(climate_id, None)
-            self._on_pending.discard(climate_id)
-            if observed is not None:
-                # Adopt the current speed so boost resumes from it without a
-                # spurious re-latch (rolls prior, pins the rung to max for a
-                # clean DOWN_AT ramp-down).
-                self._adopt(climate_id, observed)
-            else:
-                self._latched[climate_id] = False
-                self._on_pending.add(climate_id)
-            self.publish(climate_id)
-            await self._host.async_request_refresh()
-            return
-        # OFF: hold at the current speed. Auto is nothing to hold onto.
-        if observed is None or observed == FAN_AUTO:
-            if observed is None and climate_id in self._on_pending:
-                # Cancel the explicit waiting ON without guessing a token or
-                # issuing a write. First non-auto report becomes the held
-                # speed; observed auto still releases as usual. Known held
-                # truth without a pending ON is left intact.
-                self._on_pending.discard(climate_id)
-                self._restore[climate_id] = True
-                self._latched[climate_id] = True
-                self.publish(climate_id)
-                await self._host.async_request_refresh()
-                return
-            if observed == FAN_AUTO:
-                self._restore.pop(climate_id, None)
+        latch, acted = fan_auto(self._latch(climate_id), observed, on, self._max_idx())
+        self._keep(climate_id, latch)
+        if not acted:
             _LOGGER.debug(
                 "fan-auto OFF for %s ignored: head at %s (nothing to hold)",
                 climate_id,
                 observed,
             )
             return
-        self._restore.pop(climate_id, None)
-        last = self._echo[climate_id].last
-        self._echo[climate_id] = FanEcho(observed, observed if last is None else last)
-        self._latched[climate_id] = True
-        self._on_pending.discard(climate_id)
         self.publish(climate_id)
         await self._host.async_request_refresh()
 

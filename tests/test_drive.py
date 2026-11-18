@@ -1117,7 +1117,7 @@ async def test_hold_seeded_by_a_restart_survives_drift(hass: HomeAssistant) -> N
 async def test_seed_at_max_adopts_on_restart(hass: HomeAssistant) -> None:
     """Restart mid-boost at the TOP token with a max-demanding delta -> adopt.
 
-    The max end of ``_seed_matches_boost``; the mid-ladder end is
+    The max end of ``seed_matches_boost``; the mid-ladder end is
     test_restart_mid_boost_keeps_boost_driving. A seed the ladder would NOT
     command right now still latches (test_manual_fan_latch_seeds_from_head_on_restart)."""
     hass.config.units = US_CUSTOMARY_SYSTEM
@@ -1194,7 +1194,7 @@ async def test_sliding_to_max_above_the_boost_ceiling_latches(
     """fan_boost_max capped at "medium": a user "high" holds, far off target or not.
 
     Pinned separately from the uncapped case because the ceiling is what keeps
-    ``_seed_matches_boost`` honest — the ladder can never pick "high" here, so a
+    ``seed_matches_boost`` honest — the ladder can never pick "high" here, so a
     head sitting on it is never ours."""
     hass.config.units = US_CUSTOMARY_SYSTEM
     head_a, head_b = await _setup_mock_heads(hass)
@@ -1220,7 +1220,7 @@ async def test_seed_adopt_never_false_positives_on_a_partial_ladder(
 ) -> None:
     """A head missing a ladder token: a restart seed adopts only on an EXACT match.
 
-    ``_seed_matches_boost`` compares the observation against ``FAN_LADDER``
+    ``seed_matches_boost`` compares the observation against ``FAN_LADDER``
     directly, not against the head's own list. When the ladder's pick for this
     delta is a token the head lacks, the boost skips that write and the head sits
     on an older, slower token — which no longer matches, so the seed LATCHES.

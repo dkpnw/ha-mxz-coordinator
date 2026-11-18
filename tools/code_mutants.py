@@ -113,7 +113,7 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_properties_mode.py::test_a_run_in_the_shared_mode_keeps_it_from_resting_mode',
     ),
     'C8': Mutant(
-        "a departure isn't a hold", '_observe_latch',
+        "a departure isn't a hold", 'observe_fan',
         'if not (seeding or departed):',
         'if not seeding:',
         'tests/test_properties_fan.py::test_a_pick_is_never_written_over_until_it_is_handed_back',
@@ -125,9 +125,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_properties_fan.py::test_a_pick_is_never_written_over_until_it_is_handed_back',
     ),
     'C10': Mutant(
-        "a restored hold isn't kept", '_reconcile_restored_hold',
-        'if held:\n            self._hold_at(climate_id, observed)\n            return True\n        echo =',
-        'if False:\n            self._hold_at(climate_id, observed)\n            return True\n        echo =',
+        "a restored hold isn't kept", 'reconcile_restored_hold',
+        'if held:\n        return hold_at(latch, observed)\n    remembered =',
+        'if False:\n        return hold_at(latch, observed)\n    remembered =',
         'tests/test_properties_restart.py::test_a_start_changes_nothing_anyone_can_see',
     ),
     'C11': Mutant(
