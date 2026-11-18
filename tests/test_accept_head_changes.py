@@ -22,7 +22,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from custom_components.mxz_coordinator.const import (
@@ -1073,6 +1073,38 @@ async def test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_ad
     await rig.close()
 
 
+def test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_after_it() -> None:
+    """Known cost, docs/STATE-MACHINES.md SM-10 path (c), accepted (the owner's decision,
+    Nov 17, 2026), shown on HeadWriteMemory alone. The head shows MXZ's 1. MXZ writes 1
+    again, which counts no copy (the value the head shows, with nothing else queued), then
+    0, then 1, all still queued at a head that shows writes late. A person presses 5. The
+    first 1 lands late. The memory takes it as the later 1 and ends the 0 queued between
+    them, so when the 0 lands it reads as a person's press. If that 0 is adopted, the
+    memory forgets the later 1 too, so it also reads as a person's when it lands.
+
+    MXZ sees only the head's reports: its 1, a person's 5, then 1 again, a value it wrote
+    after the 0. A report of a later write ends the writes before it
+    (test_a_report_of_the_last_write_ends_all_the_others), and a press of a value the head
+    has passed is a person's (test_a_press_of_a_write_the_head_has_passed_is_adopted).
+    Nothing in the reports tells the late first 1 from the later 1: a head that took the
+    first 1 at once showed nothing for it. No rule that reads only reports can give both
+    answers. It is the second case that
+    test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value doesn't check."""
+    memory = HeadWriteMemory(8)
+    memory.wrote(1, 0)
+    memory.caught_up(1)  # the head shows MXZ's 1
+    assert memory.wrote(1, 1) is False  # the value it shows, nothing else queued: no copy
+    memory.wrote(0, 1)
+    memory.wrote(1, 1)
+    memory.seen(5)  # a person's press
+    assert memory.own(0) and memory.own(1)
+    memory.caught_up(1)  # the first 1, late
+    assert not memory.own(0)
+    assert memory.own(1)
+    memory.seen(0)  # the 0 lands and is adopted as a person's
+    assert not memory.own(1)
+
+
 def _refuses_the_first_setpoint(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     """The first head refuses MXZ's first setpoint call (a cloud timeout, say), then takes them."""
     head = rig.heads[0]
@@ -1412,16 +1444,30 @@ def test_a_person_replaces_what_the_head_last_showed_not_what_is_still_coming() 
         max_size=30,
     ),
 )
+@example(actions=[("write", 1), ("land", None), ("write", 1), ("write", 0), ("write", 1), ("press", 5), ("land", None)])
 @PURE
 def test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value(actions: list[tuple[str, Any]]) -> None:
     """SM-10 as far as a report can tell: against an independent queue, a head shows its
     writes in order, a copy of the value it shows lands with nothing new to show, and a
-    person presses only values MXZ never wrote (a press of a queued one is the open part).
+    person presses only values MXZ never wrote (a press of a queued value is SM-10 path (b)).
 
-    A write of the value the head shows, with only that value queued, is not checked: a
-    head that takes it at once shows nothing for it, so a kept copy would never be counted
-    off and would take a person's next press of that value (review 2 of smfix1111). That
-    copy landing late after a person's press is open, as on the base."""
+    Two kinds of queued write are not checked. Both are part of SM-10's accepted known
+    cost (the owner's decision, Nov 17, 2026), path (c):
+
+    - A write of the value the head shows, with only that value queued. A head that takes
+      it at once shows nothing for it, so a kept copy would never be counted off and would
+      take a person's next press of that value (review 2 of smfix1111). If it lands late,
+      after a person's press, it reads as a person's:
+      test_known_cost_a_write_of_the_shown_value_landing_after_a_press_is_adopted.
+    - The writes such a write passes. If it lands after a person's press while a later
+      write of the same value is still queued, the memory takes it as that later write and
+      ends the writes queued between them, as a report of a later write must
+      (test_a_report_of_the_last_write_ends_all_the_others). Those writes then read as a
+      person's when they land:
+      test_known_cost_a_late_write_of_the_shown_value_passes_the_writes_queued_after_it.
+
+    Every other queued write is checked. The example is the second case, which a run
+    finds only under some seeds."""
     memory = HeadWriteMemory(64)
     shown = 100
     queue: list[tuple[int, bool]] = []  # each write, and whether a report can count it off
@@ -1431,7 +1477,11 @@ def test_no_write_still_queued_is_forgotten_but_by_a_press_of_its_value(actions:
             memory.wrote(value, shown)
             queue.append((value, not unseen))
         elif kind == "land" and queue:
-            landed, _ = queue.pop(0)
+            landed, checked = queue.pop(0)
+            later = [queued for queued, _ in queue]
+            if not checked and landed != shown and landed in later:
+                passed = later.index(landed)
+                queue[:passed] = [(queued, False) for queued, _ in queue[:passed]]
             if landed != shown:
                 memory.caught_up(landed)
                 shown = landed
