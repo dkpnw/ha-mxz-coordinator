@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 from .const import (
+    ADOPT_DELAY,
     DEMAND_NEUTRAL,
     ENGAGE_SATISFIED,
     IDLE_ACTION_FAN_ONLY,
@@ -1143,3 +1144,125 @@ def adopt_head_change(change: HeadChange) -> Adoption | None:
     ):
         target = change.target
     return Adoption(enable=None if change.enabled else True, target=target)
+
+
+def adopted(adoption: Adoption | None) -> bool:
+    """Whether a change at a head asks anything of its room: a person's change with a target
+    or an enable in it. One with nothing to adopt, like a heat/cool choice, protects nothing."""
+    return adoption is not None and bool(adoption.as_dict())
+
+
+def holds_change(holding: bool, adoption: Callable[[], Adoption | None]) -> bool:
+    """Whether a person's change at a head is still holding (``holding``: its adopt hold is
+    armed) and would still count: the apply leaves that head alone.
+
+    ``adoption`` is :func:`adopt_head_change` for what moved since the hold began, read only
+    while the hold is armed.
+    """
+    return holding and adopted(adoption())
+
+
+@dataclass(frozen=True, slots=True)
+class HeadReport:
+    """What a head's report does to its adopt hold.
+
+    ``pending``: what moved since the hold began, to keep for its end; None drops it.
+    ``hold``: the hold armed for ``ADOPT_DELAY``, or cancelled. ``disown``: a command of MXZ's
+    still waiting for the head is no longer owed (a person's change is newer). ``replan``: the
+    report ended a hold with nothing adopted (a press taken back, say): the plan skipped the
+    head while it held, and arming it disowned any command still waiting, so re-plan.
+    """
+
+    pending: set[str] | None
+    hold: Arm
+    disown: bool
+    replan: bool
+
+
+def head_report(
+    moved: set[str],
+    pending: Collection[str],
+    *,
+    key: Hashable,
+    holding: bool,
+    adoption: Callable[[set[str]], Adoption | None],
+) -> HeadReport | None:
+    """A head's report against its adopt hold; None when it moved nothing (:func:`head_moved`).
+
+    ``pending`` is what moved since the hold began, ``key`` the hold's key and ``holding``
+    whether it is armed. Each report that moves the mode or the setpoint starts the hold over,
+    with everything moved since it began; ``adoption`` judges that (:func:`adopt_head_change`).
+    A change with nothing to adopt (a heat/cool flip alone) holds nothing: the head goes back
+    on the plan at the next compute, as with the option off.
+    """
+    if not moved:
+        return None
+    moved = moved | set(pending)
+    if not adopted(adoption(moved)):
+        return HeadReport(pending=None, hold=Arm("heal", key, None), disown=False, replan=holding)
+    return HeadReport(pending=moved, hold=Arm("heal", key, ADOPT_DELAY), disown=True, replan=False)
+
+
+@dataclass(frozen=True, slots=True)
+class AdoptEnd:
+    """What the end of an adopt hold writes.
+
+    ``seen``: the head-write fields whose memory takes what the head shows now
+    (``HeadWriteMemory.pressed``): ``hvac_mode`` when the mode moved, the setpoint field when
+    the setpoint did. ``number``: the room's number the target goes to (``target``, or a dual
+    room's ``target_high`` in cool and ``target_low`` otherwise), None for no target.
+    ``target`` and ``enable``: the room's new target and enable (None: unchanged). Then a
+    compute is asked for.
+    """
+
+    seen: tuple[str, ...]
+    number: str | None
+    target: float | None
+    enable: bool | None
+
+
+def adopt_end(
+    moved: Collection[str], adoption: Adoption, *, mode: str, field: str | None, dual: bool
+) -> AdoptEnd:
+    """The end of an adopt hold whose change still counts (``adoption``, judged again now).
+
+    ``moved`` is what moved since the hold began, ``mode`` the mode the head shows and
+    ``field`` the setpoint carrying the room's target in it (:func:`setpoint_field`).
+    """
+    seen = (*(("hvac_mode",) if "mode" in moved else ()),
+            *((field,) if "setpoint" in moved and field else ()))
+    number = None
+    if adoption.target is not None:
+        number = "target"
+        if dual:
+            number += "_high" if mode == MODE_COOL else "_low"
+    return AdoptEnd(seen=seen, number=number, target=adoption.target, enable=adoption.enable)
+
+
+@dataclass(frozen=True, slots=True)
+class StartupReport:
+    """What a head's report does to its room's startup seed: ``cancel`` it (the room resumes
+    no run), and ``replan`` now."""
+
+    cancel: bool
+    replan: bool
+
+
+def startup_report(
+    mode: str | None,
+    old_mode: str | None,
+    *,
+    planned: Callable[[], str | None],
+    stale: Callable[[], bool],
+) -> StartupReport:
+    """A report from the head of a room whose startup seed is still pending.
+
+    A reported off beyond MXZ's own sensor-failure park (``planned``, the mode the plan wants
+    for the head) cancels the remembered startup run, just like an off present at restore,
+    unless it is a cloud head's report of an older state (``stale``). Each is read only when
+    it decides. A real mode, new since the last report, re-plans.
+    """
+    return StartupReport(
+        cancel=mode == MODE_OFF and planned() != MODE_OFF and not stale(),
+        replan=mode not in (None, *UNAVAILABLE_STATES) and mode != old_mode,
+    )

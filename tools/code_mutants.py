@@ -338,9 +338,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_accept_head_changes.py::test_a_head_two_writes_behind_is_not_adopted',
     ),
     'C45': Mutant(
-        "a change at the head doesn't stop MXZ's write", '_head_change_settling',
-        'return self.clock.waiting("heal", (climate_id, "adopt")) and bool(',
-        'return False and bool(',
+        "a change at the head doesn't stop MXZ's write", 'holds_change',
+        'return holding and adopted(adoption())',
+        'return False and adopted(adoption())',
         'tests/test_accept_head_changes.py::test_a_change_must_hold_and_isnt_overwritten_while_it_does',
     ),
     'C46': Mutant(

@@ -209,6 +209,7 @@ from .logic import (
 from .openings import OpeningPause, openings_store
 from .plan import Plan, RoomPlan
 from .planner import (
+    Adoption,
     ApplyHead,
     ApplyShared,
     CallLimits,
@@ -219,17 +220,21 @@ from .planner import (
     RoomInput,
     SetpointSettings,
     Shared,
+    adopt_end,
     adopt_head_change,
     apply_plan,
     arbitration_mode,
     decide,
     demand_bands,
     head_moved,
+    head_report,
     held_back,
     holds,
+    holds_change,
     idle_for,
     mode_change_stamp,
     setpoint_field,
+    startup_report,
 )
 from .resume import (
     HEAD_WRITE_FIELDS,
@@ -2781,16 +2786,14 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             None,
         )
         if pending is not None:
-            if (
-                mode == MODE_OFF and self._planned_act_for(entity_id) != MODE_OFF
-                and not self.heads.stale_report(entity_id, mode=mode)
-            ):
-                # A reported OFF beyond our own sensor-failure park cancels
-                # the remembered startup run, just like OFF present at restore.
+            seed = startup_report(
+                mode, old_state.state if old_state else None,
+                planned=partial(self._planned_act_for, entity_id),
+                stale=partial(self.heads.stale_report, entity_id, mode=mode),
+            )
+            if seed.cancel:
                 self._startup_resume[pending.slug] = ""
-            if mode not in (None, *UNAVAILABLE_STATES) and mode != (
-                old_state.state if old_state else None
-            ):
+            if seed.replan:
                 refresh_needed = True
 
         if mode == MODE_OFF:
@@ -3015,30 +3018,20 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             cloud=self.heads.cloud(climate_id) is not None,
         )
 
-    def _target_for_head_setpoint(self, climate_id: str, shown: float) -> float:
-        """The target on our step that leaves this head where a person put it.
-
-        18.5 °C on a CN105 reads 65.5 °F here, whose nearest whole °F is 66, and 66
-        °F would move the head on to 19 °C. So the nearest target the head would
-        hold ``shown`` for, a step either side if need be; with none, the nearest.
-        """
-        step = self.target_step or 1.0
-        nearest = snap_to_step(shown, step)
-        return next(
-            (
-                target for target in (nearest, nearest - step, nearest + step)
-                if self.heads.grid.already_at(climate_id, shown, target)
-            ),
-            nearest,
-        )
-
     def _head_adoption(self, climate_id: str, moved: set[str]) -> dict[str, Any] | None:
+        """What this head's change asks of its room now, as a dict; None if it isn't a person's.
+
+        ``enable`` and ``target`` are the room's new enable and target (``_adoption``).
+        """
+        adoption = self._adoption(climate_id, moved)
+        return None if adoption is None else adoption.as_dict()
+
+    def _adoption(self, climate_id: str, moved: set[str]) -> Adoption | None:
         """What this head's change asks of its room now; None if it isn't a person's.
 
-        Reads the head and its room for :func:`planner.adopt_head_change`, which
-        decides. An empty result is a person's change with nothing to adopt, like
-        a heat/cool choice: the head still goes back on the plan. ``enable`` and
-        ``target`` are the room's new enable and target.
+        Reads the head and its room for :func:`planner.adopt_head_change`, which decides. An
+        empty result is a person's change with nothing to adopt, like a heat/cool choice: the
+        head still goes back on the plan.
         """
         zone = self._zone_of(climate_id)
         if zone is None:
@@ -3052,7 +3045,13 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             field = self._head_setpoint_field(climate_id, state)
             shown = None if field is None else as_float(state.attributes.get(field))
         heat_target, cool_target = self.zone_side_targets(zone)
-        adoption = adopt_head_change(HeadChange(
+        target = None
+        if shown is not None:
+            # The target on our step that leaves this head where a person put it, held to the
+            # bounds a target may take on it.
+            grid = self.heads.grid.read(climate_id)
+            target = clamp(grid.target_for_setpoint(shown), grid.target_bounds())
+        return adopt_head_change(HeadChange(
             moved=moved,
             accept=self.accept_head_changes,
             retired=self.retired,
@@ -3079,28 +3078,18 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             # A cloud head runs past the room's target by its drive offset, so what it
             # shows isn't the target and stays MXZ's to write.
             driven=self.heads.cloud(climate_id) is not None and bool(zone.drive_offset),
-            target=None if shown is None else clamp(
-                self._target_for_head_setpoint(climate_id, shown),
-                self.heads.grid.target_bounds(climate_id),
-            ),
+            target=target,
             current=cool_target if mode == MODE_COOL else heat_target,
             step=self.target_step or 1.0,
         ))
-        return None if adoption is None else adoption.as_dict()
 
     @callback
     def _watch_head_change(self, climate_id: str, old_state: Any, new_state: Any) -> bool:
-        """Arm, re-arm or cancel the adopt timer on a head's report.
+        """Arm, re-arm or cancel the adopt hold on a head's report (``planner.head_report``).
 
-        A report from or to unavailable is the head (re)loading, never a person,
-        and a fan or vane report moves nothing here. Each report that moves the
-        mode or the setpoint starts the hold over. A change with nothing to adopt
-        (a heat/cool flip alone) holds nothing: the head goes back on the plan at
-        the next compute, as with the option off.
-
-        True when this report ended a hold with nothing adopted (a press taken
-        back, say): the plan skipped the head while it held, and arming it
-        disowned any command still waiting, so the caller must re-plan.
+        A report from or to unavailable is the head (re)loading, never a person, and a fan or
+        vane report moves nothing here. True when this report ended a hold with nothing
+        adopted: the caller must re-plan.
         """
         field = None if new_state is None else self._head_setpoint_field(climate_id, new_state)
         moved = head_moved(
@@ -3111,28 +3100,41 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             old_setpoint=None if old_state is None or field is None else old_state.attributes.get(field),
             new_setpoint=None if new_state is None or field is None else new_state.attributes.get(field),
         )
-        if not moved:
+        key = (climate_id, "adopt")
+        report = head_report(
+            moved, self._adopt_moved.get(climate_id, set()),
+            key=key, holding=self.clock.waiting("heal", key),
+            adoption=partial(self._adoption, climate_id),
+        )
+        if report is None:
             return False
-        moved |= self._adopt_moved.get(climate_id, set())
-        if not self._head_adoption(climate_id, moved):
-            held = self.clock.waiting("heal", (climate_id, "adopt"))
-            self.drop_head_change(climate_id)
-            return held
-        self._adopt_moved[climate_id] = moved
-        self._arm_or_cancel(climate_id, "adopt", True, ADOPT_DELAY)
-        # A person's change is newer than a command of ours still to be sent.
-        # Whoever ends the hold re-plans: an adoption does, and so does a hold
-        # that ends with nothing adopted (``_watch_head_change``).
-        self.deliveries.disown(climate_id)
-        return False
+        if report.pending is None:
+            self._heal(report.hold)
+            self._adopt_moved.pop(climate_id, None)
+            return report.replan
+        self._adopt_moved[climate_id] = report.pending
+        self._heal(report.hold)
+        if report.disown:
+            # A person's change is newer than a command of ours still to be sent. Whoever
+            # ends the hold re-plans: an adoption does, and so does a hold that ends with
+            # nothing adopted (above).
+            self.deliveries.disown(climate_id)
+        return report.replan
+
+    def _heal(self, arm: Arm) -> None:
+        """Arm a heal wait (band, off or adopt, keyed by head and kind), or cancel it for None."""
+        if arm.delay is None:
+            self.clock.cancel("heal", arm.key)
+        else:
+            key = cast("tuple[str, str]", arm.key)
+            self.clock.call_later(arm.delay, partial(self._on_heal_timer, key), name="heal", key=key)
 
     def _head_change_settling(self, climate_id: str) -> bool:
-        """Whether a person's change at this head is still holding, and would still count.
-
-        Only a change with a target or an enable in it: an empty one protects nothing.
-        """
-        return self.clock.waiting("heal", (climate_id, "adopt")) and bool(
-            self._head_adoption(climate_id, self._adopt_moved.get(climate_id, set()))
+        """Whether a person's change at this head is still holding, and would still count
+        (``planner.holds_change``)."""
+        return holds_change(
+            self.clock.waiting("heal", (climate_id, "adopt")),
+            partial(self._adoption, climate_id, self._adopt_moved.get(climate_id, set())),
         )
 
     @callback
@@ -3142,20 +3144,14 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         self._arm_or_cancel(climate_id, "adopt", False, ADOPT_DELAY)
         self._adopt_moved.pop(climate_id, None)
 
-    def _head_change_seen(self, climate_id: str, state: Any, moved: set[str]) -> None:
+    def _head_change_seen(self, climate_id: str, state: Any, names: tuple[str, ...]) -> None:
         """A person's change is what the head shows now, whatever MXZ wrote before it."""
         memory = self._head_writes.get(climate_id, {})
-        names = []
-        if "mode" in moved:
-            names.append(HEAD_WRITE_MODE)
-        if "setpoint" in moved and (name := self._head_setpoint_field(climate_id, state)):
-            names.append(name)
         for name in names:
-            shown = self._head_shows(state, name)
-            if name in memory and shown is not None and not self._head_write_is_own(
-                climate_id, name, shown
-            ):
-                memory[name].seen(shown)
+            if name in memory:
+                memory[name].pressed(
+                    self._head_shows(state, name), self._head_write_same(climate_id, name)
+                )
         self.room_state.changed()
 
     def _sibling_entity(self, platform: str, key: str) -> str | None:
@@ -3173,29 +3169,30 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         adopted and that apply overwrites the head, as it would with the option off.
         """
         moved = self._adopt_moved.pop(climate_id, set())
-        change = self._head_adoption(climate_id, moved)
+        adoption = self._adoption(climate_id, moved)
         try:
-            if change is None:
+            if adoption is None:
                 return
             zone = cast("Zone", self._zone_of(climate_id))
-            state = self.hass.states.get(climate_id)
-            self._head_change_seen(climate_id, state, moved)
-            if change:
+            state = cast("State", self.hass.states.get(climate_id))
+            end = adopt_end(
+                moved, adoption, mode=state.state,
+                field=self._head_setpoint_field(climate_id, state), dual=zone.dual,
+            )
+            self._head_change_seen(climate_id, state, end.seen)
+            if change := adoption.as_dict():
                 _LOGGER.info("MXZ: adopting a change made at %s: %s", climate_id, change)
-            if "target" in change:
-                suffix = "target"
-                if zone.dual:
-                    suffix += "_high" if cast("State", state).state == MODE_COOL else "_low"
-                if eid := self._sibling_entity("number", f"{zone.slug}_{suffix}"):
-                    await self.hass.services.async_call(
-                        "number", "set_value",
-                        {"entity_id": eid, "value": change["target"]}, blocking=True,
-                    )
-            if "enable" in change and (
+            if end.number is not None and (
+                eid := self._sibling_entity("number", f"{zone.slug}_{end.number}")
+            ):
+                await self.hass.services.async_call(
+                    "number", "set_value", {"entity_id": eid, "value": end.target}, blocking=True,
+                )
+            if end.enable is not None and (
                 eid := self._sibling_entity("switch", f"{zone.slug}_enable")
             ):
                 await self.hass.services.async_call(
-                    "switch", "turn_on" if change["enable"] else "turn_off",
+                    "switch", "turn_on" if end.enable else "turn_off",
                     {"entity_id": eid}, blocking=True,
                 )
             # The off heal, rechecked against the room as it is now: an off
