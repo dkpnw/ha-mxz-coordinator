@@ -15,7 +15,8 @@ or window, the standby hold, the ``mxz_recompute`` event and the heartbeat.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Hashable, Iterable, Mapping
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
@@ -34,6 +35,16 @@ class Refresh(StrEnum):
     REQUEST = "request"
     REPORT = "report"
     NOW = "now"
+
+
+@dataclass(frozen=True, slots=True)
+class Arm:
+    """A wakeup armed ``delay`` seconds from now, in place of the one of this name and key;
+    a delay of None cancels it."""
+
+    name: str
+    key: Hashable
+    delay: float | None
 
 
 # Seconds the request debouncer waits after a refresh it ran before it runs another.

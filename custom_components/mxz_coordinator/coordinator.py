@@ -123,7 +123,6 @@ from .const import (
     HEALTH_INVALID,
     HEALTH_STALE,
     HEALTH_UNHEALTHY,
-    IDLE_ACTION_OFF_AFTER_DRY,
     INHIBIT_ACTION_ECO,
     INHIBIT_ACTION_FAN_ONLY,
     INHIBIT_ACTION_OFF,
@@ -211,23 +210,26 @@ from .logic import (
 from .openings import OpeningPause, openings_store
 from .plan import Plan, RoomPlan
 from .planner import (
+    ApplyHead,
+    ApplyShared,
     CallLimits,
     DeliverySteps,
+    HeadApply,
     HeadChange,
+    ModeWriteBack,
     RoomInput,
     SetpointSettings,
     Shared,
     adopt_head_change,
+    apply_plan,
     arbitration_mode,
     decide,
     demand_bands,
-    head_command,
     head_moved,
     held_back,
     holds,
-    idle_park,
+    idle_for,
     mode_change_stamp,
-    mode_write_back,
     setpoint_field,
 )
 from .resume import (
@@ -259,9 +261,9 @@ from .timing import (
     HEARTBEAT,
     REQUEST_COOLDOWN,
     WAKEUPS,
+    Arm,
     Refresh,
     coast_delay,
-    coil_dry_delay,
     dwell_delay,
     fresh_delay,
     head_refresh,
@@ -2237,151 +2239,136 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     async def _apply(self, plan: Plan) -> None:
         """Schedule each head's ordered plan writes, record the mode, then wait; idempotent.
 
-        Nothing is awaited between the compute and the mode's writeback, so a
-        person's pick is either read by this plan or made after its record,
-        and no head's outcome, a reload or a new input can skip the record of
-        a change already sent to the heads.
+        :func:`planner.apply_plan` decides each head's part and the write-back; this reads
+        what it reads and does what it returns, head by head, in room order. Nothing is
+        awaited between the compute and the mode's writeback, so a person's pick is either
+        read by this plan or made after its record, and no head's outcome, a reload or a new
+        input can skip the record of a change already sent to the heads.
         """
-        # A hand-back (P3) is for this apply only: one skipped (Coordinator
-        # off, a standby park, no plan yet) leaves the head as MXZ left it.
+        # A hand-back (P3) is for this apply only: one skipped (Coordinator off, a standby
+        # park, no plan yet) leaves the head as MXZ left it.
         handbacks = self.floor.take_handbacks()
-        if self.retired:
+        result = apply_plan(
+            plan,
+            [self._apply_head(zone, room) for zone, room in zip(self.zones, plan.rooms)],
+            self._apply_shared(),
+        )
+        if result.gate not in (None, "standby"):
             return
-        if not self.coordinator_enable:
-            return  # kill-switch: leave the heads untouched
-
-        # External standby hold (grid-down / load-shed): a fixed-mode park is a
-        # no-plan short-circuit; the `eco` hold falls through to the normal plan
-        # with eco forced on (see eco_active) so protection extremes still run.
-        if self.parked_by_standby():
-            await self._park_heads(
-                MODE_OFF
-                if self.inhibit_action == INHIBIT_ACTION_OFF
-                else MODE_FAN_ONLY
-            )
-            return
-
-        state = plan.state
-        valid_eng = (MODE_COOL, MODE_HEAT, ENGAGE_SATISFIED, MODE_OFF)
-        if state not in (MODE_COOL, MODE_HEAT):
-            return  # plan not ready
-        engages = [room.engage for room in plan.rooms]
-        if any(engage not in valid_eng for engage in engages):
-            return
-
         tasks = []
-        for zone, room in zip(self.zones, plan.rooms):
-            engage, floor, dry = room.engage, room.floor_want, room.dry_state
-            if zone.climate_id in self._vane_kicks:
-                continue  # mid vane-kick: leave the head alone until it finishes
-            if self._head_change_settling(zone.climate_id):
-                continue  # a change made at the head is holding: don't undo it yet
-            if self.openings.paused(zone):
-                # Door/window pause: straight to off (no coil-dry run, no fan,
-                # setpoint or vane write), and only to a head that is on. A
-                # person's fan pick on the off head is still read, so it is
-                # kept for the resume.
-                head = self.hass.states.get(zone.climate_id)
-                if head is None or head.state in UNAVAILABLE_STATES:
-                    continue
-                self.fan.read(zone.climate_id, MODE_OFF)
-                task = self.deliveries.queue(zone.climate_id, MODE_OFF, 0.0, 0.0)
-                if task is not None:
-                    tasks.append(task)
-                continue
-            if (
-                self.hands_off_phase(zone) in ("parking", "released")
-                and not self.inhibited
-            ):
-                # (A floor run skips all of this: the head is MXZ's for the run.)
-                # (Any standby hold, eco included, holds it off like any
-                # disabled room: the fixed parks never reach here.)
-                if zone.slug in self._hands_off_released:
-                    # A floor run ended on a head a person was already
-                    # running that way: theirs again, as they had it (P3).
-                    task = self.floor.queue_handback(zone, handbacks.get(zone.slug))
-                    if task is not None:
-                        tasks.append(task)
-                    continue  # its off landed: the head is someone else's now
-                head = self.hass.states.get(zone.climate_id)
-                if (
-                    head is not None and head.state == MODE_OFF
-                    and not self.deliveries.busy(zone.climate_id)
-                ):
-                    self._hands_off_released.add(zone.slug)
-                    continue  # already off, nothing of ours in flight: landed
-                # Otherwise the ordinary disabled path below sends off again.
-            if zone.slug in self._startup_resume:
-                head = self.hass.states.get(zone.climate_id)
-                if head is None or head.state in UNAVAILABLE_STATES:
-                    # Do not manufacture the missing startup mode with our own
-                    # park/write. A known head still follows sensor-failure parking.
-                    continue
-            if dry is not None:
-                head = self.hass.states.get(zone.climate_id)
-                if head is not None and head.state == MODE_DRY:
-                    # Dry wets the coil as cooling does: whenever the head
-                    # leaves dry, the coil-dry run is owed from then. (A Dry
-                    # picked on the thermostat and not reported yet hasn't.)
-                    self._last_active[zone.climate_id] = (MODE_COOL, self.clock())
-                if dry == "held":
-                    # A person's dry: no mode, setpoint, fan or vane write.
-                    self.clock.cancel("dry", zone.climate_id)
-                    self.fan.read(zone.climate_id, MODE_DRY)
-                    continue
-                # Another room won heat: park it at its idle action below,
-                # once told. Dry is never sent back.
-                self.dry.notice_parked(zone)
-            idle = self._idle_act_for(zone.climate_id)
-            heat_target, cool_target = self.zone_side_targets(zone)
-            taken = self.floor.taken_over(zone.slug) if floor == state else None
-            command = head_command(
-                engage=engage,
-                floor_run=(floor, self.floor.clear(zone, floor)) if floor else None,
-                temp=room.temp,
-                enabled=zone.enable,
-                mode=state,
-                idle=idle,
-                eco=self.eco_active(),
-                target=float(zone.target),
-                heat_target=float(heat_target),
-                cool_target=float(cool_target),
-                taken=None if taken is None else (taken[1], taken[2]),
-                settings=SetpointSettings(
-                    clamp_min=self.clamp_min,
-                    clamp_max=self.clamp_max,
-                    band=self.setpoint_band,
-                    step=self.target_step,
-                    eco_cool=self.eco_cool,
-                    eco_heat=self.eco_heat,
-                ),
-            )
-            task = self.deliveries.queue(
-                zone.climate_id, command.mode, command.low, command.high, command.delta, command.fan
-            )
+        for zone, head in zip(self.zones, result.heads):
+            task = self._perform_head(zone, head, plan.state, handbacks)
             if task is not None:
                 tasks.append(task)
-                if taken is not None:
-                    self.floor.expect_command(zone, state, command.low, command.high)
-        self._write_back_mode(plan, engages)
+        if result.write_back is None:
+            await self.deliveries.async_wait(tasks)
+            return
+        self._write_back_mode(result.write_back)
         await self.deliveries.async_wait(tasks)
         await self.openings.async_restore_vanes()
 
-    def _write_back_mode(self, plan: Plan, engages: list[str]) -> None:
+    def _apply_head(self, zone: Zone, room: RoomPlan) -> ApplyHead:
+        """One room's head as the apply reads it (``planner.ApplyHead``)."""
+        cid = zone.climate_id
+        head = self.hass.states.get(cid)
+        heat_target, cool_target = self.zone_side_targets(zone)
+        floor = room.floor_want
+        return ApplyHead(
+            climate_id=cid,
+            vane_kick=cid in self._vane_kicks,
+            settling=partial(self._head_change_settling, cid),
+            paused=self.openings.paused(zone),
+            head=None if head is None else head.state,
+            hands_off=self.hands_off_phase(zone),
+            released=zone.slug in self._hands_off_released,
+            busy=self.deliveries.busy(cid),
+            startup=zone.slug in self._startup_resume,
+            enabled=zone.enable,
+            target=float(zone.target),
+            heat_target=float(heat_target),
+            cool_target=float(cool_target),
+            floor_clear=self.floor.clear(zone, floor) if floor else None,
+            taken_over=self.floor.taken_over(zone.slug),
+            last_run=self._last_active.get(cid),
+            dry_waiting=self.clock.waiting("dry", cid),
+        )
+
+    def _apply_shared(self) -> ApplyShared:
+        """What every head's apply reads (``planner.ApplyShared``)."""
+        return ApplyShared(
+            retired=self.retired,
+            coordinator=self.coordinator_enable,
+            standby=(
+                (MODE_OFF if self.inhibit_action == INHIBIT_ACTION_OFF else MODE_FAN_ONLY)
+                if self.parked_by_standby() else None
+            ),
+            inhibited=self.inhibited,
+            eco=self.eco_active(),
+            idle_action=self.idle_action,
+            coil_dry_seconds=self.coil_dry_seconds,
+            clock=self.clock(),
+            settings=SetpointSettings(
+                clamp_min=self.clamp_min,
+                clamp_max=self.clamp_max,
+                band=self.setpoint_band,
+                step=self.target_step,
+                eco_cool=self.eco_cool,
+                eco_heat=self.eco_heat,
+            ),
+            mode=self.current_shared_mode,
+            by_votes=self._mode_by_votes,
+            resting=self._resting_bias(),
+            hold=self.hysteresis,
+        )
+
+    def _perform_head(
+        self, zone: Zone, head: HeadApply, state: str,
+        handbacks: dict[str, tuple[tuple[str, float, float], int, tuple[Any, ...] | None]],
+    ) -> asyncio.Task[Any] | None:
+        """Do one head's part of the apply, in its order; return the delivery queued, if any."""
+        cid = zone.climate_id
+        if head.dry_stamp is not None:
+            self._last_active[cid] = head.dry_stamp
+        if head.dry_notice:
+            self.dry.notice_parked(zone)
+        if head.seeded is not None:
+            self._last_active[cid] = head.seeded
+        if head.arm is not None:
+            self._perform(head.arm)
+        if head.fan_read is not None:
+            self.fan.read(cid, head.fan_read)
+        if head.skip == "handback":
+            # A floor run ended on a head a person was already running that way: theirs
+            # again, as they had it (P3).
+            return self.floor.queue_handback(zone, handbacks.get(zone.slug))
+        if head.released:
+            self._hands_off_released.add(zone.slug)
+        command = head.command
+        if command is None:
+            return None
+        task = self.deliveries.queue(
+            cid, command.mode, command.low, command.high, command.delta, command.fan
+        )
+        if task is not None and head.taken:
+            self.floor.expect_command(zone, state, command.low, command.high)
+        return task
+
+    def _perform(self, arm: Arm) -> None:
+        """Arm this wakeup, or cancel it for a delay of None."""
+        if arm.delay is None:
+            self.clock.cancel(arm.name, arm.key)
+        else:
+            self.clock.call_later(
+                arm.delay, partial(self.wake, arm.name), name=arm.name, key=arm.key
+            )
+
+    def _write_back_mode(self, step: ModeWriteBack) -> None:
         """The plan's mode becomes the shared mode, stamped and recorded.
 
         Called with the heads' commands queued and none of them run yet.
-        :func:`planner.mode_write_back` says what changes, whether the hold
-        starts, and whether the record is written; this does it, in that order.
+        :func:`planner.mode_write_back` said what changes, whether the hold starts, and
+        whether the record is written; this does it, in that order.
         """
-        step = mode_write_back(
-            self.current_shared_mode,
-            self._mode_by_votes,
-            state=plan.state,
-            by_hands_off=plan.mode_by_hands_off,
-            calls=(*engages, *(room.demand for room in plan.rooms)),
-            resting=self._resting_bias(),
-        )
         self.current_shared_mode, self._mode_by_votes = step.mode, step.by_votes
         if step.stamp:
             self._stamp_mode_change()
@@ -2478,39 +2465,21 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     def _idle_act_for(self, climate_id: str) -> str:
         """The terminal parking mode (fan_only|off) for a non-running head now.
 
-        :func:`planner.idle_park` decides. For ``off_after_dry``, a head with no
-        coil-dry memory (after a restart) has it rebuilt from what the head shows
-        first. A coil-dry run with time left gets a one-shot nudge, which only
-        makes its end prompt (the 15-min heartbeat would otherwise stretch a
-        10-min dwell).
-        """
-        last_run = self._last_active.get(climate_id)
-        if last_run is None and self.idle_action == IDLE_ACTION_OFF_AFTER_DRY:
-            last_run = self._seed_last_active(climate_id)
-        idle, coil_dry = idle_park(self.idle_action, last_run, self.coil_dry_seconds, self.clock())
-        if coil_dry is not None and not self.clock.waiting("dry", climate_id):
-            # The stamp doesn't move while idle.
-            self.clock.call_later(
-                coil_dry_delay(coil_dry), partial(self.wake, "dry"), name="dry", key=climate_id
-            )
-        return idle
-
-    def _seed_last_active(self, climate_id: str) -> tuple[str, float] | None:
-        """Reconstruct dwell memory after a restart from the observed head.
-
-        A head observed still cooling was cooling until the restart; one
-        observed in fan_only may be mid-dwell. Both restart the full dwell
-        from now — erring a few minutes toward coil-dry, never stranding the
-        head (the stamped clock runs out regardless). off/heat/unavailable
-        owe nothing.
+        :func:`planner.idle_for` decides, with the coil-dry memory rebuilt from what the head
+        shows after a restart; this keeps the rebuilt memory and arms the coil-dry wakeup it
+        says.
         """
         state = self.hass.states.get(climate_id)
-        mode = state.state if state is not None else None
-        if mode in (MODE_COOL, MODE_FAN_ONLY):
-            rec = (MODE_COOL, self.clock())
-            self._last_active[climate_id] = rec
-            return rec
-        return None
+        park = idle_for(
+            climate_id, self.idle_action, self._last_active.get(climate_id),
+            state.state if state is not None else None, self.coil_dry_seconds, self.clock(),
+            dry_waiting=self.clock.waiting("dry", climate_id),
+        )
+        if park.seeded is not None:
+            self._last_active[climate_id] = park.seeded
+        if park.arm is not None:
+            self._perform(park.arm)
+        return park.idle
 
     def note_head_act(self, climate_id: str, steps: DeliverySteps, act: str, at: float) -> None:
         """A head driver is sending this head ``act`` for the plan, at ``at``.
@@ -2555,24 +2524,6 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
                     idle=idle if zone.enable else MODE_OFF,  # as _apply
                 )
         return None
-
-    async def _park_heads(self, mode: str) -> None:
-        """Standby: drive every coordinated head to a fixed mode (off/fan_only).
-
-        Mode-only — never the fan-boost/latch machinery — so a manual fan hold
-        survives the hold (reconciled on release, see FanHold.reseed_after_standby).
-        Same per-zone isolation as _apply, and skips a head mid vane-kick.
-        """
-        tasks = []
-        for zone in self.zones:
-            if self.retired:
-                return
-            if zone.climate_id in self._vane_kicks:
-                continue
-            task = self.deliveries.queue(zone.climate_id, mode, 0.0, 0.0)
-            if task is not None:
-                tasks.append(task)
-        await self.deliveries.async_wait(tasks)
 
     def _zone_of(self, climate_id: str) -> Zone | None:
         return next((zone for zone in self.zones if zone.climate_id == climate_id), None)

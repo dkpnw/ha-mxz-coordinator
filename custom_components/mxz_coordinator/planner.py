@@ -2,9 +2,10 @@
 
 ``MXZCoordinator._compute`` reads each room's sensor, head and controllers, hands the
 readings to :func:`decide` as one :class:`RoomInput` per room and one :class:`Shared`,
-and builds the plan from the :class:`Decision`. ``_apply`` queues each head's
-:func:`head_command` and writes the plan's mode back as :func:`mode_write_back` says. Each
-head's driver then runs that command's :func:`delivery_steps`.
+and builds the plan from the :class:`Decision`. ``_apply`` does what :func:`apply_plan` returns:
+each head's gates, its idle park (:func:`idle_for`) and :func:`head_command`, then the plan's
+mode written back as :func:`mode_write_back` says. Each head's driver then runs that command's
+:func:`delivery_steps`.
 Time comes in as numbers: the seconds since the last mode change, the hold's length,
 the coil-dry clock, and the clocks a start reads (:func:`mode_change_stamp`).
 The engage latch and the startup seeds come in as they are and go out advanced; nothing
@@ -13,7 +14,7 @@ here keeps state.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Hashable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from typing import Any
 
@@ -24,6 +25,7 @@ from .const import (
     IDLE_ACTION_OFF,
     IDLE_ACTION_OFF_AFTER_DRY,
     MODE_COOL,
+    MODE_DRY,
     MODE_FAN_ONLY,
     MODE_HEAT,
     MODE_OFF,
@@ -44,7 +46,8 @@ from .logic import (
     room_call,
     setpoints,
 )
-from .plan import RoomPlan
+from .plan import Plan, RoomPlan
+from .timing import Arm, coil_dry_delay, hold_end_delay
 
 
 @dataclass(frozen=True, slots=True)
@@ -546,6 +549,59 @@ def idle_park(
     return MODE_FAN_ONLY, remaining
 
 
+def rebuilt_last_run(shown: str | None, clock: float) -> tuple[str, float] | None:
+    """A head's last run after a restart, rebuilt from the mode it shows (``shown``).
+
+    A head seen still cooling was cooling until the restart; one seen in fan_only may be
+    mid-dwell. Both owe the full coil-dry run from now, erring a few minutes toward coil dry,
+    never stranding the head (the clock runs out regardless). Off, heat, no state and
+    unavailable owe nothing.
+    """
+    if shown in (MODE_COOL, MODE_FAN_ONLY):
+        return (MODE_COOL, clock)
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class IdlePark:
+    """A non-running head's parking mode and what it does to the coil-dry memory.
+
+    ``seeded``: the last run rebuilt from what the head shows, to keep. ``arm``: the coil-dry
+    wakeup to arm, None when none is owed or one is already armed.
+    """
+
+    idle: str
+    seeded: tuple[str, float] | None
+    arm: Arm | None
+
+
+def idle_for(
+    head: Hashable,
+    idle_action: str,
+    last_run: tuple[str, float] | None,
+    shown: str | None,
+    coil_dry_seconds: float,
+    clock: float,
+    *,
+    dry_waiting: bool,
+) -> IdlePark:
+    """:func:`idle_park` for one head (key ``head``), with its memory rebuilt after a restart.
+
+    For ``off_after_dry`` a head with no last run on record has it rebuilt from what it shows
+    (``rebuilt_last_run``). A coil-dry run with time left gets one wakeup just after its end,
+    unless one is armed (``dry_waiting``): the stamp doesn't move while idle, and the wakeup
+    only makes the end prompt.
+    """
+    seeded = None
+    if last_run is None and idle_action == IDLE_ACTION_OFF_AFTER_DRY:
+        seeded = last_run = rebuilt_last_run(shown, clock)
+    idle, coil_dry = idle_park(idle_action, last_run, coil_dry_seconds, clock)
+    arm = None
+    if coil_dry is not None and not dry_waiting:
+        arm = Arm("dry", head, coil_dry_delay(coil_dry))
+    return IdlePark(idle=idle, seeded=seeded, arm=arm)
+
+
 def head_command(
     *,
     engage: str,
@@ -607,6 +663,241 @@ def head_command(
     return HeadCommand(
         mode=act, low=low, high=high, delta=delta, fan=engage if floor_run is None else None
     )
+
+
+@dataclass(frozen=True, slots=True)
+class ApplyHead:
+    """One room's head as an apply reads it.
+
+    ``settling`` is whether a change made at the head still holds it (``holds_change``); it is
+    called only when the apply reaches that gate, because reading it can rebuild the coil-dry
+    memory and arm its wakeup. ``head`` is the state the head shows (None for none),
+    ``hands_off`` the room's hands-off phase, ``released`` whether its parking head has landed,
+    ``busy`` whether a delivery runs on it, ``startup`` whether its startup seed waits.
+    ``floor_clear`` is a tripped floor's clear line (None without a floor want) and
+    ``taken_over`` the person's run a floor run took over. ``last_run`` and ``dry_waiting`` are
+    the coil-dry memory and whether its wakeup is armed.
+    """
+
+    climate_id: str
+    vane_kick: bool
+    settling: Callable[[], bool]
+    paused: bool
+    head: str | None
+    hands_off: str | None
+    released: bool
+    busy: bool
+    startup: bool
+    enabled: bool
+    target: float
+    heat_target: float
+    cool_target: float
+    floor_clear: float | None
+    taken_over: tuple[str, float, float] | None
+    last_run: tuple[str, float] | None
+    dry_waiting: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ApplyShared:
+    """What every head's apply reads.
+
+    ``standby`` is the mode a fixed standby park sends every head (None when none parks them).
+    ``mode``, ``by_votes``, ``resting`` and ``hold`` are what the write-back reads: the shared
+    mode now, whether votes alone set it, Resting mode and the mode-change hold's length.
+    """
+
+    retired: bool
+    coordinator: bool
+    standby: str | None
+    inhibited: bool
+    eco: bool
+    idle_action: str
+    coil_dry_seconds: float
+    clock: float
+    settings: SetpointSettings
+    mode: str
+    by_votes: bool
+    resting: str | None
+    hold: float
+
+
+@dataclass(frozen=True, slots=True)
+class HeadApply:
+    """What one apply does at one head, in the order it does it.
+
+    ``skip``: why the head gets nothing more (``vane_kick``, ``settling``, ``unavailable``: a
+    paused head or a startup seed with no state, ``handback``: a released hands-off room's
+    hand-back, if any, is all it gets, ``landed``: a parking hands-off head is off, ``dry``: a
+    person's Dry is held). Then, in order: ``dry_stamp``, the head shows dry, so its last run
+    is this cool run, from now; ``dry_notice``, people are told once that its Dry is parked for heat;
+    ``seeded``, the coil-dry memory rebuilt after a restart; ``arm``, the coil-dry wakeup
+    armed or cancelled; ``fan_read``, the act its fan is read for when MXZ sends it none;
+    ``released``, the parking hands-off head has landed; ``command``, what is queued for it;
+    ``taken``, the floor expects that command over a person's run.
+    """
+
+    climate_id: str
+    skip: str | None = None
+    dry_stamp: tuple[str, float] | None = None
+    dry_notice: bool = False
+    seeded: tuple[str, float] | None = None
+    arm: Arm | None = None
+    fan_read: str | None = None
+    released: bool = False
+    command: HeadCommand | None = None
+    taken: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ApplyResult:
+    """What one apply does: why it does nothing (``gate``: ``retired``, ``coordinator_off``,
+    ``not_ready``, ``unknown_engage``; ``standby`` for a fixed park), each head's part, the
+    plan's mode write-back (None unless the plan is applied) and, when the write-back starts
+    the hold, the hold-end wakeup."""
+
+    gate: str | None
+    heads: tuple[HeadApply, ...] = ()
+    write_back: ModeWriteBack | None = None
+    hold_end: Arm | None = None
+
+    @property
+    def armed(self) -> tuple[Arm, ...]:
+        """Every wakeup the apply arms or cancels, in order: each head's, then the hold's end."""
+        arms = [head.arm for head in self.heads if head.arm is not None]
+        if self.hold_end is not None:
+            arms.append(self.hold_end)
+        return tuple(arms)
+
+
+_VALID_ENGAGES = (MODE_COOL, MODE_HEAT, ENGAGE_SATISFIED, MODE_OFF)
+# A paused head's off: the queue call _apply made, with no delta and no fan step.
+_PAUSE_OFF = HeadCommand(mode=MODE_OFF, low=0.0, high=0.0, delta=0.0, fan=None)
+
+
+def _head_apply(
+    room: RoomPlan, head: ApplyHead, state: str, shared: ApplyShared
+) -> HeadApply:
+    """One head's part of an apply: its gates in order, then its idle park and command."""
+    cid = head.climate_id
+    if head.vane_kick:
+        return HeadApply(cid, skip="vane_kick")  # mid vane-kick: left alone until it finishes
+    if head.settling():
+        return HeadApply(cid, skip="settling")  # a change made at the head is holding
+    if head.paused:
+        # Door/window pause: straight to off (no coil-dry run, no fan, setpoint or vane
+        # write), and only to a head that has a state. A person's fan pick on the off head is
+        # still read, so it is kept for the resume.
+        if head.head is None or head.head in UNAVAILABLE_STATES:
+            return HeadApply(cid, skip="unavailable")
+        return HeadApply(cid, fan_read=MODE_OFF, command=_PAUSE_OFF)
+    if head.hands_off in ("parking", "released") and not shared.inhibited:
+        # (A floor run skips all of this: the head is MXZ's for the run. Any standby hold,
+        # eco included, holds it off like any disabled room.)
+        if head.released:
+            # A floor run ended on a head a person was already running that way: theirs
+            # again, as they had it (P3). Its off landed: the head is someone else's now.
+            return HeadApply(cid, skip="handback")
+        if head.head == MODE_OFF and not head.busy:
+            return HeadApply(cid, skip="landed", released=True)
+        # Otherwise the ordinary disabled path below sends off again.
+    if head.startup and (head.head is None or head.head in UNAVAILABLE_STATES):
+        # Do not make up the missing startup mode with a park or write of MXZ's. A known
+        # head still follows sensor-failure parking.
+        return HeadApply(cid, skip="unavailable")
+    dry = room.dry_state
+    last_run = head.last_run
+    dry_stamp = None
+    dry_notice = False
+    if dry is not None:
+        if head.head == MODE_DRY:
+            # Dry wets the coil as cooling does: whenever the head leaves dry, the coil-dry
+            # run is owed from then. (A Dry picked on the thermostat and not reported yet
+            # hasn't.)
+            dry_stamp = last_run = (MODE_COOL, shared.clock)
+        if dry == "held":
+            # A person's dry: no mode, setpoint, fan or vane write.
+            return HeadApply(
+                cid, skip="dry", dry_stamp=dry_stamp, arm=Arm("dry", cid, None), fan_read=MODE_DRY,
+            )
+        # Another room won heat: park it at its idle action below, once told. Dry is never
+        # sent back.
+        dry_notice = True
+    park = idle_for(
+        cid, shared.idle_action, last_run, head.head, shared.coil_dry_seconds, shared.clock,
+        dry_waiting=head.dry_waiting,
+    )
+    floor = room.floor_want
+    floor_run = None
+    if floor:
+        if head.floor_clear is None:
+            raise ValueError(f"{cid}: a floor want needs its clear line")
+        floor_run = (floor, head.floor_clear)
+    taken = head.taken_over if floor == state else None
+    command = head_command(
+        engage=room.engage,
+        floor_run=floor_run,
+        temp=room.temp,
+        enabled=head.enabled,
+        mode=state,
+        idle=park.idle,
+        eco=shared.eco,
+        target=head.target,
+        heat_target=head.heat_target,
+        cool_target=head.cool_target,
+        taken=None if taken is None else (taken[1], taken[2]),
+        settings=shared.settings,
+    )
+    return HeadApply(
+        cid, dry_stamp=dry_stamp, dry_notice=dry_notice, seeded=park.seeded, arm=park.arm,
+        command=command, taken=taken is not None,
+    )
+
+
+def apply_plan(plan: Plan, heads: Sequence[ApplyHead], shared: ApplyShared) -> ApplyResult:
+    """Which heads one apply commands and how, in room order, and the plan's mode write-back.
+
+    The gates run in order: this coordinator retired, the Coordinator switch off (the heads
+    are left untouched), a fixed standby park (every head off or fan_only, mode only, except
+    one mid vane-kick), a plan not ready and an engage this does not know; then each head's
+    own (:class:`HeadApply`). The write-back is decided once every head's part is, so it is
+    recorded before any head is sent anything.
+    """
+    if shared.retired:
+        return ApplyResult(gate="retired")
+    if not shared.coordinator:
+        return ApplyResult(gate="coordinator_off")
+    if shared.standby is not None:
+        # A fixed-mode park: mode only, never the fan machinery, so a manual fan hold
+        # survives the hold. The eco hold is not a park: it falls through to the plan.
+        park = HeadCommand(mode=shared.standby, low=0.0, high=0.0, delta=0.0, fan=None)
+        return ApplyResult(
+            gate="standby",
+            heads=tuple(
+                HeadApply(head.climate_id, skip="vane_kick") if head.vane_kick
+                else HeadApply(head.climate_id, command=park)
+                for head in heads
+            ),
+        )
+    state = plan.state
+    if state not in (MODE_COOL, MODE_HEAT):
+        return ApplyResult(gate="not_ready")
+    engages = [room.engage for room in plan.rooms]
+    if any(engage not in _VALID_ENGAGES for engage in engages):
+        return ApplyResult(gate="unknown_engage")
+    applied = tuple(
+        _head_apply(room, head, state, shared) for room, head in zip(plan.rooms, heads)
+    )
+    write_back = mode_write_back(
+        shared.mode,
+        shared.by_votes,
+        state=state,
+        by_hands_off=plan.mode_by_hands_off,
+        calls=(*engages, *(room.demand for room in plan.rooms)),
+        resting=shared.resting,
+    )
+    hold_end = Arm("hold_end", None, hold_end_delay(shared.hold)) if write_back.stamp else None
+    return ApplyResult(gate=None, heads=applied, write_back=write_back, hold_end=hold_end)
 
 
 @dataclass(frozen=True, slots=True)
