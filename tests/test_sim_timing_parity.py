@@ -221,8 +221,8 @@ DIFFERENCES: dict[str, Difference] = {
     "dwell_before_hold_end": Difference(
         RELEASES,
         "At the end of a mode-change hold the dwell and hold-end wakeups are both due one second "
-        "after it (each is the hold left plus one). Home Assistant runs the dwell one first here "
-        "(their due times differ in the last bit of the event loop's float clock); its compute "
+        "after it (each is the hold left plus one). Home Assistant ran the dwell one first in the "
+        "recordings (why its event loop orders these two so was not established); its compute "
         "starts a new hold, which cancels the hold-end wakeup before it runs. The model runs "
         "them in the order they were armed, so it runs the hold-end wakeup, which asks for "
         "nothing, first. The computes are the same.",

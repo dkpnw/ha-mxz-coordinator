@@ -64,8 +64,8 @@ STDLIB_ONLY = {
     "sim_timing",
 }
 
-# For a simulator only: no module of the integration imports them (Drew's one exception to
-# "no duplicated orchestration" is sim_timing's model of Home Assistant's debouncer).
+# For a simulator only: no module of the integration imports them. sim_timing models Home
+# Assistant's debouncer; the coordinator runs the real one.
 SIMULATOR_ONLY = {"sim_timing"}
 
 # (importer, imported, type_only): why. Each one is an architecture decision. A runtime
