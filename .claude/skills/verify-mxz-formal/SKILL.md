@@ -76,10 +76,10 @@ the check and the mutants).
 | Check | Covers (custom_components/mxz_coordinator/) |
 | --- | --- |
 | Model `Decide` | `coordinator.py` `_compute` (the readings it hands the planner); `planner.py` `decide` (allowed, engaged, running, the `_mode_by_votes` undo rule); `coordinator.py` `_apply` (the stamp and record at its end, as `planner.py` `mode_write_back` says), `_stamp_mode_change`, `_record_mode`; `logic.py` `room_call`, `engage_with_latch`, `shared_mode`, `arbitrate` (`running`), `head_action` |
-| Model `Reload` / `Restart` / `Crash` | `__init__.py` `async_setup_entry`; `coordinator.py` `ModeRecord`, `async_load_mode_record`, `_mode_change_store`, `planner.py` `mode_change_stamp`, `coordinator.py` `MXZCoordinator.__init__` (`_last_mode_change_ts`, the record's mode and `_mode_by_votes`, `_engage_latch`, `_startup_resume`), `restore_shared_mode`; `switch.py` (sets `_startup_resume`); `select.py` `async_added_to_hass` |
+| Model `Reload` / `Restart` / `Crash` | `__init__.py` `async_setup_entry`; `coordinator.py` `async_load_mode_record`, `_mode_change_store`; `resume.py` `ModeRecord`, `mode_record`; `planner.py` `mode_change_stamp`, `coordinator.py` `MXZCoordinator.__init__` (`_last_mode_change_ts`, the record's mode and `_mode_by_votes`, `_engage_latch`, `_startup_resume`), `restore_shared_mode`; `resume.py` `resumed_mode`, `resumed_enable`; `switch.py` (sets `_startup_resume`); `select.py` `async_added_to_hass` |
 | Model `Select` | `select.py` `async_select_option`; `coordinator.py` `async_select_shared_mode` |
 | Arbitration properties | `logic.py` `shared_mode`, `arbitrate`, `_rank`, `comfort_boost`; `planner.py` `arbitration_entries` |
-| Start properties | `planner.py` `mode_change_stamp`, `coordinator.py` `async_load_last_mode_change` (`async_load_mode_record`) |
+| Start properties | `planner.py` `mode_change_stamp`, `coordinator.py` `async_load_last_mode_change` (`async_load_mode_record`, `resume.py` `mode_record`) |
 | Replays F1–F3, `tests/test_hold_promises.py` | the integration end to end (setup, `_compute`, `_apply`, reload, restart, crash, restore, the record's contents) |
 
 Does a change touch it?
@@ -88,7 +88,7 @@ Does a change touch it?
 git diff --stat 289eff3b37ef2cfa4a2da1406855a039e6f86739 -- \
   custom_components/mxz_coordinator/logic.py custom_components/mxz_coordinator/coordinator.py \
   custom_components/mxz_coordinator/select.py custom_components/mxz_coordinator/switch.py \
-  custom_components/mxz_coordinator/__init__.py
+  custom_components/mxz_coordinator/resume.py custom_components/mxz_coordinator/__init__.py
 ```
 
 If it lists a file, read the diff against the table: a change inside a

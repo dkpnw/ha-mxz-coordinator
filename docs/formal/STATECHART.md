@@ -151,14 +151,14 @@ stateDiagram-v2
 
 | Id | What happens | Code |
 | --- | --- | --- |
-| F1, F2 | With no memory, `auto` sets the baseline. A speed the ladder would stay on is adopted (a hold placed there is lost: documented), a fan_only idle on an established entry reads as ours (#25), and anything else seeds a hold. | `FanHold._observe_latch`, `FanHold._seed_matches_boost`, `FanHold._seed_is_own_idle` |
+| F1, F2 | With no memory, `auto` sets the baseline. A speed the ladder would stay on is adopted (a hold placed there is lost: documented), a fan_only idle on an established entry reads as ours (#25), and anything else seeds a hold. | `FanHold._observe_latch`, `observe_fan`, `seed_matches_boost`, `seed_is_own_idle` |
 | F3 | Boost picks a rung and writes it once. A rewrite of the commanded token doesn't roll the memory (#14). | `FanHold.async_apply`, `fan_for_delta`, `FanHold._async_write` |
-| F4 | A speed that is neither of the last two writes (`FanEcho.last`, `FanEcho.prior`), and not in `FanEcho.older` either, is a person's. MXZ makes no fan write while held. | `FanHold._observe_latch`, `FanEcho.own`, `FanHold._hold_at` |
-| F5 | One of the two remembered speeds reads as MXZ's echo: not held, and boost writes over it. So does an older write, until the head's reports pass it (F1). A pick of the speed showing can't be read at all. | `FanHold._observe_latch`, `FanEcho.own`, `FanEcho.wrote`, `FanEcho.caught_up` |
-| F6 | A hold's memory is the held speed, so any other speed moves it. | `FanHold._hold_at` |
-| F7, F8 | Fan auto on adopts the showing speed and hands it back. Fan auto off holds it. At `auto`, off does nothing. | `FanHold.async_set_auto`, `FanHold._adopt` |
-| F9 | The switch restores the held or not-held truth and, if not held, the remembered speeds with any older writes, limited to what boost could write. | `MXZZoneFanAutoSwitch.async_added_to_hass`, `FanHold.restore` |
-| F10, F11 | The first speed read settles it. Held stays held at that speed. Not held: a speed boost could never write holds; one in memory, or any in-ceiling rung with no memory or in a fan_only idle, is ours; otherwise it conservatively holds. | `FanHold._reconcile_restored_hold` |
+| F4 | A speed that is neither of the last two writes (`FanEcho.last`, `FanEcho.prior`), and not in `FanEcho.older` either, is a person's. MXZ makes no fan write while held. | `FanHold._observe_latch`, `observe_fan`, `FanEcho.own`, `hold_at` |
+| F5 | One of the two remembered speeds reads as MXZ's echo: not held, and boost writes over it. So does an older write, until the head's reports pass it (F1). A pick of the speed showing can't be read at all. | `FanHold._observe_latch`, `observe_fan`, `FanEcho.own`, `FanEcho.wrote`, `FanEcho.caught_up` |
+| F6 | A hold's memory is the held speed, so any other speed moves it. | `hold_at` |
+| F7, F8 | Fan auto on adopts the showing speed and hands it back. Fan auto off holds it. At `auto`, off does nothing. | `FanHold.async_set_auto`, `fan_auto`, `adopt` |
+| F9 | The switch restores the held or not-held truth and, if not held, the remembered speeds with any older writes, limited to what boost could write. | `MXZZoneFanAutoSwitch.async_added_to_hass`, `FanHold.restore`, `restored` |
+| F10, F11 | The first speed read settles it. Held stays held at that speed. Not held: a speed boost could never write holds; one in memory, or any in-ceiling rung with no memory or in a fan_only idle, is ours; otherwise it conservatively holds. | `reconcile_restored_hold` |
 
 ## An apply's commands
 
@@ -197,7 +197,7 @@ stateDiagram-v2
 | --- | --- | --- |
 | L1, L2 | The Fan auto switch's state goes to restore data at a reload or a stop, and every 15 minutes by Home Assistant. | `extra_restore_state_data`, `FanHold.command_memory` |
 | L3 | The mode record and the door/window store were written at every change, so they survive. The Fan auto truth is as last dumped. | `_record_mode`, `OpeningPause._store_write` |
-| L4 | The record gives the mode, whether votes set it, and what is left of the hold; the store gives each room's door/window state and override; each room resumes from its head. | `async_load_mode_record`, `mode_change_stamp`, `restore_shared_mode`, `async_load_openings`, `OpeningRecord.restored` |
+| L4 | The record gives the mode, whether votes set it, and what is left of the hold; the store gives each room's door/window state and override; each room resumes from its head. | `async_load_mode_record`, `mode_record`, `mode_change_stamp`, `restore_shared_mode`, `resumed_mode`, `resumed_enable`, `async_load_openings`, `OpeningRecord.restored` |
 
 ## User flows, drawn from the model
 

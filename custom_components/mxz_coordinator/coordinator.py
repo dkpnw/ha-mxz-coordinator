@@ -132,7 +132,6 @@ from .const import (
     INHIBIT_ACTION_OFF,
     KEY_COOL_LOCKOUT,
     KEY_COORDINATOR_ENABLE,
-    KEY_ECO_IDLE,
     KEY_HEAT_LOCKOUT,
     LOST_VOTE_TTL_BOUNDS,
     MODE_COOL,
@@ -189,7 +188,7 @@ from .const import (
 )
 from .delivery import DeliveryQueue
 from .dry import DryMode
-from .fan_hold import FanHold, FanHoldRestoreData
+from .fan_hold import FanHold
 from .floor import FloorGuard
 from .heads import HeadDrivers
 from .host import Effect
@@ -231,7 +230,13 @@ from .planner import (
     mode_change_stamp,
     mode_write_back,
 )
-from .room_state import (
+from .resume import (
+    HEAD_WRITE_FIELDS,
+    HEAD_WRITE_MODE,
+    MODE_AT_KEY,
+    MODE_BY_VOTES_KEY,
+    MODE_CHANGE_KEY,
+    MODE_KEY,
     SECTION_FAN,
     SECTION_FLOOR,
     SECTION_HEAD_WRITES,
@@ -239,9 +244,16 @@ from .room_state import (
     SECTION_OPENINGS,
     SECTION_ROOMS,
     SECTION_SWITCHES,
-    RoomStateStore,
+    SWITCH_KEYS,
+    ModeRecord,
+    RoomSlot,
     SavedState,
+    mode_record,
+    resume,
+    resumed_enable,
+    resumed_mode,
 )
+from .room_state import RoomStateStore
 from .settings import entry_config, one_home
 from .units import clamp, offset_in_unit, snap_to_step, target_in_unit
 
@@ -250,11 +262,6 @@ if TYPE_CHECKING:
     from homeassistant.core import EventStateChangedData, EventStateReportedData, State
 
 _LOGGER = logging.getLogger(__name__)
-
-# What MXZ remembers of its head writes (logic.HeadWriteMemory), by service field.
-_HEAD_WRITE_MODE = "hvac_mode"
-_HEAD_WRITE_FIELDS = (_HEAD_WRITE_MODE, "temperature", "target_temp_low", "target_temp_high")
-
 
 def read_room_temp(state: Any, system_unit: str) -> float | None:
     """Return a room sensor's finite temperature in ``system_unit``, else None.
@@ -576,40 +583,9 @@ COAST_FOLLOWUP_DELAY = REQUEST_REFRESH_DEFAULT_COOLDOWN + 1  # s
 # restores only after the first plan has been computed. Times are wall-clock
 # UTC epoch seconds, the only clock that means anything to the next process.
 #
-# The record holds the time of the last real change (MODE_CHANGE_KEY, absent
-# while none was ever made) and the shared mode as of MODE_AT_KEY, with whether
-# hands-off votes alone set it (MODE_BY_VOTES_KEY). Earlier versions wrote the
-# time only; their records read as before, with no mode on record.
+# What the record holds, and how a start reads it, is resume.py's (ModeRecord,
+# mode_record).
 MODE_CHANGE_STORE_VERSION = 1
-MODE_CHANGE_KEY = "last_mode_change"
-MODE_KEY = "mode"
-MODE_AT_KEY = "mode_at"
-MODE_BY_VOTES_KEY = "mode_by_votes"
-
-
-@dataclass(frozen=True)
-class ModeRecord:
-    """The entry's mode-change record, as a start reads it.
-
-    ``changed_at`` is the last real cool/heat change (None: none on record).
-    ``mode`` is the shared mode when the record was written at ``mode_at``,
-    and ``by_votes`` whether hands-off votes alone had set it; ``mode`` is
-    None when the record has no readable mode (an earlier version wrote it).
-    """
-
-    changed_at: float | None = None
-    mode: str | None = None
-    mode_at: float = 0.0
-    by_votes: bool = False
-
-    def stored(self) -> dict[str, Any] | None:
-        """The record as it is written; None for no record."""
-        data: dict[str, Any] = {}
-        if self.mode is not None:
-            data = {MODE_KEY: self.mode, MODE_AT_KEY: self.mode_at, MODE_BY_VOTES_KEY: self.by_votes}
-        if self.changed_at is not None:
-            data[MODE_CHANGE_KEY] = self.changed_at
-        return data or None
 
 
 def _mode_change_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
@@ -636,41 +612,20 @@ async def async_load_mode_record(
     The record's own file, or ``fallback`` (the room state store's copy) when
     there is no file: for one release the file is written beside the store, so
     an earlier release finds it after a rollback and its writes win here.
-
-    No change time means no change was ever recorded (a fresh install, the
-    first start on a version that did not keep it, or a record that so far
-    holds only a mode votes chose): there is nothing to wait out. A record
-    that is there but whose time is unreadable is not a fresh install; it
-    counts as a change made now, so the hold is the full window, as it was
-    before this was kept. A mode that is not readable is no mode on record.
+    ``resume.mode_record`` reads it; an unreadable change time counts as a
+    change made now, and is reported.
     """
     stored = await _mode_change_store(hass, entry_id).async_load()
     if stored is None:
         stored = fallback
-    if stored is None:
-        return ModeRecord()
-    data: Any = stored if isinstance(stored, dict) else {}
-    mode, mode_at, by_votes = (
-        data.get(MODE_KEY), data.get(MODE_AT_KEY), data.get(MODE_BY_VOTES_KEY)
-    )
-    has_mode = (
-        mode in (MODE_COOL, MODE_HEAT) and finite_number(mode_at)
-        and isinstance(by_votes, bool)
-    )
-    shared: dict[str, Any] = (
-        {"mode": mode, "mode_at": float(mode_at), "by_votes": by_votes} if has_mode else {}
-    )
-    value = data.get(MODE_CHANGE_KEY)
-    if finite_number(value):
-        return ModeRecord(changed_at=float(value), **shared)
-    if has_mode and MODE_CHANGE_KEY not in data:
-        return ModeRecord(changed_at=None, **shared)
-    _LOGGER.warning(
-        "MXZ: the stored time of the last mode change is unreadable (%r); "
-        "holding the next cool/heat change for the full window",
-        stored,
-    )
-    return ModeRecord(changed_at=dt_util.utcnow().timestamp(), **shared)
+    record, unreadable = mode_record(stored, dt_util.utcnow().timestamp())
+    if unreadable:
+        _LOGGER.warning(
+            "MXZ: the stored time of the last mode change is unreadable (%r); "
+            "holding the next cool/heat change for the full window",
+            stored,
+        )
+    return record
 
 
 async def async_load_last_mode_change(hass: HomeAssistant, entry_id: str) -> float | None:
@@ -791,10 +746,6 @@ def async_keep_saved_temps_in_unit(hass: HomeAssistant, entry: ConfigEntry) -> N
     unit = str(hass.config.units.temperature_unit)
     if saved_in in (UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT) and saved_in != unit:
         _convert_saved_temps(hass, entry, saved_in, unit)
-
-
-# The switches the room state store keeps; each is a coordinator attribute of that name.
-_SWITCH_KEYS = (KEY_COORDINATOR_ENABLE, KEY_ECO_IDLE, KEY_HEAT_LOCKOUT, KEY_COOL_LOCKOUT)
 
 
 # ---------------------------------------------------------------------------
@@ -2228,18 +2179,10 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         whether votes set it, and the record is brought up to date. Where they
         agree the record also says whether votes set the mode (the select's
         state is written anew at every start, so its time says nothing then).
+        ``resume.resumed_mode`` decides.
         """
         record = self._mode_record
-        if record.mode is None:
-            mode, by_votes = restored or MODE_COOL, False
-        elif (
-            restored in (None, record.mode)
-            or restored_at is None
-            or record.mode_at >= restored_at
-        ):
-            mode, by_votes = record.mode, record.by_votes
-        else:
-            mode, by_votes = restored, False
+        mode, by_votes = resumed_mode(record, restored, restored_at)
         self.current_shared_mode = mode
         self._mode_by_votes = by_votes
         if record.mode not in (None, mode):
@@ -3137,7 +3080,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     # report MXZ's own writes can explain is never a person, however late it comes.
     def _head_write_same(self, climate_id: str, name: str) -> Callable[[Any, Any], bool]:
         """How a report of this field compares with a write of it."""
-        if name == _HEAD_WRITE_MODE:
+        if name == HEAD_WRITE_MODE:
             return operator.eq
         return partial(self.heads.grid.already_at, climate_id)
 
@@ -3146,7 +3089,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         """What a head's state shows for this field, None if nothing usable."""
         if state is None or state.state in UNAVAILABLE_STATES:
             return None
-        if name == _HEAD_WRITE_MODE:
+        if name == HEAD_WRITE_MODE:
             return state.state
         return as_float(state.attributes.get(name))
 
@@ -3158,7 +3101,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         state = self.hass.states.get(climate_id)
         memory = self._head_writes.setdefault(climate_id, {})
         counted: dict[str, Any] = {}
-        for name in _HEAD_WRITE_FIELDS:
+        for name in HEAD_WRITE_FIELDS:
             if name in payload:
                 remembered = memory.setdefault(name, HeadWriteMemory(HEAD_WRITES_REMEMBERED))
                 if remembered.wrote(
@@ -3256,7 +3199,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             return None
         mode = state.state
         mode_press = "mode" in moved and not self._head_write_is_own(
-            climate_id, _HEAD_WRITE_MODE, mode
+            climate_id, HEAD_WRITE_MODE, mode
         )
         if mode == MODE_OFF:
             # An off the plan itself wants is not a request.
@@ -3352,7 +3295,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         memory = self._head_writes.get(climate_id, {})
         names = []
         if "mode" in moved:
-            names.append(_HEAD_WRITE_MODE)
+            names.append(HEAD_WRITE_MODE)
         if "setpoint" in moved and (name := self._head_setpoint_field(climate_id, state)):
             names.append(name)
         for name in names:
@@ -3745,70 +3688,42 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     def _resume(self, saved: SavedState) -> None:
         """Resume every value the room state store holds.
 
-        Through the same methods an entity's restore data uses, so either one
-        replaces what the other set; an entity whose restore data is newer
-        then takes its value (``store_resumes``). Temperatures saved in the
-        other unit are converted, as a restored target number's are, and a
-        target is held to its head's bounds. MXZ's memory of its head writes
-        resumes only in the unit it was kept in: a remembered 70 °F is no
-        report in °C.
+        ``resume.resume`` reads them out of the store, in this unit and held to
+        each head's bounds; they are applied here through the same methods an
+        entity's restore data uses, so either one replaces what the other set;
+        an entity whose restore data is newer then takes its value
+        (``store_resumes``). The unit is noted first: a first °F/°C switch
+        converts the entry's clamps, and the bounds are read after it.
         """
         if saved.unit is not None:
             self.note_saved_unit(saved.unit)
-        switches = saved.section(SECTION_SWITCHES) or {}
-        for key in _SWITCH_KEYS:
-            if isinstance(on := switches.get(key), bool):
-                self.restore_switch(key, on)
-                self._resumed.add(("switch", key))
-        for zone in self.zones:
-            cid = zone.climate_id
-            room = saved.item(SECTION_ROOMS, cid) or {}
-            if (target := self._saved_temperature(room.get("target"), saved.unit)) is not None:
-                lo, hi = self.heads.grid.target_bounds(cid)
-                zone.target = min(max(target, lo), hi)
-                self._resumed.add(("target", zone.slug))
-            low = self._saved_temperature(room.get("target_low"), saved.unit)
-            high = self._saved_temperature(room.get("target_high"), saved.unit)
-            if low is not None and high is not None:
-                self._saved_ranges[zone.slug] = (low, high)
-                self._resumed.add(("range", zone.slug))
-            drift = room.get("drift")
-            if (drift is None and "drift" in room) or finite_number(drift):
-                zone.drift = self._saved_drift(drift, saved.unit)
-                self._resumed.add(("drift", zone.slug))
-            if isinstance(enable := room.get("enable"), bool):
-                floor = saved.item(SECTION_FLOOR, cid) or {}
-                released = room.get("hands_off_released") is True
-                self.restore_room_enable(zone, enable, {**floor, "hands_off_released": released})
-                self._resumed.add(("enable", zone.slug))
-            fan = saved.item(SECTION_FAN, cid)
-            if fan is not None and (record := FanHoldRestoreData.from_dict(fan)) is not None:
-                self.fan.restore_record(cid, record)
-                self._resumed.add(("fan", cid))
-            writes = (saved.item(SECTION_HEAD_WRITES, cid) or {}) if saved.unit == self.temp_unit else {}
-            for name in _HEAD_WRITE_FIELDS:
-                memory = HeadWriteMemory.restored(HEAD_WRITES_REMEMBERED, writes.get(name))
-                if memory is not None:
-                    self._head_writes.setdefault(cid, {})[name] = memory
-
-    def _saved_temperature(self, value: Any, unit: str | None) -> float | None:
-        """A stored temperature in this unit, on the target step; None if it isn't one."""
-        if not finite_number(value):
-            return None
-        return target_in_unit(float(value), unit, self.temp_unit, self.target_step)
-
-    def _saved_drift(self, value: float | None, unit: str | None) -> float | None:
-        """A stored drift override in this unit, held to the bounds; None follows the global.
-
-        A band is a difference, so it only scales, onto the drift number's step.
-        """
-        if value is None:
-            return None
-        lo, hi = cast("tuple[float, float]", self._profile["engage_bounds"])
-        scaled = offset_in_unit(float(value), unit, self.celsius)
-        if scaled != value:
-            scaled = snap_to_step(scaled, lo / 2)
-        return min(max(scaled, lo), hi)
+        stored = resume(
+            saved,
+            [
+                RoomSlot(zone.climate_id, zone.slug, self.heads.grid.target_bounds(zone.climate_id))
+                for zone in self.zones
+            ],
+            unit=self.temp_unit,
+            step=self.target_step,
+            celsius=self.celsius,
+            engage_bounds=cast("tuple[float, float]", self._profile["engage_bounds"]),
+        )
+        for key, on in stored.switches.items():
+            self.restore_switch(key, on)
+        for zone, room in zip(self.zones, stored.rooms, strict=True):
+            if room.target is not None:
+                zone.target = room.target
+            if room.target_range is not None:
+                self._saved_ranges[zone.slug] = room.target_range
+            if room.has_drift:
+                zone.drift = room.drift
+            if room.enable is not None:
+                self.restore_room_enable(zone, room.enable, room.enable_record)
+            if room.fan is not None:
+                self.fan.restore_record(zone.climate_id, room.fan)
+            for name, memory in room.head_writes.items():
+                self._head_writes.setdefault(zone.climate_id, {})[name] = memory
+        self._resumed |= stored.resumed
 
     def store_resumes(self, kind: str, key: str, recorded_at: datetime | None) -> bool:
         """Whether the room state store, not an entity's restore data, resumes this value.
@@ -3850,15 +3765,12 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         comes back only for a floor it still sets.
         """
         zone.enable = on
-        if on:
-            self._startup_resume[zone.slug] = None
-        else:
-            self._startup_resume.pop(zone.slug, None)
-            self._engage_latch[zone.slug] = ""
-        self.set_hands_off_released(
-            zone.slug, not on and zone.hands_off and saved.get("hands_off_released") is True
+        seed = resumed_enable(
+            zone.slug, on, zone.hands_off, saved, self._engage_latch, self._startup_resume
         )
-        self.floor.restore(zone.slug, {} if on else saved)
+        self._engage_latch, self._startup_resume = seed.latch, seed.startup
+        self.set_hands_off_released(zone.slug, seed.released)
+        self.floor.restore(zone.slug, seed.floor)
 
     def set_room_enable(self, zone: Zone, on: bool) -> None:
         """A person enabled or disabled a room.
@@ -3891,7 +3803,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
 
     def _switches_record(self) -> dict[str, Any]:
         """The Coordinator, eco and lockout switches (``room_state.SECTION_SWITCHES``)."""
-        return {key: getattr(self, key) for key in _SWITCH_KEYS}
+        return {key: getattr(self, key) for key in SWITCH_KEYS}
 
     def _fan_record(self) -> dict[str, Any]:
         """Each head's fan hold and echo memory (``room_state.SECTION_FAN``)."""

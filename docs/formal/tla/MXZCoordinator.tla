@@ -216,20 +216,20 @@ FanFor(delta, i) == Min(StepDown(delta, StepUp(delta, i)), FanMaxIdx)
 
 Memory == [cmd |-> fanCmd, prev |-> fanPrev, older |-> fanOlder, idx |-> fanIdx, latched |-> fanLatched]
 
-\* FanHold._hold_at
+\* fan_latch.hold_at
 HoldAt(f, o) == [f EXCEPT !.latched = TRUE, !.prev = o, !.cmd = o, !.older = {}]
-\* FanHold._adopt; `i` NoIdx resumes from the ceiling, as the switch does.
+\* fan_latch.adopt; `i` NoIdx resumes from the ceiling, as the switch does.
 Adopt(f, o, i) ==
     [f EXCEPT !.latched = FALSE, !.prev = IF f.cmd = None THEN o ELSE f.cmd, !.cmd = o, !.older = {},
               !.idx = IF i = NoIdx THEN FanMaxIdx ELSE i]
-\* The first branch of FanHold._observe_latch and of FanHold._reconcile_restored_hold.
+\* The first branch of fan_latch.observe_fan and of fan_latch.reconcile_restored_hold.
 AtAuto(f) ==
     [f EXCEPT !.latched = FALSE,
               !.prev = IF f.cmd = None THEN "auto" ELSE f.prev,
               !.cmd = IF f.cmd = None THEN "auto" ELSE f.cmd]
 InCeiling(t) == t \in RungSet /\ RungIdx(t) <= FanMaxIdx
 
-\* FanHold._reconcile_restored_hold
+\* fan_latch.reconcile_restored_hold
 Reconcile(f, o, restoredHeld, act) ==
     IF o = "auto" THEN [f |-> AtAuto(f), held |-> FALSE]
     ELSE IF restoredHeld THEN [f |-> HoldAt(f, o), held |-> TRUE]
@@ -244,13 +244,13 @@ Reconcile(f, o, restoredHeld, act) ==
                           THEN [g EXCEPT !.idx = Min(RungIdx(o), FanMaxIdx)] ELSE g
                  IN [f |-> h, held |-> FALSE]
 
-\* FanHold._seed_is_own_idle (idle action fan_only, an entry past its first minutes).
+\* fan_latch.seed_is_own_idle (idle action fan_only, an entry past its first minutes).
 SeedIsOwnIdle(o, act) == act = "fan_only" /\ restoredOn /\ InCeiling(o)
-\* FanHold._seed_matches_boost
+\* fan_latch.seed_matches_boost
 SeedMatchesBoost(o, act, delta) ==
     act \in Modes /\ InCeiling(o) /\ FanFor(delta, RungIdx(o)) = RungIdx(o)
 
-\* FanHold._observe_latch (fan_on_pending is not modeled: the head always
+\* fan_latch.observe_fan (fan_on_pending is not modeled: the head always
 \* reports a speed here).
 Observe(f0, o, act, delta) ==
     \* FanEcho.caught_up: a report of the last command ends the lag.
@@ -532,7 +532,7 @@ Select == WithSelect /\ \E m \in Modes :
 
 \* A person picks a speed on the head (its remote: not a service call of MXZ's).
 \* Picking the speed already showing changes nothing that can be read, so it is
-\* not a step: FanHold._observe_latch's docstring accepts that.
+\* not a step: fan_latch.observe_fan's docstring accepts that.
 PersonFan == WithFan /\ \E t \in Tokens :
     /\ fresh' = IF phase = "applying" THEN FALSE ELSE fresh
     /\ UNCHANGED <<phase, want, left, refused, picked, trailing, cutShort, adoptVars>>

@@ -101,9 +101,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_properties_mode.py::test_arbitrate_never_changes_the_mode_while_the_hold_holds',
     ),
     'C6': Mutant(
-        'a start ignores the record', 'restore_shared_mode',
-        'mode, by_votes = record.mode, record.by_votes\n        else:',
-        'mode, by_votes = restored or MODE_COOL, False\n        else:',
+        'a start ignores the record', 'resumed_mode',
+        'mode, by_votes = record.mode, record.by_votes\n    else:',
+        'mode, by_votes = restored or MODE_COOL, False\n    else:',
         'tests/test_properties_mode.py::test_a_start_resumes_the_recorded_mode',
     ),
     'C7': Mutant(
@@ -113,7 +113,7 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_properties_mode.py::test_a_run_in_the_shared_mode_keeps_it_from_resting_mode',
     ),
     'C8': Mutant(
-        "a departure isn't a hold", '_observe_latch',
+        "a departure isn't a hold", 'observe_fan',
         'if not (seeding or departed):',
         'if not seeding:',
         'tests/test_properties_fan.py::test_a_pick_is_never_written_over_until_it_is_handed_back',
@@ -125,9 +125,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_properties_fan.py::test_a_pick_is_never_written_over_until_it_is_handed_back',
     ),
     'C10': Mutant(
-        "a restored hold isn't kept", '_reconcile_restored_hold',
-        'if held:\n            self._hold_at(climate_id, observed)\n            return True\n        echo =',
-        'if False:\n            self._hold_at(climate_id, observed)\n            return True\n        echo =',
+        "a restored hold isn't kept", 'reconcile_restored_hold',
+        'if held:\n        return hold_at(latch, observed)\n    remembered =',
+        'if False:\n        return hold_at(latch, observed)\n    remembered =',
         'tests/test_properties_restart.py::test_a_start_changes_nothing_anyone_can_see',
     ),
     'C11': Mutant(
@@ -344,15 +344,15 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_accept_head_changes.py::test_a_change_must_hold_and_isnt_overwritten_while_it_does',
     ),
     'C46': Mutant(
-        'a start loses the memory', '_resume',
-        'writes = (saved.item(SECTION_HEAD_WRITES, cid) or {}) if saved.unit == self.temp_unit else {}',
+        'a start loses the memory', 'resume',
+        'writes = (saved.item(SECTION_HEAD_WRITES, cid) or {}) if saved.unit == unit else {}',
         'writes = {}',
         'tests/test_accept_head_changes.py::test_the_memory_rides_a_reload_with_the_head_still_behind',
     ),
     'C52': Mutant(
         'a restart loses the memory', '_resume',
-        'writes = (saved.item(SECTION_HEAD_WRITES, cid) or {}) if saved.unit == self.temp_unit else {}',
-        'writes = (saved.item(SECTION_HEAD_WRITES, cid) or {}) if self.hass.is_running else {}',
+        'for name, memory in room.head_writes.items():',
+        'for name, memory in (room.head_writes if self.hass.is_running else {}).items():',
         'tests/test_accept_head_changes.py::test_a_pre_restart_write_shown_late_is_not_adopted[after_startup_quiet]',
     ),
     'C47': Mutant(
@@ -484,9 +484,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_modehold_properties.py::test_a_start_keeps_what_is_left_of_the_hold_and_never_more',
     ),
     'H8': Mutant(
-        'an unreadable record holds nothing', 'async_load_mode_record',
-        '    return ModeRecord(changed_at=dt_util.utcnow().timestamp(), **shared)',
-        '    return ModeRecord(changed_at=None, **shared)',
+        'an unreadable record holds nothing', 'mode_record',
+        '    return ModeRecord(changed_at=now, **shared), True',
+        '    return ModeRecord(changed_at=None, **shared), True',
         'tests/test_modehold_properties.py::test_a_start_reads_the_record_or_holds_the_full_window',
     ),
     'H9': Mutant(
@@ -520,9 +520,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_hold_promises.py::test_resting_mode_waits_for_the_run_then_rests',
     ),
     'H14': Mutant(
-        'a start forgets that votes chose the mode', 'restore_shared_mode',
-        '            mode, by_votes = record.mode, record.by_votes\n',
-        '            mode, by_votes = record.mode, False\n',
+        'a start forgets that votes chose the mode', 'resumed_mode',
+        '        mode, by_votes = record.mode, record.by_votes\n',
+        '        mode, by_votes = record.mode, False\n',
         'tests/test_hold_promises.py::test_a_restart_keeps_that_votes_chose_the_mode[2]',
     ),
     'H15': Mutant(
@@ -532,15 +532,15 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_modehold_findings.py::test_f2_a_reload_forgets_that_a_room_now_runs_in_the_voted_mode[finding]',
     ),
     'H16': Mutant(
-        "the select's restore data always beats the record", 'restore_shared_mode',
-        '            or record.mode_at >= restored_at\n',
-        '            or False\n',
+        "the select's restore data always beats the record", 'resumed_mode',
+        '        or record.mode_at >= restored_at\n',
+        '        or False\n',
         'tests/test_modehold_findings.py::test_f3_a_crash_soon_after_a_change_restores_the_old_mode_inside_the_hold[finding]',
     ),
     'H17': Mutant(
-        'the record always beats newer restore data', 'restore_shared_mode',
-        '            or record.mode_at >= restored_at\n',
-        '            or True\n',
+        'the record always beats newer restore data', 'resumed_mode',
+        '        or record.mode_at >= restored_at\n',
+        '        or True\n',
         'tests/test_hold_promises.py::test_a_start_takes_the_newer_of_the_record_and_the_restore_data[restore_data_newer]',
     ),
     'H18': Mutant(

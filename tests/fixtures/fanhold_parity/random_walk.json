@@ -1,0 +1,5847 @@
+[
+ {
+  "step": "open",
+  "calls": [
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "cool",
+     "target_temp_low": 68.0,
+     "target_temp_high": 70.0
+    }
+   },
+   {
+    "call": "climate.set_fan_mode",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "fan_mode": "medium"
+    }
+   },
+   {
+    "call": "climate.set_hvac_mode",
+    "data": {
+     "entity_id": "climate.property_head_b",
+     "hvac_mode": "fan_only"
+    }
+   }
+  ],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    },
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "auto"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "auto",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "medium",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": 2,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [
+     "auto",
+     "medium"
+    ],
+    "keys": [
+     "latched",
+     "rung"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "auto"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "00_pick_0_quiet",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    },
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": 2,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched",
+     "rung"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "01_window_False",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": 2,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched",
+     "rung"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "02_later_61",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": 2,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched",
+     "rung"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "03_temp_0_70.7",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    },
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": 2,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched",
+     "rung"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "04_report",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": 2,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched",
+     "rung"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "05_pick_1_medium",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": 2,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched",
+     "rung"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   }
+  ]
+ },
+ {
+  "step": "06_window_True",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": 2,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched",
+     "rung"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   }
+  ]
+ },
+ {
+  "step": "07_report_next",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": 2,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched",
+     "rung"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   }
+  ]
+ },
+ {
+  "step": "08_crash",
+  "calls": [
+   {
+    "call": "climate.set_fan_mode",
+    "data": {
+     "entity_id": "climate.property_head_b",
+     "fan_mode": "auto"
+    }
+   }
+  ],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "medium"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [
+     "auto"
+    ],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [
+     "auto"
+    ],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "medium"
+    }
+   }
+  ]
+ },
+ {
+  "step": "09_crash",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    },
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "10_temp_0_70.0",
+  "calls": [
+   {
+    "call": "climate.set_hvac_mode",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "fan_only"
+    }
+   }
+  ],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    },
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "fan_only",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "11_temp_0_72.2",
+  "calls": [
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "cool",
+     "target_temp_low": 68.0,
+     "target_temp_high": 70.0
+    }
+   }
+  ],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    },
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "12_fan_auto_1_False",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "13_report_next",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "14_no_speed_1",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "15_report",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "16_temp_0_80.0",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "17_restart",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": false,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "18_crash",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "auto",
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "auto",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": false,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "auto"
+    }
+   }
+  ]
+ },
+ {
+  "step": "19_pick_1_high",
+  "calls": [
+   {
+    "call": "climate.set_fan_mode",
+    "data": {
+     "entity_id": "climate.property_head_b",
+     "fan_mode": "auto"
+    }
+   }
+  ],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "high",
+     "prior_fan_command": "high"
+    },
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    },
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    },
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "cool",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [
+     "auto"
+    ],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "high",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "high",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [
+     "auto"
+    ],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   }
+  ]
+ },
+ {
+  "step": "20_later_121",
+  "calls": [
+   {
+    "call": "climate.set_hvac_mode",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "off"
+    }
+   }
+  ],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "high",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "high",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [
+     "auto"
+    ],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   }
+  ]
+ },
+ {
+  "step": "21_restart",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    },
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "high",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "high",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   }
+  ]
+ },
+ {
+  "step": "22_pick_1_high",
+  "calls": [
+   {
+    "call": "climate.set_fan_mode",
+    "data": {
+     "entity_id": "climate.property_head_b",
+     "fan_mode": "auto"
+    }
+   }
+  ],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    },
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    },
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [
+     "auto"
+    ],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "high",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "high",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   }
+  ]
+ },
+ {
+  "step": "23_temp_0_80.0",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "high",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "high",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   }
+  ]
+ },
+ {
+  "step": "24_window_True",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "high",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "high",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   }
+  ]
+ },
+ {
+  "step": "25_restart",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    },
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "high",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "high",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   }
+  ]
+ },
+ {
+  "step": "26_report_next",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "high",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "high",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   }
+  ]
+ },
+ {
+  "step": "27_fan_auto_0_True",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    },
+    {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": 4,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched",
+     "rung"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "auto",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "auto",
+      "prior_fan_command": "high",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "auto",
+     "previous": "high",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "auto",
+     "prior_fan_command": "high"
+    }
+   }
+  ]
+ },
+ {
+  "step": "28_pick_1_medium",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": 4,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched",
+     "rung"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   }
+  ]
+ },
+ {
+  "step": "29_pick_1_low",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "low",
+     "prior_fan_command": "low"
+    },
+    {
+     "held": true,
+     "last_fan_command": "low",
+     "prior_fan_command": "low"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": 4,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched",
+     "rung"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "low",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "low",
+      "prior_fan_command": "low",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "low",
+     "previous": "low",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "low",
+     "prior_fan_command": "low"
+    }
+   }
+  ]
+ },
+ {
+  "step": "30_report_next",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "low",
+     "prior_fan_command": "low"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": 4,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched",
+     "rung"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "low",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "low",
+      "prior_fan_command": "low",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "low",
+     "previous": "low",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "low",
+     "prior_fan_command": "low"
+    }
+   }
+  ]
+ },
+ {
+  "step": "31_pick_1_quiet",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": 4,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched",
+     "rung"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   }
+  ]
+ },
+ {
+  "step": "32_restart",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   }
+  ]
+ },
+ {
+  "step": "33_crash",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   }
+  ]
+ },
+ {
+  "step": "34_restart",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   }
+  ]
+ },
+ {
+  "step": "35_restart",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   }
+  ]
+ },
+ {
+  "step": "36_report",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   }
+  ]
+ },
+ {
+  "step": "37_later_601",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   }
+  ]
+ },
+ {
+  "step": "38_pick_1_low",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "low",
+     "prior_fan_command": "low"
+    },
+    {
+     "held": true,
+     "last_fan_command": "low",
+     "prior_fan_command": "low"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "low",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "low",
+      "prior_fan_command": "low",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "low",
+     "previous": "low",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "low",
+     "prior_fan_command": "low"
+    }
+   }
+  ]
+ },
+ {
+  "step": "39_pick_1_middle",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    },
+    {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    },
+    {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "medium",
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": "medium",
+      "prior_fan_command": "medium",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": "medium",
+     "previous": "medium",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": "medium",
+     "prior_fan_command": "medium"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "middle",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "middle",
+      "prior_fan_command": "middle",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "middle",
+     "previous": "middle",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    }
+   }
+  ]
+ },
+ {
+  "step": "40_pick_0_quiet",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    },
+    {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "middle",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "middle",
+      "prior_fan_command": "middle",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "middle",
+     "previous": "middle",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    }
+   }
+  ]
+ },
+ {
+  "step": "41_temp_1_70.7",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    },
+    {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "middle",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "middle",
+      "prior_fan_command": "middle",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "middle",
+     "previous": "middle",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    }
+   }
+  ]
+ },
+ {
+  "step": "42_temp_0_80.0",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "fan_only",
+    "fan": "middle",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "middle",
+      "prior_fan_command": "middle",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "middle",
+     "previous": "middle",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    }
+   }
+  ]
+ },
+ {
+  "step": "43_temp_1_76.0",
+  "calls": [
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_b",
+     "hvac_mode": "cool",
+     "target_temp_low": 68.0,
+     "target_temp_high": 70.0
+    }
+   }
+  ],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    },
+    {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": "middle",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "middle",
+      "prior_fan_command": "middle",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "middle",
+     "previous": "middle",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    }
+   }
+  ]
+ },
+ {
+  "step": "44_restart",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ],
+   "climate.property_head_b": [
+    {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    },
+    {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": "middle",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "middle",
+      "prior_fan_command": "middle",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "middle",
+     "previous": "middle",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    }
+   }
+  ]
+ },
+ {
+  "step": "45_no_speed_1",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "middle",
+      "prior_fan_command": "middle",
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "middle",
+     "previous": "middle",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "middle",
+     "prior_fan_command": "middle"
+    }
+   }
+  ]
+ },
+ {
+  "step": "46_restart",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": true,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": null,
+     "prior_fan_command": null
+    }
+   }
+  ]
+ },
+ {
+  "step": "47_crash",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    },
+    {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": "quiet",
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": null,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": true,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": null,
+     "prior_fan_command": null
+    }
+   }
+  ]
+ },
+ {
+  "step": "48_no_speed_0",
+  "calls": [],
+  "published": {},
+  "heads": [
+   {
+    "mode": "off",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": true,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": null,
+     "prior_fan_command": null
+    }
+   }
+  ]
+ },
+ {
+  "step": "49_report_next",
+  "calls": [],
+  "published": {},
+  "heads": [
+   {
+    "mode": "off",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": true,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": null,
+     "prior_fan_command": null
+    }
+   }
+  ]
+ },
+ {
+  "step": "50_temp_0_70.0",
+  "calls": [],
+  "published": {},
+  "heads": [
+   {
+    "mode": "off",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": true,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": null,
+     "prior_fan_command": null
+    }
+   }
+  ]
+ },
+ {
+  "step": "51_no_speed_0",
+  "calls": [],
+  "published": {},
+  "heads": [
+   {
+    "mode": "off",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": true,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": null,
+     "prior_fan_command": null
+    }
+   }
+  ]
+ },
+ {
+  "step": "52_temp_0_76.0",
+  "calls": [],
+  "published": {},
+  "heads": [
+   {
+    "mode": "off",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": true,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": null,
+     "prior_fan_command": null
+    }
+   }
+  ]
+ },
+ {
+  "step": "53_report_next",
+  "calls": [],
+  "published": {},
+  "heads": [
+   {
+    "mode": "off",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": true,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": null,
+     "prior_fan_command": null
+    }
+   }
+  ]
+ },
+ {
+  "step": "54_no_speed_0",
+  "calls": [],
+  "published": {},
+  "heads": [
+   {
+    "mode": "off",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": "quiet",
+      "prior_fan_command": "quiet",
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": true,
+     "commanded": "quiet",
+     "previous": "quiet",
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": "quiet",
+     "prior_fan_command": "quiet"
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": true,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": null,
+     "prior_fan_command": null
+    }
+   }
+  ]
+ },
+ {
+  "step": "55_crash",
+  "calls": [],
+  "published": {},
+  "heads": [
+   {
+    "mode": "off",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": true,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": null,
+     "prior_fan_command": null
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": true,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": null,
+     "prior_fan_command": null
+    }
+   }
+  ]
+ },
+ {
+  "step": "56_fan_auto_0_True",
+  "calls": [],
+  "published": {
+   "climate.property_head_a": [
+    {
+     "held": false,
+     "last_fan_command": null,
+     "prior_fan_command": null,
+     "fan_on_pending": true
+    }
+   ]
+  },
+  "heads": [
+   {
+    "mode": "off",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "fan_on_pending": true,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": true,
+     "restored_latch": null,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "latched",
+     "on_pending"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": null,
+     "prior_fan_command": null,
+     "fan_on_pending": true
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": true,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": null,
+     "prior_fan_command": null
+    }
+   }
+  ]
+ },
+ {
+  "step": "57_restart",
+  "calls": [],
+  "published": {},
+  "heads": [
+   {
+    "mode": "off",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "fan_on_pending": true,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": true,
+     "restored_latch": false,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore",
+     "on_pending"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": null,
+     "prior_fan_command": null,
+     "fan_on_pending": true
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": true,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": null,
+     "prior_fan_command": null
+    }
+   }
+  ]
+ },
+ {
+  "step": "58_temp_0_70.7",
+  "calls": [],
+  "published": {},
+  "heads": [
+   {
+    "mode": "off",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "fan_on_pending": true,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": true,
+     "restored_latch": false,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore",
+     "on_pending"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": null,
+     "prior_fan_command": null,
+     "fan_on_pending": true
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": true,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": null,
+     "prior_fan_command": null
+    }
+   }
+  ]
+ },
+ {
+  "step": "59_temp_1_76.0",
+  "calls": [],
+  "published": {},
+  "heads": [
+   {
+    "mode": "off",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": false,
+    "switch": [
+     "on",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "fan_on_pending": true,
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Study fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": true,
+     "restored_latch": false,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore",
+     "on_pending"
+    ],
+    "record": {
+     "held": false,
+     "last_fan_command": null,
+     "prior_fan_command": null,
+     "fan_on_pending": true
+    }
+   },
+   {
+    "mode": "cool",
+    "fan": null,
+    "fan_writes": [],
+    "fan_hold": true,
+    "switch": [
+     "off",
+     {
+      "last_fan_command": null,
+      "prior_fan_command": null,
+      "fan_control_reason": "Current fan speed unavailable; waiting for a head report. Fan auto intent is retained; no fan command is sent until speed returns.",
+      "icon": "mdi:fan-auto",
+      "friendly_name": "MXZ Coordinator Den fan auto"
+     }
+    ],
+    "hold": {
+     "latched": false,
+     "commanded": null,
+     "previous": null,
+     "older": [],
+     "ladder_index": null,
+     "turn_on_pending": false,
+     "restored_latch": true,
+     "restore_problem": null
+    },
+    "older": [],
+    "keys": [
+     "restore"
+    ],
+    "record": {
+     "held": true,
+     "last_fan_command": null,
+     "prior_fan_command": null
+    }
+   }
+  ]
+ }
+]

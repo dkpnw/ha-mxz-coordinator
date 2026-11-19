@@ -17,8 +17,8 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from custom_components.mxz_coordinator.resume import SECTION_FAN
 from custom_components.mxz_coordinator.room_state import (
-    SECTION_FAN,
     _room_state_store,
     async_remove_room_state,
 )

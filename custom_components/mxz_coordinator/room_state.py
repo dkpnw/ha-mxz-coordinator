@@ -7,7 +7,8 @@ floor run (``floor``), the shared mode and its last change (``mode``), each door
 pause (``openings``) and each head's memory of MXZ's mode and setpoint writes, which a head
 can still show after a restart (``head_writes``). Each section is its owner's record, by head where it is per room: a
 reorder moves a room's slot, never its head. The file also holds when it was taken
-(``saved_at``, wall clock) and the unit its temperatures are in (``unit``).
+(``saved_at``, wall clock) and the unit its temperatures are in (``unit``). A start reads it as a
+``resume.SavedState``; the section names are ``resume``'s, which reads them.
 
 A change is written at once, so a crash loses only a write still on its way to disk; HA's
 ``Store`` folds changes made together into one write. The mode and door/window records are
@@ -23,9 +24,7 @@ moments as before, and the entities keep their restore data. A start reads those
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
-from datetime import datetime
+from collections.abc import Callable
 from typing import Any
 
 from homeassistant.const import UnitOfTemperature
@@ -36,19 +35,13 @@ from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .logic import finite_number
+from .resume import SavedState
 
 _LOGGER = logging.getLogger(__name__)
 
 ROOM_STATE_VERSION = 1
 SAVED_AT_KEY = "saved_at"
 UNIT_KEY = "unit"
-SECTION_ROOMS = "rooms"
-SECTION_SWITCHES = "switches"
-SECTION_FAN = "fan"
-SECTION_FLOOR = "floor"
-SECTION_MODE = "mode"
-SECTION_OPENINGS = "openings"
-SECTION_HEAD_WRITES = "head_writes"
 _UNITS = (UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT)
 
 
@@ -64,41 +57,6 @@ def _room_state_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any
     if entry_id not in stores:
         stores[entry_id] = Store(hass, ROOM_STATE_VERSION, f"{DOMAIN}.{entry_id}.room_state")
     return stores[entry_id]
-
-
-@dataclass(frozen=True)
-class SavedState:
-    """What the store held at a start.
-
-    ``readable`` is False for a store that can't be loaded, such as one a later
-    release wrote: it is neither read nor written over. Without ``saved_at`` the store is older than any restore
-    record.
-    """
-
-    saved_at: float | None = None
-    unit: str | None = None
-    sections: Mapping[str, dict[str, Any]] = field(default_factory=dict)
-    readable: bool = True
-
-    def section(self, name: str) -> dict[str, Any] | None:
-        """One section as stored, or None."""
-        return self.sections.get(name)
-
-    def item(self, name: str, key: str) -> dict[str, Any] | None:
-        """One head's (or one switch section's) record, or None if it isn't a record."""
-        value = (self.sections.get(name) or {}).get(key)
-        return value if isinstance(value, dict) else None
-
-    def outranks(self, recorded_at: datetime | None) -> bool:
-        """Whether this store is newer than a restore record taken at ``recorded_at``.
-
-        No record (None) is always older. A record as new as the store or newer
-        was written after it, by this release or by an earlier one after a
-        rollback, and wins.
-        """
-        if recorded_at is None:
-            return True
-        return self.saved_at is not None and self.saved_at > recorded_at.timestamp()
 
 
 async def async_load_room_state(hass: HomeAssistant, entry_id: str) -> SavedState:
