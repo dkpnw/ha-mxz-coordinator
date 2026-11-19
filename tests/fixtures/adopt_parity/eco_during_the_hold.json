@@ -1,0 +1,283 @@
+[
+ {
+  "step": "pressed",
+  "calls": [],
+  "room": {
+   "target": "70.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    64,
+    66
+   ]
+  },
+  "hold": true,
+  "moved": [
+   "setpoint"
+  ],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      68.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      70.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": [],
+  "clock": [
+   [
+    "cancel",
+    "('climate.property_head_a', 'adopt')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_b', 'adopt')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'adopt')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_b', 'adopt')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'band')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'off')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'adopt')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'band')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'off')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_b', 'band')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_b', 'off')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_b', 'adopt')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'band')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'off')"
+   ],
+   [
+    "call_later",
+    "('climate.property_head_a', 'adopt')",
+    5
+   ]
+  ],
+  "refreshes": 5,
+  "numbers": {
+   "_primary_target": "70.0"
+  },
+  "startup": {}
+ },
+ {
+  "step": "eco_on",
+  "calls": [
+   {
+    "call": "switch.turn_on",
+    "data": {
+     "entity_id": "switch.mxz_coordinator_eco_idle"
+    }
+   },
+   {
+    "call": "climate.set_hvac_mode",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "off"
+    }
+   },
+   {
+    "call": "climate.set_fan_mode",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "fan_mode": "auto"
+    }
+   },
+   {
+    "call": "climate.set_hvac_mode",
+    "data": {
+     "entity_id": "climate.property_head_b",
+     "hvac_mode": "off"
+    }
+   }
+  ],
+  "room": {
+   "target": "70.0",
+   "enable": "on",
+   "mode": "off",
+   "edges": [
+    64,
+    66
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "off",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      68.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      70.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "off",
+      0
+     ]
+    ]
+   }
+  },
+  "log": [],
+  "clock": [
+   [
+    "cancel",
+    "('climate.property_head_a', 'band')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'off')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'adopt')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'band')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'off')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_b', 'band')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_b', 'off')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_b', 'adopt')"
+   ]
+  ],
+  "refreshes": 1,
+  "numbers": {
+   "_primary_target": "70.0"
+  },
+  "startup": {}
+ },
+ {
+  "step": "nothing_adopted",
+  "calls": [],
+  "room": {
+   "target": "70.0",
+   "enable": "on",
+   "mode": "off",
+   "edges": [
+    64,
+    66
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "off",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      68.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      70.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "off",
+      0
+     ]
+    ]
+   }
+  },
+  "log": [],
+  "clock": [],
+  "refreshes": 0,
+  "numbers": {
+   "_primary_target": "70.0"
+  },
+  "startup": {}
+ }
+]

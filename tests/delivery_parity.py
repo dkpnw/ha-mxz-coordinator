@@ -9,11 +9,13 @@ coil-dry wait a delivery ended shows too.
 The scenarios are the beats of a local head's delivery: a head parked off with its fan handed
 back to auto first, and without (an off head, the idle action fan_only, eco, a standby hold);
 the coil-dry run after cooling and its end; a heat run's last-run stamp; a fixed standby park;
-a reading that rises under an eco standby hold.
+a reading that rises under an eco standby hold; a standby hold that starts or ends while a
+run's setpoints are written (the boost step reads it again after the write); a paused head.
 
 ``tests/test_delivery_parity.py`` compares each scenario with
 ``tests/fixtures/delivery_parity/<scenario>.json``. Those were captured on 7ebcf84, before the
-delivery steps moved to ``planner.delivery_steps``; run with ``MXZ_PARITY_CAPTURE=1`` to rewrite
+delivery steps moved to ``planner.delivery_steps`` (``hold_during_the_write`` and ``paused`` on
+d4cffd2, before the step order moved to ``DeliverySteps.order``); run with ``MXZ_PARITY_CAPTURE=1`` to rewrite
 them, only on a commit whose behavior is known right.
 
 Every room, head, sensor and value is invented; nothing here is a hardware result.
@@ -23,6 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from homeassistant.components.climate import HVACMode
 
@@ -37,11 +40,15 @@ from custom_components.mxz_coordinator.const import (
     IDLE_ACTION_OFF_AFTER_DRY,
     INHIBIT_ACTION_ECO,
     INHIBIT_ACTION_OFF,
+    ZONE_OPENING_ENTITY,
+    ZONE_OPENING_PAUSE,
 )
 from tests.planner_parity import LEGACY_WAITS, House
+from tests.test_drive import MockHead
 
 FIXTURES = Path(__file__).with_name("fixtures") / "delivery_parity"
 INHIBIT = "binary_sensor.parity_inhibit"
+WINDOW = "binary_sensor.parity_delivery_window"
 
 
 def recorded(name: str) -> Path:
@@ -200,9 +207,71 @@ async def standby_park(house: Deliveries) -> None:
     house.snap("released")
 
 
+class HoldHead(MockHead):
+    """A head during whose next setpoint write the standby hold starts or ends.
+
+    The coordinator's own reading of the hold is what changes, while the write runs: the
+    boost step after the write reads it again."""
+
+    coordinator: Any = None
+    hold_after_write: bool | None = None
+
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        await super().async_set_temperature(**kwargs)
+        if HoldHead.hold_after_write is not None:
+            HoldHead.coordinator.inhibited = HoldHead.hold_after_write
+            HoldHead.hold_after_write = None
+
+
+async def hold_during_the_write(house: Deliveries) -> None:
+    """A standby hold in eco that starts while a run's setpoints are written takes that run's
+    boost step away; one that ends while they are written gives it back."""
+    house.hass.states.async_set(INHIBIT, "off")
+    await house.setup(
+        [{}, {}], head_classes=[HoldHead, MockHead],
+        **{CONF_MODE_HYSTERESIS: 0, CONF_IDLE_ACTION: IDLE_ACTION_OFF,
+           CONF_INHIBIT_ENTITY: INHIBIT, CONF_INHIBIT_ACTION: INHIBIT_ACTION_ECO},
+    )
+    HoldHead.coordinator = house.coord
+    HoldHead.hold_after_write = True
+    await house.temp(0, 82)
+    house.snap("hold_starts_during_the_write")
+    await house.state(INHIBIT, "on")
+    await house.recompute()
+    house.snap("held")
+    HoldHead.hold_after_write = False
+    await house.person(0, HVACMode.COOL, low=60, high=61)
+    await house.recompute()
+    house.snap("hold_ends_during_the_write")
+    await house.state(INHIBIT, "off")
+    await house.recompute()
+    house.snap("released")
+
+
+async def paused(house: Deliveries) -> None:
+    """A paused room's running head is sent off: no hand-back, no fan step, no coil-dry run."""
+    house.hass.states.async_set(WINDOW, "off")
+    await house.setup(
+        [{ZONE_OPENING_ENTITY: WINDOW, ZONE_OPENING_PAUSE: True}, {}],
+        **{CONF_MODE_HYSTERESIS: 0, CONF_IDLE_ACTION: IDLE_ACTION_OFF_AFTER_DRY,
+           CONF_COIL_DRY_MINUTES: 10},
+    )
+    await house.temp(0, 76)
+    house.snap("cooling")
+    await house.state(WINDOW, "on")
+    await house.later(61)
+    await house.recompute()
+    house.snap("paused_off")
+    await house.state(WINDOW, "off")
+    await house.later(121)
+    await house.recompute()
+    house.snap("resumed")
+
+
 SCENARIOS: dict[str, Scenario] = {
     scenario.__name__: scenario
     for scenario in (
         parked_off, coil_dry, fan_only_idle, eco, standby_eco, standby_eco_rise, standby_park,
+        hold_during_the_write, paused,
     )
 }
