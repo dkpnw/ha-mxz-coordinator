@@ -616,15 +616,30 @@ class DeliverySteps:
     ``handback``: the fan goes back to auto before the mode, on the way to off.
     ``last_run``: the act is the head's last run, which the coil-dry run counts from.
     ``ends_coil_dry``: the act ends a coil-dry run's wakeup.
-    ``fan``: the step after the mode and setpoints, ``"boost"`` (the fan boost
-    step for the act), ``"drop_rung"`` (the ladder starts from the bottom next
-    run, after a hand-back) or None (no fan step).
+    ``fan_machinery``: the delivery has a fan step at all (not a fixed standby
+    park or a floor); :meth:`fan` says which.
     """
 
     handback: bool
     last_run: bool
     ends_coil_dry: bool
-    fan: str | None
+    fan_machinery: bool
+
+    def fan(self, *, inhibited: bool) -> str | None:
+        """The step after the mode and setpoints.
+
+        ``"drop_rung"`` after a hand-back (the ladder starts from the bottom
+        next run), ``"boost"`` (the fan boost step for the act) outside a
+        standby hold, or None (no fan step). ``inhibited`` is the standby hold
+        as read when this step runs. A local head reads it again after its mode
+        write returns, so a hold that starts or ends during the write decides
+        this step, while the hand-back, decided before the write, stands.
+        """
+        if not self.fan_machinery:
+            return None
+        if self.handback:
+            return "drop_rung"
+        return None if inhibited else "boost"
 
 
 def delivery_steps(
@@ -644,12 +659,15 @@ def delivery_steps(
     Heat or cool is the head's last run, and anything but fan_only ends a
     coil-dry run's wakeup. The fan goes back to auto before an off only on a
     head that is on now, parked off by the plan (an idle action other than
-    fan_only, a room that is not off), outside eco and a standby hold. A local
-    head is sent the hand-back, then the mode and setpoints, then the fan step;
-    a cloud head's batch carries the same decisions.
+    fan_only, a room that is not off), outside eco and a standby hold
+    (``inhibited``, as read before the delivery's first write). A local head is
+    sent the hand-back, then the mode and setpoints, then the fan step
+    (:meth:`DeliverySteps.fan`); a cloud head's batch carries the same decisions.
     """
     if engage is None:
-        return DeliverySteps(handback=False, last_run=False, ends_coil_dry=False, fan=None)
+        return DeliverySteps(
+            handback=False, last_run=False, ends_coil_dry=False, fan_machinery=False,
+        )
     handback = (
         act == MODE_OFF and idle_action != IDLE_ACTION_FAN_ONLY
         and engage != MODE_OFF and not eco and not inhibited
@@ -659,7 +677,7 @@ def delivery_steps(
         handback=handback,
         last_run=act in (MODE_COOL, MODE_HEAT),
         ends_coil_dry=act != MODE_FAN_ONLY,
-        fan="drop_rung" if handback else None if inhibited else "boost",
+        fan_machinery=True,
     )
 
 

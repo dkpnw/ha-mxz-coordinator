@@ -331,11 +331,14 @@ class LocalDriver:
                 return
         await self._async_apply(act, low, high)
         host.floor.accepted(climate_id, delivery)
-        if steps.fan is None or not host.deliveries.owned(delivery):
+        if not steps.fan_machinery or not host.deliveries.owned(delivery):
             return
-        if steps.fan == "drop_rung":
+        # The standby hold as it reads now, after the write: a hold that started
+        # or ended during the write decides the fan step.
+        fan = steps.fan(inhibited=host.inhibited)
+        if fan == "drop_rung":
             host.fan.drop_rung(climate_id)
-        else:
+        elif fan == "boost":
             await host.fan.async_apply(climate_id, act, delta)
 
     async def _async_apply(self, act: str, low: float, high: float) -> None:
@@ -625,7 +628,7 @@ class CloudDriver:
         # speed someone picks is read and a boost step that comes due goes
         # out (both limits still apply).
         fan = None
-        if steps.fan is not None:
+        if steps.fan(inhibited=host.inhibited) is not None:
             fan = host.fan.cloud_token(
                 climate_id, cloud, state, MODE_FAN_ONLY if steps.handback else act, delta, clock,
             )
