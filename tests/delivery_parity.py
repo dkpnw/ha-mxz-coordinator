@@ -8,7 +8,8 @@ coil-dry wait a delivery ended shows too.
 
 The scenarios are the beats of a local head's delivery: a head parked off with its fan handed
 back to auto first, and without (an off head, the idle action fan_only, eco, a standby hold);
-the coil-dry run after cooling and its end; a heat run's last-run stamp; a fixed standby park.
+the coil-dry run after cooling and its end; a heat run's last-run stamp; a fixed standby park;
+a reading that rises under an eco standby hold.
 
 ``tests/test_delivery_parity.py`` compares each scenario with
 ``tests/fixtures/delivery_parity/<scenario>.json``. Those were captured on 7ebcf84, before the
@@ -159,6 +160,27 @@ async def standby_eco(house: Deliveries) -> None:
     house.snap("released")
 
 
+async def standby_eco_rise(house: Deliveries) -> None:
+    """A standby hold in eco that starts before any run, then a rising reading: the hold's
+    protection run gets no fan step, so the fan stays at auto where the hold found it; the
+    release brings the boost step back."""
+    house.hass.states.async_set(INHIBIT, "off")
+    await house.setup(
+        [{}, {}],
+        **{CONF_MODE_HYSTERESIS: 0, CONF_IDLE_ACTION: IDLE_ACTION_OFF,
+           CONF_INHIBIT_ENTITY: INHIBIT, CONF_INHIBIT_ACTION: INHIBIT_ACTION_ECO},
+    )
+    house.snap("start")
+    await house.state(INHIBIT, "on")
+    await house.recompute()
+    house.snap("held")
+    await house.temp(0, 90)
+    house.snap("held_hot")
+    await house.state(INHIBIT, "off")
+    await house.recompute()
+    house.snap("released")
+
+
 async def standby_park(house: Deliveries) -> None:
     """A fixed standby park: off with no fan machinery and no coil-dry note."""
     house.hass.states.async_set(INHIBIT, "off")
@@ -180,5 +202,7 @@ async def standby_park(house: Deliveries) -> None:
 
 SCENARIOS: dict[str, Scenario] = {
     scenario.__name__: scenario
-    for scenario in (parked_off, coil_dry, fan_only_idle, eco, standby_eco, standby_park)
+    for scenario in (
+        parked_off, coil_dry, fan_only_idle, eco, standby_eco, standby_eco_rise, standby_park,
+    )
 }
