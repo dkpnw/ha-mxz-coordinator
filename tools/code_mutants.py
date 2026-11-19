@@ -293,9 +293,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_fan_lag_memory.py::test_a_prompt_heads_passed_speed_holds_during_the_next_writes_window',
     ),
     'C39': Mutant(
-        "a start's record loses a queued write of auto", 'older_record',
-        '        while record and record[0] == FAN_AUTO:\n            del record[0]\n',
-        '        record = [token for token in record if token != FAN_AUTO]\n',
+        "a start's record loses a queued write of auto", 'fan_record',
+        '    while older and older[0] == FAN_AUTO:\n        del older[0]\n',
+        '    older = [token for token in older if token != FAN_AUTO]\n',
         'tests/test_properties_fan.py::test_no_person_no_hold_when_a_head_reports_every_write_in_order',
     ),
     'C38': Mutant(

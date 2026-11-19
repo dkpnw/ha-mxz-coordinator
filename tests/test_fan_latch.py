@@ -29,6 +29,7 @@ from custom_components.mxz_coordinator.fan_latch import (
     FanLimits,
     adopt,
     fan_auto,
+    fan_record,
     fan_step,
     hold_at,
     observe_fan,
@@ -459,3 +460,52 @@ def test_a_step_never_changes_the_latch_it_was_given() -> None:
     before = (memory(latch), latch.held, latch.rung)
     step(latch, "medium", MODE_COOL, 6.0)
     assert (memory(latch), latch.held, latch.rung) == before
+
+
+# -- what a stop saves ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("held", "restored", "holds"),
+    [(None, None, False), (False, None, False), (True, None, True),
+     (False, True, True), (True, False, False), (None, True, True)],
+)
+def test_a_start_truth_not_yet_read_wins_over_the_latch(held, restored, holds) -> None:
+    latch = FanLatch(echo=FanEcho(), held=held, restored=restored)
+    assert latch.holds is holds
+    assert fan_record(latch, None).held is holds
+
+
+def test_the_record_carries_the_last_two_and_a_waiting_fan_auto_on() -> None:
+    latch = replace(driving(), on_pending=True)
+    record = fan_record(latch, "medium")
+    assert (record.held, record.last, record.prior, record.on_pending, record.older) == (
+        False, "medium", "low", True, ()
+    )
+
+
+def test_the_older_writes_are_kept_in_order_without_the_last_two_or_a_leading_auto() -> None:
+    latch = driving("low", "medium", (FAN_AUTO, "high", "medium", "low"))
+    assert fan_record(latch, "high").older == ("high",)
+    assert fan_record(latch, None).older == ("high",)
+
+
+def test_a_later_auto_is_kept_only_the_leading_one_goes() -> None:
+    latch = driving("low", "medium", (FAN_AUTO, "high", FAN_AUTO, "medium", "low"))
+    assert fan_record(latch, "high").older == ("high", FAN_AUTO)
+
+
+def test_a_head_showing_the_last_write_with_nothing_older_saves_no_older_writes() -> None:
+    latch = driving("medium", "low", ("low", "medium"))
+    assert fan_record(latch, "medium").older == ()
+    # Showing something else, the same memory keeps its order (here nothing is left after
+    # the last two are taken off).
+    assert fan_record(latch, "low").older == ()
+    latch = driving("medium", "low", ("medium", "low", "medium"))
+    assert fan_record(latch, "medium").older == ()
+    assert fan_record(latch, "low").older == ("medium",)
+
+
+def test_a_start_with_no_memory_saves_no_older_writes() -> None:
+    assert fan_record(fresh(), None).older == ()
+    assert fan_record(fresh(), "high").older == ()

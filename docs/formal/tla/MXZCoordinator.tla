@@ -286,10 +286,10 @@ Rolled(f, t) ==
     ELSE [f EXCEPT !.prev = IF f.cmd = None THEN t ELSE f.cmd, !.cmd = t,
                    !.older = (f.older \cup ({f.prev} \cap RungSet)) \ {t, f.cmd}]
 
-\* FanHold.auto_is_on
+\* FanHold.auto_is_on (fan_latch.FanLatch.holds)
 FanAutoOn == IF fanRestore # None THEN fanRestore = "free" ELSE ~fanLatched
 
-\* The fan record the room state store writes (FanHold.record; the switch's restore data too).
+\* The fan record the room state store writes (FanHold.record, fan_latch.fan_record; the switch's restore data too).
 Dumped == [has |-> TRUE, held |-> ~FanAutoOn, last |-> fanCmd, prior |-> fanPrev, older |-> fanOlder]
 NoDump == [has |-> FALSE, held |-> FALSE, last |-> None, prior |-> None, older |-> {}]
 
