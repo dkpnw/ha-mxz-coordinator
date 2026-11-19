@@ -1,10 +1,10 @@
 """Import boundaries of custom_components/mxz_coordinator (docs/ARCHITECTURE-RULES.md).
 
 Each module sits in one layer of LAYERS and imports only from layers below its own.
-STDLIB_ONLY modules also import nothing outside the standard library. Every import
-counts: module level, inside a function, and under TYPE_CHECKING; relative and
-absolute forms resolve to the same module. An import built at run time (importlib,
-__import__) is not seen.
+STDLIB_ONLY modules also import nothing outside the standard library, and no module imports a
+SIMULATOR_ONLY one. Every import counts: module level, inside a function, and under
+TYPE_CHECKING; relative and absolute forms resolve to the same module. An import built at
+run time (importlib, __import__) is not seen.
 
 `python3 tools/import_bounds.py` prints each violation; exit 0 clean, 1 otherwise.
 tests/test_import_bounds.py runs the same check in every suite job.
@@ -36,6 +36,8 @@ LAYERS = (
     ("resume", {"resume"}),
     # What each input and wakeup asks of the plan, each wakeup's delay, the heartbeat.
     ("timing", {"timing"}),
+    # When MXZ computes, for a simulator: timing's rules on a model of HA's debouncer.
+    ("simulator", {"sim_timing"}),
     # The one store of each room's state; the controllers hand it their records.
     ("room state", {"room_state"}),
     # Concerns split out of the coordinator. Each reaches it through a Protocol it declares.
@@ -59,7 +61,12 @@ LAYERS = (
 # Kept free of Home Assistant so their math is tested directly (docs/DEVELOPMENT.md).
 STDLIB_ONLY = {
     "const", "units", "logic", "cloud", "plan", "planner", "fan_latch", "resume", "settings", "timing",
+    "sim_timing",
 }
+
+# For a simulator only: no module of the integration imports them (Drew's one exception to
+# "no duplicated orchestration" is sim_timing's model of Home Assistant's debouncer).
+SIMULATOR_ONLY = {"sim_timing"}
 
 # (importer, imported, type_only): why. Each one is an architecture decision. A runtime
 # exception also covers type-only imports; one that no longer matches an import of its own
@@ -166,6 +173,9 @@ def violations(sources: Mapping[str, str]) -> list[str]:
         for node, type_only in _nodes(tree):
             where = f"{importer}.py:{node.lineno}"
             for inside, target in targets(node, modules):
+                if inside and target in SIMULATOR_ONLY:
+                    found.append(f"{where}: {importer} imports {target}; only a simulator imports it")
+                    continue
                 if not inside:
                     if target == "..":
                         found.append(f"{where}: a relative import leaves the package")

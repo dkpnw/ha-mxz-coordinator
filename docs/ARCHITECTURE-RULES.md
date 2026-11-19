@@ -23,13 +23,15 @@ every wait on the clock.
 `tools/import_bounds.py` is the one place the layers and exceptions are written. Each
 module of the integration sits in one layer and imports only from layers below its own.
 `const.py`, `units.py`, `logic.py`, `cloud.py`, `plan.py`, `planner.py`, `fan_latch.py`, `resume.py` and `timing.py` also import only the standard library,
-so their math runs without Home Assistant.
+so their math runs without Home Assistant. `sim_timing.py` is standard library too, and is for a simulator
+only (`SIMULATOR_ONLY`): no module of the integration may import it.
 
 The check fails when:
 
 - a module imports from its own layer or a layer above it, by any form of import:
   relative or absolute, inside a function, or under `TYPE_CHECKING`;
 - a module has no layer, or a layer names a module that has no file;
+- a module imports a `SIMULATOR_ONLY` module;
 - an exception no longer matches an import of its kind, so it is removed or narrowed
   when its reason goes away.
 
