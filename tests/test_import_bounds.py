@@ -39,8 +39,8 @@ def test_without_its_exceptions_the_tree_shows_exactly_the_five_known_edges(monk
         "climate.py:66: climate (layer surfaces) imports number (layer surfaces)" + LOWER,
         "dry.py:32: dry (layer lower controllers) type-only imports coordinator (layer coordinator)" + LOWER,
         "floor.py:41: floor (layer floor) type-only imports coordinator (layer coordinator)" + LOWER,
-        "heads.py:66: heads (layer head drivers) type-only imports coordinator (layer coordinator)" + LOWER,
-        "openings.py:48: openings (layer controllers) type-only imports coordinator (layer coordinator)" + LOWER,
+        "heads.py:67: heads (layer head drivers) type-only imports coordinator (layer coordinator)" + LOWER,
+        "openings.py:50: openings (layer controllers) type-only imports coordinator (layer coordinator)" + LOWER,
     ]
 
 
@@ -126,6 +126,26 @@ def test_a_pure_module_imports_only_the_standard_library(module, code, outside):
         line += 1
     assert violations(sources) == [
         f"{module}.py:{line}: {module} imports {outside}; it imports only the standard library"]
+
+
+@pytest.mark.parametrize(("module", "code"), [
+    ("coordinator", "from .sim_timing import step\n"),
+    ("switch", "def late():\n    from . import sim_timing\n"),
+    ("diagnostics", "if TYPE_CHECKING:\n    from .sim_timing import Timers\n"),
+])
+def test_no_module_of_the_integration_imports_the_simulator_s_model(module, code):
+    sources, line = added(module, code)
+    if not code.startswith("from"):
+        line += 1
+    assert violations(sources) == [
+        f"{module}.py:{line}: {module} imports sim_timing; only a simulator imports it"]
+
+
+def test_the_simulator_s_model_imports_only_lower_pure_modules():
+    sources, line = added("sim_timing", "from .coordinator import Zone\n")
+    assert violations(sources) == [
+        f"sim_timing.py:{line}: sim_timing (layer simulator) imports coordinator (layer coordinator)"
+        + LOWER]
 
 
 def test_a_module_outside_the_pure_set_may_import_home_assistant():

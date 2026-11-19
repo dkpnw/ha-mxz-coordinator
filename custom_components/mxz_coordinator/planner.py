@@ -3,7 +3,8 @@
 ``MXZCoordinator._compute`` reads each room's sensor, head and controllers, hands the
 readings to :func:`decide` as one :class:`RoomInput` per room and one :class:`Shared`,
 and builds the plan from the :class:`Decision`. ``_apply`` queues each head's
-:func:`head_command` and writes the plan's mode back as :func:`mode_write_back` says.
+:func:`head_command` and writes the plan's mode back as :func:`mode_write_back` says. Each
+head's driver then runs that command's :func:`delivery_steps`.
 Time comes in as numbers: the seconds since the last mode change, the hold's length,
 the coil-dry clock, and the clocks a start reads (:func:`mode_change_stamp`).
 The engage latch and the startup seeds come in as they are and go out advanced; nothing
@@ -12,12 +13,14 @@ here keeps state.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
+from typing import Any
 
 from .const import (
     DEMAND_NEUTRAL,
     ENGAGE_SATISFIED,
+    IDLE_ACTION_FAN_ONLY,
     IDLE_ACTION_OFF,
     IDLE_ACTION_OFF_AFTER_DRY,
     MODE_COOL,
@@ -41,6 +44,7 @@ from .logic import (
     room_call,
     setpoints,
 )
+from .plan import RoomPlan
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +214,42 @@ def arbitration_entries(
         return pair
     floor_tier = PRIORITY_FLOOR_HEAT if floor == MODE_HEAT else PRIORITY_SAFETY
     return (*pair, Demand(direction=floor, priority=(floor_tier, index)))
+
+
+def held_back(rooms: Sequence[RoomPlan], *, current: str, resting: str | None) -> bool:
+    """Whether the mode-change hold keeps the shared mode from changing: with the hold open,
+    arbitration would pick another mode than ``current`` from these rooms.
+
+    The rooms are a computed plan's, replayed as :func:`decide` counted them (:func:`holds`),
+    so the dwell wakeup weighs exactly what that compute arbitrated.
+    """
+    demands: list[str] = []
+    engages: list[str] = []
+    for room in rooms:
+        if holds(room.vote_status, room.safety_priority, room.cloud_out):
+            demands.append(room.demand)
+            engages.append(room.engage)
+        else:
+            demands.append(DEMAND_NEUTRAL)
+            engages.append(room.engage if room.floor_want is not None else ENGAGE_SATISFIED)
+    engaged = any(e in (MODE_COOL, MODE_HEAT) for e in engages)
+    entries: list[Demand] = []
+    for i, (room, demand) in enumerate(zip(rooms, demands)):
+        entries.extend(
+            arbitration_entries(
+                demand=demand,
+                vote=room.hands_off_vote,
+                safety=room.safety_priority,
+                index=i,
+                floor=room.floor_want,
+                dry=room.dry_vote,
+                boost=room.comfort_priority,
+            )
+        )
+    return arbitrate(
+        entries, engaged=engaged, current=current, allowed=True,
+        resting=resting, running=current in engages,
+    ).direction != current
 
 
 def _seed_latch(
@@ -567,3 +607,231 @@ def head_command(
     return HeadCommand(
         mode=act, low=low, high=high, delta=delta, fan=engage if floor_run is None else None
     )
+
+
+@dataclass(frozen=True, slots=True)
+class DeliverySteps:
+    """What one head's delivery does besides its mode and setpoints.
+
+    ``handback``: the fan goes back to auto before the mode, on the way to off.
+    ``last_run``: the act is the head's last run, which the coil-dry run counts from.
+    ``ends_coil_dry``: the act ends a coil-dry run's wakeup.
+    ``fan_machinery``: the delivery has a fan step at all (not a fixed standby
+    park or a floor); :meth:`fan` says which.
+    """
+
+    handback: bool
+    last_run: bool
+    ends_coil_dry: bool
+    fan_machinery: bool
+
+    def fan(self, *, inhibited: bool) -> str | None:
+        """The step after the mode and setpoints.
+
+        ``"drop_rung"`` after a hand-back (the ladder starts from the bottom
+        next run), ``"boost"`` (the fan boost step for the act) outside a
+        standby hold, or None (no fan step). ``inhibited`` is the standby hold
+        as read when this step runs. A local head reads it again after its mode
+        write returns, so a hold that starts or ends during the write decides
+        this step, while the hand-back, decided before the write, stands.
+        """
+        if not self.fan_machinery:
+            return None
+        if self.handback:
+            return "drop_rung"
+        return None if inhibited else "boost"
+
+
+def delivery_steps(
+    act: str,
+    engage: str | None,
+    *,
+    idle_action: str,
+    eco: bool,
+    inhibited: bool,
+    head_state: str | None,
+) -> DeliverySteps:
+    """What a delivery of ``act`` does at its head besides the mode and setpoints.
+
+    ``engage`` None is a fixed standby park or a floor: no coil-dry note and no
+    fan machinery. ``head_state`` is the state the head shows, None for none.
+
+    Heat or cool is the head's last run, and anything but fan_only ends a
+    coil-dry run's wakeup. The fan goes back to auto before an off only on a
+    head that is on now, parked off by the plan (an idle action other than
+    fan_only, a room that is not off), outside eco and a standby hold
+    (``inhibited``, as read before the delivery's first write). A local head is
+    sent the hand-back, then the mode and setpoints, then the fan step
+    (:meth:`DeliverySteps.fan`); a cloud head's batch carries the same decisions.
+    """
+    if engage is None:
+        return DeliverySteps(
+            handback=False, last_run=False, ends_coil_dry=False, fan_machinery=False,
+        )
+    handback = (
+        act == MODE_OFF and idle_action != IDLE_ACTION_FAN_ONLY
+        and engage != MODE_OFF and not eco and not inhibited
+        and head_state is not None and head_state not in (MODE_OFF, *UNAVAILABLE_STATES)
+    )
+    return DeliverySteps(
+        handback=handback,
+        last_run=act in (MODE_COOL, MODE_HEAT),
+        ends_coil_dry=act != MODE_FAN_ONLY,
+        fan_machinery=True,
+    )
+
+
+def setpoint_field(mode: str, *, features: int | None, cloud: bool) -> str | None:
+    """The head setpoint that carries the room's target in the mode the head shows.
+
+    The one MXZ writes: the high edge in cool, the low edge in heat, or the one
+    setpoint of a head without a range (``features`` lacks
+    ``TARGET_TEMPERATURE_RANGE``, 2) or of a cloud head. None off heat and cool.
+    """
+    if mode not in (MODE_COOL, MODE_HEAT):
+        return None
+    if cloud or not int(features or 0) & 2:
+        return "temperature"
+    return "target_temp_high" if mode == MODE_COOL else "target_temp_low"
+
+
+def head_moved(
+    *,
+    accept: bool,
+    old_mode: str | None,
+    new_mode: str | None,
+    field: str | None,
+    old_setpoint: Any,
+    new_setpoint: Any,
+) -> set[str]:
+    """What a head's report moved that a person may have changed: "mode", "setpoint".
+
+    ``field`` is the setpoint carrying the room's target in the new mode
+    (:func:`setpoint_field`), and the setpoints are that field's values as
+    reported, compared as they are. Nothing with Accept changes off, and nothing
+    from or to no state or unavailable: that is the head (re)loading. A fan or
+    vane report moves nothing.
+    """
+    if (
+        not accept or old_mode is None or new_mode is None
+        or old_mode in UNAVAILABLE_STATES or new_mode in UNAVAILABLE_STATES
+    ):
+        return set()
+    moved = {"mode"} if old_mode != new_mode else set()
+    if field is not None and old_setpoint != new_setpoint:
+        moved.add("setpoint")
+    return moved
+
+
+@dataclass(frozen=True, slots=True)
+class HeadChange:
+    """A change a head shows, and its room, as :func:`adopt_head_change` reads them.
+
+    ``moved`` is what moved since the hold began (:func:`head_moved`). The gates:
+    Accept changes made at the head (``accept``), this coordinator retired, the
+    Coordinator switch on (``coordinator``), a standby hold (``inhibited``),
+    eco, a start still quiet (``starting``), a disabled hands-off room's head
+    (``hands_off``), a floor run (``floor``), a door/window pause (``paused``),
+    and a cloud head's report of an older mode (``stale``).
+
+    ``mode`` is the mode the head shows, None for no state or unavailable, and
+    ``mode_own`` whether MXZ's own writes explain it. ``enabled`` is the room's
+    enable, and ``planned`` the mode the plan wants for the head now, read only
+    for an off pressed at an enabled room's head (reading it can arm the
+    coil-dry wakeup). ``field`` is the setpoint carrying the room's target
+    (:func:`setpoint_field`), ``setpoint`` its value, None if unreadable,
+    ``setpoint_own`` whether MXZ's own writes explain it and ``setpoint_stale``
+    whether it is a cloud head's poll from before MXZ's last batch. ``driven``
+    is a cloud head run past the target by its drive offset. ``target`` is the
+    room target on the room's step that leaves the head at ``setpoint``, held
+    to the room's bounds, ``current`` the room's target on that side now, and
+    ``step`` the target step.
+    """
+
+    moved: Collection[str]
+    accept: bool
+    retired: bool
+    coordinator: bool
+    inhibited: bool
+    eco: bool
+    starting: bool
+    hands_off: bool
+    floor: bool
+    paused: bool
+    stale: bool
+    mode: str | None
+    mode_own: bool
+    enabled: bool
+    planned: Callable[[], str | None]
+    field: str | None
+    setpoint: float | None
+    setpoint_own: bool
+    setpoint_stale: bool
+    driven: bool
+    target: float | None
+    current: float | None
+    step: float
+
+
+@dataclass(frozen=True, slots=True)
+class Adoption:
+    """What a person's change at a head asks of its room: its new enable and target.
+
+    Neither is a person's change with nothing to adopt, like a heat/cool choice:
+    the head still goes back on the plan.
+    """
+
+    enable: bool | None = None
+    target: float | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        """The change as the coordinator keeps and logs it: ``enable`` first, then ``target``."""
+        change: dict[str, Any] = {} if self.enable is None else {"enable": self.enable}
+        if self.target is not None:
+            change["target"] = self.target
+        return change
+
+
+def adopt_head_change(change: HeadChange) -> Adoption | None:
+    """What a change at a head asks of its room now; None if it isn't a person's.
+
+    Only what moved counts, and only if MXZ's own writes can't explain it, so a
+    mode change alone never reads the setpoint the head happened to be on as a
+    new target. An off pressed at an enabled room's head disables the room,
+    unless the plan itself wants the head off. Heat or cool pressed at a
+    disabled room's head enables it. A setpoint pressed in heat or cool is the
+    room's new target when it differs from the room's by half a step or more,
+    except on a cloud head driven past the target. fan_only is the park, and
+    heat_cool, auto and dry are healed: none is adopted.
+    """
+    if (
+        not change.accept or change.retired or not change.coordinator or change.inhibited
+        or change.eco or change.starting or change.mode is None
+        # A disabled hands-off room's head is the person's, on purpose; a floor
+        # run's is MXZ's until it ends; a paused room's has its own rule.
+        or change.hands_off or change.floor or change.paused or change.stale
+    ):
+        return None
+    mode_press = "mode" in change.moved and not change.mode_own
+    if change.mode == MODE_OFF:
+        if mode_press and change.enabled and change.planned() != MODE_OFF:
+            return Adoption(enable=False)
+        return None
+    if change.field is None:
+        return None
+    if not change.enabled and not mode_press:
+        return None
+    setpoint_press = (
+        "setpoint" in change.moved and change.setpoint is not None
+        and not change.setpoint_own and not change.setpoint_stale
+    )
+    if not mode_press and not setpoint_press:
+        return None
+    target = None
+    if (
+        setpoint_press and not change.driven
+        and change.target is not None and change.current is not None
+        and abs(change.target - change.current) >= change.step / 2
+    ):
+        target = change.target
+    return Adoption(enable=None if change.enabled else True, target=target)

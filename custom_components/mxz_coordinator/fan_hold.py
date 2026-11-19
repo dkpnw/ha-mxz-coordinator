@@ -34,6 +34,8 @@ from .fan_latch import (
     FanLimits,
     FanRecord,
     fan_auto,
+    fan_record,
+    fan_step,
     observe_fan,
     restored,
 )
@@ -140,11 +142,11 @@ class FanHold:
         room is off target; a satisfied/fan_only head (or eco-idle) is returned to
         the firmware's own "auto"; an off head is left alone.
 
-        A manual pick latches (see ``_observe_latch``): while a head is latched
-        the coordinator makes NO fan writes to it, so a user's chosen speed
-        survives every apply cycle. The latch is evaluated first because it also
-        suppresses the return-to-"auto" branch; it releases only on an observed
-        "auto".
+        A manual pick latches (see ``fan_latch.observe_fan``): while a head is
+        latched the coordinator makes NO fan writes to it, so a user's chosen
+        speed survives every apply cycle. ``fan_latch.fan_step`` decides, after
+        the head's report is read here (``head_reported``); the hold is
+        published before the write goes out.
         """
         host = self._host
         if not host.fan_boost_enable:
@@ -171,35 +173,14 @@ class FanHold:
             # hold stays standing until the head reports a speed.
             return
 
-        # Evaluate the manual-fan latch from what the head is actually reporting.
-        held = self._observe_latch(climate_id, observed, act, delta)
+        self.head_reported(climate_id, observed)
+        latch, token = fan_step(
+            self._latch(climate_id), observed, act, delta, modes=modes, limits=self._limits()
+        )
+        self._keep(climate_id, latch)
         self.publish(climate_id)
-        if held:
-            return  # latched: leave the user's fan pick untouched
-
-        if act in (MODE_COOL, MODE_HEAT) and not host.eco_idle:
-            max_idx = self._max_idx()
-            idx = fan_for_delta(
-                delta=delta,
-                cur_idx=self._idx.get(climate_id, 0),
-                up_at=host.fan_up_at,
-                down_at=host.fan_down_at,
-                max_idx=max_idx,
-            )
-            self._idx[climate_id] = idx
-            token = FAN_LADDER[idx]
-        elif act == MODE_FAN_ONLY or host.eco_idle:
-            self._idx.pop(climate_id, None)
-            token = FAN_AUTO
-        else:  # MODE_OFF
-            self._idx.pop(climate_id, None)
-            return
-
-        if token not in modes:
-            return  # head lacks this ladder token -> skip safely
-        if observed == token:
-            return  # idempotent
-        await self._async_write(climate_id, token)
+        if token is not None:
+            await self._async_write(climate_id, token)
 
     def cloud_token(
         self, climate_id: str, cloud: CloudHead, state: Any, fan_act: str,
@@ -393,6 +374,7 @@ class FanHold:
         host = self._host
         created = host.config_entry.created_at
         return FanLimits(
+            boost=host.fan_boost_enable,
             ceiling=self._max_idx(),
             up_at=host.fan_up_at,
             down_at=host.fan_down_at,
@@ -445,15 +427,20 @@ class FanHold:
         )
 
     def record(self, climate_id: str) -> FanHoldRestoreData:
-        """What a start needs back of this head's hold and echo memory."""
-        last, prior = self.command_memory(climate_id)
+        """What a start needs back of this head's hold and echo memory (``fan_latch.fan_record``)."""
+        record = fan_record(self._latch(climate_id), self._shown(climate_id))
         return FanHoldRestoreData(
-            held=not self.auto_is_on(climate_id),
-            last=last,
-            prior=prior,
-            on_pending=self.on_pending(climate_id),
-            older=tuple(self.older_record(climate_id)),
+            held=record.held,
+            last=record.last,
+            prior=record.prior,
+            on_pending=record.on_pending,
+            older=record.older,
         )
+
+    def _shown(self, climate_id: str) -> str | None:
+        """The fan speed the head shows; None for none, or no head."""
+        head = self._host.hass.states.get(climate_id)
+        return head.attributes.get("fan_mode") if head is not None else None
 
     def restore_failed(self, climate_id: str, reason: str) -> None:
         """The Fan auto switch found a restore record it could not use, and why."""
@@ -475,32 +462,12 @@ class FanHold:
         return self._echo[climate_id].older_commands()
 
     def older_record(self, climate_id: str) -> list[str]:
-        """What a start needs back of the older writes, oldest first.
+        """What a start needs back of the older writes, oldest first (``fan_latch.fan_record``).
 
-        Unlike ``older_commands`` it's the writes in order, so a last-two
-        speed written earlier too keeps that place, and a late report of it isn't
-        read as the last write. The trailing last two are left out: the restore
-        puts them back. So is a leading auto, which the head is showing or has
-        passed, and which MXZ won't write again while it's showing.
-
-        Empty for a head showing the last write with no older speed left to
-        read as an echo. That's what a prompt head looks like, and its record
-        keeps its old shape. A head in the same state that was really showing an
-        earlier write of that speed loses its place (F1's limits,
-        docs/formal/PARKED-FINDINGS.md).
+        Unlike ``older_commands`` it's the writes in order, trimmed against the
+        fan the head shows.
         """
-        echo = self._echo[climate_id]
-        if not echo.older_commands():
-            head = self._host.hass.states.get(climate_id)
-            if head is not None and head.attributes.get("fan_mode") == echo.last:
-                return []
-        record = list(echo.older)
-        for written in (echo.last, echo.prior):
-            if record and record[-1] == written:
-                record.pop()
-        while record and record[0] == FAN_AUTO:
-            del record[0]
-        return record
+        return list(fan_record(self._latch(climate_id), self._shown(climate_id)).older)
 
     def reseed_after_standby(self, climate_ids: Iterable[str]) -> None:
         """Release edge: carry each head's pre-hold latch truth into the restore
@@ -560,9 +527,7 @@ class FanHold:
         source of truth while running; across restarts the switch restores the
         held/not-held bool and hands it back via ``restore``.
         """
-        if climate_id in self._restore:
-            return not self._restore[climate_id]
-        return not self._latched.get(climate_id, False)
+        return not self._latch(climate_id).holds
 
     async def async_set_auto(self, climate_id: str, on: bool) -> None:
         """Drive the fan-auto switch: ON hands control back, OFF holds the speed.

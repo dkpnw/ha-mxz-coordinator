@@ -29,7 +29,7 @@ from custom_components.mxz_coordinator.const import (
     MODE_COOL,
     MODE_HEAT,
 )
-from custom_components.mxz_coordinator.coordinator import COAST_FOLLOWUP_DELAY
+from custom_components.mxz_coordinator.timing import COAST_FOLLOWUP_DELAY
 from tests.clocks import jump_wall_clock, pass_time
 from tests.dwell import RESTAMP_TOLERANCE, expire_dwell
 from tests.ha_test import (

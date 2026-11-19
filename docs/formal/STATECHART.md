@@ -44,7 +44,7 @@ stateDiagram-v2
 | Id | What happens | Code |
 | --- | --- | --- |
 | M1 | With the gate open, the first calling room in rank order decides. With nothing calling, Resting mode decides, once no room still runs in the shared mode. The new mode is stamped and stored before any head is sent it. | `_compute`, `decide`, `arbitrate`, `shared_mode`, `_apply`, `_write_back_mode`, `_stamp_mode_change`, `_record_mode` |
-| M2 | The gate reads `elapsed >= hysteresis` on the monotonic clock. A timer re-renders the entities at the hold's end and decides nothing; another wakes the plan for a flip the hold deferred. | `_mode_change_elapsed`, `_arm_hold_end_timer`, `_sync_dwell_timer` |
+| M2 | The gate reads `elapsed >= hysteresis` on the monotonic clock. A timer re-renders the entities at the hold's end and decides nothing; another wakes the plan for a flip the hold deferred. | `_mode_change_elapsed`, `_arm_hold_end_timer`, `hold_end_delay`, `_sync_dwell_timer`, `dwell_delay`, `held_back` |
 | M3 | A person's pick is never gated. A changed direction stamps the hold at once. An apply already running recorded its direction before it sent any head, so the pick is the newer record. | `async_select_option`, `async_select_shared_mode` |
 | M4 | With the gate shut, the mode stays, whatever is asked, at any rank. A head wanting the other mode parks at its idle action. | `shared_mode`, `head_action`, `head_command` |
 | M5 | A change only hands-off votes made starts no hold. Not in this spec: `verification/modehold/MXZModeHold.tla` covers it. | `arbitrate`, `_write_back_mode`, `mode_write_back` |
@@ -70,9 +70,9 @@ stateDiagram-v2
 
 | Id | What happens | Code |
 | --- | --- | --- |
-| A1 | Every report passes MXZ's older writes, then is read against what is left. A write is remembered as it goes out. | `_on_head_change`, `_watch_head_change`, `DeliveryQueue._async_issue`, `MXZCoordinator.remember_head_write`, `_head_writes_caught_up`, `wrote`, `caught_up` |
+| A1 | Every report passes MXZ's older writes, then is read against what is left. A write is remembered as it goes out. | `_on_head_change`, `_watch_head_change`, `head_moved`, `DeliveryQueue._async_issue`, `MXZCoordinator.remember_head_write`, `_head_writes_caught_up`, `wrote`, `caught_up` |
 | A2 | While the hold runs, `_apply` writes nothing to that head, and a command of MXZ's still waiting for the head is disowned. | `_head_change_settling`, `_apply`, `_arm_or_cancel`, `DeliveryQueue.disown` |
-| A3 | Eco, a standby hold, Coordinator off, a start, a pause, a floor run, a hands-off room's disablement or a stale cloud report: the change counts for nothing. A head report that ends the hold this way, the head put back by hand say, asks for a compute, because the apply skipped that head and A2 disowned its waiting command. | `_head_adoption`, `drop_head_change`, `_watch_head_change`, `_on_head_change` |
+| A3 | Eco, a standby hold, Coordinator off, a start, a pause, a floor run, a hands-off room's disablement or a stale cloud report: the change counts for nothing. A head report that ends the hold this way, the head put back by hand say, asks for a compute, because the apply skipped that head and A2 disowned its waiting command. | `_head_adoption`, `adopt_head_change`, `drop_head_change`, `_watch_head_change`, `_on_head_change` |
 | A4 | The room's own number and switch take the change, held to the room's bounds. What the head shows then replaces what it last showed in the memory. | `_on_heal_timer`, `_async_adopt_head_change`, `_head_change_seen`, `seen` |
 | A5 | The next compute and apply. The head's heat or cool never reaches the shared mode. | `_apply` |
 
@@ -152,7 +152,7 @@ stateDiagram-v2
 | Id | What happens | Code |
 | --- | --- | --- |
 | F1, F2 | With no memory, `auto` sets the baseline. A speed the ladder would stay on is adopted (a hold placed there is lost: documented), a fan_only idle on an established entry reads as ours (#25), and anything else seeds a hold. | `FanHold._observe_latch`, `observe_fan`, `seed_matches_boost`, `seed_is_own_idle` |
-| F3 | Boost picks a rung and writes it once. A rewrite of the commanded token doesn't roll the memory (#14). | `FanHold.async_apply`, `fan_for_delta`, `FanHold._async_write` |
+| F3 | Boost picks a rung and writes it once. A rewrite of the commanded token doesn't roll the memory (#14). | `FanHold.async_apply`, `fan_step`, `fan_for_delta`, `FanHold._async_write` |
 | F4 | A speed that is neither of the last two writes (`FanEcho.last`, `FanEcho.prior`), and not in `FanEcho.older` either, is a person's. MXZ makes no fan write while held. | `FanHold._observe_latch`, `observe_fan`, `FanEcho.own`, `hold_at` |
 | F5 | One of the two remembered speeds reads as MXZ's echo: not held, and boost writes over it. So does an older write, until the head's reports pass it (F1). A pick of the speed showing can't be read at all. | `FanHold._observe_latch`, `observe_fan`, `FanEcho.own`, `FanEcho.wrote`, `FanEcho.caught_up` |
 | F6 | A hold's memory is the held speed, so any other speed moves it. | `hold_at` |

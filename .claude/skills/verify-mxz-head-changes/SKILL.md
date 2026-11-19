@@ -1,6 +1,6 @@
 ---
 name: verify-mxz-head-changes
-description: "Formal checks of MXZ Coordinator's Accept changes made at the head (on by default): a person's change at a head's remote becomes the room's target, and MXZ's own setpoint writes, which a lagging head shows late, never do. A TLA+ model checked with TLC (ci-adopt, ci-adopt-restart), the integration tests in tests/test_accept_head_changes.py, and broken copies of both that each check must catch. Use before and after any change to logic.HeadWriteMemory, coordinator.py remember_head_write, _watch_head_change, _head_adoption, _head_change_settling, _async_adopt_head_change, startup quiet, or where the head write memory is kept, and when the model or a replay reports a break."
+description: "Formal checks of MXZ Coordinator's Accept changes made at the head (on by default): a person's change at a head's remote becomes the room's target, and MXZ's own setpoint writes, which a lagging head shows late, never do. A TLA+ model checked with TLC (ci-adopt, ci-adopt-restart), the integration tests in tests/test_accept_head_changes.py, and broken copies of both that each check must catch. Use before and after any change to logic.HeadWriteMemory, coordinator.py remember_head_write, _watch_head_change, _head_adoption, _head_change_settling, _async_adopt_head_change, planner.py head_moved and adopt_head_change, startup quiet, or where the head write memory is kept, and when the model or a replay reports a break."
 ---
 
 # Verify changes made at a head
@@ -58,7 +58,7 @@ them, and run both commands under Run.
 | Check | Covers (custom_components/mxz_coordinator/) |
 | --- | --- |
 | Model `WriteSp` | `coordinator.py` `_apply` (skips a head while `_head_change_settling`), `remember_head_write`; `delivery.py` `DeliveryQueue._async_issue`; `heads.py` `LocalDriver._async_apply`, `HeadGrid.already_at` (the head's grid, which the memory compares on); `logic.py` `HeadWriteMemory.wrote` |
-| Model `HeadShows`, `PersonPress` (`Report`) | `coordinator.py` `_on_head_change`, `_head_writes_caught_up`, `_watch_head_change`, `_head_adoption`, `_arm_or_cancel`; `delivery.py` `DeliveryQueue.disown`; `logic.py` `HeadWriteMemory.own`, `HeadWriteMemory.caught_up` |
+| Model `HeadShows`, `PersonPress` (`Report`) | `coordinator.py` `_on_head_change`, `_head_writes_caught_up`, `_watch_head_change`, `_head_adoption`, `_arm_or_cancel`; `planner.py` `head_moved`, `setpoint_field`, `adopt_head_change`; `delivery.py` `DeliveryQueue.disown`; `logic.py` `HeadWriteMemory.own`, `HeadWriteMemory.caught_up` |
 | Model `AdoptFires` | `coordinator.py` `_on_heal_timer`, `_async_adopt_head_change`, `_head_change_seen`; `logic.py` `HeadWriteMemory.seen` |
 | Model `SetTarget` | `number.py` `MXZTargetNumber.async_set_native_value`; `coordinator.py` `drop_head_change` |
 | Model `Reload`, `Restart`, `QuietEnds` | `coordinator.py` `MXZCoordinator.__init__` (`_startup_quiet`), `_resume` and `_head_writes_record` (the ledger in the room state store, `resume.py` `SECTION_HEAD_WRITES`, read back by `resume.py` `resume`), `_on_startup_timer`; `logic.py` `HeadWriteMemory.record`, `HeadWriteMemory.restored` |
@@ -71,6 +71,7 @@ git diff --stat ca78324aca3d5402252a585693ae98193cee24ca -- \
   custom_components/mxz_coordinator/coordinator.py custom_components/mxz_coordinator/delivery.py \
   custom_components/mxz_coordinator/heads.py \
   custom_components/mxz_coordinator/logic.py custom_components/mxz_coordinator/number.py \
+  custom_components/mxz_coordinator/planner.py \
   custom_components/mxz_coordinator/resume.py custom_components/mxz_coordinator/room_state.py \
   docs/formal/tla/MXZCoordinator.tla
 ```

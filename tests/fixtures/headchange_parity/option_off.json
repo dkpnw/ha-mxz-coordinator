@@ -1,0 +1,160 @@
+[
+ {
+  "step": "pressed",
+  "calls": [],
+  "room": {
+   "target": "70.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    64,
+    66
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      68.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      70.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": []
+ },
+ {
+  "step": "overwritten",
+  "calls": [
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "cool",
+     "target_temp_low": 68.0,
+     "target_temp_high": 70.0
+    }
+   }
+  ],
+  "room": {
+   "target": "70.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    68,
+    70
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      68.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      70.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": []
+ },
+ {
+  "step": "off_healed_not_adopted",
+  "calls": [
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "cool",
+     "target_temp_low": 68.0,
+     "target_temp_high": 70.0
+    }
+   }
+  ],
+  "room": {
+   "target": "70.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    68,
+    70
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      68.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      70.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": []
+ }
+]

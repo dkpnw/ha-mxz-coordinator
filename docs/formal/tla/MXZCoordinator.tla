@@ -267,7 +267,7 @@ Observe(f0, o, act, delta) ==
     THEN [f |-> HoldAt(f, o), held |-> TRUE]
     ELSE [f |-> f, held |-> f.latched]
 
-\* FanHold.async_apply on what FanHold._observe_latch left; `token` is None for no write.
+\* FanHold.async_apply (fan_latch.fan_step) on what observe_fan left; `token` is None for no write.
 ApplyFan(act, delta) ==
     LET ob == Observe(Memory, fanShown, act, delta)
         g == ob.f
@@ -286,10 +286,10 @@ Rolled(f, t) ==
     ELSE [f EXCEPT !.prev = IF f.cmd = None THEN t ELSE f.cmd, !.cmd = t,
                    !.older = (f.older \cup ({f.prev} \cap RungSet)) \ {t, f.cmd}]
 
-\* FanHold.auto_is_on
+\* FanHold.auto_is_on (fan_latch.FanLatch.holds)
 FanAutoOn == IF fanRestore # None THEN fanRestore = "free" ELSE ~fanLatched
 
-\* The fan record the room state store writes (FanHold.record; the switch's restore data too).
+\* The fan record the room state store writes (FanHold.record, fan_latch.fan_record; the switch's restore data too).
 Dumped == [has |-> TRUE, held |-> ~FanAutoOn, last |-> fanCmd, prior |-> fanPrev, older |-> fanOlder]
 NoDump == [has |-> FALSE, held |-> FALSE, last |-> None, prior |-> None, older |-> {}]
 
@@ -730,8 +730,9 @@ Crash == WithCrash /\ \E t \in (IF WithFan THEN Tokens ELSE {fanShown}) : Start(
 
 (***************************************************************************)
 (* WithAdopt: room 1's setpoint and changes made at its head               *)
-(* (coordinator._watch_head_change, _head_adoption,                        *)
-(* _async_adopt_head_change; logic.HeadWriteMemory). The head is running,  *)
+(* (coordinator._watch_head_change, _head_adoption, planner.head_moved,    *)
+(* planner.adopt_head_change, _async_adopt_head_change;                    *)
+(* logic.HeadWriteMemory). The head is running,                            *)
 (* so its setpoint field is fixed; only the setpoint moves. A head that    *)
 (* lags shows MXZ's writes in order, each later (spQueue). Gates other     *)
 (* than startup quiet are out of this model. Each queued write carries a   *)

@@ -1,0 +1,355 @@
+[
+ {
+  "step": "target_72_refused",
+  "calls": [
+   {
+    "call": "number.set_value",
+    "data": {
+     "entity_id": "number.mxz_coordinator_study_target",
+     "value": 72
+    }
+   }
+  ],
+  "room": {
+   "target": "72.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    68,
+    70
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      68.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      70.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": []
+ },
+ {
+  "step": "settle_0",
+  "calls": [
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "cool",
+     "target_temp_low": 70.0,
+     "target_temp_high": 72.0
+    }
+   }
+  ],
+  "room": {
+   "target": "72.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    68,
+    70
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      68.0,
+      0
+     ],
+     [
+      70.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      70.0,
+      0
+     ],
+     [
+      72.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": []
+ },
+ {
+  "step": "settle_1",
+  "calls": [
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "cool",
+     "target_temp_low": 70.0,
+     "target_temp_high": 72.0
+    }
+   },
+   {
+    "call": "climate.set_fan_mode",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "fan_mode": "middle"
+    }
+   }
+  ],
+  "room": {
+   "target": "72.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    70,
+    72
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      70.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      72.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": []
+ },
+ {
+  "step": "settle_2",
+  "calls": [],
+  "room": {
+   "target": "72.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    70,
+    72
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      70.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      72.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": []
+ },
+ {
+  "step": "pressed_66_adopted",
+  "calls": [
+   {
+    "call": "number.set_value",
+    "data": {
+     "entity_id": "number.mxz_coordinator_study_target",
+     "value": 66.0
+    }
+   },
+   {
+    "call": "climate.set_fan_mode",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "fan_mode": "high"
+    }
+   }
+  ],
+  "room": {
+   "target": "66.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    64,
+    66
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      70.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      66.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": [
+   "INFO MXZ: adopting a change made at climate.property_head_a: {'target': 66.0}"
+  ]
+ },
+ {
+  "step": "pressed_72_adopted",
+  "calls": [
+   {
+    "call": "number.set_value",
+    "data": {
+     "entity_id": "number.mxz_coordinator_study_target",
+     "value": 72.0
+    }
+   },
+   {
+    "call": "climate.set_fan_mode",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "fan_mode": "middle"
+    }
+   }
+  ],
+  "room": {
+   "target": "72.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    70,
+    72
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      70.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      72.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": [
+   "INFO MXZ: adopting a change made at climate.property_head_a: {'target': 72.0}"
+  ]
+ }
+]

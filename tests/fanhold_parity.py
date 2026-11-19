@@ -22,8 +22,9 @@ window, a restart or a crash, time), and after each step records:
 Time is frozen at ``START`` and moves only when a scenario says so, so a recording is the same on
 every run and every supported Home Assistant. ``tests/test_fanhold_parity.py`` compares each
 scenario with ``tests/fixtures/fanhold_parity/<scenario>.json``. Those were captured on 991ca10,
-before the decision moved out of ``FanHold``; run with ``MXZ_PARITY_CAPTURE=1`` to rewrite them,
-only on a commit whose behavior is known right.
+before the decision moved out of ``FanHold``, and ``eco_idle``, ``idle_off`` and
+``missing_tokens`` on 7ebcf84, before the boost step moved to ``fan_latch.fan_step``; run with
+``MXZ_PARITY_CAPTURE=1`` to rewrite them, only on a commit whose behavior is known right.
 
 ``random_walk`` draws its steps from ``random.Random(SEED)``.
 
@@ -511,10 +512,64 @@ async def random_walk(fans: Fans) -> None:
         fans.snap(f"{n:02d}_{label}")
 
 
+async def eco_idle(fans: Fans) -> None:
+    """Eco idle: a running head's fan goes to auto, not a rung, and the rung is dropped."""
+    rig = await fans.open(temps=(HIGH_RUNG, TARGET))
+    fans.snap("boost_high")
+    await rig.switch("_eco_idle", True)
+    fans.snap("eco_idle_on")
+    await rig.temp(0, TARGET + 12)
+    fans.snap("eco_run")
+    await rig.person_fan("low")
+    fans.snap("pick_held_in_eco")
+    await fans.fan_auto(True)
+    fans.snap("handed_back_in_eco")
+    await rig.switch("_eco_idle", False)
+    fans.snap("eco_idle_off_starts_the_ladder_again")
+
+
+async def idle_off(fans: Fans) -> None:
+    """Idle action off: a satisfied head is handed back to auto before the off, the off head
+    gets no fan write, and a pick on the off head is held for the next run."""
+    rig = await fans.open(temps=(HIGH_RUNG, TARGET), data={CONF_IDLE_ACTION: IDLE_ACTION_OFF})
+    fans.snap("boost_high")
+    await rig.temp(0, TARGET)
+    fans.snap("handed_back_then_off")
+    await rig.temp(0, TARGET - 0.1)
+    fans.snap("off_no_write")
+    await rig.person_fan("middle")
+    fans.snap("pick_on_the_off_head")
+    await rig.temp(0, HIGH_RUNG)
+    fans.snap("run_keeps_the_pick")
+
+
+async def missing_tokens(fans: Fans) -> None:
+    """A head that lists only some ladder speeds gets only those; one with no auto gets none."""
+    rig = await fans.open(temps=(TARGET, TARGET))
+    first, second = rig.heads
+    first._attr_fan_modes = ["auto", "quiet", "high"]
+    first.async_write_ha_state()
+    second._attr_fan_modes = ["quiet", "low", "high"]
+    second.async_write_ha_state()
+    await fans.hass.async_block_till_done()
+    await rig.settle()
+    fans.snap("listed")
+    await rig.temp(0, MEDIUM_RUNG)
+    await rig.temp(1, HIGH_RUNG)
+    fans.snap("medium_unlisted_no_write")
+    await rig.temp(0, HIGH_RUNG)
+    fans.snap("high_listed_written")
+    await rig.temp(0, LOW_RUNG)
+    fans.snap("ramps_down_to_an_unlisted_rung")
+    await rig.temp(0, TARGET)
+    fans.snap("satisfied_back_to_auto")
+
+
 SCENARIOS: dict[str, Scenario] = {
     scenario.__name__: scenario
     for scenario in (
         pick_held, echo_lag, pick_while_lagging, restarts, reconciled, fan_auto_switch,
         boost_off, crash, seeds, fresh_install_idle, paused_pick, random_walk,
+        eco_idle, idle_off, missing_tokens,
     )
 }

@@ -1,0 +1,142 @@
+[
+ {
+  "step": "pressed",
+  "calls": [],
+  "room": {
+   "target": "70.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    64,
+    66
+   ]
+  },
+  "hold": true,
+  "moved": [
+   "setpoint"
+  ],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      68.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      70.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": []
+ },
+ {
+  "step": "put_back",
+  "calls": [],
+  "room": {
+   "target": "70.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    68,
+    70
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      68.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      70.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": []
+ },
+ {
+  "step": "nothing_adopted",
+  "calls": [],
+  "room": {
+   "target": "70.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    68,
+    70
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      68.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      70.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": []
+ }
+]

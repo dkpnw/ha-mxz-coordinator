@@ -7,15 +7,17 @@ back, on the room's Fan auto switch or by the head reading "auto". MXZ's own wri
 head can show late, never latch it (``FanEcho``).
 
 One head's state is a ``FanLatch``. Each head report is first passed to
-``FanLatch.echo.caught_up``, then ``observe_fan`` reads the speed for the next fan write.
+``FanLatch.echo.caught_up``, then ``observe_fan`` reads the speed for the next fan write, and
+``fan_step`` reads it and says what a delivery writes.
 A start's record comes back through ``restored`` and a Fan auto gesture through ``fan_auto``.
-What the room state store and the Fan auto switch keep of a head's hold is a ``FanRecord``.
+What the room state store and the Fan auto switch keep of a head's hold is a ``FanRecord``,
+which ``fan_record`` builds.
 """
 
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, Self
@@ -244,16 +246,26 @@ class FanLatch:
     on_pending: bool = False
     rung: int | None = None
 
+    @property
+    def holds(self) -> bool:
+        """Whether the head counts as held: a start's truth not yet read wins over the latch.
+
+        The Fan auto switch shows this (off is held), and a stop saves it.
+        """
+        return self.restored if self.restored is not None else self.held is True
+
 
 @dataclass(frozen=True, slots=True)
 class FanLimits:
     """What the decision reads of the settings and the clock.
 
-    ``ceiling`` is the highest ladder index boost may write. ``resumed`` is
-    whether this entry's coordinator switch came back on at the start, and
-    ``age`` how long the entry has existed (None when it doesn't know).
+    ``boost`` is whether fan boost is on. ``ceiling`` is the highest ladder
+    index boost may write. ``resumed`` is whether this entry's coordinator
+    switch came back on at the start, and ``age`` how long the entry has
+    existed (None when it doesn't know).
     """
 
+    boost: bool
     ceiling: int
     up_at: tuple[float, ...]
     down_at: tuple[float, ...]
@@ -345,6 +357,91 @@ def observe_fan(
 
     # Seed latched (not at auto, not our rung); a departure always latches.
     return hold_at(latch, observed)
+
+
+def fan_record(latch: FanLatch, observed: str | None) -> FanRecord:
+    """What a start needs back of a head's hold and echo memory (``FanHold.record``).
+
+    ``observed`` is the speed the head shows (None for none, or no head). ``held``
+    is ``FanLatch.holds``. ``older`` is the older writes in the order written, so
+    a last-two speed written earlier too keeps that place and a late report of it
+    isn't read as the last write. The trailing last two are left out: the restore
+    puts them back. So is a leading auto, which the head is showing or has
+    passed, and which MXZ won't write again while it's showing.
+
+    ``older`` is empty for a head showing the last write with no older speed
+    left to read as an echo. That's what a prompt head looks like, and its record
+    keeps its old shape. A head in the same state that was really showing an
+    earlier write of that speed loses its place (F1's limits,
+    docs/formal/PARKED-FINDINGS.md).
+    """
+    echo = latch.echo
+    older = list(echo.older)
+    if not echo.older_commands() and observed == echo.last:
+        older = []
+    for written in (echo.last, echo.prior):
+        if older and older[-1] == written:
+            older.pop()
+    while older and older[0] == FAN_AUTO:
+        del older[0]
+    return FanRecord(
+        held=latch.holds,
+        last=echo.last,
+        prior=echo.prior,
+        on_pending=latch.on_pending,
+        older=tuple(older),
+    )
+
+
+def fan_step(
+    latch: FanLatch,
+    observed: str | None,
+    act: str,
+    delta: float,
+    *,
+    modes: Sequence[str] | None,
+    limits: FanLimits,
+) -> tuple[FanLatch, str | None]:
+    """One delivery's fan boost step at a head: the latch it leaves, and the token to write.
+
+    ``observed`` is the speed the head shows and ``modes`` the speeds it lists;
+    the report was passed to ``latch.echo.caught_up`` first. ``act`` is the mode
+    the delivery runs and ``delta`` how far the room is off target. None is no
+    write. The caller rolls the echo memory as it writes the token
+    (``FanEcho.wrote``).
+
+    With boost off, no fan list, no ``auto`` in it, or no speed showing, nothing
+    is read or written. Otherwise ``observe_fan`` reads the hold first, because
+    a hold also stops the hand-back to ``auto``. A head held gets no write. A
+    head in cool or heat outside eco idle gets the ladder rung for ``delta``,
+    from the rung it keeps; fan_only or eco idle gets ``auto`` and drops the
+    rung; off drops the rung and gets no write. No write goes out for a token
+    the head doesn't list (the ladder could otherwise only ratchet up on a head
+    with no way back down) or one it already shows.
+    """
+    if not limits.boost or not modes or FAN_AUTO not in modes or observed is None:
+        return latch, None
+    latch = observe_fan(latch, observed, act, delta, limits)
+    if latch.held is True:
+        return latch, None
+    if act in (MODE_COOL, MODE_HEAT) and not limits.eco_idle:
+        rung = fan_for_delta(
+            delta=delta,
+            cur_idx=0 if latch.rung is None else latch.rung,
+            up_at=limits.up_at,
+            down_at=limits.down_at,
+            max_idx=limits.ceiling,
+        )
+        latch = replace(latch, rung=rung)
+        token = FAN_LADDER[rung]
+    elif act == MODE_FAN_ONLY or limits.eco_idle:
+        latch = replace(latch, rung=None)
+        token = FAN_AUTO
+    else:
+        return replace(latch, rung=None), None
+    if token not in modes or observed == token:
+        return latch, None
+    return latch, token
 
 
 def reconcile_restored_hold(

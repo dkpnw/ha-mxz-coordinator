@@ -1,0 +1,361 @@
+[
+ {
+  "step": "writes_queued",
+  "calls": [
+   {
+    "call": "number.set_value",
+    "data": {
+     "entity_id": "number.mxz_coordinator_study_target",
+     "value": 72
+    }
+   },
+   {
+    "call": "number.set_value",
+    "data": {
+     "entity_id": "number.mxz_coordinator_study_target",
+     "value": 71
+    }
+   }
+  ],
+  "room": {
+   "target": "71.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    68,
+    70
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      68.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      70.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": []
+ },
+ {
+  "step": "nothing_adopted",
+  "calls": [
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "cool",
+     "target_temp_low": 69.0,
+     "target_temp_high": 71.0
+    }
+   },
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "cool",
+     "target_temp_low": 69.0,
+     "target_temp_high": 71.0
+    }
+   }
+  ],
+  "room": {
+   "target": "71.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    68,
+    70
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      68.0,
+      0
+     ],
+     [
+      69.0,
+      2
+     ]
+    ],
+    "target_temp_high": [
+     [
+      70.0,
+      0
+     ],
+     [
+      71.0,
+      2
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": []
+ },
+ {
+  "step": "press_while_lagging",
+  "calls": [
+   {
+    "call": "number.set_value",
+    "data": {
+     "entity_id": "number.mxz_coordinator_study_target",
+     "value": 73
+    }
+   },
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "cool",
+     "target_temp_low": 71.0,
+     "target_temp_high": 73.0
+    }
+   },
+   {
+    "call": "climate.set_fan_mode",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "fan_mode": "medium"
+    }
+   }
+  ],
+  "room": {
+   "target": "73.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    60,
+    62
+   ]
+  },
+  "hold": true,
+  "moved": [
+   "setpoint"
+  ],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      68.0,
+      0
+     ],
+     [
+      69.0,
+      2
+     ],
+     [
+      71.0,
+      1
+     ]
+    ],
+    "target_temp_high": [
+     [
+      70.0,
+      0
+     ],
+     [
+      71.0,
+      2
+     ],
+     [
+      73.0,
+      1
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": []
+ },
+ {
+  "step": "own_write_shown_inside_the_hold",
+  "calls": [
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "cool",
+     "target_temp_low": 71.0,
+     "target_temp_high": 73.0
+    }
+   },
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "cool",
+     "target_temp_low": 71.0,
+     "target_temp_high": 73.0
+    }
+   }
+  ],
+  "room": {
+   "target": "73.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    69,
+    71
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      69.0,
+      1
+     ],
+     [
+      71.0,
+      3
+     ]
+    ],
+    "target_temp_high": [
+     [
+      71.0,
+      1
+     ],
+     [
+      73.0,
+      3
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": []
+ },
+ {
+  "step": "after_the_hold",
+  "calls": [
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "cool",
+     "target_temp_low": 71.0,
+     "target_temp_high": 73.0
+    }
+   }
+  ],
+  "room": {
+   "target": "73.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    69,
+    71
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      69.0,
+      1
+     ],
+     [
+      71.0,
+      4
+     ]
+    ],
+    "target_temp_high": [
+     [
+      71.0,
+      1
+     ],
+     [
+      73.0,
+      4
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": []
+ }
+]

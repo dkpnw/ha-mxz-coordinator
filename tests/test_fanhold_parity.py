@@ -2,7 +2,8 @@
 
 Each scenario in ``tests/fanhold_parity.py`` runs the real integration and is compared, byte
 for byte, with its recording in ``tests/fixtures/fanhold_parity/``, captured on 991ca10 with the
-decision still inside ``FanHold``. ``MXZ_PARITY_CAPTURE=1`` rewrites the recordings.
+decision still inside ``FanHold`` (the boost-step cases on 7ebcf84, with the step still inside
+``FanHold.async_apply``). ``MXZ_PARITY_CAPTURE=1`` rewrites the recordings.
 """
 
 from __future__ import annotations
