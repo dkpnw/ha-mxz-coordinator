@@ -85,6 +85,9 @@ def test_a_zero_target_step_snaps_to_whole_degrees() -> None:
 def test_a_command_is_clamped_into_the_band_at_both_edges() -> None:
     grid = _grid(native=(62.0, 84.0, F))
     assert grid.clamp(50.0, 90.0) == (62.0, 84.0)
+    # Each edge on its own: a whole range below the band, and one above it.
+    assert grid.clamp(50.0, 55.0) == (62.0, 62.0)
+    assert grid.clamp(86.0, 90.0) == (84.0, 84.0)
     assert grid.clamp(64.0, 70.0) == (64.0, 70.0)
     assert _grid().clamp(50.0, 90.0) == (50.0, 90.0)
 
@@ -110,6 +113,13 @@ def test_a_setpoint_the_head_latched_on_its_grid_is_already_there() -> None:
     # One native step off (18.5 °C, 65.3 °F) is not.
     assert not grid.already_at(65.3, 64.0)
     assert not grid.already_at(None, 64.0)
+
+
+def test_a_setpoint_halfway_between_two_grid_steps_latches_half_up() -> None:
+    # 21.25 °C on a 0.5 °C grid: the CN105 latches 21.5 (half up), not 21.0 (half to even).
+    grid = _grid(system_unit=C, target_step=0.5, native_step=0.5, native_unit=C)
+    assert grid.already_at(21.5, 21.25)
+    assert not grid.already_at(21.0, 21.25)
 
 
 @pytest.mark.parametrize("change", [{}, {"native_step": 0.0, "native_unit": C}, {"native_step": 0.5, "native_unit": "K"}])
