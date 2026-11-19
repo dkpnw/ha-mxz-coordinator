@@ -152,7 +152,7 @@ stateDiagram-v2
 | Id | What happens | Code |
 | --- | --- | --- |
 | F1, F2 | With no memory, `auto` sets the baseline. A speed the ladder would stay on is adopted (a hold placed there is lost: documented), a fan_only idle on an established entry reads as ours (#25), and anything else seeds a hold. | `FanHold._observe_latch`, `observe_fan`, `seed_matches_boost`, `seed_is_own_idle` |
-| F3 | Boost picks a rung and writes it once. A rewrite of the commanded token doesn't roll the memory (#14). | `FanHold.async_apply`, `fan_for_delta`, `FanHold._async_write` |
+| F3 | Boost picks a rung and writes it once. A rewrite of the commanded token doesn't roll the memory (#14). | `FanHold.async_apply`, `fan_step`, `fan_for_delta`, `FanHold._async_write` |
 | F4 | A speed that is neither of the last two writes (`FanEcho.last`, `FanEcho.prior`), and not in `FanEcho.older` either, is a person's. MXZ makes no fan write while held. | `FanHold._observe_latch`, `observe_fan`, `FanEcho.own`, `hold_at` |
 | F5 | One of the two remembered speeds reads as MXZ's echo: not held, and boost writes over it. So does an older write, until the head's reports pass it (F1). A pick of the speed showing can't be read at all. | `FanHold._observe_latch`, `observe_fan`, `FanEcho.own`, `FanEcho.wrote`, `FanEcho.caught_up` |
 | F6 | A hold's memory is the held speed, so any other speed moves it. | `hold_at` |

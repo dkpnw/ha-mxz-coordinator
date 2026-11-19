@@ -119,9 +119,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_properties_fan.py::test_a_pick_is_never_written_over_until_it_is_handed_back',
     ),
     'C9': Mutant(
-        "a hold doesn't stop the write", 'async_apply',
-        "if held:\n            return  # latched: leave the user's fan pick untouched",
-        "if False:\n            return  # latched: leave the user's fan pick untouched",
+        "a hold doesn't stop the write", 'fan_step',
+        'if latch.held is True:\n        return latch, None',
+        'if False:\n        return latch, None',
         'tests/test_properties_fan.py::test_a_pick_is_never_written_over_until_it_is_handed_back',
     ),
     'C10': Mutant(

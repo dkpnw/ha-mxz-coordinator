@@ -34,6 +34,7 @@ from .fan_latch import (
     FanLimits,
     FanRecord,
     fan_auto,
+    fan_step,
     observe_fan,
     restored,
 )
@@ -140,11 +141,11 @@ class FanHold:
         room is off target; a satisfied/fan_only head (or eco-idle) is returned to
         the firmware's own "auto"; an off head is left alone.
 
-        A manual pick latches (see ``_observe_latch``): while a head is latched
-        the coordinator makes NO fan writes to it, so a user's chosen speed
-        survives every apply cycle. The latch is evaluated first because it also
-        suppresses the return-to-"auto" branch; it releases only on an observed
-        "auto".
+        A manual pick latches (see ``fan_latch.observe_fan``): while a head is
+        latched the coordinator makes NO fan writes to it, so a user's chosen
+        speed survives every apply cycle. ``fan_latch.fan_step`` decides, after
+        the head's report is read here (``head_reported``); the hold is
+        published before the write goes out.
         """
         host = self._host
         if not host.fan_boost_enable:
@@ -171,35 +172,14 @@ class FanHold:
             # hold stays standing until the head reports a speed.
             return
 
-        # Evaluate the manual-fan latch from what the head is actually reporting.
-        held = self._observe_latch(climate_id, observed, act, delta)
+        self.head_reported(climate_id, observed)
+        latch, token = fan_step(
+            self._latch(climate_id), observed, act, delta, modes=modes, limits=self._limits()
+        )
+        self._keep(climate_id, latch)
         self.publish(climate_id)
-        if held:
-            return  # latched: leave the user's fan pick untouched
-
-        if act in (MODE_COOL, MODE_HEAT) and not host.eco_idle:
-            max_idx = self._max_idx()
-            idx = fan_for_delta(
-                delta=delta,
-                cur_idx=self._idx.get(climate_id, 0),
-                up_at=host.fan_up_at,
-                down_at=host.fan_down_at,
-                max_idx=max_idx,
-            )
-            self._idx[climate_id] = idx
-            token = FAN_LADDER[idx]
-        elif act == MODE_FAN_ONLY or host.eco_idle:
-            self._idx.pop(climate_id, None)
-            token = FAN_AUTO
-        else:  # MODE_OFF
-            self._idx.pop(climate_id, None)
-            return
-
-        if token not in modes:
-            return  # head lacks this ladder token -> skip safely
-        if observed == token:
-            return  # idempotent
-        await self._async_write(climate_id, token)
+        if token is not None:
+            await self._async_write(climate_id, token)
 
     def cloud_token(
         self, climate_id: str, cloud: CloudHead, state: Any, fan_act: str,
@@ -393,6 +373,7 @@ class FanHold:
         host = self._host
         created = host.config_entry.created_at
         return FanLimits(
+            boost=host.fan_boost_enable,
             ceiling=self._max_idx(),
             up_at=host.fan_up_at,
             down_at=host.fan_down_at,

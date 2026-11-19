@@ -267,7 +267,7 @@ Observe(f0, o, act, delta) ==
     THEN [f |-> HoldAt(f, o), held |-> TRUE]
     ELSE [f |-> f, held |-> f.latched]
 
-\* FanHold.async_apply on what FanHold._observe_latch left; `token` is None for no write.
+\* FanHold.async_apply (fan_latch.fan_step) on what observe_fan left; `token` is None for no write.
 ApplyFan(act, delta) ==
     LET ob == Observe(Memory, fanShown, act, delta)
         g == ob.f

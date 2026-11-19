@@ -29,6 +29,7 @@ from custom_components.mxz_coordinator.fan_latch import (
     FanLimits,
     adopt,
     fan_auto,
+    fan_step,
     hold_at,
     observe_fan,
     reconcile_restored_hold,
@@ -39,6 +40,7 @@ from custom_components.mxz_coordinator.fan_latch import (
 
 QUIET, LOW, MEDIUM, MIDDLE, HIGH = 0, 1, 2, 3, 4
 LIMITS = FanLimits(
+    boost=True,
     ceiling=HIGH,
     up_at=(1.0, 2.0, 3.0, 4.0),
     down_at=(0.5, 1.5, 2.5, 3.5),
@@ -365,3 +367,95 @@ def test_a_report_drops_the_writes_before_it_and_a_rewrite_rolls_nothing() -> No
     assert list(echo.older) == ["low"]
     assert echo.own("high") is False
     assert echo.own("medium") is True
+
+
+# -- a delivery's boost step -------------------------------------------------
+
+LISTED = (FAN_AUTO, "quiet", "low", "medium", "middle", "high")
+
+
+def step(
+    latch: FanLatch, observed: str | None, act: str, delta: float,
+    modes: tuple[str, ...] | None = LISTED, limits: FanLimits = LIMITS,
+) -> tuple[FanLatch, str | None]:
+    return fan_step(latch, observed, act, delta, modes=modes, limits=limits)
+
+
+@pytest.mark.parametrize(
+    ("observed", "modes", "limits"),
+    [
+        ("quiet", LISTED, replace(LIMITS, boost=False)),
+        ("quiet", None, LIMITS),
+        ("quiet", (), LIMITS),
+        ("quiet", ("quiet", "low", "high"), LIMITS),
+        (None, LISTED, LIMITS),
+    ],
+    ids=["boost_off", "no_fan_list", "empty_fan_list", "no_auto", "no_speed"],
+)
+def test_nothing_is_read_or_written_without_boost_a_fan_list_with_auto_or_a_speed(
+    observed, modes, limits,
+) -> None:
+    latch = driving()
+    assert step(latch, observed, MODE_COOL, 6.0, modes, limits) == (latch, None)
+
+
+def test_a_held_head_gets_no_write_at_any_delta() -> None:
+    latch, token = step(driving(), "quiet", MODE_COOL, 6.0)
+    assert token is None
+    assert latch.held is True
+    assert memory(latch) == ("quiet", "quiet", [])
+    assert latch.rung == MEDIUM  # a hold doesn't move the rung
+
+
+@pytest.mark.parametrize("act", [MODE_COOL, MODE_HEAT])
+def test_a_run_gets_the_rung_for_its_delta_from_the_rung_it_keeps(act) -> None:
+    latch, token = step(driving(), "medium", act, 4.0)  # 4 °F: up from medium to high
+    assert (token, latch.rung, latch.held) == ("high", HIGH, False)
+    latch, token = step(replace(driving(), rung=MIDDLE), "medium", act, 2.7)
+    assert (token, latch.rung) == ("middle", MIDDLE)  # 2.7 is above middle's 2.5 down edge
+    latch, token = step(replace(driving(), rung=None), "medium", act, 1.2)
+    assert (token, latch.rung) == ("low", LOW)  # none kept: up from the bottom rung
+
+
+def test_the_echo_memory_is_not_rolled_by_the_step() -> None:
+    latch, token = step(driving(), "medium", MODE_COOL, 6.0)
+    assert token == "high"
+    assert memory(latch) == ("medium", "low", [])
+
+
+def test_a_rung_the_head_already_shows_is_not_written_and_is_kept() -> None:
+    latch, token = step(driving(), "medium", MODE_COOL, 2.2)
+    assert (token, latch.rung) == (None, MEDIUM)
+
+
+def test_a_rung_the_head_doesnt_list_is_not_written_but_is_kept() -> None:
+    latch, token = step(driving(), "medium", MODE_COOL, 6.0, (FAN_AUTO, "quiet", "medium"))
+    assert (token, latch.rung) == (None, HIGH)
+
+
+@pytest.mark.parametrize(
+    ("act", "limits"),
+    [(MODE_FAN_ONLY, LIMITS), (MODE_COOL, replace(LIMITS, eco_idle=True)),
+     (MODE_OFF, replace(LIMITS, eco_idle=True))],
+    ids=["fan_only", "eco_idle_cool", "eco_idle_off"],
+)
+def test_fan_only_or_eco_idle_hands_back_to_auto_and_drops_the_rung(act, limits) -> None:
+    latch, token = step(driving(), "medium", act, 6.0, limits=limits)
+    assert (token, latch.rung) == (FAN_AUTO, None)
+
+
+def test_auto_already_showing_is_not_written_again() -> None:
+    latch, token = step(driving(), FAN_AUTO, MODE_FAN_ONLY, 0.0)
+    assert (token, latch.rung, latch.held) == (None, None, False)
+
+
+def test_off_drops_the_rung_and_writes_nothing() -> None:
+    latch, token = step(driving(), "medium", MODE_OFF, 6.0)
+    assert (token, latch.rung) == (None, None)
+
+
+def test_a_step_never_changes_the_latch_it_was_given() -> None:
+    latch = driving()
+    before = (memory(latch), latch.held, latch.rung)
+    step(latch, "medium", MODE_COOL, 6.0)
+    assert (memory(latch), latch.held, latch.rung) == before
