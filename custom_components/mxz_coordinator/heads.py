@@ -46,7 +46,6 @@ from .const import (
     GENERIC_WRITE_INTERVAL,
     HEAD_TYPE_GENERIC,
     HEAD_TYPE_LOCAL,
-    IDLE_ACTION_FAN_ONLY,
     MODE_COOL,
     MODE_FAN_ONLY,
     MODE_HEAT,
@@ -58,6 +57,7 @@ from .const import (
 )
 from .host import ControllerHost, Effect
 from .logic import as_float, bounded
+from .planner import DeliverySteps, delivery_steps
 from .units import clamp, offset_in_unit, snap_to_step
 
 if TYPE_CHECKING:
@@ -90,7 +90,8 @@ class HeadsHost(ControllerHost, Protocol):
     Read: the unit, step and clamp band, the standby hold, the idle action and
     eco (for the fan's hand-back), the delivery queue and the fan hold. Called:
     the publication of the plan's rows, the floor's record of an accepted
-    command, and the coil-dry dwell's note of what a head is being sent.
+    command, and the coil-dry dwell's note of what a head is being sent
+    (``planner.delivery_steps`` says what it counts).
     """
 
     temp_unit: str
@@ -108,7 +109,7 @@ class HeadsHost(ControllerHost, Protocol):
 
     def eco_active(self) -> bool: ...
     def publish_delivery(self) -> None: ...
-    def note_head_act(self, climate_id: str, act: str, at: float) -> None: ...
+    def note_head_act(self, climate_id: str, steps: DeliverySteps, act: str, at: float) -> None: ...
 
 
 class HeadGrid:
@@ -290,16 +291,14 @@ class HeadDriver(Protocol):
     ) -> None: ...
 
 
-def _hands_fan_back(host: HeadsHost, act: str, engage: str, state: State | None) -> bool:
-    """Whether the head's fan goes back to auto before this off.
-
-    Only on a head that is on now, parked off by the plan (an idle action other
-    than fan_only, a room that is not off), outside eco and a standby hold.
-    """
-    return (
-        act == MODE_OFF and host.idle_action != IDLE_ACTION_FAN_ONLY
-        and engage != MODE_OFF and not host.eco_active() and not host.inhibited
-        and state is not None and state.state not in (MODE_OFF, *UNAVAILABLE_STATES)
+def _steps(host: HeadsHost, act: str, engage: str | None, state: State | None) -> DeliverySteps:
+    """What this delivery does at its head besides the mode and setpoints (``planner.delivery_steps``)."""
+    return delivery_steps(
+        act, engage,
+        idle_action=host.idle_action,
+        eco=host.eco_active(),
+        inhibited=host.inhibited,
+        head_state=state.state if state is not None else None,
     )
 
 
@@ -322,23 +321,20 @@ class LocalDriver:
         """One delivery's steps at this head."""
         host = self._host
         climate_id = self.climate_id
-        if engage is None:  # fixed standby park or a floor, no fan machinery
-            await self._async_apply(act, low, high)
-            host.floor.accepted(climate_id, delivery)
-            return
-        host.note_head_act(climate_id, act, host.clock())
-        handback = _hands_fan_back(host, act, engage, host.hass.states.get(climate_id))
-        if handback:
+        at = host.clock()
+        steps = _steps(host, act, engage, host.hass.states.get(climate_id))
+        host.note_head_act(climate_id, steps, act, at)
+        if steps.handback:
             await host.fan.async_apply(climate_id, MODE_FAN_ONLY, delta)
             if not host.deliveries.owned(delivery):
                 return
         await self._async_apply(act, low, high)
         host.floor.accepted(climate_id, delivery)
-        if not host.deliveries.owned(delivery):
+        if steps.fan is None or not host.deliveries.owned(delivery):
             return
-        if handback:
+        if steps.fan == "drop_rung":
             host.fan.drop_rung(climate_id)
-        elif not host.inhibited:
+        else:
             await host.fan.async_apply(climate_id, act, delta)
 
     async def _async_apply(self, act: str, low: float, high: float) -> None:
@@ -604,8 +600,8 @@ class CloudDriver:
         state = host.hass.states.get(climate_id)
         if cloud.unresponsive or state is None or state.state in UNAVAILABLE_STATES:
             return
-        if engage is not None:
-            host.note_head_act(climate_id, act, clock)
+        steps = _steps(host, act, engage, state)
+        host.note_head_act(climate_id, steps, act, clock)
         setpoint = (
             self.setpoint(act, low, high)
             if act in (MODE_COOL, MODE_HEAT) else None
@@ -628,10 +624,9 @@ class CloudDriver:
         # speed someone picks is read and a boost step that comes due goes
         # out (both limits still apply).
         fan = None
-        if engage is not None and not host.inhibited:
-            handback = _hands_fan_back(host, act, engage, state)
+        if steps.fan is not None:
             fan = host.fan.cloud_token(
-                climate_id, cloud, state, MODE_FAN_ONLY if handback else act, delta, clock,
+                climate_id, cloud, state, MODE_FAN_ONLY if steps.handback else act, delta, clock,
             )
         cur_mode = state.state
         calls: list[tuple[str, dict[str, Any]]] = []

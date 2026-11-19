@@ -3,7 +3,8 @@
 ``MXZCoordinator._compute`` reads each room's sensor, head and controllers, hands the
 readings to :func:`decide` as one :class:`RoomInput` per room and one :class:`Shared`,
 and builds the plan from the :class:`Decision`. ``_apply`` queues each head's
-:func:`head_command` and writes the plan's mode back as :func:`mode_write_back` says.
+:func:`head_command` and writes the plan's mode back as :func:`mode_write_back` says. Each
+head's driver then runs that command's :func:`delivery_steps`.
 Time comes in as numbers: the seconds since the last mode change, the hold's length,
 the coil-dry clock, and the clocks a start reads (:func:`mode_change_stamp`).
 The engage latch and the startup seeds come in as they are and go out advanced; nothing
@@ -18,6 +19,7 @@ from dataclasses import asdict, dataclass, replace
 from .const import (
     DEMAND_NEUTRAL,
     ENGAGE_SATISFIED,
+    IDLE_ACTION_FAN_ONLY,
     IDLE_ACTION_OFF,
     IDLE_ACTION_OFF_AFTER_DRY,
     MODE_COOL,
@@ -566,4 +568,58 @@ def head_command(
     # writes this head's fan.
     return HeadCommand(
         mode=act, low=low, high=high, delta=delta, fan=engage if floor_run is None else None
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class DeliverySteps:
+    """What one head's delivery does besides its mode and setpoints.
+
+    ``handback``: the fan goes back to auto before the mode, on the way to off.
+    ``last_run``: the act is the head's last run, which the coil-dry run counts from.
+    ``ends_coil_dry``: the act ends a coil-dry run's wakeup.
+    ``fan``: the step after the mode and setpoints, ``"boost"`` (the fan boost
+    step for the act), ``"drop_rung"`` (the ladder starts from the bottom next
+    run, after a hand-back) or None (no fan step).
+    """
+
+    handback: bool
+    last_run: bool
+    ends_coil_dry: bool
+    fan: str | None
+
+
+def delivery_steps(
+    act: str,
+    engage: str | None,
+    *,
+    idle_action: str,
+    eco: bool,
+    inhibited: bool,
+    head_state: str | None,
+) -> DeliverySteps:
+    """What a delivery of ``act`` does at its head besides the mode and setpoints.
+
+    ``engage`` None is a fixed standby park or a floor: no coil-dry note and no
+    fan machinery. ``head_state`` is the state the head shows, None for none.
+
+    Heat or cool is the head's last run, and anything but fan_only ends a
+    coil-dry run's wakeup. The fan goes back to auto before an off only on a
+    head that is on now, parked off by the plan (an idle action other than
+    fan_only, a room that is not off), outside eco and a standby hold. A local
+    head is sent the hand-back, then the mode and setpoints, then the fan step;
+    a cloud head's batch carries the same decisions.
+    """
+    if engage is None:
+        return DeliverySteps(handback=False, last_run=False, ends_coil_dry=False, fan=None)
+    handback = (
+        act == MODE_OFF and idle_action != IDLE_ACTION_FAN_ONLY
+        and engage != MODE_OFF and not eco and not inhibited
+        and head_state is not None and head_state not in (MODE_OFF, *UNAVAILABLE_STATES)
+    )
+    return DeliverySteps(
+        handback=handback,
+        last_run=act in (MODE_COOL, MODE_HEAT),
+        ends_coil_dry=act != MODE_FAN_ONLY,
+        fan="drop_rung" if handback else None if inhibited else "boost",
     )

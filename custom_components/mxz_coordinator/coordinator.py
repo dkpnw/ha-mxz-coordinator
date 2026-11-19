@@ -217,6 +217,7 @@ from .openings import OpeningPause, openings_store
 from .plan import Plan, RoomPlan
 from .planner import (
     CallLimits,
+    DeliverySteps,
     RoomInput,
     SetpointSettings,
     Shared,
@@ -2520,15 +2521,16 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             return rec
         return None
 
-    def note_head_act(self, climate_id: str, act: str, at: float) -> None:
+    def note_head_act(self, climate_id: str, steps: DeliverySteps, act: str, at: float) -> None:
         """A head driver is sending this head ``act`` for the plan, at ``at``.
 
-        Heat or cool is the head's last run, which the coil-dry dwell counts
-        from. Anything but fan_only ends a coil-dry run's wakeup.
+        ``steps`` (``planner.delivery_steps``) says whether it is the head's last
+        run, which the coil-dry dwell counts from, and whether it ends a coil-dry
+        run's wakeup.
         """
-        if act in (MODE_COOL, MODE_HEAT):
+        if steps.last_run:
             self._last_active[climate_id] = (act, at)
-        if act != MODE_FAN_ONLY:
+        if steps.ends_coil_dry:
             self.clock.cancel("dry", climate_id)
 
     def _planned_act_for(self, entity_id: str) -> str | None:
