@@ -36,6 +36,7 @@ from custom_components.mxz_coordinator.const import (
     ZONE_SAFETY_PRIORITY_ENTITY,
     ZONE_SENSOR,
 )
+from custom_components.mxz_coordinator.timing import arms
 from tests.clocks import jump_wall_clock
 from tests.dwell import expire_dwell, record_mode_change
 from tests.flow_pages import (
@@ -496,7 +497,9 @@ async def test_unload_cancels_the_stale_wakeup(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert not armed(coord, "comfort")
-    coord._sync_comfort_timer()  # a late re-sync arms nothing on a retired one
+    # A late re-sync of a compute's wakeups arms nothing on a retired one.
+    for arm in arms(coord._wakeups(coord.data)):
+        coord.perform_arm(arm)
     assert not armed(coord, "comfort")
 
 

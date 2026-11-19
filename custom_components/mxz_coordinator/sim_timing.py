@@ -36,10 +36,10 @@ from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 from .const import STARTUP_RECOVER_DELAY
-from .timing import HEARTBEAT, REQUEST_COOLDOWN, WAKEUPS, Arm, Refresh
+from .timing import HEARTBEAT, REQUEST_COOLDOWN, WAKEUPS, Arm, CancelAll, Refresh
 
 __all__ = [
-    "Arm", "Ask", "Beat", "Computed", "Due", "Event", "Fire", "Step", "Tick", "Timers", "Why",
+    "Arm", "Ask", "Beat", "CancelAll", "Computed", "Due", "Event", "Fire", "Step", "Tick", "Timers", "Why",
     "due", "start", "step",
 ]
 
@@ -66,12 +66,13 @@ class Computed:
     """The compute a step asked for ran.
 
     ``sent``: its plan queued a delivery to a head. ``asked``: what its heads' reports asked for
-    while it was applied, in order. ``armed``: the wakeups it armed or cancelled, in order.
+    while it was applied, in order. ``armed``: the wakeups it armed or cancelled, in order:
+    ``planner.ApplyResult.armed``, then what its deliveries cancelled, then ``timing.arms``.
     """
 
     sent: bool
     asked: tuple[Refresh, ...] = ()
-    armed: tuple[Arm, ...] = ()
+    armed: tuple[Arm | CancelAll, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,7 +197,11 @@ class _Run:
     def set(self, **changes: object) -> None:
         self.timers = replace(self.timers, **changes)  # type: ignore[arg-type]
 
-    def arm(self, arm: Arm) -> None:
+    def arm(self, arm: Arm | CancelAll) -> None:
+        if isinstance(arm, CancelAll):
+            for name, key in [wait for wait in self.waits if wait[0] == arm.name]:
+                del self.waits[name, key]
+            return
         self.waits.pop((arm.name, arm.key), None)
         if arm.delay is not None:
             self.waits[arm.name, arm.key] = self.due(arm.delay)

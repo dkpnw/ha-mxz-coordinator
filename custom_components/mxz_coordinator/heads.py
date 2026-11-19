@@ -58,7 +58,7 @@ from .grid import Grid, convert, local_calls
 from .host import ControllerHost, Effect
 from .logic import as_float, bounded
 from .planner import DeliverySteps, delivery_steps
-from .timing import cloud_delay
+from .timing import Arm, CancelAll, CloudWaits, cloud_arm
 from .units import clamp, offset_in_unit, snap_to_step
 
 if TYPE_CHECKING:
@@ -91,8 +91,8 @@ class HeadsHost(ControllerHost, Protocol):
     Read: the unit, step and clamp band, the standby hold, the idle action and
     eco (for the fan's hand-back), the delivery queue and the fan hold. Called:
     the publication of the plan's rows, the floor's record of an accepted
-    command, and the coil-dry dwell's note of what a head is being sent
-    (``planner.delivery_steps`` says what it counts).
+    command, the coil-dry dwell's note of what a head is being sent
+    (``planner.delivery_steps`` says what it counts), and the arming of a wakeup.
     """
 
     temp_unit: str
@@ -111,6 +111,7 @@ class HeadsHost(ControllerHost, Protocol):
     def eco_active(self) -> bool: ...
     def publish_delivery(self) -> None: ...
     def note_head_act(self, climate_id: str, steps: DeliverySteps, act: str, at: float) -> None: ...
+    def perform_arm(self, arm: Arm | CancelAll) -> None: ...
 
 
 class HeadGrid:
@@ -696,35 +697,31 @@ class HeadDrivers:
         driver = self._clouds.get(zone.climate_id)
         return driver.attributes() if driver is not None else {}
 
-    def sync_timer(self) -> None:
-        """Keep one wakeup armed for the nearest cloud head deadline.
+    def cloud_waits(self, clock: float) -> list[CloudWaits]:
+        """Each cloud head's deadlines on MXZ's clock read as ``clock`` (``timing.CloudWaits``)."""
+        return [
+            CloudWaits(
+                pending=driver.record.pending(clock),
+                window_until=driver.record.window_until,
+                release_at=driver.record.release_at,
+                unresponsive=driver.record.unresponsive,
+                seen=None if driver.record.unresponsive else driver.seen(),
+            )
+            for driver in self._clouds.values()
+        ]
 
-        The end of a confirm window (confirm, or send again), a batch or fan
-        step held back by its limit, and the moment a quiet head would become
-        not controllable. A cloud head that reports nothing new emits nothing,
-        so without this each would wait for an unrelated update.
+    def sync_timer(self) -> None:
+        """Keep one wakeup armed for the nearest cloud head deadline (``timing.cloud_arm``).
+
+        A cloud head that reports nothing new emits nothing, so without this each deadline
+        would wait for an unrelated update. A compute arms it with every other wakeup; a
+        refused batch arms it here.
         """
         host = self._host
-        if host.retired or not self._clouds:
-            host.clock.cancel("cloud")
-            return
         clock = host.clock()
-        wall = dt_util.utcnow().timestamp()
-        waits: list[float] = []
-        for driver in self._clouds.values():
-            cloud = driver.record
-            if cloud.pending(clock):
-                waits.append(cloud.window_until - clock)
-            if cloud.release_at is not None and cloud.release_at > clock:
-                waits.append(cloud.release_at - clock)
-            if not cloud.unresponsive:
-                since, limit = driver.seen()
-                if limit is not None:
-                    waits.append(since + limit - wall)
-        if (delay := cloud_delay(waits)) is None:
-            host.clock.cancel("cloud")
-            return
-        host.clock.call_later(delay, partial(host.wake, "cloud"), name="cloud")
+        host.perform_arm(cloud_arm(
+            host.retired, self.cloud_waits(clock), clock, dt_util.utcnow().timestamp(),
+        ))
 
     def track_reports(self) -> Callable[[], None] | None:
         """Listen for every report from a cloud head, changed or not; None with no cloud head.

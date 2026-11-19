@@ -15,13 +15,13 @@ or window, the standby hold, the ``mxz_recompute`` event and the heartbeat.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Hashable, Iterable, Mapping
+from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
 from .const import HEALTH_REPORT_SENSITIVE, UNAVAILABLE_STATES
-from .logic import CLOSED_READ
+from .logic import CLOSED_READ, HeadSight, comfort_stale_in
 
 
 class Refresh(StrEnum):
@@ -45,6 +45,13 @@ class Arm:
     name: str
     key: Hashable
     delay: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class CancelAll:
+    """Every wakeup of this name cancelled, whatever its key."""
+
+    name: str
 
 
 # Seconds the request debouncer waits after a refresh it ran before it runs another.
@@ -182,3 +189,156 @@ def opening_delay(delay: float) -> float:
 def hold_end_delay(remaining: float) -> float | None:
     """The hold-end wakeup: just after the mode-change hold ends, none with no hold left."""
     return remaining + 1 if remaining > 0 else None
+
+
+def hold_end_arm(remaining: float, *, retired: bool) -> Arm:
+    """The hold-end wakeup for a mode-change hold with ``remaining`` seconds left; a retired
+    coordinator cancels it."""
+    return Arm("hold_end", None, None if retired else hold_end_delay(remaining))
+
+
+@dataclass(frozen=True, slots=True)
+class Watched:
+    """A room's head as the lost and settle wakeups read it.
+
+    ``by_action``: a hands-off room whose vote follows its head's run. ``released``: its
+    hands-off phase is released.
+    """
+
+    sight: HeadSight
+    by_action: bool
+    released: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CloudWaits:
+    """A cloud head's deadlines as its record holds them.
+
+    ``pending``: its confirm window is open, until ``window_until``. ``release_at``: when a
+    batch or fan step its limit held back may go. ``seen``: when it last showed it is there
+    (wall clock) and the limit after which it is out of MXZ's control (None for none); not
+    read for a head already out (``unresponsive``).
+    """
+
+    pending: bool
+    window_until: float
+    release_at: float | None
+    unresponsive: bool
+    seen: tuple[float, int | None] | None
+
+
+def cloud_arm(
+    retired: bool, clouds: Sequence[CloudWaits], clock: float, wall: float
+) -> Arm:
+    """The one wakeup the cloud heads share: at the nearest deadline still ahead.
+
+    The end of a confirm window (confirm, or send again), a batch or fan step held back by
+    its limit, and the moment a quiet head would become not controllable. None for a retired
+    coordinator or no cloud head.
+    """
+    if retired or not clouds:
+        return Arm("cloud", None, None)
+    waits: list[float] = []
+    for cloud in clouds:
+        if cloud.pending:
+            waits.append(cloud.window_until - clock)
+        if cloud.release_at is not None and cloud.release_at > clock:
+            waits.append(cloud.release_at - clock)
+        if not cloud.unresponsive and cloud.seen is not None:
+            since, limit = cloud.seen
+            if limit is not None:
+                waits.append(since + limit - wall)
+    return Arm("cloud", None, cloud_delay(waits))
+
+
+@dataclass(frozen=True, slots=True)
+class Wakeups:
+    """What the wakeups armed after a compute read.
+
+    ``retired``: this coordinator is retired; ``clock_retired``: its clock is too (a unit
+    switch retires the coordinator and reloads it, with the clock still running).
+    ``coordinator`` and ``standby``: the Coordinator switch is on, and a standby hold parks
+    every head at one fixed mode. ``clock`` and ``wall``: MXZ's clock and the wall clock, read
+    once. ``remaining``, ``allowed`` and ``held_back``: what :func:`dwell_delay` reads.
+    ``coasted``: a room let go of a run. ``fresh``: each room's freshness deadline (wall
+    clock). ``sights``: every head's record; ``rooms``: each room's, as the lost and settle
+    wakeups read it; ``lost_ttl`` and ``action_hold``: how long a lost head's vote lasts and
+    a stopped head's vote is held. ``comfort_stale_after`` and ``comfort``: when an "on"
+    Comfort priority goes stale (None: never), and each room's entity (domain, state, age).
+    ``clouds``: each cloud head's deadlines. ``openings``: each door/window room's slug and
+    the end of its delay (wall clock; None with no delay running).
+    """
+
+    retired: bool
+    clock_retired: bool
+    coordinator: bool
+    standby: bool
+    clock: float
+    wall: float
+    remaining: float
+    allowed: bool
+    held_back: Callable[[], bool]
+    coasted: bool
+    fresh: Sequence[float]
+    sights: Sequence[HeadSight]
+    rooms: Sequence[Watched]
+    lost_ttl: float
+    action_hold: float
+    comfort_stale_after: float | None
+    comfort: Sequence[tuple[str | None, str | None, float | None]]
+    clouds: Sequence[CloudWaits]
+    openings: Sequence[tuple[str, float | None]]
+
+
+def arms(w: Wakeups) -> tuple[Arm | CancelAll, ...]:
+    """Every wakeup a compute leaves armed or cancels, in the order the coordinator arms them.
+
+    Each keeps exactly one wait for what it watches, re-armed from this compute's readings,
+    so it moves when a reading moves it and goes when nothing is left to wait for. Nothing is
+    captured: each wakeup only asks for what ``WAKEUPS`` says, which re-reads everything.
+
+    - ``dwell``: a flip the mode-change hold holds back (:func:`dwell_delay`), while the
+      coordinator is on, its clock not retired, and no fixed standby park holds.
+    - ``coast``: just after a room coasts, while the coordinator is on and not parked.
+    - ``fresh``: the nearest sensor freshness deadline.
+    - ``lost``: the nearest lost-vote expiry, and the nearest end of a stopped head's held
+      vote in a hands-off room that votes by its run.
+    - ``settle``: the nearest end of a settle window of a released hands-off head that votes
+      by its run; none once retired.
+    - ``comfort``: the moment the nearest "on" Comfort priority goes stale; none once retired
+      or with no stale time set.
+    - ``cloud``: :func:`cloud_arm`.
+    - ``opening``: every room's cancelled, then, unless retired, one at the end of each
+      room's open or close delay.
+    """
+    out: list[Arm | CancelAll] = [
+        Arm("dwell", None, dwell_delay(
+            w.remaining,
+            active=not (w.clock_retired or not w.coordinator or w.standby),
+            allowed=w.allowed,
+            held_back=w.held_back,
+        )),
+        Arm("coast", None, coast_delay(w.coasted, active=w.coordinator and not w.standby)),
+        Arm("fresh", None, fresh_delay(w.fresh, w.wall)),
+        # The boundary itself, as for freshness: expiry is half-open, so the refresh this
+        # runs reads the vote as expired.
+        Arm("lost", None, nearest([
+            *(sight.expires_in(w.clock, w.lost_ttl) for sight in w.sights),
+            *(room.sight.hold_ends_in(w.clock, w.action_hold) for room in w.rooms if room.by_action),
+        ])),
+        Arm("settle", None, None if w.retired else nearest(
+            room.sight.settles_in(w.clock) for room in w.rooms if room.by_action and room.released
+        )),
+        Arm("comfort", None, None if w.retired or w.comfort_stale_after is None else nearest(
+            comfort_stale_in(domain, state, age=age, stale_after=w.comfort_stale_after)
+            for domain, state, age in w.comfort
+        )),
+        cloud_arm(w.retired, w.clouds, w.clock, w.wall),
+        CancelAll("opening"),
+    ]
+    if not w.retired:
+        out.extend(
+            Arm("opening", slug, opening_delay(due - w.wall))
+            for slug, due in w.openings if due is not None
+        )
+    return tuple(out)
