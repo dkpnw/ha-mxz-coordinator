@@ -13,8 +13,9 @@ here keeps state.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
+from typing import Any
 
 from .const import (
     DEMAND_NEUTRAL,
@@ -623,3 +624,159 @@ def delivery_steps(
         ends_coil_dry=act != MODE_FAN_ONLY,
         fan="drop_rung" if handback else None if inhibited else "boost",
     )
+
+
+def setpoint_field(mode: str, *, features: int | None, cloud: bool) -> str | None:
+    """The head setpoint that carries the room's target in the mode the head shows.
+
+    The one MXZ writes: the high edge in cool, the low edge in heat, or the one
+    setpoint of a head without a range (``features`` lacks
+    ``TARGET_TEMPERATURE_RANGE``, 2) or of a cloud head. None off heat and cool.
+    """
+    if mode not in (MODE_COOL, MODE_HEAT):
+        return None
+    if cloud or not int(features or 0) & 2:
+        return "temperature"
+    return "target_temp_high" if mode == MODE_COOL else "target_temp_low"
+
+
+def head_moved(
+    *,
+    accept: bool,
+    old_mode: str | None,
+    new_mode: str | None,
+    field: str | None,
+    old_setpoint: Any,
+    new_setpoint: Any,
+) -> set[str]:
+    """What a head's report moved that a person may have changed: "mode", "setpoint".
+
+    ``field`` is the setpoint carrying the room's target in the new mode
+    (:func:`setpoint_field`), and the setpoints are that field's values as
+    reported, compared as they are. Nothing with Accept changes off, and nothing
+    from or to no state or unavailable: that is the head (re)loading. A fan or
+    vane report moves nothing.
+    """
+    if (
+        not accept or old_mode is None or new_mode is None
+        or old_mode in UNAVAILABLE_STATES or new_mode in UNAVAILABLE_STATES
+    ):
+        return set()
+    moved = {"mode"} if old_mode != new_mode else set()
+    if field is not None and old_setpoint != new_setpoint:
+        moved.add("setpoint")
+    return moved
+
+
+@dataclass(frozen=True, slots=True)
+class HeadChange:
+    """A change a head shows, and its room, as :func:`adopt_head_change` reads them.
+
+    ``moved`` is what moved since the hold began (:func:`head_moved`). The gates:
+    Accept changes made at the head (``accept``), this coordinator retired, the
+    Coordinator switch on (``coordinator``), a standby hold (``inhibited``),
+    eco, a start still quiet (``starting``), a disabled hands-off room's head
+    (``hands_off``), a floor run (``floor``), a door/window pause (``paused``),
+    and a cloud head's report of an older mode (``stale``).
+
+    ``mode`` is the mode the head shows, None for no state or unavailable, and
+    ``mode_own`` whether MXZ's own writes explain it. ``enabled`` is the room's
+    enable, and ``planned`` the mode the plan wants for the head now, read only
+    for an off pressed at an enabled room's head (reading it can arm the
+    coil-dry wakeup). ``field`` is the setpoint carrying the room's target
+    (:func:`setpoint_field`), ``setpoint`` its value, None if unreadable,
+    ``setpoint_own`` whether MXZ's own writes explain it and ``setpoint_stale``
+    whether it is a cloud head's poll from before MXZ's last batch. ``driven``
+    is a cloud head run past the target by its drive offset. ``target`` is the
+    room target on the room's step that leaves the head at ``setpoint``, held
+    to the room's bounds, ``current`` the room's target on that side now, and
+    ``step`` the target step.
+    """
+
+    moved: Collection[str]
+    accept: bool
+    retired: bool
+    coordinator: bool
+    inhibited: bool
+    eco: bool
+    starting: bool
+    hands_off: bool
+    floor: bool
+    paused: bool
+    stale: bool
+    mode: str | None
+    mode_own: bool
+    enabled: bool
+    planned: Callable[[], str | None]
+    field: str | None
+    setpoint: float | None
+    setpoint_own: bool
+    setpoint_stale: bool
+    driven: bool
+    target: float | None
+    current: float | None
+    step: float
+
+
+@dataclass(frozen=True, slots=True)
+class Adoption:
+    """What a person's change at a head asks of its room: its new enable and target.
+
+    Neither is a person's change with nothing to adopt, like a heat/cool choice:
+    the head still goes back on the plan.
+    """
+
+    enable: bool | None = None
+    target: float | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        """The change as the coordinator keeps and logs it: ``enable`` first, then ``target``."""
+        change: dict[str, Any] = {} if self.enable is None else {"enable": self.enable}
+        if self.target is not None:
+            change["target"] = self.target
+        return change
+
+
+def adopt_head_change(change: HeadChange) -> Adoption | None:
+    """What a change at a head asks of its room now; None if it isn't a person's.
+
+    Only what moved counts, and only if MXZ's own writes can't explain it, so a
+    mode change alone never reads the setpoint the head happened to be on as a
+    new target. An off pressed at an enabled room's head disables the room,
+    unless the plan itself wants the head off. Heat or cool pressed at a
+    disabled room's head enables it. A setpoint pressed in heat or cool is the
+    room's new target when it differs from the room's by half a step or more,
+    except on a cloud head driven past the target. fan_only is the park, and
+    heat_cool, auto and dry are healed: none is adopted.
+    """
+    if (
+        not change.accept or change.retired or not change.coordinator or change.inhibited
+        or change.eco or change.starting or change.mode is None
+        # A disabled hands-off room's head is the person's, on purpose; a floor
+        # run's is MXZ's until it ends; a paused room's has its own rule.
+        or change.hands_off or change.floor or change.paused or change.stale
+    ):
+        return None
+    mode_press = "mode" in change.moved and not change.mode_own
+    if change.mode == MODE_OFF:
+        if mode_press and change.enabled and change.planned() != MODE_OFF:
+            return Adoption(enable=False)
+        return None
+    if change.field is None:
+        return None
+    if not change.enabled and not mode_press:
+        return None
+    setpoint_press = (
+        "setpoint" in change.moved and change.setpoint is not None
+        and not change.setpoint_own and not change.setpoint_stale
+    )
+    if not mode_press and not setpoint_press:
+        return None
+    target = None
+    if (
+        setpoint_press and not change.driven
+        and change.target is not None and change.current is not None
+        and abs(change.target - change.current) >= change.step / 2
+    ):
+        target = change.target
+    return Adoption(enable=None if change.enabled else True, target=target)

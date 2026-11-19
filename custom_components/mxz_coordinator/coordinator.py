@@ -218,18 +218,22 @@ from .plan import Plan, RoomPlan
 from .planner import (
     CallLimits,
     DeliverySteps,
+    HeadChange,
     RoomInput,
     SetpointSettings,
     Shared,
+    adopt_head_change,
     arbitration_entries,
     arbitration_mode,
     decide,
     demand_bands,
     head_command,
+    head_moved,
     holds,
     idle_park,
     mode_change_stamp,
     mode_write_back,
+    setpoint_field,
 )
 from .resume import (
     HEAD_WRITE_FIELDS,
@@ -3141,17 +3145,12 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         return memory is not None and memory.own(shown, self._head_write_same(climate_id, name))
 
     def _head_setpoint_field(self, climate_id: str, state: Any) -> str | None:
-        """The setpoint carrying the room's target in the mode this head shows.
-
-        The same one MXZ writes: the high edge in cool, the low edge in heat, or
-        a single-setpoint or cloud head's one setpoint. None off heat and cool.
-        """
-        if state.state not in (MODE_COOL, MODE_HEAT):
-            return None
-        features = int(state.attributes.get("supported_features") or 0)
-        if self.heads.cloud(climate_id) is not None or not features & 2:
-            return "temperature"
-        return "target_temp_high" if state.state == MODE_COOL else "target_temp_low"
+        """The setpoint carrying the room's target in the mode this head shows (``planner.setpoint_field``)."""
+        return setpoint_field(
+            state.state,
+            features=state.attributes.get("supported_features"),
+            cloud=self.heads.cloud(climate_id) is not None,
+        )
 
     def _target_for_head_setpoint(self, climate_id: str, shown: float) -> float:
         """The target on our step that leaves this head where a person put it.
@@ -3173,70 +3172,54 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     def _head_adoption(self, climate_id: str, moved: set[str]) -> dict[str, Any] | None:
         """What this head's change asks of its room now; None if it isn't a person's.
 
-        An empty result is a person's change with nothing to adopt, like a
-        heat/cool choice: the head still goes back on the plan. ``enable`` and
-        ``target`` are the room's new enable and target. Only what moved counts, and
-        only if MXZ's own writes can't explain it, so a mode change alone never
-        reads the setpoint the head happened to be on as a new target.
+        Reads the head and its room for :func:`planner.adopt_head_change`, which
+        decides. An empty result is a person's change with nothing to adopt, like
+        a heat/cool choice: the head still goes back on the plan. ``enable`` and
+        ``target`` are the room's new enable and target.
         """
         zone = self._zone_of(climate_id)
+        if zone is None:
+            return None
         state = self.hass.states.get(climate_id)
-        if (
-            not self.accept_head_changes
-            or self.retired
-            or not self.coordinator_enable
-            or self.inhibited
-            or self.eco_active()
-            or self._startup_quiet
-            or zone is None
-            or state is None
-            or state.state in UNAVAILABLE_STATES
-            # A disabled hands-off room's head is the person's, on purpose; a
-            # floor run's is MXZ's until it ends; a paused room's has its own rule.
-            or self.hands_off_phase(zone) is not None
-            or self.floor.tripped(zone.slug)
-            or self.openings.paused(zone)
-            or self.heads.stale_report(climate_id, mode=state.state)
-        ):
-            return None
-        mode = state.state
-        mode_press = "mode" in moved and not self._head_write_is_own(
-            climate_id, HEAD_WRITE_MODE, mode
-        )
-        if mode == MODE_OFF:
-            # An off the plan itself wants is not a request.
-            if mode_press and zone.enable and self._planned_act_for(climate_id) != MODE_OFF:
-                return {"enable": False}
-            return None
-        name = self._head_setpoint_field(climate_id, state)
-        if name is None:
-            return None  # fan_only is the park; heat_cool, auto and dry are healed
-        if not zone.enable and not mode_press:
-            return None
-        shown = as_float(state.attributes.get(name))
-        setpoint_press = (
-            "setpoint" in moved and shown is not None
-            and not self._head_write_is_own(climate_id, name, shown)
+        mode = None if state is None or state.state in UNAVAILABLE_STATES else state.state
+        field = None if mode is None else self._head_setpoint_field(climate_id, state)
+        shown = None if field is None else as_float(state.attributes.get(field))
+        heat_target, cool_target = self.zone_side_targets(zone)
+        adoption = adopt_head_change(HeadChange(
+            moved=moved,
+            accept=self.accept_head_changes,
+            retired=self.retired,
+            coordinator=self.coordinator_enable,
+            inhibited=self.inhibited,
+            eco=self.eco_active(),
+            starting=self._startup_quiet,
+            hands_off=self.hands_off_phase(zone) is not None,
+            floor=self.floor.tripped(zone.slug),
+            paused=self.openings.paused(zone),
+            stale=mode is not None and self.heads.stale_report(climate_id, mode=mode),
+            mode=mode,
+            mode_own=mode is not None and self._head_write_is_own(climate_id, HEAD_WRITE_MODE, mode),
+            enabled=zone.enable,
+            planned=partial(self._planned_act_for, climate_id),
+            field=field,
+            setpoint=shown,
+            setpoint_own=(
+                shown is not None
+                and self._head_write_is_own(climate_id, cast("str", field), shown)
+            ),
             # A cloud head's poll from before MXZ's last batch, as for its mode.
-            and not self.heads.stale_report(climate_id, setpoint=shown)
-        )
-        if not mode_press and not setpoint_press:
-            return None
-        change: dict[str, Any] = {} if zone.enable else {"enable": True}
-        # A cloud head runs past the room's target by its drive offset, so what it
-        # shows isn't the target and stays MXZ's to write.
-        driven = self.heads.cloud(climate_id) is not None and bool(zone.drive_offset)
-        if setpoint_press and not driven:
-            target = clamp(
-                self._target_for_head_setpoint(climate_id, cast("float", shown)),
+            setpoint_stale=shown is not None and self.heads.stale_report(climate_id, setpoint=shown),
+            # A cloud head runs past the room's target by its drive offset, so what it
+            # shows isn't the target and stays MXZ's to write.
+            driven=self.heads.cloud(climate_id) is not None and bool(zone.drive_offset),
+            target=None if shown is None else clamp(
+                self._target_for_head_setpoint(climate_id, shown),
                 self.heads.grid.target_bounds(climate_id),
-            )
-            step = self.target_step or 1.0
-            heat_target, cool_target = self.zone_side_targets(zone)
-            current = cool_target if mode == MODE_COOL else heat_target
-            if abs(target - current) >= step / 2:
-                change["target"] = target
-        return change
+            ),
+            current=cool_target if mode == MODE_COOL else heat_target,
+            step=self.target_step or 1.0,
+        ))
+        return None if adoption is None else adoption.as_dict()
 
     @callback
     def _watch_head_change(self, climate_id: str, old_state: Any, new_state: Any) -> bool:
@@ -3252,15 +3235,15 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         back, say): the plan skipped the head while it held, and arming it
         disowned any command still waiting, so the caller must re-plan.
         """
-        if (
-            not self.accept_head_changes or old_state is None or new_state is None
-            or old_state.state in UNAVAILABLE_STATES or new_state.state in UNAVAILABLE_STATES
-        ):
-            return False
-        moved = {"mode"} if old_state.state != new_state.state else set()
-        name = self._head_setpoint_field(climate_id, new_state)
-        if name is not None and old_state.attributes.get(name) != new_state.attributes.get(name):
-            moved.add("setpoint")
+        field = None if new_state is None else self._head_setpoint_field(climate_id, new_state)
+        moved = head_moved(
+            accept=self.accept_head_changes,
+            old_mode=None if old_state is None else old_state.state,
+            new_mode=None if new_state is None else new_state.state,
+            field=field,
+            old_setpoint=None if old_state is None or field is None else old_state.attributes.get(field),
+            new_setpoint=None if new_state is None or field is None else new_state.attributes.get(field),
+        )
         if not moved:
             return False
         moved |= self._adopt_moved.get(climate_id, set())
