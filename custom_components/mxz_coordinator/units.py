@@ -44,7 +44,7 @@ def target_in_unit(value: float, set_in: object, unit: str, step: float) -> floa
 def snap_to_step(value: float, step: float) -> float:
     """``value`` on the nearest multiple of ``step``, half up.
 
-    Half up, as the CN105 path reads a head's grid (``HeadGrid.already_at``):
+    Half up, as the CN105 path reads a head's grid (``grid.Grid.already_at``):
     Python's round() is half to even. No usable step leaves it unchanged.
     """
     if not step > 0 or not math.isfinite(step):

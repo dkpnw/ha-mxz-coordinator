@@ -1061,7 +1061,7 @@ write is dropped and adopted until a person presses a value MXZ still has queued
 A write of the value the head already shows adds no copy when that value is the last one the
 memory remembers and no value before it counts a copy: as far as the memory knows, nothing else
 of MXZ's is still to come. The head shows nothing new for it, so no report could count it off. Every setpoint write to
-a head already in the right mode sends that mode too (`heads.py` `_async_set_mode_and_setpoints`),
+a head already in the right mode sends that mode too (`grid.py` `local_calls`),
 so a counted copy would stay forever, and after any target change a person's off and then on at
 the head would read the "on" as MXZ's (review 2 of this change;
 `test_off_and_on_at_the_head_count_after_target_changes`,

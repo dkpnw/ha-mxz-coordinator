@@ -26,6 +26,8 @@ LAYERS = (
     # Monotonic seconds and every wait; the one caller of async_call_later (tools/raw_timers.py).
     ("clock", {"clock"}),
     ("helpers", {"logic", "cloud", "capabilities", "host", "settings"}),
+    # What a head accepts, and what a local head is sent for a command.
+    ("grid", {"grid"}),
     # The plan one compute decides and the attributes it is shown as.
     ("plan", {"plan"}),
     # What each input and wakeup asks of the plan, each wakeup's delay, the heartbeat.
@@ -60,7 +62,7 @@ LAYERS = (
 
 # Kept free of Home Assistant so their math is tested directly (docs/DEVELOPMENT.md).
 STDLIB_ONLY = {
-    "const", "units", "logic", "cloud", "plan", "planner", "fan_latch", "resume", "settings", "timing",
+    "const", "units", "logic", "cloud", "grid", "plan", "planner", "fan_latch", "resume", "settings", "timing",
     "sim_timing",
 }
 
