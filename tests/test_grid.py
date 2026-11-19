@@ -138,6 +138,14 @@ def test_the_target_for_a_setpoint_is_the_one_the_head_holds_it_for() -> None:
     assert _grid(target_step=0.5, system_unit=C).target_for_setpoint(21.3) == 21.5
 
 
+def test_the_target_for_a_setpoint_can_be_the_step_above() -> None:
+    # 78.4 °F is 25.78 °C. 78 °F latches 25.5 °C and 77 °F 25.0 °C, each more than a quarter
+    # degree off; 79 °F latches 26.0 °C, 0.22 °C off: the step above holds it.
+    assert _grid(**CN105).target_for_setpoint(78.4) == 79.0
+    # Without a grid of its own: the nearest target.
+    assert _grid().target_for_setpoint(78.4) == 78.0
+
+
 # -- what a local head is sent -----------------------------------------------------------
 
 
