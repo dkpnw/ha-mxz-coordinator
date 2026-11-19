@@ -70,10 +70,10 @@ stateDiagram-v2
 
 | Id | What happens | Code |
 | --- | --- | --- |
-| A1 | Every report passes MXZ's older writes, then is read against what is left. A write is remembered as it goes out. | `_on_head_change`, `_watch_head_change`, `head_moved`, `DeliveryQueue._async_issue`, `MXZCoordinator.remember_head_write`, `remember_writes`, `_head_writes_caught_up`, `writes_caught_up`, `wrote`, `caught_up` |
-| A2 | While the hold runs, `_apply` writes nothing to that head, and a command of MXZ's still waiting for the head is disowned. | `_head_change_settling`, `holds_change`, `_apply`, `apply_plan`, `_watch_head_change`, `head_report`, `DeliveryQueue.disown` |
-| A3 | Eco, a standby hold, Coordinator off, a start, a pause, a floor run, a hands-off room's disablement or a stale cloud report: the change counts for nothing. A head report that ends the hold this way, the head put back by hand say, asks for a compute, because the apply skipped that head and A2 disowned its waiting command. | `_head_adoption`, `_adoption`, `adopt_head_change`, `drop_head_change`, `_watch_head_change`, `head_report`, `_on_head_change` |
-| A4 | The room's own number and switch take the change, held to the room's bounds. What the head shows then replaces what it last showed in the memory. | `_on_heal_timer`, `_async_adopt_head_change`, `adopt_end`, `_head_change_seen`, `writes_pressed`, `pressed`, `seen` |
+| A1 | Every report passes MXZ's older writes, then is read against what is left. A write is remembered as it goes out. | `_on_head_change`, `report_steps`, `head_moved`, `DeliveryQueue._async_issue`, `MXZCoordinator.remember_head_write`, `remember_writes`, `_head_writes_caught_up`, `writes_caught_up`, `wrote`, `caught_up` |
+| A2 | While the hold runs, `_apply` writes nothing to that head, and a command of MXZ's still waiting for the head is disowned. | `_head_change_settling`, `holds_change`, `_apply`, `apply_plan`, `report_steps`, `_perform_head_report`, `head_report`, `DeliveryQueue.disown` |
+| A3 | Eco, a standby hold, Coordinator off, a start, a pause, a floor run, a hands-off room's disablement or a stale cloud report: the change counts for nothing. A head report that ends the hold this way, the head put back by hand say, asks for a compute, because the apply skipped that head and A2 disowned its waiting command. | `_head_adoption`, `_adoption`, `head_change`, `adopt_head_change`, `drop_head_change`, `head_dropped`, `report_steps`, `head_report`, `_on_head_change` |
+| A4 | The room's own number and switch take the change, held to the room's bounds. What the head shows then replaces what it last showed in the memory. | `_on_heal_timer`, `_async_adopt_head_change`, `hold_end`, `adopt_end`, `_perform_adopt_step`, `off_heal_recheck`, `_head_change_seen`, `writes_pressed`, `pressed`, `seen` |
 | A5 | The next compute and apply. The head's heat or cool never reaches the shared mode. | `_apply` |
 
 ## A room's run
@@ -152,7 +152,7 @@ stateDiagram-v2
 | Id | What happens | Code |
 | --- | --- | --- |
 | F1, F2 | With no memory, `auto` sets the baseline. A speed the ladder would stay on is adopted (a hold placed there is lost: documented), a fan_only idle on an established entry reads as ours (#25), and anything else seeds a hold. | `FanHold._observe_latch`, `observe_fan`, `seed_matches_boost`, `seed_is_own_idle` |
-| F3 | Boost picks a rung and writes it once. A rewrite of the commanded token doesn't roll the memory (#14). | `FanHold.async_apply`, `fan_step`, `fan_for_delta`, `FanHold._async_write` |
+| F3 | Boost picks a rung and writes it once. A rewrite of the commanded token doesn't roll the memory (#14). | `FanHold.async_apply`, `fan_boost`, `fan_step`, `fan_for_delta`, `FanHold._wrote` |
 | F4 | A speed that is neither of the last two writes (`FanEcho.last`, `FanEcho.prior`), and not in `FanEcho.older` either, is a person's. MXZ makes no fan write while held. | `FanHold._observe_latch`, `observe_fan`, `FanEcho.own`, `hold_at` |
 | F5 | One of the two remembered speeds reads as MXZ's echo: not held, and boost writes over it. So does an older write, until the head's reports pass it (F1). A pick of the speed showing can't be read at all. | `FanHold._observe_latch`, `observe_fan`, `FanEcho.own`, `FanEcho.wrote`, `FanEcho.caught_up` |
 | F6 | A hold's memory is the held speed, so any other speed moves it. | `hold_at` |

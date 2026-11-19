@@ -58,9 +58,6 @@ from .clock import Clock
 from .const import (
     ACTION_VOTE_HOLD,
     ACTION_VOTE_SETTLE,
-    ADOPT_DELAY,
-    BAND_DRIFT_DELAY,
-    BANNED_MODES,
     CHANGEOVER_INTERVAL_MINUTES,
     COMFORT_STALE_HOURS_BOUNDS,
     CONF_ACCEPT_HEAD_CHANGES,
@@ -129,11 +126,9 @@ from .const import (
     KEY_HEAT_LOCKOUT,
     LOST_VOTE_TTL_BOUNDS,
     MODE_COOL,
-    MODE_DRY,
     MODE_FAN_ONLY,
     MODE_HEAT,
     MODE_OFF,
-    OFF_WHILE_ENABLED_DELAY,
     OFFSET_HEAD_TYPES,
     OPENING_CLOSE_DELAY_BOUNDS,
     OPENING_OPEN_DELAY_BOUNDS,
@@ -185,9 +180,7 @@ from .dry import DryMode
 from .fan_hold import FanHold
 from .floor import FloorGuard
 from .head_writes import (
-    HEAD_WRITE_MODE,
     remember_writes,
-    write_is_own,
     writes_caught_up,
     writes_pressed,
 )
@@ -197,7 +190,6 @@ from .logic import (
     HeadSight,
     HeadWriteMemory,
     RangeError,
-    as_float,
     bounded,
     call_edges,
     comfort_priority,
@@ -213,7 +205,9 @@ from .logic import (
 from .openings import OpeningPause, openings_store
 from .plan import Plan, RoomPlan
 from .planner import (
+    AdoptGates,
     Adoption,
+    AdoptStep,
     ApplyHead,
     ApplyShared,
     CallLimits,
@@ -221,36 +215,51 @@ from .planner import (
     DeliverySteps,
     DryNotice,
     FanRead,
+    FanShown,
+    FloorYielded,
     HandBack,
     HeadApply,
-    HeadChange,
+    HeadReport,
     HeadStep,
     Landed,
     LastRun,
     MemoryStep,
     ModeWriteBack,
+    OffHealRecheck,
+    Pressed,
     Queue,
+    ReportedHead,
     RoomInput,
+    SeedCancelled,
+    SetEnable,
     SetpointSettings,
+    SetTarget,
     Shared,
-    adopt_end,
+    SightLost,
+    SightObserved,
+    TakenOver,
+    WritesShown,
     adopt_head_change,
     apply_gate,
     apply_plan,
     arbitration_mode,
     decide,
     demand_bands,
-    head_moved,
-    head_report,
+    head_change,
+    head_dropped,
+    heal_due,
     held_back,
+    hold_end,
     holds,
     holds_change,
     idle_for,
     mode_change_stamp,
+    off_heal_recheck,
+    off_while_enabled,
     planned_act,
+    report_steps,
     setpoint_field,
     stamp_mode_change,
-    startup_report,
 )
 from .resume import (
     MODE_AT_KEY,
@@ -285,13 +294,10 @@ from .timing import (
     Wakeups,
     Watched,
     arms,
-    head_refresh,
-    head_shows_new,
     hold_end_arm,
-    run_changed,
     same_reading_refresh,
 )
-from .units import clamp, offset_in_unit, snap_to_step, target_in_unit
+from .units import offset_in_unit, snap_to_step, target_in_unit
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -1991,6 +1997,14 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         """Retain current inputs independently of HA's debounce timer."""
         await self.deliveries.async_request()
 
+    async def _async_ask(self, refresh: Refresh) -> None:
+        """Ask for a compute the way ``refresh`` says, waiting for a ``REQUEST`` to be taken
+        (``async_request_refresh``) where ``ask`` only schedules it."""
+        if refresh is Refresh.REQUEST:
+            await self.async_request_refresh()
+        else:
+            self.ask(refresh)
+
     async def async_refresh_now(self) -> None:
         """Recompute at once, without waiting out the request cooldown.
 
@@ -2762,185 +2776,97 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     # -- self-heal A (band drift) -------------------------------------------
     @callback
     def _on_head_change(self, event: Event[EventStateChangedData]) -> None:
-        """Track head inputs and detect banned-mode/off-while-enabled drift."""
+        """A head reported: do what :func:`planner.report_steps` says, step by step.
+
+        It tracks the head's inputs (its fan echo, MXZ's write memory, its sight), its
+        startup seed, a floor run or a paused room a person takes back, and the band, off and
+        adopt holds, then asks for the compute the report needs.
+        """
         entity_id: str = event.data["entity_id"]
         new_state = event.data.get("new_state")
         old_state = event.data.get("old_state")
-        mode = new_state.state if new_state else None
-        if new_state is not None:
-            self.fan.head_reported(entity_id, new_state.attributes.get("fan_mode"))
-            self._head_writes_caught_up(entity_id, old_state, new_state)
-        refresh_needed = False
-        refresh_now = False
+        zone = self._zone_of(entity_id)
         sight = self._sight.get(entity_id)
-        if sight is not None and mode in (None, STATE_UNAVAILABLE):
-            # Lost sight of it: what it showed just before is its last-known
-            # vote, even if no compute ran in between.
-            clock = self.clock()
-            if old_state is not None and old_state.state != STATE_UNAVAILABLE:
-                sight.observe(
-                    old_state.state, old_state.attributes.get(ATTR_HVAC_ACTION), clock
-                )
-            sight.lose(clock, dt_util.utcnow().timestamp())
-        if sight is not None and (mode in (None, STATE_UNAVAILABLE)) != (
-            old_state is None or old_state.state == STATE_UNAVAILABLE
-        ):
-            # Out of sight, or back. HA's unknown is in sight but counts as
-            # unavailable below, so unknown<->unavailable needs this to
-            # recompute the vote and the hold or expiry wakeup now.
-            refresh_needed = True
-        if (
-            new_state is not None and old_state is not None
-            and any(
-                zone.climate_id == entity_id
-                and zone.vote_basis == VOTE_BASIS_ACTION
-                and self.hands_off_phase(zone) == "released"
-                for zone in self.zones
-            )
-        ):
-            # A released room that votes by action (before release its head
-            # has no vote to change): the head starting or stopping a run
-            # starts or ends its vote (or its hold) from this report, so
-            # recompute at once. A debounced request would wait out any
-            # cooldown already running, and room reports and the person's own
-            # mode change open one every few seconds. A run reported just
-            # after a mode change is seen here too, but counts only at its
-            # settle window's end (see timing.arms).
-            refresh_now = run_changed(
-                old_state.state, new_state.state,
-                old_state.attributes.get(ATTR_HVAC_ACTION),
-                new_state.attributes.get(ATTR_HVAC_ACTION),
-            )
-        pending = next(
-            (zone for zone in self.zones
-             if zone.climate_id == entity_id and zone.slug in self._startup_resume),
-            None,
-        )
-        if pending is not None:
-            seed = startup_report(
-                mode, old_state.state if old_state else None,
-                planned=partial(self._planned_act_for, entity_id),
-                stale=partial(self.heads.stale_report, entity_id, mode=mode),
-            )
-            if seed.cancel:
-                self._startup_resume[pending.slug] = ""
-            if seed.replan:
-                refresh_needed = True
-
-        if mode == MODE_OFF:
-            # A parking hands-off head seen off has landed, unless a command
-            # of ours other than that off is still in flight (it could still
-            # turn the head back on). The off may be ours or a person's: the
-            # head is off either way, and anything after this is theirs.
-            active = self.deliveries.current(entity_id)
-            if active is None or active.act == MODE_OFF:
-                for zone in self.zones:
-                    if (
-                        zone.climate_id == entity_id
-                        and self.hands_off_phase(zone) == "parking"
-                    ):
-                        self._hands_off_released.add(zone.slug)
-                        if sight is not None:
-                            # Any run MXZ drove ends here, not at the next
-                            # compute: a person's heat before that one is
-                            # not that run stopping, so it starts no hold.
-                            sight.observe(
-                                mode, cast("State", new_state).attributes.get(ATTR_HVAC_ACTION),
-                                self.clock(),
-                            )
-        # A person changing a hands-off head during a floor run takes it back
-        # (decision 8b): a real mode change, between two available states, to
-        # anything but what MXZ is sending or would send, and not a vane kick.
-        old_mode = old_state.state if old_state else None
-        if (
-            mode != old_mode
-            and mode not in (None, *UNAVAILABLE_STATES)
-            and old_mode not in (None, *UNAVAILABLE_STATES)
-            and entity_id not in self._vane_kicks
-            and entity_id not in self._vane_kick_woken
-            and not self.heads.stale_report(entity_id, mode=mode)
-        ):
-            for zone in self.zones:
-                if (
-                    zone.climate_id == entity_id
-                    and self.hands_off_phase(zone) == "floor"
-                    and mode != self._planned_act_for(entity_id)
-                ):
-                    self.floor.yield_to_person(zone, dt_util.utcnow().timestamp())
-                    refresh_needed = True
-        # A person turning a paused room's head on, or changing its mode (its
-        # remote, its app, the head entity in HA), takes the room over until
-        # the opening closes: a real mode change between two available
-        # states, to anything but off, not MXZ's own command or vane kick.
-        if (
-            mode != old_mode
-            and mode not in (None, MODE_OFF, *UNAVAILABLE_STATES)
-            and old_mode not in (None, *UNAVAILABLE_STATES)
-            and entity_id not in self._vane_kicks
-            and entity_id not in self._vane_kick_woken
-            and not self.heads.stale_report(entity_id, mode=mode)
-        ):
-            for zone in self.zones:
-                if (
-                    zone.climate_id == entity_id
-                    and self.openings.paused(zone)
-                    and mode != self._planned_act_for(entity_id)
-                ):
-                    self.openings.take_over(zone)
-                    refresh_needed = True
-        # A cloud head's report of an older state inside its confirm wait is
-        # not drift either (never true for a local head).
+        mode = new_state.state if new_state else None
+        active = self.deliveries.current(entity_id)
         stale = self.heads.stale_report(entity_id, mode=mode)
-        self._arm_or_cancel(
-            entity_id, "band",
-            mode in BANNED_MODES and not self._hands_off_head(entity_id) and not stale
-            and not self.dry.allowed(entity_id, mode),
-            BAND_DRIFT_DELAY,
+        key = (entity_id, "adopt")
+        cloud = self.heads.cloud(entity_id)
+        report = ReportedHead(
+            key=entity_id,
+            mode=mode,
+            attributes=new_state.attributes if new_state else {},
+            old_mode=old_state.state if old_state else None,
+            old_attributes=old_state.attributes if old_state else {},
+            accept=self.accept_head_changes,
+            cloud=cloud is not None,
+            sight=sight is not None,
+            released_by_action=zone is not None and zone.vote_basis == VOTE_BASIS_ACTION
+            and self.hands_off_phase(zone) == "released",
+            startup=zone is not None and zone.slug in self._startup_resume,
+            owned_off=active is None or active.act == MODE_OFF,
+            parking=zone is not None and self.hands_off_phase(zone) == "parking",
+            kicking=entity_id in self._vane_kicks or entity_id in self._vane_kick_woken,
+            floor_run=zone is not None and self.hands_off_phase(zone) == "floor",
+            paused=zone is not None and self.openings.paused(zone),
+            stale=stale,
+            allow_dry=zone is not None and zone.allow_dry,
+            dry_allowed=self.dry.allowed(entity_id, mode),
+            enabled=self._enable_for(entity_id),
+            eco_idle=self.eco_idle,
+            inhibited=self.inhibited,
+            unresponsive=cloud is not None and cloud.unresponsive,
+            pending=self._adopt_moved.get(entity_id, set()),
+            holding=self.clock.waiting("heal", key),
+            hands_off_head=partial(self._hands_off_head, entity_id),
+            dry_reported=partial(self.dry.head_reported, entity_id, old_state, new_state, stale=stale),
+            planned=partial(self._planned_act_for, entity_id),
+            clock=self.clock,
+            adoption=partial(self._adoption, entity_id),
         )
-        if (mode == MODE_DRY) != (old_mode == MODE_DRY) and any(
-            zone.climate_id == entity_id and zone.allow_dry for zone in self.zones
-        ):
-            # Allow Dry mode: into dry pauses the room and starts its vote,
-            # out of dry ends both, so recompute now, not at the heartbeat.
-            # Dry wets the coil as cooling does: leaving it owes the coil-dry
-            # run from this moment.
-            refresh_needed = True
-            if old_mode == MODE_DRY and not stale and mode not in (None, *UNAVAILABLE_STATES):
-                self._last_active[entity_id] = (MODE_COOL, self.clock())
-        if self.dry.head_reported(entity_id, old_state, new_state, stale=stale):
-            refresh_needed = True
-        # Never heal a head the standby hold parked off (nor a wall override
-        # mid-hold — a human turning a parked head on during an outage wins),
-        # and never heal a head the PLAN itself parked off (idle_action) — but
-        # a wall-remote off during an active call or a coil-dry dwell is still
-        # drift (the plan wants that head awake).
-        off_drift = self._off_while_enabled(entity_id, mode) and not self.inhibited and not stale
-        self._arm_or_cancel(entity_id, "off", off_drift, OFF_WHILE_ENABLED_DELAY)
-        if self._watch_head_change(entity_id, old_state, new_state):
-            refresh_needed = True  # a hold ended with nothing adopted: the plan owes the head
-        if (cloud := self.heads.cloud(entity_id)) is not None and cloud.unresponsive:
-            refresh_needed = True  # an out-of-control cloud head reported again
-
-        # A fan_mode change is a latch-relevant observation (a manual pick, an
-        # `auto` handback, or our own write's echo): refresh promptly so the
-        # hold engages and the Fan auto switch mirrors it now, not at the next
-        # heartbeat. Idempotent writes + the echo-tolerant departure check make
-        # a refresh on our own echo harmless. Capability metadata and head
-        # availability also feed the plan's room explanations, even when there
-        # is no new fan observation; ordinary echoes still rely on idempotent
-        # apply.
-        self.ask(head_refresh(
-            run_changed=refresh_now,
-            moved=refresh_needed or head_shows_new(
-                old_mode, mode,
-                old_state.attributes if old_state else {},
-                new_state.attributes if new_state else {},
-            ),
-        ))
+        for step in report_steps(report):
+            match step:
+                case FanShown(fan):
+                    self.fan.head_reported(entity_id, fan)
+                case WritesShown():
+                    self._head_writes_caught_up(entity_id, old_state, new_state)
+                case SightLost(observe_old):
+                    # Lost sight of it: what it showed just before is its last-known vote,
+                    # even if no compute ran in between.
+                    clock = self.clock()
+                    if observe_old:
+                        old = cast("State", old_state)
+                        cast("HeadSight", sight).observe(
+                            old.state, old.attributes.get(ATTR_HVAC_ACTION), clock
+                        )
+                    cast("HeadSight", sight).lose(clock, dt_util.utcnow().timestamp())
+                case SeedCancelled():
+                    self._startup_resume[cast("Zone", zone).slug] = ""
+                case Landed():
+                    self._hands_off_released.add(cast("Zone", zone).slug)
+                case SightObserved():
+                    # Any run MXZ drove ends here, not at the next compute: a person's heat
+                    # before that one is not that run stopping, so it starts no hold.
+                    cast("HeadSight", sight).observe(
+                        cast("str", mode), cast("State", new_state).attributes.get(ATTR_HVAC_ACTION),
+                        self.clock(),
+                    )
+                case FloorYielded():
+                    self.floor.yield_to_person(cast("Zone", zone), dt_util.utcnow().timestamp())
+                case TakenOver():
+                    self.openings.take_over(cast("Zone", zone))
+                case Arm():
+                    self._heal(step)
+                case LastRun(run):
+                    self._last_active[entity_id] = run
+                case HeadReport():
+                    self._perform_head_report(entity_id, step)
+                case Refresh():
+                    self.ask(step)
 
     @callback
     def _arm_or_cancel(
-        self, entity_id: str, kind: str, condition: bool, delay: int
+        self, entity_id: str, kind: str, condition: bool, delay: float
     ) -> None:
         """(Re)arm a debounce wait for a drift condition, or cancel it if cleared."""
         key = (entity_id, kind)
@@ -2951,31 +2877,32 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
 
     @callback
     def _on_heal_timer(self, key: tuple[str, str]) -> None:
-        """A drift condition persisted past its debounce window."""
+        """A heal wait ran: an adopt hold ends, or a drift that persisted past its debounce
+        window is healed (``planner.heal_due``)."""
         entity_id, kind = key
         if kind == "adopt":
             self.hass.async_create_task(self._async_adopt_head_change(entity_id))
             return
         state = self.hass.states.get(entity_id)
         mode = state.state if state else None
-        if kind == "band":
-            still = (
-                mode in BANNED_MODES and not self._hands_off_head(entity_id)
-                and not self.dry.allowed(entity_id, mode)
-            )
-        else:
-            still = self._off_while_enabled(entity_id, mode)
-        still = still and not self.heads.stale_report(entity_id, mode=mode)
-        if still and self.coordinator_enable and not self.inhibited:
+        if heal_due(
+            kind, mode,
+            hands_off_head=partial(self._hands_off_head, entity_id),
+            dry_allowed=partial(self.dry.allowed, entity_id, mode),
+            enabled=self._enable_for(entity_id),
+            eco_idle=self.eco_idle,
+            planned=partial(self._planned_act_for, entity_id),
+            stale=partial(self.heads.stale_report, entity_id, mode=mode),
+            coordinator=self.coordinator_enable,
+            inhibited=self.inhibited,
+        ):
             self.hass.async_create_task(self._heal_and_notify(entity_id, kind, mode))
 
     def _off_while_enabled(self, entity_id: str, mode: str | None) -> bool:
-        """Off while its room is enabled and the plan wants it on: the off heal's drift."""
-        return (
-            mode == MODE_OFF
-            and self._enable_for(entity_id)
-            and not self.eco_idle
-            and self._planned_act_for(entity_id) != MODE_OFF
+        """Off while its room is enabled and the plan wants it on (``planner.off_while_enabled``)."""
+        return off_while_enabled(
+            mode, enabled=self._enable_for(entity_id), eco_idle=self.eco_idle,
+            planned=partial(self._planned_act_for, entity_id),
         )
 
     # -- accept changes made at the head ---------------------------------------
@@ -3041,101 +2968,65 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     def _adoption(self, climate_id: str, moved: set[str]) -> Adoption | None:
         """What this head's change asks of its room now; None if it isn't a person's.
 
-        Reads the head and its room for :func:`planner.adopt_head_change`, which decides. An
-        empty result is a person's change with nothing to adopt, like a heat/cool choice: the
-        head still goes back on the plan.
+        Reads the head and its room for :func:`planner.head_change`, and
+        :func:`planner.adopt_head_change` decides. An empty result is a person's change with
+        nothing to adopt, like a heat/cool choice: the head still goes back on the plan.
         """
         zone = self._zone_of(climate_id)
         if zone is None:
             return None
         state = self.hass.states.get(climate_id)
-        mode: str | None = None
-        field: str | None = None
-        shown: float | None = None
-        if state is not None and state.state not in UNAVAILABLE_STATES:
-            mode = state.state
-            field = self._head_setpoint_field(climate_id, state)
-            shown = None if field is None else as_float(state.attributes.get(field))
         heat_target, cool_target = self.zone_side_targets(zone)
-        memories = self._head_writes.get(climate_id, {})
-        grid = self.heads.grid.read(climate_id)
-        # The target on our step that leaves this head where a person put it, held to the
-        # bounds a target may take on it.
-        target = None if shown is None else clamp(grid.target_for_setpoint(shown), grid.target_bounds())
-        return adopt_head_change(HeadChange(
-            moved=moved,
-            accept=self.accept_head_changes,
-            retired=self.retired,
-            coordinator=self.coordinator_enable,
-            inhibited=self.inhibited,
-            eco=self.eco_active(),
-            starting=self._startup_quiet,
-            hands_off=self.hands_off_phase(zone) is not None,
-            floor=self.floor.tripped(zone.slug),
-            paused=self.openings.paused(zone),
-            stale=mode is not None and self.heads.stale_report(climate_id, mode=mode),
-            mode=mode,
-            mode_own=mode is not None and write_is_own(memories, HEAD_WRITE_MODE, mode, grid),
+        cloud = self.heads.cloud(climate_id) is not None
+        return adopt_head_change(head_change(
+            moved,
+            state=None if state is None else state.state,
+            attributes={} if state is None else state.attributes,
+            cloud=cloud,
+            gates=AdoptGates(
+                accept=self.accept_head_changes,
+                retired=self.retired,
+                coordinator=self.coordinator_enable,
+                inhibited=self.inhibited,
+                eco=self.eco_active(),
+                starting=self._startup_quiet,
+                hands_off=self.hands_off_phase(zone) is not None,
+                floor=self.floor.tripped(zone.slug),
+                paused=self.openings.paused(zone),
+            ),
             enabled=zone.enable,
-            planned=partial(self._planned_act_for, climate_id),
-            field=field,
-            setpoint=shown,
-            setpoint_own=shown is not None and write_is_own(memories, cast("str", field), shown, grid),
-            # A cloud head's poll from before MXZ's last batch, as for its mode.
-            setpoint_stale=shown is not None and self.heads.stale_report(climate_id, setpoint=shown),
-            # A cloud head runs past the room's target by its drive offset, so what it
-            # shows isn't the target and stays MXZ's to write.
-            driven=self.heads.cloud(climate_id) is not None and bool(zone.drive_offset),
-            target=target,
-            current=cool_target if mode == MODE_COOL else heat_target,
+            heat_target=heat_target,
+            cool_target=cool_target,
+            driven=cloud and bool(zone.drive_offset),
             step=self.target_step or 1.0,
+            memories=self._head_writes.get(climate_id, {}),
+            grid=self.heads.grid.read(climate_id),
+            mode_stale=lambda mode: self.heads.stale_report(climate_id, mode=mode),
+            # A cloud head's poll from before MXZ's last batch, as for its mode.
+            setpoint_stale=lambda shown: self.heads.stale_report(climate_id, setpoint=shown),
+            planned=partial(self._planned_act_for, climate_id),
         ))
 
-    @callback
-    def _watch_head_change(self, climate_id: str, old_state: Any, new_state: Any) -> bool:
-        """Arm, re-arm or cancel the adopt hold on a head's report (``planner.head_report``).
-
-        A report from or to unavailable is the head (re)loading, never a person, and a fan or
-        vane report moves nothing here. True when this report ended a hold with nothing
-        adopted: the caller must re-plan.
-        """
-        field = None if new_state is None else self._head_setpoint_field(climate_id, new_state)
-        moved = head_moved(
-            accept=self.accept_head_changes,
-            old_mode=None if old_state is None else old_state.state,
-            new_mode=None if new_state is None else new_state.state,
-            field=field,
-            old_setpoint=None if old_state is None or field is None else old_state.attributes.get(field),
-            new_setpoint=None if new_state is None or field is None else new_state.attributes.get(field),
-        )
-        key = (climate_id, "adopt")
-        report = head_report(
-            moved, self._adopt_moved.get(climate_id, set()),
-            key=key, holding=self.clock.waiting("heal", key),
-            adoption=partial(self._adoption, climate_id),
-        )
-        if report is None:
-            return False
+    def _perform_head_report(self, climate_id: str, report: HeadReport) -> None:
+        """Do what a report (or a change to the room) does to the head's adopt hold
+        (``planner.head_report``, ``head_dropped``): keep or drop what moved, arm or cancel the
+        hold, and disown a command of MXZ's still waiting for the head."""
         if report.pending is None:
             self._heal(report.hold)
             self._adopt_moved.pop(climate_id, None)
-            return report.replan
+            return
         self._adopt_moved[climate_id] = report.pending
         self._heal(report.hold)
         if report.disown:
             # A person's change is newer than a command of ours still to be sent. Whoever
             # ends the hold re-plans: an adoption does, and so does a hold that ends with
-            # nothing adopted (above).
+            # nothing adopted.
             self.deliveries.disown(climate_id)
-        return report.replan
 
     def _heal(self, arm: Arm) -> None:
         """Arm a heal wait (band, off or adopt, keyed by head and kind), or cancel it for None."""
-        if arm.delay is None:
-            self.clock.cancel("heal", arm.key)
-        else:
-            key = cast("tuple[str, str]", arm.key)
-            self.clock.call_later(arm.delay, partial(self._on_heal_timer, key), name="heal", key=key)
+        entity_id, kind = cast("tuple[str, str]", arm.key)
+        self._arm_or_cancel(entity_id, kind, arm.delay is not None, arm.delay or 0.0)
 
     def _head_change_settling(self, climate_id: str) -> bool:
         """Whether a person's change at this head is still holding, and would still count
@@ -3147,10 +3038,9 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
 
     @callback
     def drop_head_change(self, climate_id: str) -> None:
-        """A hold ends with nothing to adopt. A change to the room in Home Assistant
-        during one ends it too: the later change wins."""
-        self._arm_or_cancel(climate_id, "adopt", False, ADOPT_DELAY)
-        self._adopt_moved.pop(climate_id, None)
+        """A change to the room in Home Assistant during an adopt hold ends it with nothing
+        adopted: the later change wins (``planner.head_dropped``)."""
+        self._perform_head_report(climate_id, head_dropped((climate_id, "adopt")))
 
     def _head_change_seen(self, climate_id: str, state: Any, names: tuple[str, ...]) -> None:
         """A person's change is what the head shows now, whatever MXZ wrote before it."""
@@ -3171,52 +3061,61 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     async def _async_adopt_head_change(self, climate_id: str) -> None:
         """A change at a head held past the delay: copy it to the room, then re-plan.
 
-        Through the room's own number and switch, so it follows their rules and
-        restores like any other change. The apply this ends then puts the head on
-        the plan's mode, with the new target. If a write is refused, nothing is
-        adopted and that apply overwrites the head, as it would with the option off.
+        Does what :func:`planner.hold_end` says, through the room's own number and switch, so
+        it follows their rules and restores like any other change. The apply this ends then
+        puts the head on the plan's mode, with the new target. If a write is refused, nothing
+        more is adopted and that apply overwrites the head, as it would with the option off.
         """
         moved = self._adopt_moved.pop(climate_id, set())
         adoption = self._adoption(climate_id, moved)
+        zone = self._zone_of(climate_id)
+        state = self.hass.states.get(climate_id)
+        end = hold_end(
+            moved, adoption,
+            mode=None if state is None else state.state,
+            field=None if state is None else self._head_setpoint_field(climate_id, state),
+            dual=zone is not None and zone.dual,
+        )
         try:
-            if adoption is None:
-                return
-            zone = cast("Zone", self._zone_of(climate_id))
-            state = cast("State", self.hass.states.get(climate_id))
-            end = adopt_end(
-                moved, adoption, mode=state.state,
-                field=self._head_setpoint_field(climate_id, state), dual=zone.dual,
-            )
-            self._head_change_seen(climate_id, state, end.seen)
-            if change := adoption.as_dict():
-                _LOGGER.info("MXZ: adopting a change made at %s: %s", climate_id, change)
-            if end.number is not None and (
-                eid := self._sibling_entity("number", f"{zone.slug}_{end.number}")
-            ):
-                await self.hass.services.async_call(
-                    "number", "set_value", {"entity_id": eid, "value": end.target}, blocking=True,
-                )
-            if end.enable is not None and (
-                eid := self._sibling_entity("switch", f"{zone.slug}_enable")
-            ):
-                await self.hass.services.async_call(
-                    "switch", "turn_on" if end.enable else "turn_off",
-                    {"entity_id": eid}, blocking=True,
-                )
-            # The off heal, rechecked against the room as it is now: an off
-            # adopted as "disable the room" is the room's, not drift, and a
-            # later re-enable is read from the head's next report, not from
-            # this timer. A refused adopt leaves it running, as with the option off.
-            head = self.hass.states.get(climate_id)
-            if self.clock.waiting("heal", (climate_id, "off")) and not self._off_while_enabled(
-                climate_id, head.state if head is not None else None
-            ):
-                self._arm_or_cancel(climate_id, "off", False, OFF_WHILE_ENABLED_DELAY)
+            for step in end.steps:
+                await self._perform_adopt_step(climate_id, cast("Zone", zone), state, step)
+                if isinstance(step, Pressed) and adoption is not None and (change := adoption.as_dict()):
+                    _LOGGER.info("MXZ: adopting a change made at %s: %s", climate_id, change)
         except HomeAssistantError as err:
             _LOGGER.warning("MXZ: couldn't adopt a change made at %s: %s", climate_id, err)
         finally:
             if not self.retired:
-                await self.async_request_refresh()
+                await self._async_ask(end.refresh)
+
+    async def _perform_adopt_step(
+        self, climate_id: str, zone: Zone, state: State | None, step: AdoptStep
+    ) -> None:
+        """Do one step of an adopt hold's end (``planner.AdoptEnd.steps``)."""
+        match step:
+            case Pressed(fields):
+                self._head_change_seen(climate_id, state, fields)
+            case SetTarget(number, value):
+                if eid := self._sibling_entity("number", f"{zone.slug}_{number}"):
+                    await self.hass.services.async_call(
+                        "number", "set_value", {"entity_id": eid, "value": value}, blocking=True,
+                    )
+            case SetEnable(on):
+                if eid := self._sibling_entity("switch", f"{zone.slug}_enable"):
+                    await self.hass.services.async_call(
+                        "switch", "turn_on" if on else "turn_off", {"entity_id": eid}, blocking=True,
+                    )
+            case OffHealRecheck():
+                # A refused adopt never gets here: the off heal stays armed, as with the
+                # option off.
+                head = self.hass.states.get(climate_id)
+                mode = head.state if head is not None else None
+                cancel = off_heal_recheck(
+                    climate_id, self.clock.waiting("heal", (climate_id, "off")), mode,
+                    enabled=self._enable_for(climate_id), eco_idle=self.eco_idle,
+                    planned=partial(self._planned_act_for, climate_id),
+                )
+                if cancel is not None:
+                    self._heal(cancel)
 
     async def _heal_and_notify(self, entity_id: str, kind: str, mode: str | None) -> None:
         """Re-apply the plan to a head that drifted; log it, and tell someone once an hour.

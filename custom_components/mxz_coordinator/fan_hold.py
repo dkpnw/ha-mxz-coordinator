@@ -15,6 +15,7 @@ import math
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Any, Protocol
 
 from homeassistant.helpers.restore_state import ExtraStoredData
@@ -29,14 +30,18 @@ from .const import (
     MODE_HEAT,
 )
 from .fan_latch import (
+    EchoCaughtUp,
     FanEcho,
     FanLatch,
     FanLimits,
     FanRecord,
+    KeepLatch,
+    SendFan,
+    WroteFan,
     fan_auto,
+    fan_boost,
     fan_read,
     fan_record,
-    fan_step,
     observe_fan,
     restored,
 )
@@ -145,43 +150,30 @@ class FanHold:
 
         A manual pick latches (see ``fan_latch.observe_fan``): while a head is
         latched the coordinator makes NO fan writes to it, so a user's chosen
-        speed survives every apply cycle. ``fan_latch.fan_step`` decides, after
-        the head's report is read here (``head_reported``); the hold is
-        published before the write goes out.
+        speed survives every apply cycle. ``fan_latch.fan_boost`` says what to do, in
+        order: the head's report is read first (``FanEcho.caught_up``), then
+        ``fan_latch.fan_step`` decides; the hold is published before the write goes
+        out.
         """
         host = self._host
-        if not host.fan_boost_enable:
-            return
-
         state = host.hass.states.get(climate_id)
-        if state is None:
-            return
-        modes = state.attributes.get("fan_modes")
-        if not modes or FAN_AUTO not in modes:
-            # No fan control, or no "auto" to release the latch (or return a
-            # satisfied head to) -> leave the head's fan entirely alone. This
-            # supersedes the old best-effort ladder writes to auto-less heads,
-            # which could only ratchet the fan up with no way back down.
-            return
-
-        observed = state.attributes.get("fan_mode")
-        if observed is None:
-            # Fan control is advertised but no current speed is reported (a
-            # head still loading, or one that publishes its speed late). There
-            # is nothing to reconcile a restored hold or the latch against, and
-            # a write now would override a speed nobody can see — so no fan
-            # decision this cycle. Restored truth stays pending and a standing
-            # hold stays standing until the head reports a speed.
-            return
-
-        self.head_reported(climate_id, observed)
-        latch, token = fan_step(
-            self._latch(climate_id), observed, act, delta, modes=modes, limits=self._limits()
-        )
-        self._keep(climate_id, latch)
-        self.publish(climate_id)
-        if token is not None:
-            await self._async_write(climate_id, token)
+        attributes = state.attributes if state is not None else {}
+        for step in fan_boost(
+            partial(self._latch, climate_id), attributes.get("fan_mode"), act, delta,
+            boost=host.fan_boost_enable, modes=attributes.get("fan_modes"), limits=self._limits,
+        ):
+            match step:
+                case EchoCaughtUp():
+                    self.publish(climate_id)
+                case KeepLatch(latch):
+                    self._keep(climate_id, latch)
+                    self.publish(climate_id)
+                case WroteFan(token):
+                    self._wrote(climate_id, token)
+                case SendFan(token):
+                    await host.deliveries.async_send(
+                        climate_id, "set_fan_mode", {"fan_mode": token},
+                    )
 
     def cloud_token(
         self, climate_id: str, cloud: CloudHead, state: Any, fan_act: str,
@@ -304,8 +296,8 @@ class FanHold:
         ceiling = self._host.fan_boost_max
         return FAN_LADDER.index(ceiling) if ceiling in FAN_LADDER else len(FAN_LADDER) - 1
 
-    async def _async_write(self, climate_id: str, token: str) -> None:
-        """Issue a fan_mode write and remember it (last + prior, for the echo race).
+    def _wrote(self, climate_id: str, token: str) -> None:
+        """Remember a fan_mode write going out (last + prior, for the echo race), and publish.
 
         A REWRITE of the token already commanded (the idempotency path retrying
         a write a slow head hasn't applied yet) must NOT roll the memory: prior
@@ -323,10 +315,6 @@ class FanHold:
         """
         self._echo[climate_id].wrote(token)
         self.publish(climate_id)
-        await self._host.deliveries.async_send(
-            climate_id, "set_fan_mode",
-            {"fan_mode": token},
-        )
 
     # -- the manual-fan latch -------------------------------------------------
     def head_reported(self, climate_id: str, observed: Any) -> None:

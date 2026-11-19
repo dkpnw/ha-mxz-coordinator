@@ -730,7 +730,7 @@ Crash == WithCrash /\ \E t \in (IF WithFan THEN Tokens ELSE {fanShown}) : Start(
 
 (***************************************************************************)
 (* WithAdopt: room 1's setpoint and changes made at its head               *)
-(* (coordinator._watch_head_change, _head_adoption, planner.head_moved,    *)
+(* (planner.report_steps, _head_adoption, planner.head_moved,              *)
 (* planner.adopt_head_change, _async_adopt_head_change;                    *)
 (* logic.HeadWriteMemory). The head is running,                            *)
 (* so its setpoint field is fixed; only the setpoint moves. A head that    *)

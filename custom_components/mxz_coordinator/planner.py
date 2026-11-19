@@ -29,6 +29,8 @@ from typing import Any
 
 from .const import (
     ADOPT_DELAY,
+    BAND_DRIFT_DELAY,
+    BANNED_MODES,
     DEMAND_NEUTRAL,
     ENGAGE_SATISFIED,
     IDLE_ACTION_FAN_ONLY,
@@ -39,17 +41,22 @@ from .const import (
     MODE_FAN_ONLY,
     MODE_HEAT,
     MODE_OFF,
+    OFF_WHILE_ENABLED_DELAY,
     UNAVAILABLE_STATES,
     VOTE_EXPIRED,
 )
-from .head_writes import HEAD_WRITE_MODE
+from .grid import Grid
+from .head_writes import HEAD_WRITE_MODE, write_is_own
 from .logic import (
     PRIORITY_DEMAND,
     PRIORITY_FLOOR_HEAT,
     PRIORITY_SAFETY,
     PRIORITY_VOTE,
+    STATE_UNAVAILABLE,
     Demand,
+    HeadWriteMemory,
     arbitrate,
+    as_float,
     comfort_boost,
     engage_with_latch,
     head_action,
@@ -58,7 +65,16 @@ from .logic import (
     setpoints,
 )
 from .plan import Plan, RoomPlan
-from .timing import Arm, coil_dry_delay, hold_end_arm
+from .timing import (
+    Arm,
+    Refresh,
+    coil_dry_delay,
+    head_refresh,
+    head_shows_new,
+    hold_end_arm,
+    run_changed,
+)
+from .units import clamp
 
 
 @dataclass(frozen=True, slots=True)
@@ -1335,6 +1351,51 @@ class AdoptEnd:
     target: float | None
     enable: bool | None
 
+    @property
+    def steps(self) -> tuple[AdoptStep, ...]:
+        """What the end writes, in order: the memory takes what the head shows, the room's
+        target, its enable, then the off heal is checked again against the room as it is now."""
+        return (
+            Pressed(self.seen),
+            *((SetTarget(self.number, self.target),)
+              if self.number is not None and self.target is not None else ()),
+            *((SetEnable(self.enable),) if self.enable is not None else ()),
+            OffHealRecheck(),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Pressed:
+    """MXZ's write memory takes what the head shows for ``fields`` (``writes_pressed``): a
+    person's change is what the head shows now, whatever MXZ wrote before it."""
+
+    fields: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SetTarget:
+    """The room's ``number`` (``target``, ``target_high`` or ``target_low``) is set to ``value``,
+    through the room's own number."""
+
+    number: str
+    value: float
+
+
+@dataclass(frozen=True, slots=True)
+class SetEnable:
+    """The room's enable is set to ``on``, through the room's own switch."""
+
+    on: bool
+
+
+@dataclass(frozen=True, slots=True)
+class OffHealRecheck:
+    """The head's off heal, if armed, is checked again against the room as it is now
+    (:func:`off_heal_recheck`): an off adopted as "disable the room" is the room's, not drift."""
+
+
+type AdoptStep = Pressed | SetTarget | SetEnable | OffHealRecheck
+
 
 def adopt_end(
     moved: Collection[str], adoption: Adoption, *, mode: str, field: str | None, dual: bool
@@ -1381,3 +1442,375 @@ def startup_report(
         cancel=mode == MODE_OFF and planned() != MODE_OFF and not stale(),
         replan=mode not in (None, *UNAVAILABLE_STATES) and mode != old_mode,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class HoldEnd:
+    """What the end of an adopt hold does: ``steps`` in order, then a compute asked for
+    (``refresh``), also after a write that is refused."""
+
+    steps: tuple[AdoptStep, ...]
+    refresh: Refresh = Refresh.REQUEST
+
+
+def hold_end(
+    moved: Collection[str],
+    adoption: Adoption | None,
+    *,
+    mode: str | None,
+    field: str | None,
+    dual: bool,
+) -> HoldEnd:
+    """An adopt hold ends (its ``heal`` wakeup for ``(head, "adopt")`` ran).
+
+    ``moved`` is the pending set, taken: the hold's end consumes it. ``adoption`` is the change
+    judged again now (:func:`adopt_head_change` of :func:`head_change`); None adopts nothing and
+    only asks for a compute. ``mode`` and ``field`` are what the head shows now and the setpoint
+    carrying the room's target in it.
+    """
+    if adoption is None or mode is None:
+        return HoldEnd(steps=())
+    return HoldEnd(steps=adopt_end(moved, adoption, mode=mode, field=field, dual=dual).steps)
+
+
+def head_dropped(key: Hashable) -> HeadReport:
+    """A change to the room in Home Assistant (its target, range or enable) during an adopt
+    hold ends the hold with nothing adopted: the later change wins. ``key`` is the hold's."""
+    return HeadReport(pending=None, hold=Arm("heal", key, None), disown=False, replan=False)
+
+
+def band_drift(mode: str | None, *, hands_off_head: bool, dry_allowed: bool) -> bool:
+    """A head in a mode MXZ never runs (``BANNED_MODES``), unless it is a released hands-off
+    room's (``hands_off_head``) or in a Dry its room lets stay (``dry_allowed``)."""
+    return mode in BANNED_MODES and not hands_off_head and not dry_allowed
+
+
+def off_while_enabled(
+    mode: str | None, *, enabled: bool, eco_idle: bool, planned: Callable[[], str | None]
+) -> bool:
+    """Off while its room is enabled and the plan wants it on: the off heal's drift. ``planned``
+    (:func:`planned_act`) is read last, only for an off at an enabled room's head outside eco."""
+    return mode == MODE_OFF and enabled and not eco_idle and planned() != MODE_OFF
+
+
+def off_heal_recheck(
+    head: Hashable,
+    waiting: bool,
+    mode: str | None,
+    *,
+    enabled: bool,
+    eco_idle: bool,
+    planned: Callable[[], str | None],
+) -> Arm | None:
+    """:class:`OffHealRecheck` at ``head``: an armed off heal (``waiting``) whose head no longer
+    drifts (:func:`off_while_enabled`, ``mode`` as it shows now) is cancelled; None leaves it as
+    it is. A later re-enable is read from the head's next report, not from this wait."""
+    if waiting and not off_while_enabled(mode, enabled=enabled, eco_idle=eco_idle, planned=planned):
+        return Arm("heal", (head, "off"), None)
+    return None
+
+
+def heal_due(
+    kind: str,
+    mode: str | None,
+    *,
+    hands_off_head: Callable[[], bool],
+    dry_allowed: Callable[[], bool],
+    enabled: bool,
+    eco_idle: bool,
+    planned: Callable[[], str | None],
+    stale: Callable[[], bool],
+    coordinator: bool,
+    inhibited: bool,
+) -> bool:
+    """A ``band`` or ``off`` heal wait ran: whether its drift still holds, so the plan is applied
+    to the head again (a compute is asked for, and someone told). ``mode`` is what the head shows
+    now; ``stale``, a cloud head's report of an older state, is not drift. Each read is made only
+    when it decides."""
+    if kind == "band":
+        still = band_drift(mode, hands_off_head=hands_off_head(), dry_allowed=dry_allowed())
+    else:
+        still = off_while_enabled(mode, enabled=enabled, eco_idle=eco_idle, planned=planned)
+    return still and not stale() and coordinator and not inhibited
+
+
+@dataclass(frozen=True, slots=True)
+class AdoptGates:
+    """What turns head-change adoption off for a head (:class:`HeadChange`'s gates): Accept
+    changes made at the head (``accept``), this coordinator retired, the Coordinator switch on
+    (``coordinator``), a standby hold (``inhibited``), eco, a start still quiet (``starting``),
+    a disabled hands-off room (``hands_off``), a floor run (``floor``) and a door/window pause
+    (``paused``)."""
+
+    accept: bool
+    retired: bool
+    coordinator: bool
+    inhibited: bool
+    eco: bool
+    starting: bool
+    hands_off: bool
+    floor: bool
+    paused: bool
+
+
+def head_change(
+    moved: Collection[str],
+    *,
+    state: str | None,
+    attributes: Mapping[str, Any],
+    cloud: bool,
+    gates: AdoptGates,
+    enabled: bool,
+    heat_target: float,
+    cool_target: float,
+    driven: bool,
+    step: float,
+    memories: Mapping[str, HeadWriteMemory],
+    grid: Grid,
+    mode_stale: Callable[[str], bool],
+    setpoint_stale: Callable[[float], bool],
+    planned: Callable[[], str | None],
+) -> HeadChange:
+    """The :class:`HeadChange` a head shows (``state`` and ``attributes``, None and empty for no
+    state) for what moved since its adopt hold began.
+
+    The head's mode is what it shows, None for no state or unavailable; the setpoint is the one
+    carrying the room's target in it (:func:`setpoint_field`), as a number. Whether MXZ's own
+    writes explain each is read off ``memories`` on the head's ``grid``. The candidate target is
+    the target on the room's step that leaves the head where a person put it
+    (``Grid.target_for_setpoint``), held to the bounds a target may take on it. ``current`` is
+    the room's Cool to in cool and its Heat to otherwise. ``driven`` is a cloud head run past
+    the target by its drive offset. ``mode_stale`` and ``setpoint_stale`` say whether a cloud
+    head's poll is from before MXZ's last batch; ``step`` is the room's target step.
+    """
+    mode = state if state is not None and state not in UNAVAILABLE_STATES else None
+    field: str | None = None
+    shown: float | None = None
+    if mode is not None:
+        field = setpoint_field(mode, features=attributes.get("supported_features"), cloud=cloud)
+        shown = None if field is None else as_float(attributes.get(field))
+    target = None if shown is None else clamp(grid.target_for_setpoint(shown), grid.target_bounds())
+    return HeadChange(
+        moved=moved,
+        accept=gates.accept,
+        retired=gates.retired,
+        coordinator=gates.coordinator,
+        inhibited=gates.inhibited,
+        eco=gates.eco,
+        starting=gates.starting,
+        hands_off=gates.hands_off,
+        floor=gates.floor,
+        paused=gates.paused,
+        stale=mode is not None and mode_stale(mode),
+        mode=mode,
+        mode_own=mode is not None and write_is_own(memories, HEAD_WRITE_MODE, mode, grid),
+        enabled=enabled,
+        planned=planned,
+        field=field,
+        setpoint=shown,
+        setpoint_own=(
+            shown is not None and field is not None and write_is_own(memories, field, shown, grid)
+        ),
+        setpoint_stale=shown is not None and setpoint_stale(shown),
+        driven=driven,
+        target=target,
+        current=cool_target if mode == MODE_COOL else heat_target,
+        step=step,
+    )
+
+
+# -- a head's report -------------------------------------------------------------------------
+# The attribute a head's run shows (Home Assistant's ATTR_HVAC_ACTION).
+_HVAC_ACTION = "hvac_action"
+
+
+@dataclass(frozen=True, slots=True)
+class FanShown:
+    """The head shows ``fan``: the fan writes before it are behind it (``FanEcho.caught_up``)."""
+
+    fan: Any
+
+
+@dataclass(frozen=True, slots=True)
+class WritesShown:
+    """MXZ's mode and setpoint writes before this report are behind the head for good
+    (``head_writes.writes_caught_up``)."""
+
+
+@dataclass(frozen=True, slots=True)
+class SightLost:
+    """MXZ loses sight of the head: what it showed just before (``observe_old``: the old state
+    was in sight) is its last-known vote, then it is out of sight (``HeadSight``)."""
+
+    observe_old: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SightObserved:
+    """The head's run as it shows it now is observed (``HeadSight.observe``): a parking
+    hands-off head's run MXZ drove ends here."""
+
+
+@dataclass(frozen=True, slots=True)
+class SeedCancelled:
+    """The room's startup seed is cancelled: it resumes no run."""
+
+
+@dataclass(frozen=True, slots=True)
+class FloorYielded:
+    """A person's mode change takes a hands-off head back from the floor run (decision 8b)."""
+
+
+@dataclass(frozen=True, slots=True)
+class TakenOver:
+    """A person's change at a paused room's head takes the room over until the opening
+    closes."""
+
+
+type ReportStep = (
+    FanShown | WritesShown | SightLost | SightObserved | SeedCancelled | Landed | FloorYielded
+    | TakenOver | Arm | LastRun | HeadReport | Refresh
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ReportedHead:
+    """A head's report as MXZ reads it.
+
+    ``key`` is the head. ``mode`` and ``attributes`` are what the new state shows (None and
+    empty for none), ``old_mode`` and ``old_attributes`` the state before it. Read before the
+    report does anything: ``accept`` (Accept changes made at the head), ``cloud`` (a cloud
+    head), ``sight`` (MXZ keeps sight of it), ``released_by_action`` (a released hands-off room
+    votes by its run), ``startup`` (its room's startup seed waits), ``owned_off`` (no command of
+    MXZ's but an off runs on it), ``parking`` (its hands-off room is parking), ``kicking`` (a
+    vane kick runs or just woke it), ``floor_run`` (a floor run has it), ``paused`` (its room
+    is paused for an opening), ``stale`` (a cloud head's report of an older state), ``allow_dry``
+    (its room offers Dry), ``dry_allowed`` (a Dry its room lets stay), ``enabled``,
+    ``eco_idle``, ``inhibited`` (a standby hold), ``unresponsive`` (a cloud head out of control
+    reported again), ``pending`` (what moved since its adopt hold began) and ``holding`` (the
+    hold is armed).
+
+    Read when the report reaches them, after what it did before: ``hands_off_head`` (its room
+    is a released hands-off room: a floor run the report ended released it), ``dry_reported``
+    (Dry's reading of the report, which keeps what it reads; true when it ends a room's Dry),
+    ``planned`` (:func:`planned_act`; reading it can rebuild the head's coil-dry memory and arm
+    its wakeup, ``IdlePark.steps``), ``clock`` and ``adoption`` (:func:`adopt_head_change` of
+    :func:`head_change` for what moved).
+    """
+
+    key: str
+    mode: str | None
+    attributes: Mapping[str, Any]
+    old_mode: str | None
+    old_attributes: Mapping[str, Any]
+    accept: bool
+    cloud: bool
+    sight: bool
+    released_by_action: bool
+    startup: bool
+    owned_off: bool
+    parking: bool
+    kicking: bool
+    floor_run: bool
+    paused: bool
+    stale: bool
+    allow_dry: bool
+    dry_allowed: bool
+    enabled: bool
+    eco_idle: bool
+    inhibited: bool
+    unresponsive: bool
+    pending: Collection[str]
+    holding: bool
+    hands_off_head: Callable[[], bool]
+    dry_reported: Callable[[], bool]
+    planned: Callable[[], str | None]
+    clock: Callable[[], float]
+    adoption: Callable[[set[str]], Adoption | None]
+
+
+def report_steps(r: ReportedHead) -> Iterator[ReportStep]:
+    """What a head's report does, in order; each step is done before the next is decided.
+
+    The fan echo and MXZ's write memory catch up on what it shows. Out of sight: its last-known
+    vote is kept. A startup seed it cancels (:func:`startup_report`). A parking hands-off head
+    seen off with nothing of MXZ's but an off in flight has landed. A person's real mode change
+    (between two available states, not a vane kick, not stale) to anything but what the plan
+    wants takes a floor-run head back, and, to anything but off, a paused room over. The band
+    heal wait is armed or cancelled (:func:`band_drift`); leaving dry owes the coil-dry run from
+    now. The off heal wait (:func:`off_while_enabled`, outside a standby hold). The adopt hold
+    (:func:`head_report`). Last, the compute it asks for (``timing.head_refresh``), if any: at
+    once for a released room that votes by its run and started or stopped one, else for any
+    step that re-plans or anything new the head shows.
+    """
+    mode, old_mode = r.mode, r.old_mode
+    key = r.key
+    if mode is not None:
+        yield FanShown(r.attributes.get("fan_mode"))
+        yield WritesShown()
+    replan = False
+    lost = mode in (None, STATE_UNAVAILABLE)
+    if r.sight and lost:
+        yield SightLost(observe_old=old_mode is not None and old_mode != STATE_UNAVAILABLE)
+    if r.sight and lost != (old_mode is None or old_mode == STATE_UNAVAILABLE):
+        # Out of sight, or back: unknown <-> unavailable recomputes the vote now too.
+        replan = True
+    run = False
+    if mode is not None and old_mode is not None and r.released_by_action:
+        run = run_changed(
+            old_mode, mode, r.old_attributes.get(_HVAC_ACTION), r.attributes.get(_HVAC_ACTION),
+        )
+    if r.startup:
+        seed = startup_report(mode, old_mode, planned=r.planned, stale=lambda: r.stale)
+        if seed.cancel:
+            yield SeedCancelled()
+        if seed.replan:
+            replan = True
+    if mode == MODE_OFF and r.owned_off and r.parking:
+        yield Landed()
+        if r.sight:
+            yield SightObserved()
+    real = (
+        mode != old_mode and mode not in (None, *UNAVAILABLE_STATES)
+        and old_mode not in (None, *UNAVAILABLE_STATES) and not r.kicking and not r.stale
+    )
+    if real and r.floor_run and mode != r.planned():
+        yield FloorYielded()
+        replan = True
+    if real and mode != MODE_OFF and r.paused and mode != r.planned():
+        yield TakenOver()
+        replan = True
+    band = band_drift(mode, hands_off_head=r.hands_off_head(), dry_allowed=r.dry_allowed)
+    yield Arm("heal", (key, "band"), BAND_DRIFT_DELAY if band and not r.stale else None)
+    if (mode == MODE_DRY) != (old_mode == MODE_DRY) and r.allow_dry:
+        replan = True
+        if old_mode == MODE_DRY and not r.stale and mode not in (None, *UNAVAILABLE_STATES):
+            # Dry wets the coil as cooling does: leaving it owes the coil-dry run from now.
+            yield LastRun((MODE_COOL, r.clock()))
+    if r.dry_reported():
+        replan = True
+    off = (
+        off_while_enabled(mode, enabled=r.enabled, eco_idle=r.eco_idle, planned=r.planned)
+        and not r.inhibited and not r.stale
+    )
+    yield Arm("heal", (key, "off"), OFF_WHILE_ENABLED_DELAY if off else None)
+    field = None if mode is None else setpoint_field(
+        mode, features=r.attributes.get("supported_features"), cloud=r.cloud,
+    )
+    moved = head_moved(
+        accept=r.accept, old_mode=old_mode, new_mode=mode, field=field,
+        old_setpoint=None if old_mode is None or field is None else r.old_attributes.get(field),
+        new_setpoint=None if mode is None or field is None else r.attributes.get(field),
+    )
+    report = head_report(moved, r.pending, key=(key, "adopt"), holding=r.holding, adoption=r.adoption)
+    if report is not None:
+        yield report
+        replan = replan or report.replan
+    if r.unresponsive:
+        replan = True
+    refresh = head_refresh(
+        run_changed=run,
+        moved=replan or head_shows_new(old_mode, mode, r.old_attributes, r.attributes),
+    )
+    if refresh is not None:
+        yield refresh
