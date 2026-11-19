@@ -28,6 +28,8 @@ LAYERS = (
     ("helpers", {"logic", "cloud", "capabilities", "host", "settings"}),
     # What a head accepts, and what a local head is sent for a command.
     ("grid", {"grid"}),
+    # MXZ's memory of its own mode and setpoint writes to a head, field by field.
+    ("head writes", {"head_writes"}),
     # The plan one compute decides and the attributes it is shown as.
     ("plan", {"plan"}),
     # What each input and wakeup asks of the plan, each wakeup's delay, the heartbeat.
@@ -62,7 +64,7 @@ LAYERS = (
 
 # Kept free of Home Assistant so their math is tested directly (docs/DEVELOPMENT.md).
 STDLIB_ONLY = {
-    "const", "units", "logic", "cloud", "grid", "plan", "planner", "fan_latch", "resume", "settings", "timing",
+    "const", "units", "logic", "cloud", "grid", "head_writes", "plan", "planner", "fan_latch", "resume", "settings", "timing",
     "sim_timing",
 }
 

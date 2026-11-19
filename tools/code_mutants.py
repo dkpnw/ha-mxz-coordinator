@@ -332,7 +332,7 @@ MUTANTS: dict[str, Mutant] = {
     # Changes made at a head and MXZ's memory of its own writes (OwnWriteNeverAdopted,
     # HoldBlocksWrite, StartWriteNeverAdopted in ci-adopt and ci-adopt-restart).
     'C44': Mutant(
-        "a write to a head isn't remembered", 'remember_head_write',
+        "a write to a head isn't remembered", 'remember_writes',
         'if name in payload:',
         'if False:',
         'tests/test_accept_head_changes.py::test_a_head_two_writes_behind_is_not_adopted',

@@ -18,7 +18,6 @@ import asyncio
 import copy
 import logging
 import math
-import operator
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
@@ -186,6 +185,13 @@ from .delivery import DeliveryQueue
 from .dry import DryMode
 from .fan_hold import FanHold
 from .floor import FloorGuard
+from .head_writes import (
+    HEAD_WRITE_MODE,
+    remember_writes,
+    write_is_own,
+    writes_caught_up,
+    writes_pressed,
+)
 from .heads import HeadDrivers
 from .host import Effect
 from .logic import (
@@ -237,8 +243,6 @@ from .planner import (
     startup_report,
 )
 from .resume import (
-    HEAD_WRITE_FIELDS,
-    HEAD_WRITE_MODE,
     MODE_AT_KEY,
     MODE_BY_VOTES_KEY,
     MODE_CHANGE_KEY,
@@ -2950,37 +2954,20 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     # -- accept changes made at the head ---------------------------------------
     # From @BHSPitMonkey's fork (Discussion #103), rebuilt on MXZ's write memory: a
     # report MXZ's own writes can explain is never a person, however late it comes.
-    def _head_write_same(self, climate_id: str, name: str) -> Callable[[Any, Any], bool]:
-        """How a report of this field compares with a write of it."""
-        if name == HEAD_WRITE_MODE:
-            return operator.eq
-        return partial(self.heads.grid.already_at, climate_id)
-
-    @staticmethod
-    def _head_shows(state: Any, name: str) -> Any:
-        """What a head's state shows for this field, None if nothing usable."""
-        if state is None or state.state in UNAVAILABLE_STATES:
-            return None
-        if name == HEAD_WRITE_MODE:
-            return state.state
-        return as_float(state.attributes.get(name))
-
     def remember_head_write(self, climate_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Keep a mode or setpoint MXZ is sending, as ``FanEcho.wrote`` does a fan.
 
-        Returns the fields that counted a copy, for :meth:`take_back_head_write`.
+        Returns the fields that counted a copy (``head_writes.remember_writes``), for
+        :meth:`take_back_head_write`.
         """
         state = self.hass.states.get(climate_id)
-        memory = self._head_writes.setdefault(climate_id, {})
-        counted: dict[str, Any] = {}
-        for name in HEAD_WRITE_FIELDS:
-            if name in payload:
-                remembered = memory.setdefault(name, HeadWriteMemory(HEAD_WRITES_REMEMBERED))
-                if remembered.wrote(
-                    payload[name], self._head_shows(state, name),
-                    self._head_write_same(climate_id, name),
-                ):
-                    counted[name] = payload[name]
+        counted = remember_writes(
+            self._head_writes.setdefault(climate_id, {}), payload,
+            mode=state.state if state is not None else None,
+            attributes=state.attributes if state is not None else None,
+            grid=self.heads.grid.read(climate_id),
+            size=HEAD_WRITES_REMEMBERED,
+        )
         self.room_state.changed()
         return counted
 
@@ -2994,21 +2981,19 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             self.room_state.changed()
 
     def _head_writes_caught_up(self, climate_id: str, old_state: Any, state: Any) -> None:
-        """A head's report: the writes before it are behind the head for good."""
+        """A head's report: the writes before it are behind the head for good
+        (``head_writes.writes_caught_up``)."""
         memories = self._head_writes.get(climate_id, {})
-        for name, memory in memories.items():
-            shown = self._head_shows(state, name)
-            if shown is not None:
-                memory.caught_up(
-                    shown, self._head_write_same(climate_id, name),
-                    moved=shown != self._head_shows(old_state, name),
-                )
         if memories:
+            writes_caught_up(
+                memories,
+                old_mode=old_state.state if old_state is not None else None,
+                old_attributes=old_state.attributes if old_state is not None else None,
+                mode=state.state if state is not None else None,
+                attributes=state.attributes if state is not None else None,
+                grid=self.heads.grid.read(climate_id),
+            )
             self.room_state.changed()
-
-    def _head_write_is_own(self, climate_id: str, name: str, shown: Any) -> bool:
-        memory = self._head_writes.get(climate_id, {}).get(name)
-        return memory is not None and memory.own(shown, self._head_write_same(climate_id, name))
 
     def _head_setpoint_field(self, climate_id: str, state: Any) -> str | None:
         """The setpoint carrying the room's target in the mode this head shows (``planner.setpoint_field``)."""
@@ -3045,12 +3030,11 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             field = self._head_setpoint_field(climate_id, state)
             shown = None if field is None else as_float(state.attributes.get(field))
         heat_target, cool_target = self.zone_side_targets(zone)
-        target = None
-        if shown is not None:
-            # The target on our step that leaves this head where a person put it, held to the
-            # bounds a target may take on it.
-            grid = self.heads.grid.read(climate_id)
-            target = clamp(grid.target_for_setpoint(shown), grid.target_bounds())
+        memories = self._head_writes.get(climate_id, {})
+        grid = self.heads.grid.read(climate_id)
+        # The target on our step that leaves this head where a person put it, held to the
+        # bounds a target may take on it.
+        target = None if shown is None else clamp(grid.target_for_setpoint(shown), grid.target_bounds())
         return adopt_head_change(HeadChange(
             moved=moved,
             accept=self.accept_head_changes,
@@ -3064,15 +3048,12 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             paused=self.openings.paused(zone),
             stale=mode is not None and self.heads.stale_report(climate_id, mode=mode),
             mode=mode,
-            mode_own=mode is not None and self._head_write_is_own(climate_id, HEAD_WRITE_MODE, mode),
+            mode_own=mode is not None and write_is_own(memories, HEAD_WRITE_MODE, mode, grid),
             enabled=zone.enable,
             planned=partial(self._planned_act_for, climate_id),
             field=field,
             setpoint=shown,
-            setpoint_own=(
-                shown is not None
-                and self._head_write_is_own(climate_id, cast("str", field), shown)
-            ),
+            setpoint_own=shown is not None and write_is_own(memories, cast("str", field), shown, grid),
             # A cloud head's poll from before MXZ's last batch, as for its mode.
             setpoint_stale=shown is not None and self.heads.stale_report(climate_id, setpoint=shown),
             # A cloud head runs past the room's target by its drive offset, so what it
@@ -3146,12 +3127,12 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
 
     def _head_change_seen(self, climate_id: str, state: Any, names: tuple[str, ...]) -> None:
         """A person's change is what the head shows now, whatever MXZ wrote before it."""
-        memory = self._head_writes.get(climate_id, {})
-        for name in names:
-            if name in memory:
-                memory[name].pressed(
-                    self._head_shows(state, name), self._head_write_same(climate_id, name)
-                )
+        writes_pressed(
+            self._head_writes.get(climate_id, {}), names,
+            mode=state.state if state is not None else None,
+            attributes=state.attributes if state is not None else None,
+            grid=self.heads.grid.read(climate_id),
+        )
         self.room_state.changed()
 
     def _sibling_entity(self, platform: str, key: str) -> str | None:

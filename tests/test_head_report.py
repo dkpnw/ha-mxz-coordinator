@@ -17,6 +17,10 @@ from custom_components.mxz_coordinator.const import (
     MODE_HEAT,
     MODE_OFF,
 )
+from custom_components.mxz_coordinator.head_writes import (
+    HEAD_WRITE_FIELDS,
+    HEAD_WRITE_MODE,
+)
 from custom_components.mxz_coordinator.logic import HeadWriteMemory
 from custom_components.mxz_coordinator.planner import (
     Adoption,
@@ -26,7 +30,6 @@ from custom_components.mxz_coordinator.planner import (
     holds_change,
     startup_report,
 )
-from custom_components.mxz_coordinator.resume import HEAD_WRITE_FIELDS, HEAD_WRITE_MODE
 from custom_components.mxz_coordinator.timing import Arm
 
 KEY = ("climate.a", "adopt")

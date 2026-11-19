@@ -70,10 +70,10 @@ stateDiagram-v2
 
 | Id | What happens | Code |
 | --- | --- | --- |
-| A1 | Every report passes MXZ's older writes, then is read against what is left. A write is remembered as it goes out. | `_on_head_change`, `_watch_head_change`, `head_moved`, `DeliveryQueue._async_issue`, `MXZCoordinator.remember_head_write`, `_head_writes_caught_up`, `wrote`, `caught_up` |
+| A1 | Every report passes MXZ's older writes, then is read against what is left. A write is remembered as it goes out. | `_on_head_change`, `_watch_head_change`, `head_moved`, `DeliveryQueue._async_issue`, `MXZCoordinator.remember_head_write`, `remember_writes`, `_head_writes_caught_up`, `writes_caught_up`, `wrote`, `caught_up` |
 | A2 | While the hold runs, `_apply` writes nothing to that head, and a command of MXZ's still waiting for the head is disowned. | `_head_change_settling`, `holds_change`, `_apply`, `apply_plan`, `_watch_head_change`, `head_report`, `DeliveryQueue.disown` |
 | A3 | Eco, a standby hold, Coordinator off, a start, a pause, a floor run, a hands-off room's disablement or a stale cloud report: the change counts for nothing. A head report that ends the hold this way, the head put back by hand say, asks for a compute, because the apply skipped that head and A2 disowned its waiting command. | `_head_adoption`, `_adoption`, `adopt_head_change`, `drop_head_change`, `_watch_head_change`, `head_report`, `_on_head_change` |
-| A4 | The room's own number and switch take the change, held to the room's bounds. What the head shows then replaces what it last showed in the memory. | `_on_heal_timer`, `_async_adopt_head_change`, `adopt_end`, `_head_change_seen`, `pressed`, `seen` |
+| A4 | The room's own number and switch take the change, held to the room's bounds. What the head shows then replaces what it last showed in the memory. | `_on_heal_timer`, `_async_adopt_head_change`, `adopt_end`, `_head_change_seen`, `writes_pressed`, `pressed`, `seen` |
 | A5 | The next compute and apply. The head's heat or cool never reaches the shared mode. | `_apply` |
 
 ## A room's run

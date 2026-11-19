@@ -33,6 +33,7 @@ from .const import (
     UNAVAILABLE_STATES,
     VOTE_EXPIRED,
 )
+from .head_writes import HEAD_WRITE_MODE
 from .logic import (
     PRIORITY_DEMAND,
     PRIORITY_FLOOR_HEAT,
@@ -1208,7 +1209,7 @@ class AdoptEnd:
     """What the end of an adopt hold writes.
 
     ``seen``: the head-write fields whose memory takes what the head shows now
-    (``HeadWriteMemory.pressed``): ``hvac_mode`` when the mode moved, the setpoint field when
+    (``head_writes.writes_pressed``): ``HEAD_WRITE_MODE`` when the mode moved, the setpoint field when
     the setpoint did. ``number``: the room's number the target goes to (``target``, or a dual
     room's ``target_high`` in cool and ``target_low`` otherwise), None for no target.
     ``target`` and ``enable``: the room's new target and enable (None: unchanged). Then a
@@ -1229,7 +1230,7 @@ def adopt_end(
     ``moved`` is what moved since the hold began, ``mode`` the mode the head shows and
     ``field`` the setpoint carrying the room's target in it (:func:`setpoint_field`).
     """
-    seen = (*(("hvac_mode",) if "mode" in moved else ()),
+    seen = (*((HEAD_WRITE_MODE,) if "mode" in moved else ()),
             *((field,) if "setpoint" in moved and field else ()))
     number = None
     if adoption.target is not None:
