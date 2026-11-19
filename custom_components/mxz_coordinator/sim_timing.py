@@ -66,8 +66,10 @@ class Computed:
     """The compute a step asked for ran.
 
     ``sent``: its plan queued a delivery to a head. ``asked``: what its heads' reports asked for
-    while it was applied, in order. ``armed``: the wakeups it armed or cancelled, in order:
-    ``planner.ApplyResult.armed``, then what its deliveries cancelled, then ``timing.arms``.
+    while it was applied, in order. ``armed``: the wakeups it armed or cancelled, in the order
+    the product's steps did them: each ``Arm`` among the apply's ``HeadApply.steps`` and the
+    write-back's ``ModeStamp.hold_end`` (``planner.apply_plan``, ``stamp_mode_change``), then
+    each one its deliveries' notes did (``DeliverySteps.note``), then ``timing.arms``.
     """
 
     sent: bool

@@ -217,15 +217,25 @@ from .planner import (
     ApplyHead,
     ApplyShared,
     CallLimits,
+    CoilDryMemory,
     DeliverySteps,
+    DryNotice,
+    FanRead,
+    HandBack,
     HeadApply,
     HeadChange,
+    HeadStep,
+    Landed,
+    LastRun,
+    MemoryStep,
     ModeWriteBack,
+    Queue,
     RoomInput,
     SetpointSettings,
     Shared,
     adopt_end,
     adopt_head_change,
+    apply_gate,
     apply_plan,
     arbitration_mode,
     decide,
@@ -239,6 +249,7 @@ from .planner import (
     mode_change_stamp,
     planned_act,
     setpoint_field,
+    stamp_mode_change,
     startup_report,
 )
 from .resume import (
@@ -2109,11 +2120,13 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         The caller writes the record (``_record_mode``) once the shared mode
         and the select show the change.
         """
-        self._last_mode_change_ts = self.clock()
-        self._last_mode_change_at = dt_util.utcnow().timestamp()
-        if self.retired:
-            return
-        self._arm_hold_end_timer()
+        stamp = stamp_mode_change(
+            self.clock, lambda: dt_util.utcnow().timestamp(),
+            retired=self.retired, hold=self.hysteresis,
+        )
+        self._last_mode_change_ts, self._last_mode_change_at = stamp.at, stamp.wall
+        if stamp.hold_end is not None:
+            self._arm_hold_end(stamp.hold_end)
 
     def _record_mode(self) -> None:
         """Write the shared mode, whether votes alone set it, and the last
@@ -2166,7 +2179,11 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         has the dwell wakeup for that. This only keeps the hold attributes
         honest when nothing else would write them at the end.
         """
-        delay = hold_end_arm(self.mode_hold_remaining(), retired=self.retired).delay
+        self._arm_hold_end(hold_end_arm(self.mode_hold_remaining(), retired=self.retired))
+
+    def _arm_hold_end(self, arm: Arm) -> None:
+        """Arm the hold-end re-render ``arm`` says, or cancel it for a delay of None."""
+        delay = arm.delay
         if delay is None:
             self.clock.cancel("hold_end")
             return
@@ -2182,36 +2199,39 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     async def _apply(self, plan: Plan) -> None:
         """Schedule each head's ordered plan writes, record the mode, then wait; idempotent.
 
-        :func:`planner.apply_plan` decides each head's part and the write-back; this reads
-        what it reads and does what it returns, head by head, in room order. Nothing is
-        awaited between the compute and the mode's writeback, so a person's pick is either
-        read by this plan or made after its record, and no head's outcome, a reload or a new
-        input can skip the record of a change already sent to the heads.
+        :func:`planner.apply_plan` decides each head's part and the write-back, one at a time;
+        this performs each part before it asks for the next, so each head is read when the
+        apply reaches it, after the heads before it were done. Nothing is awaited between the
+        compute and the mode's writeback, so a person's pick is either read by this plan or
+        made after its record, and no head's outcome, a reload or a new input can skip the
+        record of a change already sent to the heads.
         """
         # A hand-back (P3) is for this apply only: one skipped (Coordinator off, a standby
         # park, no plan yet) leaves the head as MXZ left it.
         handbacks = self.floor.take_handbacks()
-        result = apply_plan(
-            plan,
-            [self._apply_head(zone, room) for zone, room in zip(self.zones, plan.rooms)],
-            self._apply_shared(),
-        )
-        if result.gate not in (None, "standby"):
+        shared = self._apply_shared()
+        gate = apply_gate(plan, shared)
+        if gate not in (None, "standby"):
             return
+        zones = iter(self.zones)
         tasks = []
-        for zone, head in zip(self.zones, result.heads):
-            task = self._perform_head(zone, head, plan.state, handbacks)
+        for part in apply_plan(
+            plan,
+            (self._apply_head(zone, room) for zone, room in zip(self.zones, plan.rooms)),
+            shared,
+        ):
+            if isinstance(part, ModeWriteBack):
+                self._write_back_mode(part)
+                continue
+            task = self._perform_head(next(zones), part, plan.state, handbacks)
             if task is not None:
                 tasks.append(task)
-        if result.write_back is None:
-            await self.deliveries.async_wait(tasks)
-            return
-        self._write_back_mode(result.write_back)
         await self.deliveries.async_wait(tasks)
-        await self.openings.async_restore_vanes()
+        if gate is None:
+            await self.openings.async_restore_vanes()
 
     def _apply_head(self, zone: Zone, room: RoomPlan) -> ApplyHead:
-        """One room's head as the apply reads it (``planner.ApplyHead``)."""
+        """One room's head as the apply reads it when it reaches it (``planner.ApplyHead``)."""
         cid = zone.climate_id
         head = self.hass.states.get(cid)
         heat_target, cool_target = self.zone_side_targets(zone)
@@ -2232,8 +2252,14 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             cool_target=float(cool_target),
             floor_clear=self.floor.clear(zone, floor) if floor else None,
             taken_over=self.floor.taken_over(zone.slug),
-            last_run=self._last_active.get(cid),
-            dry_waiting=self.clock.waiting("dry", cid),
+            coil_dry=partial(self._coil_dry_memory, cid),
+        )
+
+    def _coil_dry_memory(self, climate_id: str) -> CoilDryMemory:
+        """This head's coil-dry memory as it is now (``planner.CoilDryMemory``)."""
+        return CoilDryMemory(
+            last_run=self._last_active.get(climate_id),
+            waiting=self.clock.waiting("dry", climate_id),
         )
 
     def _apply_shared(self) -> ApplyShared:
@@ -2261,40 +2287,52 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             mode=self.current_shared_mode,
             by_votes=self._mode_by_votes,
             resting=self._resting_bias(),
-            hold=self.hysteresis,
         )
 
     def _perform_head(
         self, zone: Zone, head: HeadApply, state: str,
         handbacks: dict[str, tuple[tuple[str, float, float], int, tuple[Any, ...] | None]],
     ) -> asyncio.Task[Any] | None:
-        """Do one head's part of the apply, in its order; return the delivery queued, if any."""
-        cid = zone.climate_id
-        if head.dry_stamp is not None:
-            self._last_active[cid] = head.dry_stamp
-        if head.dry_notice:
-            self.dry.notice_parked(zone)
-        if head.seeded is not None:
-            self._last_active[cid] = head.seeded
-        if head.arm is not None:
-            self.perform_arm(head.arm)
-        if head.fan_read is not None:
-            self.fan.read(cid, head.fan_read)
-        if head.skip == "handback":
-            # A floor run ended on a head a person was already running that way: theirs
-            # again, as they had it (P3).
-            return self.floor.queue_handback(zone, handbacks.get(zone.slug))
-        if head.released:
-            self._hands_off_released.add(zone.slug)
-        command = head.command
-        if command is None:
-            return None
-        task = self.deliveries.queue(
-            cid, command.mode, command.low, command.high, command.delta, command.fan
-        )
-        if task is not None and head.taken:
-            self.floor.expect_command(zone, state, command.low, command.high)
+        """Do one head's part of the apply, step by step; return the delivery queued, if any."""
+        task = None
+        for step in head.steps:
+            task = self._perform_step(zone, step, state, handbacks) or task
         return task
+
+    def _perform_step(
+        self, zone: Zone, step: HeadStep, state: str,
+        handbacks: dict[str, tuple[tuple[str, float, float], int, tuple[Any, ...] | None]],
+    ) -> asyncio.Task[Any] | None:
+        """Do one step of a head's part of the apply; return the delivery it queued, if any."""
+        cid = zone.climate_id
+        match step:
+            case DryNotice():
+                self.dry.notice_parked(zone)
+            case FanRead(act):
+                self.fan.read(cid, act)
+            case HandBack():
+                # A floor run ended on a head a person was already running that way: theirs
+                # again, as they had it (P3).
+                return self.floor.queue_handback(zone, handbacks.get(zone.slug))
+            case Landed():
+                self._hands_off_released.add(zone.slug)
+            case Queue(command, taken):
+                task = self.deliveries.queue(
+                    cid, command.mode, command.low, command.high, command.delta, command.fan
+                )
+                if task is not None and taken:
+                    self.floor.expect_command(zone, state, command.low, command.high)
+                return task
+            case _:
+                self.perform_head_step(cid, step)
+        return None
+
+    def perform_head_step(self, climate_id: str, step: MemoryStep) -> None:
+        """Keep this head's last run, or arm or cancel one of its wakeups."""
+        if isinstance(step, LastRun):
+            self._last_active[climate_id] = step.run
+        else:
+            self.perform_arm(step)
 
     def perform_arm(self, arm: Arm | CancelAll) -> None:
         """Arm this wakeup, which asks what ``timing.WAKEUPS`` says when it runs; cancel it for
@@ -2412,8 +2450,8 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         """The terminal parking mode (fan_only|off) for a non-running head now.
 
         :func:`planner.idle_for` decides, with the coil-dry memory rebuilt from what the head
-        shows after a restart; this keeps the rebuilt memory and arms the coil-dry wakeup it
-        says.
+        shows after a restart; this performs what reading it does (``IdlePark.steps``): the
+        rebuilt memory kept, the coil-dry wakeup armed.
         """
         state = self.hass.states.get(climate_id)
         park = idle_for(
@@ -2421,23 +2459,19 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             state.state if state is not None else None, self.coil_dry_seconds, self.clock(),
             dry_waiting=self.clock.waiting("dry", climate_id),
         )
-        if park.seeded is not None:
-            self._last_active[climate_id] = park.seeded
-        if park.arm is not None:
-            self.perform_arm(park.arm)
+        for step in park.steps:
+            self.perform_head_step(climate_id, step)
         return park.idle
 
     def note_head_act(self, climate_id: str, steps: DeliverySteps, act: str, at: float) -> None:
         """A head driver is sending this head ``act`` for the plan, at ``at``.
 
-        ``steps`` (``planner.delivery_steps``) says whether it is the head's last
-        run, which the coil-dry dwell counts from, and whether it ends a coil-dry
-        run's wakeup.
+        ``steps`` (``planner.delivery_steps``) says what that does to its coil-dry memory
+        (``DeliverySteps.note``): the act kept as its last run, which the coil-dry dwell
+        counts from, and its coil-dry wakeup cancelled.
         """
-        if steps.last_run:
-            self._last_active[climate_id] = (act, at)
-        if steps.ends_coil_dry:
-            self.clock.cancel("dry", climate_id)
+        for step in steps.note(climate_id, act, at):
+            self.perform_head_step(climate_id, step)
 
     def _planned_act_for(self, entity_id: str) -> str | None:
         """The action owning this head's writes, else the current plan's action

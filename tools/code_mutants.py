@@ -150,8 +150,8 @@ MUTANTS: dict[str, Mutant] = {
     ),
     'C14': Mutant(
         "a paused head isn't sent off", '_head_apply',
-        'return HeadApply(cid, fan_read=MODE_OFF, command=_PAUSE_OFF)',
-        'return HeadApply(cid, fan_read=MODE_OFF)',
+        'return HeadApply(cid, steps=(FanRead(MODE_OFF), Queue(_PAUSE_OFF)))',
+        'return HeadApply(cid, steps=(FanRead(MODE_OFF),))',
         'tests/test_properties_window.py::test_a_pause_stops_the_head_and_a_takeover_holds_until_the_window_closes',
     ),
     'C15': Mutant(
@@ -319,8 +319,8 @@ MUTANTS: dict[str, Mutant] = {
     # The mode's record and each head's command (RecordLeadsHeads, ci-apply).
     'C42': Mutant(
         'the heads are sent the mode before it is recorded', '_apply',
-        'self._write_back_mode(result.write_back)\n        await self.deliveries.async_wait(tasks)',
-        'await self.deliveries.async_wait(tasks)\n        self._write_back_mode(result.write_back)',
+        'self._write_back_mode(part)\n',
+        'await self.deliveries.async_wait(tasks)\n                self._write_back_mode(part)\n',
         'tests/test_head_fault.py::test_a_head_is_sent_a_new_mode_only_once_it_is_the_recorded_mode',
     ),
     'C43': Mutant(
@@ -581,8 +581,8 @@ MUTANTS: dict[str, Mutant] = {
     ),
     'H24': Mutant(
         'the pause sends the coil-dry fan run first', '_head_apply',
-        'return HeadApply(cid, fan_read=MODE_OFF, command=_PAUSE_OFF)',
-        'return HeadApply(cid, fan_read=MODE_OFF, command=replace(_PAUSE_OFF, mode=idle_for(cid, shared.idle_action, head.last_run, head.head, shared.coil_dry_seconds, shared.clock, dry_waiting=head.dry_waiting).idle))',
+        'return HeadApply(cid, steps=(FanRead(MODE_OFF), Queue(_PAUSE_OFF)))',
+        'return HeadApply(cid, steps=(FanRead(MODE_OFF), Queue(replace(_PAUSE_OFF, mode=idle_for(cid, shared.idle_action, head.coil_dry().last_run, head.head, shared.coil_dry_seconds, shared.clock, dry_waiting=head.coil_dry().waiting).idle))))',
         'tests/test_door_window.py::test_open_for_the_open_delay_pauses_straight_to_off',
     ),
 
