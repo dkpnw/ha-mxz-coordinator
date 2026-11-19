@@ -3181,9 +3181,13 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         if zone is None:
             return None
         state = self.hass.states.get(climate_id)
-        mode = None if state is None or state.state in UNAVAILABLE_STATES else state.state
-        field = None if mode is None else self._head_setpoint_field(climate_id, state)
-        shown = None if field is None else as_float(state.attributes.get(field))
+        mode: str | None = None
+        field: str | None = None
+        shown: float | None = None
+        if state is not None and state.state not in UNAVAILABLE_STATES:
+            mode = state.state
+            field = self._head_setpoint_field(climate_id, state)
+            shown = None if field is None else as_float(state.attributes.get(field))
         heat_target, cool_target = self.zone_side_targets(zone)
         adoption = adopt_head_change(HeadChange(
             moved=moved,
