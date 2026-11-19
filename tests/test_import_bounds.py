@@ -39,8 +39,8 @@ def test_without_its_exceptions_the_tree_shows_exactly_the_five_known_edges(monk
         "climate.py:66: climate (layer surfaces) imports number (layer surfaces)" + LOWER,
         "dry.py:32: dry (layer lower controllers) type-only imports coordinator (layer coordinator)" + LOWER,
         "floor.py:41: floor (layer floor) type-only imports coordinator (layer coordinator)" + LOWER,
-        "heads.py:66: heads (layer head drivers) type-only imports coordinator (layer coordinator)" + LOWER,
-        "openings.py:48: openings (layer controllers) type-only imports coordinator (layer coordinator)" + LOWER,
+        "heads.py:67: heads (layer head drivers) type-only imports coordinator (layer coordinator)" + LOWER,
+        "openings.py:50: openings (layer controllers) type-only imports coordinator (layer coordinator)" + LOWER,
     ]
 
 

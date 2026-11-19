@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict, dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from homeassistant.core import Event, HomeAssistant, callback
@@ -41,6 +42,7 @@ from .logic import (
     opening_state,
 )
 from .resume import SECTION_OPENINGS
+from .timing import opening_delay, opening_wait
 
 if TYPE_CHECKING:
     from homeassistant.core import EventStateChangedData
@@ -504,10 +506,13 @@ class OpeningPause:
                 continue
             if reading is None:
                 continue
-            delay = (
-                zone.opening_open_delay if reading != CLOSED_READ else zone.opening_close_delay
+            self._arm_timer(
+                zone.slug,
+                opening_wait(
+                    reading, open_delay=zone.opening_open_delay,
+                    close_delay=zone.opening_close_delay,
+                ),
             )
-            self._arm_timer(zone.slug, delay)
         self._hass.async_create_task(self._host.async_request_refresh())
 
     def sync_timers(self) -> None:
@@ -525,15 +530,11 @@ class OpeningPause:
         if self._host.retired:
             self._host.clock.cancel("opening", slug)
             return
-
-        @callback
-        def _fire() -> None:
-            # At once, not after the request cooldown: the delay is the
-            # promise, so a pause or resume lands when it ends.
-            if not self._host.retired:
-                self._hass.async_create_task(self._host.async_refresh_now())
-
-        self._host.clock.call_later(max(0.0, delay), _fire, name="opening", key=slug)
+        # At once, not after the request cooldown (timing.WAKEUPS): the delay is
+        # the promise, so a pause or resume lands when it ends.
+        self._host.clock.call_later(
+            opening_delay(delay), partial(self._host.wake, "opening"), name="opening", key=slug
+        )
 
     def state_of(self, slug: str) -> str | None:
         """This room's door/window state, or None for a room without the pause."""

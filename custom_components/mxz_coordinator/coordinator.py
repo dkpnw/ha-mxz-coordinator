@@ -48,7 +48,6 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.start import async_at_start
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import (
-    REQUEST_REFRESH_DEFAULT_COOLDOWN,
     REQUEST_REFRESH_DEFAULT_IMMEDIATE,
     DataUpdateCoordinator,
 )
@@ -106,7 +105,6 @@ from .const import (
     DEFAULT_OPENING_CLOSE_DELAY,
     DEFAULT_OPENING_OPEN_DELAY,
     DEFAULT_RESTING_MODE_BIAS,
-    DEMAND_NEUTRAL,
     DOMAIN,
     DUAL_HANDOFF_KEY,
     DUAL_ZONE_ENTITY_SUFFIXES,
@@ -123,7 +121,6 @@ from .const import (
     HEALTH_ELIGIBLE,
     HEALTH_HEALTHY,
     HEALTH_INVALID,
-    HEALTH_REPORT_SENSITIVE,
     HEALTH_STALE,
     HEALTH_UNHEALTHY,
     IDLE_ACTION_OFF_AFTER_DRY,
@@ -193,11 +190,9 @@ from .floor import FloorGuard
 from .heads import HeadDrivers
 from .host import Effect
 from .logic import (
-    Demand,
     HeadSight,
     HeadWriteMemory,
     RangeError,
-    arbitrate,
     as_float,
     bounded,
     call_edges,
@@ -223,12 +218,12 @@ from .planner import (
     SetpointSettings,
     Shared,
     adopt_head_change,
-    arbitration_entries,
     arbitration_mode,
     decide,
     demand_bands,
     head_command,
     head_moved,
+    held_back,
     holds,
     idle_park,
     mode_change_stamp,
@@ -260,6 +255,22 @@ from .resume import (
 )
 from .room_state import RoomStateStore
 from .settings import entry_config, one_home
+from .timing import (
+    HEARTBEAT,
+    REQUEST_COOLDOWN,
+    WAKEUPS,
+    Refresh,
+    coast_delay,
+    coil_dry_delay,
+    dwell_delay,
+    fresh_delay,
+    head_refresh,
+    head_shows_new,
+    hold_end_delay,
+    nearest,
+    run_changed,
+    same_reading_refresh,
+)
 from .units import clamp, offset_in_unit, snap_to_step, target_in_unit
 
 if TYPE_CHECKING:
@@ -566,16 +577,6 @@ def _parse_zones(
     return zones
 
 
-# How long after a coast (an engage latch disengaging) the room is looked at
-# again. It is the request-refresh cooldown plus a second, because that is the
-# interval a head WITH a fan mode already gets: its echo asks for a refresh,
-# which the debouncer runs one cooldown later. Landing after that cooldown
-# leaves the echo path in charge on the heads that have one — that refresh
-# coasts nothing, so it drops this wakeup — and gives the heads that have no
-# fan mode the same re-evaluation instead of none.
-COAST_FOLLOWUP_DELAY = REQUEST_REFRESH_DEFAULT_COOLDOWN + 1  # s
-
-
 # ---------------------------------------------------------------------------
 # The last real mode change, kept across reloads and restarts
 # ---------------------------------------------------------------------------
@@ -783,7 +784,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         debouncer: Debouncer[Any] = Debouncer(
             hass,
             _LOGGER,
-            cooldown=REQUEST_REFRESH_DEFAULT_COOLDOWN,
+            cooldown=REQUEST_COOLDOWN,
             immediate=REQUEST_REFRESH_DEFAULT_IMMEDIATE,
         )
         super().__init__(
@@ -1221,7 +1222,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             self._unsubs.append(unsub)
         self._unsubs.append(
             async_track_time_interval(
-                self.hass, self._on_heartbeat, timedelta(minutes=15)
+                self.hass, self._on_heartbeat, timedelta(seconds=HEARTBEAT)
             )
         )
         # Keep the mxz_recompute event so the echavet proxy companion can poke us.
@@ -1965,22 +1966,37 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         report landing at the boundary wins by having moved its own deadline,
         and a recovery or a config reload in between is simply what gets seen.
         """
-        if not self._fresh_deadline:
-            self.clock.cancel("fresh")
-            return
         # The boundary itself, with no allowance added: the deadline IS the
         # third due instant, and a room that is stale at it must not keep
         # steering the house for another second by construction. The comparison
         # is half-open, so the refresh this fires evaluates the boundary as
         # stale — and a report that landed at the boundary has already moved
         # its own deadline, so re-reading is what lets it win.
-        remaining = min(self._fresh_deadline.values()) - dt_util.utcnow().timestamp()
-        self.clock.call_later(max(remaining, 0.0), self._wake, name="fresh")
+        delay = fresh_delay(self._fresh_deadline.values(), dt_util.utcnow().timestamp())
+        self._arm("fresh", delay)
+
+    def _arm(self, name: str, delay: float | None) -> None:
+        """Arm this wakeup for ``delay`` seconds, or cancel it for None."""
+        if delay is None:
+            self.clock.cancel(name)
+        else:
+            self.clock.call_later(delay, partial(self.wake, name), name=name)
 
     @callback
-    def _wake(self) -> None:
-        """A wait ran out: ask for the ordinary recompute, which re-reads everything."""
-        self.hass.async_create_task(self.async_request_refresh())
+    def wake(self, name: str) -> None:
+        """A wait ran out: ask for what ``timing.WAKEUPS`` says, which re-reads everything."""
+        if not self.retired:
+            self.ask(WAKEUPS[name])
+
+    @callback
+    def ask(self, refresh: Refresh | None) -> None:
+        """Ask for a compute the way ``refresh`` says; None asks nothing."""
+        if refresh is Refresh.NOW:
+            self.hass.async_create_task(self.async_refresh_now())
+        elif refresh is Refresh.REPORT:
+            self.deliveries.request_for_report()
+        elif refresh is Refresh.REQUEST:
+            self.hass.async_create_task(self.async_request_refresh())
 
     async def async_request_refresh(self) -> None:
         """Retain current inputs independently of HA's debounce timer."""
@@ -2065,49 +2081,19 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         """
         elapsed = self._mode_change_elapsed()
         remaining = -math.inf if elapsed is None else self.hysteresis - elapsed
-        if (
-            self.clock.retired
-            or not self.coordinator_enable
-            or self.parked_by_standby()
-        ):
-            self.clock.cancel("dwell")
-            return
-        if remaining <= 0 and plan.mode_change_allowed:
-            self.clock.cancel("dwell")  # this plan already had its free hand
-            return
-        current = arbitration_mode(self.current_shared_mode)
-        held_demands, held_engages = self._held_calls(plan)
-        engaged = any(e in (MODE_COOL, MODE_HEAT) for e in held_engages)
-        arb_demands: list[Demand] = []
-        for i, (room, demand) in enumerate(zip(plan.rooms, held_demands)):
-            arb_demands.extend(
-                arbitration_entries(
-                    demand=demand,
-                    vote=room.hands_off_vote,
-                    safety=room.safety_priority,
-                    index=i,
-                    floor=room.floor_want,
-                    dry=room.dry_vote,
-                    boost=room.comfort_priority,
-                )
-            )
-        would_flip_to = arbitrate(
-            arb_demands, engaged=engaged, current=current, allowed=True,
-            resting=self._resting_bias(), running=current in held_engages,
-        ).direction
-        if would_flip_to == current:
-            self.clock.cancel("dwell")  # nothing is waiting on this dwell
-            return
-        self._arm_dwell_timer(remaining)
-
-    def _arm_dwell_timer(self, remaining: float) -> None:
-        """Replace the pending wakeup with one for this dwell's expiry.
-
-        ``remaining <= 0`` is a dwell that ran out while the last decision was
-        being applied: that one wakes up at the first opportunity.
-        """
-        delay = remaining + 1 if remaining > 0 else 0
-        self.clock.call_later(delay, self._wake, name="dwell")
+        delay = dwell_delay(
+            remaining,
+            active=not (
+                self.clock.retired or not self.coordinator_enable or self.parked_by_standby()
+            ),
+            allowed=plan.mode_change_allowed,
+            held_back=lambda: held_back(
+                plan.rooms,
+                current=arbitration_mode(self.current_shared_mode),
+                resting=self._resting_bias(),
+            ),
+        )
+        self._arm("dwell", delay)
 
     # -- the mode-change hold: clock, record, display -------------------------
     def _mode_change_elapsed(self) -> float | None:
@@ -2201,8 +2187,8 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         has the dwell wakeup for that. This only keeps the hold attributes
         honest when nothing else would write them at the end.
         """
-        remaining = self.mode_hold_remaining()
-        if self.retired or remaining <= 0:
+        delay = hold_end_delay(self.mode_hold_remaining())
+        if self.retired or delay is None:
             self.clock.cancel("hold_end")
             return
 
@@ -2211,7 +2197,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             if not self.retired:
                 self.async_update_listeners()
 
-        self.clock.call_later(remaining + 1, _fire, name="hold_end")
+        self.clock.call_later(delay, _fire, name="hold_end")
 
     # -- engage-latch coast follow-up ----------------------------------------
     def _sync_coast_timer(self) -> None:
@@ -2239,14 +2225,13 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         wins. It cannot chain: the compute it asks for finds the latch already
         let go, so that compute coasts nothing.
         """
-        if (
-            not self.coordinator_enable
-            or self.parked_by_standby()
-            or not self._coasted
-        ):
-            self.clock.cancel("coast")
-            return
-        self.clock.call_later(COAST_FOLLOWUP_DELAY, self._wake, name="coast")
+        self._arm(
+            "coast",
+            coast_delay(
+                self._coasted,
+                active=self.coordinator_enable and not self.parked_by_standby(),
+            ),
+        )
 
     # -- actuator (mirrors script.mxz_coordinate) ---------------------------
     async def _apply(self, plan: Plan) -> None:
@@ -2505,7 +2490,9 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         idle, coil_dry = idle_park(self.idle_action, last_run, self.coil_dry_seconds, self.clock())
         if coil_dry is not None and not self.clock.waiting("dry", climate_id):
             # The stamp doesn't move while idle.
-            self.clock.call_later(coil_dry + 1, self._wake, name="dry", key=climate_id)
+            self.clock.call_later(
+                coil_dry_delay(coil_dry), partial(self.wake, "dry"), name="dry", key=climate_id
+            )
         return idle
 
     def _seed_last_active(self, climate_id: str) -> tuple[str, float] | None:
@@ -2807,12 +2794,9 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         """
         self._observe_input(event)
         entity_id: str = event.data["entity_id"]
-        if any(
-            zone.sensor_id == entity_id
-            and self._health.get(zone.slug) in HEALTH_REPORT_SENSITIVE
-            for zone in self.zones
-        ):
-            self.hass.async_create_task(self.async_request_refresh())
+        self.ask(same_reading_refresh(
+            self._health.get(zone.slug) for zone in self.zones if zone.sensor_id == entity_id
+        ))
 
     @callback
     def _observe_input(
@@ -2848,7 +2832,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     def _on_startup_timer(self) -> None:
         # Startup has settled: this recompute logs any room still unusable.
         self._startup_quiet = False
-        self.hass.async_create_task(self.async_request_refresh())
+        self.wake("startup")
 
     # -- self-heal A (band drift) -------------------------------------------
     @callback
@@ -2897,10 +2881,10 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             # mode change open one every few seconds. A run reported just
             # after a mode change is seen here too, but counts only at its
             # settle window's end (see _sync_settle_timer).
-            refresh_now = (
-                mode != old_state.state
-                or new_state.attributes.get(ATTR_HVAC_ACTION)
-                != old_state.attributes.get(ATTR_HVAC_ACTION)
+            refresh_now = run_changed(
+                old_state.state, new_state.state,
+                old_state.attributes.get(ATTR_HVAC_ACTION),
+                new_state.attributes.get(ATTR_HVAC_ACTION),
             )
         pending = next(
             (zone for zone in self.zones
@@ -3018,28 +3002,18 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         # `auto` handback, or our own write's echo): refresh promptly so the
         # hold engages and the Fan auto switch mirrors it now, not at the next
         # heartbeat. Idempotent writes + the echo-tolerant departure check make
-        # a refresh on our own echo harmless.
-        new_fan = new_state.attributes.get("fan_mode") if new_state else None
-        old_fan = old_state.attributes.get("fan_mode") if old_state else None
-        # Capability metadata and head availability also feed the plan's room
-        # explanations, even when there is no new fan observation. Use the same
-        # debounced refresh; ordinary echoes still rely on idempotent apply.
-        new_attrs = new_state.attributes if new_state else {}
-        old_attrs = old_state.attributes if old_state else {}
-        capabilities_changed = any(
-            type(new_attrs.get(key)) is not type(old_attrs.get(key))
-            or new_attrs.get(key) != old_attrs.get(key)
-            for key in ("fan_modes", "supported_features")
-        )
-        availability_changed = (
-            new_state is None or mode in UNAVAILABLE_STATES
-        ) != (
-            old_state is None or old_state.state in UNAVAILABLE_STATES
-        )
-        if refresh_now:
-            self.hass.async_create_task(self.async_refresh_now())
-        elif refresh_needed or new_fan != old_fan or capabilities_changed or availability_changed:
-            self.deliveries.request_for_report()
+        # a refresh on our own echo harmless. Capability metadata and head
+        # availability also feed the plan's room explanations, even when there
+        # is no new fan observation; ordinary echoes still rely on idempotent
+        # apply.
+        self.ask(head_refresh(
+            run_changed=refresh_now,
+            moved=refresh_needed or head_shows_new(
+                old_mode, mode,
+                old_state.attributes if old_state else {},
+                new_state.attributes if new_state else {},
+            ),
+        ))
 
     @callback
     def _arm_or_cancel(
@@ -3517,23 +3491,6 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         wall = self._sight[climate_id].lost_wall
         return None if wall is None else dt_util.utc_from_timestamp(wall).isoformat()
 
-    def _held_calls(self, plan: Plan) -> tuple[list[str], list[str]]:
-        """Each room's (demand, engage) from a computed plan, as arbitration counts them.
-
-        Replays planner.holds from the plan's own rooms, so the dwell wakeup
-        weighs exactly what that compute arbitrated.
-        """
-        demands: list[str] = []
-        engages: list[str] = []
-        for room in plan.rooms:
-            if holds(room.vote_status, room.safety_priority, room.cloud_out):
-                demands.append(room.demand)
-                engages.append(room.engage)
-            else:
-                demands.append(DEMAND_NEUTRAL)
-                engages.append(room.engage if room.floor_want is not None else ENGAGE_SATISFIED)
-        return demands, engages
-
     def _sync_lost_timer(self) -> None:
         """Keep exactly one wakeup armed for the nearest lost-vote expiry.
 
@@ -3544,29 +3501,17 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         then, so a head back in sight by then is simply live again.
         """
         clock = self.clock()
-        waits = [
-            wait
-            for sight in self._sight.values()
-            if (wait := sight.expires_in(clock, self.lost_vote_ttl)) is not None
-        ]
+        waits = [sight.expires_in(clock, self.lost_vote_ttl) for sight in self._sight.values()]
         # And the nearest end of a held action vote: a head that stopped
         # running and stays quiet emits nothing more either.
         waits += [
-            wait
+            self._sight[zone.climate_id].hold_ends_in(clock, self.action_vote_hold)
             for zone in self.zones
             if zone.hands_off and zone.vote_basis == VOTE_BASIS_ACTION
-            and (
-                wait := self._sight[zone.climate_id].hold_ends_in(
-                    clock, self.action_vote_hold
-                )
-            ) is not None
         ]
-        if not waits:
-            self.clock.cancel("lost")
-            return
         # The boundary itself, as for freshness: expiry is half-open, so the
         # refresh this fires reads the vote as expired.
-        self.clock.call_later(min(waits), self._wake, name="lost")
+        self._arm("lost", nearest(waits))
 
     def _sync_settle_timer(self) -> None:
         """Keep one wakeup armed for the nearest end of a settle window.
@@ -3584,23 +3529,12 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             self.clock.cancel("settle")
             return
         clock = self.clock()
-        waits = [
-            wait
+        self._arm("settle", nearest(
+            self._sight[zone.climate_id].settles_in(clock)
             for zone in self.zones
             if zone.hands_off and zone.vote_basis == VOTE_BASIS_ACTION
             and self.hands_off_phase(zone) == "released"
-            and (wait := self._sight[zone.climate_id].settles_in(clock)) is not None
-        ]
-        if not waits:
-            self.clock.cancel("settle")
-            return
-
-        @callback
-        def _fire() -> None:
-            if not self.retired:
-                self.hass.async_create_task(self.async_refresh_now())
-
-        self.clock.call_later(min(waits), _fire, name="settle")
+        ))
 
     def _zone_safety(self, zone: Zone) -> bool:
         """Whether this zone's Demand carries PRIORITY_SAFETY this tick.
@@ -3657,21 +3591,10 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         waits = []
         for zone in self.zones:
             domain, state, age = self._zone_comfort_reading(zone, now)
-            wait = comfort_stale_in(
+            waits.append(comfort_stale_in(
                 domain, state, age=age, stale_after=self.comfort_stale_after
-            )
-            if wait is not None:
-                waits.append(wait)
-        if not waits:
-            self.clock.cancel("comfort")
-            return
-
-        @callback
-        def _fire() -> None:
-            if not self.retired:
-                self.hass.async_create_task(self.async_request_refresh())
-
-        self.clock.call_later(min(waits), _fire, name="comfort")
+            ))
+        self._arm("comfort", nearest(waits))
 
     # -- room state: what a start resumes, and what the store keeps ----------
     def _resume(self, saved: SavedState) -> None:

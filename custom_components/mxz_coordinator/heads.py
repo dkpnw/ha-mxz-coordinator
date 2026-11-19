@@ -58,6 +58,7 @@ from .const import (
 from .host import ControllerHost, Effect
 from .logic import as_float, bounded
 from .planner import DeliverySteps, delivery_steps
+from .timing import cloud_delay
 from .units import clamp, offset_in_unit, snap_to_step
 
 if TYPE_CHECKING:
@@ -857,17 +858,10 @@ class HeadDrivers:
                 since, limit = driver.seen()
                 if limit is not None:
                     waits.append(since + limit - wall)
-        waits = [wait for wait in waits if wait > 0]
-        if not waits:
+        if (delay := cloud_delay(waits)) is None:
             host.clock.cancel("cloud")
             return
-
-        @callback
-        def _fire() -> None:
-            if not host.retired:
-                host.hass.async_create_task(host.async_request_refresh())
-
-        host.clock.call_later(min(waits), _fire, name="cloud")
+        host.clock.call_later(delay, partial(host.wake, "cloud"), name="cloud")
 
     def track_reports(self) -> Callable[[], None] | None:
         """Listen for every report from a cloud head, changed or not; None with no cloud head.

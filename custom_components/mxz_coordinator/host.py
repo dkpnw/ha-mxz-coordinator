@@ -29,7 +29,8 @@ class ControllerHost(Protocol):
     ``retired``: the coordinator was unloaded or replaced, so it writes nothing.
     ``redraw_rooms`` re-renders the room surfaces with no decision.
     ``async_refresh_now`` recomputes at once; ``async_request_refresh`` asks for
-    the ordinary debounced recompute.
+    the ordinary debounced recompute. ``wake`` is a wakeup of this name running:
+    it asks for what ``timing.WAKEUPS`` says.
     """
 
     hass: HomeAssistant
@@ -38,6 +39,7 @@ class ControllerHost(Protocol):
 
     async def notify(self, message: str, target: str | None = None) -> None: ...
     def redraw_rooms(self) -> None: ...
+    def wake(self, name: str) -> None: ...
     async def async_refresh_now(self) -> None: ...
     async def async_request_refresh(self) -> None: ...
 

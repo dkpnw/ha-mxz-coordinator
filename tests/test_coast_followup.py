@@ -32,7 +32,6 @@ from homeassistant.helpers.update_coordinator import REQUEST_REFRESH_DEFAULT_COO
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 
-from custom_components.mxz_coordinator import coordinator as coordinator_module
 from custom_components.mxz_coordinator.const import (
     CONF_FAN_BOOST_ENABLE,
     CONF_INHIBIT_ACTION,
@@ -52,6 +51,7 @@ from custom_components.mxz_coordinator.const import (
     MODE_HEAT,
 )
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
+from custom_components.mxz_coordinator.timing import COAST_FOLLOWUP_DELAY
 from tests.clocks import Armed
 from tests.ha_test import (
     MockConfigEntry,
@@ -275,7 +275,7 @@ async def test_a_no_echo_head_is_recommanded_after_the_coast(
     assert armed(coord, "coast")  # the coast armed its own follow-up
 
     sensor_stamp = hass.states.get(SENSOR_B).last_updated
-    await _settle(hass, coordinator_module.COAST_FOLLOWUP_DELAY + 1)
+    await _settle(hass, COAST_FOLLOWUP_DELAY + 1)
 
     # Nothing else woke the coordinator: neither room's sensor changed, the
     # 15-min heartbeat is a quarter of an hour out, and this head has no fan
@@ -355,7 +355,7 @@ async def test_an_echo_head_is_still_commanded_exactly_once(
     assert _coast_fires(entry.runtime_data, since) == 0  # ...so it never fired
 
     # And its deadline passing changes nothing.
-    await _advance(hass, coordinator_module.COAST_FOLLOWUP_DELAY + 5)
+    await _advance(hass, COAST_FOLLOWUP_DELAY + 5)
     assert _coast_fires(entry.runtime_data, since) == 0
 
     heat_commands = [
@@ -392,7 +392,7 @@ async def test_a_fan_capable_head_with_the_boost_off_still_needs_the_wakeup(
     assert _coast_fires(entry.runtime_data, since) == 0  # nothing is due in the echo's window
     assert hass.states.get(head_b).state == MODE_FAN_ONLY  # still parked
 
-    await _settle(hass, coordinator_module.COAST_FOLLOWUP_DELAY + 1)
+    await _settle(hass, COAST_FOLLOWUP_DELAY + 1)
     assert _coast_fires(entry.runtime_data, since) == 1  # the coast wakeup, exactly once
 
     heat_commands = [
@@ -463,7 +463,7 @@ async def test_a_second_coast_replaces_the_pending_followup(
     assert armed(coord, "coast")  # the second coast's own
 
     with _count_refresh_requests(coord) as requests:
-        await _settle(hass, coordinator_module.COAST_FOLLOWUP_DELAY + 4)
+        await _settle(hass, COAST_FOLLOWUP_DELAY + 4)
     assert len(requests) == 1  # one wakeup fired in that window, not two
     assert hass.states.get(head_b).state == MODE_HEAT  # and the flip was resolved
 
@@ -484,7 +484,7 @@ async def test_an_input_event_before_the_followup_resolves_it(
     await _set_temp(hass, SENSOR_B, NEUTRAL[False])  # back on target
     calls = _record_calls(hass)
     with _count_refresh_requests(coord) as requests:
-        await _settle(hass, coordinator_module.COAST_FOLLOWUP_DELAY + 1)
+        await _settle(hass, COAST_FOLLOWUP_DELAY + 1)
 
     assert requests == []  # the replaced follow-up never fired
     assert hass.states.get(head_b).state == MODE_FAN_ONLY
@@ -542,7 +542,7 @@ async def test_unload_cancels_the_followup(hass: HomeAssistant) -> None:
 
     calls = _record_calls(hass)
     with _count_refresh_requests(coord) as requests:
-        await _settle(hass, coordinator_module.COAST_FOLLOWUP_DELAY + 1)
+        await _settle(hass, COAST_FOLLOWUP_DELAY + 1)
     assert requests == []
     assert _head_calls(calls, head_b) == []
     assert hass.states.get(head_b).state == MODE_FAN_ONLY
@@ -560,7 +560,7 @@ async def test_reload_cancels_the_old_followup(hass: HomeAssistant) -> None:
     assert not armed(old, "coast")
 
     with _count_refresh_requests(old) as requests:
-        await _settle(hass, coordinator_module.COAST_FOLLOWUP_DELAY + 1)
+        await _settle(hass, COAST_FOLLOWUP_DELAY + 1)
     assert requests == []
 
 
@@ -581,7 +581,7 @@ async def test_a_followup_firing_after_retirement_asks_for_nothing(hass: HomeAss
     with _count_refresh_requests(coord) as requests:
         taken.fire()  # the callback the loop had already taken
         await hass.async_block_till_done()
-        await _settle(hass, coordinator_module.COAST_FOLLOWUP_DELAY + 1)
+        await _settle(hass, COAST_FOLLOWUP_DELAY + 1)
     assert requests == []
     assert not armed(coord, "coast")
     assert _head_calls(calls, head_b) == []

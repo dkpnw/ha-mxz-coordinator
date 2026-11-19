@@ -322,4 +322,4 @@ class DryMode:
             "back to the room's plan", zone.name,
         )
         self._host.redraw_rooms()  # Dry off the thermostat now, not when the plan runs
-        self._hass.async_create_task(self._host.async_request_refresh())
+        self._host.wake("dry_pick")

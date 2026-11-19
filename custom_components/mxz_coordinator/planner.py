@@ -44,6 +44,7 @@ from .logic import (
     room_call,
     setpoints,
 )
+from .plan import RoomPlan
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +214,42 @@ def arbitration_entries(
         return pair
     floor_tier = PRIORITY_FLOOR_HEAT if floor == MODE_HEAT else PRIORITY_SAFETY
     return (*pair, Demand(direction=floor, priority=(floor_tier, index)))
+
+
+def held_back(rooms: Sequence[RoomPlan], *, current: str, resting: str | None) -> bool:
+    """Whether the mode-change hold keeps the shared mode from changing: with the hold open,
+    arbitration would pick another mode than ``current`` from these rooms.
+
+    The rooms are a computed plan's, replayed as :func:`decide` counted them (:func:`holds`),
+    so the dwell wakeup weighs exactly what that compute arbitrated.
+    """
+    demands: list[str] = []
+    engages: list[str] = []
+    for room in rooms:
+        if holds(room.vote_status, room.safety_priority, room.cloud_out):
+            demands.append(room.demand)
+            engages.append(room.engage)
+        else:
+            demands.append(DEMAND_NEUTRAL)
+            engages.append(room.engage if room.floor_want is not None else ENGAGE_SATISFIED)
+    engaged = any(e in (MODE_COOL, MODE_HEAT) for e in engages)
+    entries: list[Demand] = []
+    for i, (room, demand) in enumerate(zip(rooms, demands)):
+        entries.extend(
+            arbitration_entries(
+                demand=demand,
+                vote=room.hands_off_vote,
+                safety=room.safety_priority,
+                index=i,
+                floor=room.floor_want,
+                dry=room.dry_vote,
+                boost=room.comfort_priority,
+            )
+        )
+    return arbitrate(
+        entries, engaged=engaged, current=current, allowed=True,
+        resting=resting, running=current in engages,
+    ).direction != current
 
 
 def _seed_latch(
