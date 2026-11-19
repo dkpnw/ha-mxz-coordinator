@@ -916,6 +916,23 @@ class DeliverySteps:
     ends_coil_dry: bool
     fan_machinery: bool
 
+    @property
+    def order(self) -> tuple[str, ...]:
+        """The delivery's steps at a local head, in order.
+
+        ``"note"``: the coil-dry note (``last_run``, ``ends_coil_dry``). ``"handback"``, only
+        with a hand-back: the fan back to auto (the fan boost step for fan_only). ``"setpoints"``:
+        the mode and setpoints. ``"fan"``, only with fan machinery: :meth:`fan`, which reads
+        the standby hold again when it runs. After each step that writes to the head, the
+        delivery stops if it is no longer owned.
+        """
+        return (
+            "note",
+            *(("handback",) if self.handback else ()),
+            "setpoints",
+            *(("fan",) if self.fan_machinery else ()),
+        )
+
     def fan(self, *, inhibited: bool) -> str | None:
         """The step after the mode and setpoints.
 

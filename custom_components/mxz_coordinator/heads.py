@@ -249,27 +249,30 @@ class LocalDriver:
         self, delivery: Delivery, act: str,
         low: float, high: float, delta: float, engage: str | None,
     ) -> None:
-        """One delivery's steps at this head."""
+        """One delivery's steps at this head, in the order ``DeliverySteps.order`` gives."""
         host = self._host
         climate_id = self.climate_id
         at = host.clock()
         steps = _steps(host, act, engage, host.hass.states.get(climate_id))
-        host.note_head_act(climate_id, steps, act, at)
-        if steps.handback:
-            await host.fan.async_apply(climate_id, MODE_FAN_ONLY, delta)
+        for step in steps.order:
+            if step == "note":
+                host.note_head_act(climate_id, steps, act, at)
+                continue
+            if step == "handback":
+                await host.fan.async_apply(climate_id, MODE_FAN_ONLY, delta)
+            elif step == "setpoints":
+                await self._async_apply(act, low, high)
+                host.floor.accepted(climate_id, delivery)
+            else:
+                # The standby hold as it reads now, after the write: a hold that started
+                # or ended during the write decides the fan step.
+                fan = steps.fan(inhibited=host.inhibited)
+                if fan == "drop_rung":
+                    host.fan.drop_rung(climate_id)
+                elif fan == "boost":
+                    await host.fan.async_apply(climate_id, act, delta)
             if not host.deliveries.owned(delivery):
                 return
-        await self._async_apply(act, low, high)
-        host.floor.accepted(climate_id, delivery)
-        if not steps.fan_machinery or not host.deliveries.owned(delivery):
-            return
-        # The standby hold as it reads now, after the write: a hold that started
-        # or ended during the write decides the fan step.
-        fan = steps.fan(inhibited=host.inhibited)
-        if fan == "drop_rung":
-            host.fan.drop_rung(climate_id)
-        elif fan == "boost":
-            await host.fan.async_apply(climate_id, act, delta)
 
     async def _async_apply(self, act: str, low: float, high: float) -> None:
         """Send this head what ``grid.local_calls`` says for the command, in order; or nothing."""

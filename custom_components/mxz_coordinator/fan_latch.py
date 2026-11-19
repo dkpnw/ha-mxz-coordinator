@@ -393,6 +393,27 @@ def fan_record(latch: FanLatch, observed: str | None) -> FanRecord:
     )
 
 
+def fan_read(
+    latch: FanLatch,
+    observed: str | None,
+    act: str,
+    *,
+    modes: Sequence[str] | None,
+    limits: FanLimits,
+) -> FanLatch:
+    """The manual fan hold read on a head MXZ sends no fan, and nothing written.
+
+    A head paused for an open door or window (``act`` off), or one a person runs in dry
+    under Allow Dry (``act`` dry). ``observed`` is the speed it shows and ``modes`` the
+    speeds it lists; the report was passed to ``latch.echo.caught_up`` first. MXZ set no
+    speed there, so the read has no delta. With boost off, no fan list, no ``auto`` in it,
+    or no speed showing, nothing is read.
+    """
+    if not limits.boost or not modes or FAN_AUTO not in modes or observed is None:
+        return latch
+    return observe_fan(latch, observed, act, 0.0, limits)
+
+
 def fan_step(
     latch: FanLatch,
     observed: str | None,

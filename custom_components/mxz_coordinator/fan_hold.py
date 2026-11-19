@@ -34,6 +34,7 @@ from .fan_latch import (
     FanLimits,
     FanRecord,
     fan_auto,
+    fan_read,
     fan_record,
     fan_step,
     observe_fan,
@@ -274,9 +275,10 @@ class FanHold:
         runs in dry under Allow Dry (act dry). A speed a person picks there is
         theirs: it holds from then on, on the Fan auto switch and across a
         restart, as one picked in a run does, so the resume, a park for heat
-        and every apply after keep that pick. MXZ set no speed there, so a
-        speed seen is never read as its own boost or idle. A cloud head's late
-        report of an older speed is not read at all (as in a cloud batch).
+        and every apply after keep that pick. ``fan_latch.fan_read`` reads it,
+        after the report is passed to the echo memory (``head_reported``). A
+        cloud head's late report of an older speed is not read at all (as in a
+        cloud batch).
         """
         host = self._host
         if not host.fan_boost_enable:
@@ -291,7 +293,10 @@ class FanHold:
         cloud = host.heads.cloud(climate_id)
         if cloud is not None and cloud.stale(host.clock(), fan=observed):
             return
-        self._observe_latch(climate_id, observed, act, 0.0)
+        self.head_reported(climate_id, observed)
+        self._keep(climate_id, fan_read(
+            self._latch(climate_id), observed, act, modes=modes, limits=self._limits()
+        ))
         self.publish(climate_id)
 
     def _max_idx(self) -> int:
