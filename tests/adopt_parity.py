@@ -15,7 +15,9 @@ The scenarios are every scenario of ``tests/headchange_parity.py`` (MXZ's own ec
 held, re-armed on a second press and adopted, a change put back inside the hold, off and on at
 the head, a refused write, eco during the hold, the option off), then a dual room, whose press
 in cool goes to Cool to and in heat to Heat to; a disabled room enabled by heat pressed at its
-head; and a start whose seed a reported off cancels.
+head; a start whose seed a reported off cancels; and a °C head on a half-degree grid, whose
+pressed setpoint maps to the target a step below the nearest, or to the nearest when no target
+near it is held.
 
 ``tests/test_adopt_parity.py`` compares each scenario with ``tests/fixtures/adopt_parity/``.
 Those were captured on d4cffd2, before the hold's transitions moved to ``planner.head_report``
@@ -36,9 +38,9 @@ from homeassistant.core import HomeAssistant
 from custom_components.mxz_coordinator import clock as mxz_clock
 from custom_components.mxz_coordinator.const import ADOPT_DELAY, ZONE_DUAL_SETPOINT
 from custom_components.mxz_coordinator.coordinator import MXZCoordinator
-from tests import headchange_parity
+from tests import headchange_parity, property_rig
 from tests.headchange_parity import Presses
-from tests.property_rig import SENSORS, TARGET
+from tests.property_rig import SENSORS, TARGET, RigHead
 from tests.test_drive import _set_temp
 
 FIXTURES = Path(__file__).with_name("fixtures") / "adopt_parity"
@@ -156,9 +158,34 @@ async def startup_off(holds: Holds) -> None:
     holds.snap("after_the_hold")
 
 
+class HalfDegreeHead(RigHead):
+    """The rig's head, native in °C on a 0.5 °C grid, showing half degrees (the CN105's)."""
+
+    _attr_native_temperature_unit = "°C"
+    _attr_target_temperature_step = 0.5
+    _attr_precision = 0.5
+
+
+async def half_degree_head(holds: Holds) -> None:
+    """A °C head on a 0.5 °C grid that shows half degrees, in a °F house. 18.5 °C pressed reads
+    65.5 °F, whose nearest whole °F (66) would move the head on to 19 °C: the target adopted is
+    65 °F, the step below, which the head holds at 18.5 °C. 17.5 °C reads 63.5 °F, which no
+    target a step either side holds: the target adopted is the nearest, 64 °F."""
+    holds.monkeypatch.setattr(property_rig, "RigHead", HalfDegreeHead)
+    rig = await holds.open()
+    holds.snap("cooling")
+    await holds.press(low=16.5, high=18.5)
+    await rig.later(ADOPT_DELAY + 1)
+    holds.snap("the_step_below_adopted")
+    await holds.press(low=15.5, high=17.5)
+    await rig.later(ADOPT_DELAY + 1)
+    holds.snap("the_nearest_adopted")
+
+
 SCENARIOS: dict[str, Scenario] = {
     **headchange_parity.SCENARIOS,
     "dual_room": dual_room,
     "enabled_by_heat": enabled_by_heat,
     "startup_off": startup_off,
+    "half_degree_head": half_degree_head,
 }

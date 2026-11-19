@@ -11,7 +11,8 @@ it, half up, as the CN105 does (the house-style head); a °F range head on platf
 ``invented_house``. Each has a narrower band than MXZ's clamp. The scenarios run them in a °F
 house and in a °C house with half-degree targets: a cool call, the same command again (skipped
 where the head already shows it on its grid), a flip to heat (one combined call on the esphome
-head, two on the others), targets at both clamp edges (held to each head's band), and off.
+head, two on the others), targets at both clamp edges (held to each head's band), and off. A
+third scenario (``edges_crossed``) sends edges past each head's band from below and from above.
 
 ``tests/test_send_parity.py`` compares each scenario with ``tests/fixtures/send_parity/``. Those
 were captured on d4cffd2, before the send shaping moved to ``grid.local_calls``; run with
@@ -157,6 +158,32 @@ async def celsius_house(house: Sends) -> None:
     await _walk(house, cool=24.5, heat=15.5)
 
 
+async def edges_crossed(house: Sends) -> None:
+    """Setpoints past each head's band, from both sides: a cool call with every target at the
+    bottom sends a low edge below the range heads' bands, and a heat call with every target at
+    the top a high edge above them. Then rooms below eco's heat extreme, whose heat band has both
+    edges below the °F range head's band. Each edge is held to the head's band."""
+    await house.setup([{}, {}, {}], head_classes=HEADS, **{CONF_MODE_HYSTERESIS: 0})
+    house.snap("start")
+    for room in range(3):
+        await _edge(house, room, "min")
+    for room in range(3):
+        await house.temp(room, 76)
+    await house.recompute()
+    house.snap("cool_at_the_bottom")
+    for room in range(3):
+        await _edge(house, room, "max")
+    for room in range(3):
+        await house.temp(room, 58)
+    await house.recompute()
+    house.snap("heat_at_the_top")
+    await house.switch("_eco_idle", True)
+    for room in range(3):
+        await house.temp(room, 45)
+    await house.recompute()
+    house.snap("eco_heat_below_the_band")
+
+
 SCENARIOS: dict[str, Scenario] = {
-    scenario.__name__: scenario for scenario in (fahrenheit_house, celsius_house)
+    scenario.__name__: scenario for scenario in (fahrenheit_house, celsius_house, edges_crossed)
 }
