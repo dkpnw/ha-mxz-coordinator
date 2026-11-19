@@ -277,7 +277,7 @@ def test_a_released_room_that_votes_by_its_run_asks_at_once() -> None:
 # -- the heal waits running ---------------------------------------------------------------------
 
 
-def _due(kind: str, mode: str | None, **change: Any) -> bool:
+def _due(kind: str, mode: str | None, **change: Any) -> Refresh | None:
     reads: dict[str, Any] = {
         "hands_off_head": lambda: False, "dry_allowed": lambda: False, "enabled": True,
         "eco_idle": False, "planned": lambda: MODE_COOL, "stale": lambda: False,
@@ -287,19 +287,19 @@ def _due(kind: str, mode: str | None, **change: Any) -> bool:
 
 
 def test_a_band_heal_runs_only_while_its_drift_holds() -> None:
-    assert _due("band", "auto", planned=_never)
-    assert not _due("band", MODE_COOL, planned=_never)
-    assert not _due("band", "auto", hands_off_head=lambda: True, planned=_never)
-    assert not _due("band", "auto", stale=lambda: True, planned=_never)
-    assert not _due("band", "auto", coordinator=False, planned=_never)
-    assert not _due("band", "auto", inhibited=True, planned=_never)
+    assert _due("band", "auto", planned=_never) is Refresh.REQUEST
+    assert _due("band", MODE_COOL, planned=_never) is None
+    assert _due("band", "auto", hands_off_head=lambda: True, planned=_never) is None
+    assert _due("band", "auto", stale=lambda: True, planned=_never) is None
+    assert _due("band", "auto", coordinator=False, planned=_never) is None
+    assert _due("band", "auto", inhibited=True, planned=_never) is None
 
 
 def test_an_off_heal_runs_only_while_the_plan_still_wants_the_head_on() -> None:
-    assert _due("off", MODE_OFF, hands_off_head=_never, dry_allowed=_never)
-    assert not _due("off", MODE_OFF, planned=lambda: MODE_OFF, hands_off_head=_never)
-    assert not _due("off", MODE_COOL, planned=_never, stale=_never, hands_off_head=_never)
-    assert not _due("off", MODE_OFF, eco_idle=True, planned=_never, stale=_never, hands_off_head=_never)
+    assert _due("off", MODE_OFF, hands_off_head=_never, dry_allowed=_never) is Refresh.REQUEST
+    assert _due("off", MODE_OFF, planned=lambda: MODE_OFF, hands_off_head=_never) is None
+    assert _due("off", MODE_COOL, planned=_never, stale=_never, hands_off_head=_never) is None
+    assert _due("off", MODE_OFF, eco_idle=True, planned=_never, stale=_never, hands_off_head=_never) is None
 
 
 def test_the_off_heal_is_checked_again_at_a_holds_end() -> None:

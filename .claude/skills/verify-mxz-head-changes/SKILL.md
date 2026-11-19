@@ -57,12 +57,12 @@ them, and run both commands under Run.
 
 | Check | Covers (custom_components/mxz_coordinator/) |
 | --- | --- |
-| Model `WriteSp` | `coordinator.py` `_apply` (skips a head while `_head_change_settling`, `planner.py` `holds_change`), `remember_head_write` (`head_writes.py` `remember_writes`); `delivery.py` `DeliveryQueue._async_issue`; `heads.py` `LocalDriver._async_apply`, `grid.py` `local_calls` and `Grid.already_at` (the head's grid, which the memory compares on); `logic.py` `HeadWriteMemory.wrote` |
+| Model `WriteSp` | `coordinator.py` `_apply` (skips a head while `_head_change_settling`, `planner.py` `holds_change`), `remember_head_write` (`head_writes.py` `issue_steps`, `remember_writes`); `delivery.py` `DeliveryQueue._async_issue`; `heads.py` `LocalDriver._async_apply`, `grid.py` `local_calls` and `Grid.already_at` (the head's grid, which the memory compares on); `logic.py` `HeadWriteMemory.wrote` |
 | Model `HeadShows`, `PersonPress` (`Report`) | `coordinator.py` `_on_head_change`, `_head_writes_caught_up`, `_perform_head_report`, `_head_adoption`, `_heal`; `planner.py` `report_steps`, `head_moved`, `setpoint_field`, `head_change`, `adopt_head_change`, `head_report`, `startup_report`; `grid.py` `Grid.target_for_setpoint`, `Grid.target_bounds`; `delivery.py` `DeliveryQueue.disown`; `logic.py` `HeadWriteMemory.own`, `HeadWriteMemory.caught_up` |
 | Model `AdoptFires` | `coordinator.py` `_on_heal_timer`, `_async_adopt_head_change`, `_perform_adopt_step`, `_head_change_seen`; `planner.py` `hold_end`, `adopt_end`, `off_heal_recheck`; `head_writes.py` `writes_pressed`; `logic.py` `HeadWriteMemory.pressed`, `HeadWriteMemory.seen` |
-| Model `SetTarget` | `number.py` `MXZTargetNumber.async_set_native_value`; `coordinator.py` `drop_head_change` |
-| Model `Reload`, `Restart`, `QuietEnds` | `coordinator.py` `MXZCoordinator.__init__` (`_startup_quiet`), `_resume` and `_head_writes_record` (the ledger in the room state store, `resume.py` `SECTION_HEAD_WRITES`, read back by `resume.py` `resume`), `_on_startup_timer`; `logic.py` `HeadWriteMemory.record`, `HeadWriteMemory.restored` |
-| Code mutants C44 to C57 | `remember_writes` (C44), `holds_change` (C45), `resume` (C46), `_resume` (C52), `HeadWriteMemory.caught_up`, `HeadWriteMemory.seen`, `HeadWriteMemory.wrote`, `DeliveryQueue._async_issue` |
+| Model `SetTarget` | `number.py` `MXZTargetNumber.async_set_native_value`; `coordinator.py` `reset_engage_latch`, `_perform_room_steps`; `planner.py` `target_written`, `head_dropped` |
+| Model `Reload`, `Restart`, `QuietEnds` | `coordinator.py` `MXZCoordinator.__init__` (`_startup_quiet`), `_resume` and `_head_writes_record` (the ledger in the room state store, `resume.py` `SECTION_HEAD_WRITES`, read back by `resume.py` `resume`), `_on_startup_timer` (`timing.py` `startup_quiet`); `logic.py` `HeadWriteMemory.record`, `HeadWriteMemory.restored` |
+| Code mutants C44 to C57 | `remember_writes` (C44), `holds_change` (C45), `resume` (C46), `_resume` (C52), `HeadWriteMemory.caught_up`, `HeadWriteMemory.seen`, `HeadWriteMemory.wrote`, `DeliveryQueue._async_call` (C55, with `head_writes.py` `writes_refused`) |
 
 Does a change touch it?
 

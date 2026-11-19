@@ -1,9 +1,10 @@
 """MXZ's memory of its own mode and setpoint writes to one head, field by field. No Home Assistant.
 
 Each field MXZ writes (``HEAD_WRITE_FIELDS``) has its own ``logic.HeadWriteMemory``. A write is
-remembered as it goes out (:func:`remember_writes`), a head's report passes the writes before it
-(:func:`writes_caught_up`), and a person's change the adopt hold took replaces what the head last
-showed (:func:`writes_pressed`). A report of a setpoint compares with a write on the head's own
+remembered just before it goes out (:func:`issue_steps`, :func:`remember_writes`), a call the head
+refuses takes back what it counted (:func:`writes_refused`), a head's report passes the writes
+before it (:func:`writes_caught_up`), and a person's change the adopt hold took replaces what the
+head last showed (:func:`writes_pressed`). A report of a setpoint compares with a write on the head's own
 grid (``grid.Grid.already_at``); the mode compares as it is.
 """
 
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 import operator
 from collections.abc import Callable, Collection, Mapping, MutableMapping
+from dataclasses import dataclass
 from typing import Any
 
 from .const import UNAVAILABLE_STATES
@@ -57,6 +59,34 @@ def remember_writes(
             ):
                 counted[name] = payload[name]
     return counted
+
+
+def writes_refused(memories: Mapping[str, HeadWriteMemory], counted: Mapping[str, Any]) -> None:
+    """The head refused a call: the copies it counted (:func:`remember_writes`) will never
+    show (``HeadWriteMemory.refused``)."""
+    for name, value in counted.items():
+        if name in memories:
+            memories[name].refused(value)
+
+
+@dataclass(frozen=True, slots=True)
+class RememberWrites:
+    """MXZ's write memory keeps each mode and setpoint field ``payload`` writes
+    (:func:`remember_writes`), and what it counted, for a refusal."""
+
+    payload: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class SendCall:
+    """The call goes to the head. One the head refuses never shows: the copies
+    :class:`RememberWrites` counted are taken back (:func:`writes_refused`)."""
+
+
+def issue_steps(payload: Mapping[str, Any]) -> tuple[RememberWrites, SendCall]:
+    """One call to a head with ``payload``, in order: its writes are remembered first, because
+    the head's report can arrive while the call runs, then it is sent."""
+    return (RememberWrites(payload), SendCall())
 
 
 def writes_caught_up(

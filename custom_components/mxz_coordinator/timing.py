@@ -80,6 +80,15 @@ WAKEUPS: Mapping[str, Refresh | None] = {
 }
 
 
+def startup_quiet(*, running: bool, startup_ran: bool) -> bool:
+    """Whether MXZ's start is still quiet: it was set up before Home Assistant was running
+    (``running`` False), and its ``startup`` wakeup, ``STARTUP_RECOVER_DELAY`` after Home
+    Assistant started, has not run yet (``startup_ran``; ``sim_timing.start`` arms it). While
+    quiet, a change at a head is not adopted (``planner.AdoptGates.starting``) and a room sensor
+    with no usable reading waits to warn. A reload while Home Assistant runs is never quiet."""
+    return not running and not startup_ran
+
+
 def head_refresh(*, run_changed: bool, moved: bool) -> Refresh | None:
     """What a head's report asks for.
 

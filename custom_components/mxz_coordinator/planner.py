@@ -1479,6 +1479,68 @@ def head_dropped(key: Hashable) -> HeadReport:
     return HeadReport(pending=None, hold=Arm("heal", key, None), disown=False, replan=False)
 
 
+# -- a person's write to a room's target, range or enable ------------------------------------
+@dataclass(frozen=True, slots=True)
+class Latch:
+    """The room's engage-latch entry becomes ``entry``: ``""`` decides afresh, None forgets it
+    (an enabled, live room's next compute seeds it again from its head's mode, :func:`decide`)."""
+
+    entry: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class SeedDropped:
+    """The room's startup seed, if one waits, is dropped: the room resumes no run."""
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseEnded:
+    """A hands-off room is no longer released: the plan drives its head again."""
+
+
+type RoomStep = HeadReport | ReleaseEnded | SeedDropped | Latch
+
+
+def range_target(low: float, high: float) -> float:
+    """A dual-setpoint room's target: the middle of its range."""
+    return (low + high) / 2
+
+
+def target_written(
+    head: Hashable, *, startup: bool, coordinator: bool, enabled: bool
+) -> tuple[RoomStep, ...]:
+    """A person wrote a room's target, or its range (whose middle is the target,
+    :func:`range_target`): a fresh decision. What it does, in order.
+
+    ``head`` is the room's head. The adopt hold ends with nothing adopted
+    (:func:`head_dropped`). Then a room whose startup seed still waits (``startup``), under the
+    Coordinator switch off (``coordinator`` False), or disabled (``enabled`` False) drops the
+    seed and decides afresh: new intent must not revive an old pending run. Any other room
+    forgets its latch, which its next compute seeds again from its head's mode.
+    """
+    if startup or not coordinator or not enabled:
+        latch: tuple[RoomStep, ...] = (SeedDropped(), Latch(""))
+    else:
+        latch = (Latch(None),)
+    return (head_dropped((head, "adopt")), *latch)
+
+
+def enable_written(head: Hashable, *, was_on: bool, on: bool) -> tuple[RoomStep, ...]:
+    """A person turned a room on or off (``on``; it was ``was_on``). What it does, in order,
+    once the room's enable is ``on``.
+
+    Turned on, a hands-off room's release ends: the plan drives its head again, and the next
+    disablement parks afresh. Turned on from off, or off, is a fresh decision: its startup seed
+    is dropped and its latch decides afresh. Last, the adopt hold ends with nothing adopted
+    (:func:`head_dropped`); ``head`` is the room's head.
+    """
+    return (
+        *((ReleaseEnded(),) if on else ()),
+        *((SeedDropped(), Latch("")) if not was_on or not on else ()),
+        head_dropped((head, "adopt")),
+    )
+
+
 def band_drift(mode: str | None, *, hands_off_head: bool, dry_allowed: bool) -> bool:
     """A head in a mode MXZ never runs (``BANNED_MODES``), unless it is a released hands-off
     room's (``hands_off_head``) or in a Dry its room lets stay (``dry_allowed``)."""
@@ -1522,16 +1584,16 @@ def heal_due(
     stale: Callable[[], bool],
     coordinator: bool,
     inhibited: bool,
-) -> bool:
-    """A ``band`` or ``off`` heal wait ran: whether its drift still holds, so the plan is applied
-    to the head again (a compute is asked for, and someone told). ``mode`` is what the head shows
-    now; ``stale``, a cloud head's report of an older state, is not drift. Each read is made only
-    when it decides."""
+) -> Refresh | None:
+    """A ``band`` or ``off`` heal wait ran: if its drift still holds, the plan is applied to the
+    head again, so it returns the compute to ask for (and someone is told); None does nothing.
+    ``mode`` is what the head shows now; ``stale``, a cloud head's report of an older state, is
+    not drift. Each read is made only when it decides."""
     if kind == "band":
         still = band_drift(mode, hands_off_head=hands_off_head(), dry_allowed=dry_allowed())
     else:
         still = off_while_enabled(mode, enabled=enabled, eco_idle=eco_idle, planned=planned)
-    return still and not stale() and coordinator and not inhibited
+    return Refresh.REQUEST if still and not stale() and coordinator and not inhibited else None
 
 
 @dataclass(frozen=True, slots=True)

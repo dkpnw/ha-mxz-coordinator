@@ -324,7 +324,7 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_head_fault.py::test_a_head_is_sent_a_new_mode_only_once_it_is_the_recorded_mode',
     ),
     'C43': Mutant(
-        "a head's unexpected error fails the plan", '_async_issue',
+        "a head's unexpected error fails the plan", '_async_call',
         'if isinstance(err, HomeAssistantError):\n                raise',
         'if True:\n                raise',
         'tests/test_head_fault.py::test_a_head_that_raises_during_a_mode_change_doesnt_undo_the_change[RuntimeError]',
@@ -404,7 +404,7 @@ MUTANTS: dict[str, Mutant] = {
     # A call the head refused is never shown: the copy it counted is taken back (review 3 of
     # smfix1111). The model has no refused call, so this is a code-only check.
     'C55': Mutant(
-        "a refused write's copy is kept", '_async_issue',
+        "a refused write's copy is kept", '_async_call',
         'self._host.take_back_head_write(climate_id, counted)',
         'pass',
         'tests/test_accept_head_changes.py::test_a_refused_write_leaves_no_copy_to_take_a_later_press',

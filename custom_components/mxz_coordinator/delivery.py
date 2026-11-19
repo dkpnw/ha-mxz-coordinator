@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Callable, Coroutine
+from collections.abc import AsyncIterator, Callable, Coroutine, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import partial
@@ -25,6 +25,7 @@ from homeassistant.helpers.debounce import Debouncer
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
+from .head_writes import RememberWrites, SendCall, issue_steps
 from .host import ControllerHost
 
 if TYPE_CHECKING:
@@ -72,7 +73,7 @@ class DeliveryHost(ControllerHost, Protocol):
     def async_update_listeners(self) -> None: ...
     async def async_refresh(self) -> None: ...
     def publish_delivery(self) -> None: ...
-    def remember_head_write(self, climate_id: str, payload: dict[str, Any]) -> dict[str, Any]: ...
+    def remember_head_write(self, climate_id: str, payload: Mapping[str, Any]) -> dict[str, Any]: ...
     def take_back_head_write(self, climate_id: str, counted: dict[str, Any]) -> None: ...
 
 
@@ -511,9 +512,24 @@ class DeliveryQueue:
         self, climate_id: str, service: str, payload: dict[str, Any],
         *, observation: dict[str, Any] | None = None,
     ) -> None:
-        """Observe one software call, never claim physical receipt."""
-        # Before the call: the head's report can arrive while it runs.
-        counted = self._host.remember_head_write(climate_id, payload)
+        """One call to a head, step by step (``head_writes.issue_steps``): its mode and setpoint
+        writes are remembered, then it is sent."""
+        counted: dict[str, Any] = {}
+        for step in issue_steps(payload):
+            match step:
+                case RememberWrites(written):
+                    counted = self._host.remember_head_write(climate_id, written)
+                case SendCall():
+                    await self._async_call(
+                        climate_id, service, payload, counted, observation=observation,
+                    )
+
+    async def _async_call(
+        self, climate_id: str, service: str, payload: dict[str, Any], counted: dict[str, Any],
+        *, observation: dict[str, Any] | None = None,
+    ) -> None:
+        """Observe one software call, never claim physical receipt. A call the head refuses
+        takes back the copies its writes ``counted``."""
         observed = observation if observation is not None else self._observations.setdefault(climate_id, {})
         if observation is None:
             # Ordinary issuance has waited for both the old handler and its

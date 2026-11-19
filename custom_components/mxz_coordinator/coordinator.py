@@ -18,7 +18,7 @@ import asyncio
 import copy
 import logging
 import math
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from functools import partial
@@ -183,6 +183,7 @@ from .head_writes import (
     remember_writes,
     writes_caught_up,
     writes_pressed,
+    writes_refused,
 )
 from .heads import HeadDrivers
 from .host import Effect
@@ -223,14 +224,18 @@ from .planner import (
     HeadStep,
     Landed,
     LastRun,
+    Latch,
     MemoryStep,
     ModeWriteBack,
     OffHealRecheck,
     Pressed,
     Queue,
+    ReleaseEnded,
     ReportedHead,
     RoomInput,
+    RoomStep,
     SeedCancelled,
+    SeedDropped,
     SetEnable,
     SetpointSettings,
     SetTarget,
@@ -245,8 +250,8 @@ from .planner import (
     arbitration_mode,
     decide,
     demand_bands,
+    enable_written,
     head_change,
-    head_dropped,
     heal_due,
     held_back,
     hold_end,
@@ -257,9 +262,11 @@ from .planner import (
     off_heal_recheck,
     off_while_enabled,
     planned_act,
+    range_target,
     report_steps,
     setpoint_field,
     stamp_mode_change,
+    target_written,
 )
 from .resume import (
     MODE_AT_KEY,
@@ -296,6 +303,7 @@ from .timing import (
     arms,
     hold_end_arm,
     same_reading_refresh,
+    startup_quiet,
 )
 from .units import offset_in_unit, snap_to_step, target_in_unit
 
@@ -1097,7 +1105,8 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         # out of demand at once, as always; only its "no usable reading"
         # WARNING waits for the post-start recompute (_on_startup_timer), which
         # logs it then if it still applies. A reload while running warns at once.
-        self._startup_quiet = hass.state is not CoreState.running
+        self._set_up_running = hass.state is CoreState.running
+        self._startup_quiet = startup_quiet(running=self._set_up_running, startup_ran=False)
         self._quiet_unusable: set[str] = set()
         self._arm_freshness(self._started_ts)
         self._unsubs: list[Any] = []
@@ -2770,7 +2779,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     @callback
     def _on_startup_timer(self) -> None:
         # Startup has settled: this recompute logs any room still unusable.
-        self._startup_quiet = False
+        self._startup_quiet = startup_quiet(running=self._set_up_running, startup_ran=True)
         self.wake("startup")
 
     # -- self-heal A (band drift) -------------------------------------------
@@ -2885,7 +2894,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             return
         state = self.hass.states.get(entity_id)
         mode = state.state if state else None
-        if heal_due(
+        refresh = heal_due(
             kind, mode,
             hands_off_head=partial(self._hands_off_head, entity_id),
             dry_allowed=partial(self.dry.allowed, entity_id, mode),
@@ -2895,8 +2904,9 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             stale=partial(self.heads.stale_report, entity_id, mode=mode),
             coordinator=self.coordinator_enable,
             inhibited=self.inhibited,
-        ):
-            self.hass.async_create_task(self._heal_and_notify(entity_id, kind, mode))
+        )
+        if refresh is not None:
+            self.hass.async_create_task(self._heal_and_notify(entity_id, kind, mode, refresh))
 
     def _off_while_enabled(self, entity_id: str, mode: str | None) -> bool:
         """Off while its room is enabled and the plan wants it on (``planner.off_while_enabled``)."""
@@ -2908,7 +2918,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
     # -- accept changes made at the head ---------------------------------------
     # From @BHSPitMonkey's fork (Discussion #103), rebuilt on MXZ's write memory: a
     # report MXZ's own writes can explain is never a person, however late it comes.
-    def remember_head_write(self, climate_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def remember_head_write(self, climate_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         """Keep a mode or setpoint MXZ is sending, as ``FanEcho.wrote`` does a fan.
 
         Returns the fields that counted a copy (``head_writes.remember_writes``), for
@@ -2927,10 +2937,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
 
     def take_back_head_write(self, climate_id: str, counted: dict[str, Any]) -> None:
         """The head refused the call: the copies it counted will never show."""
-        memory = self._head_writes.get(climate_id, {})
-        for name, value in counted.items():
-            if name in memory:
-                memory[name].refused(value)
+        writes_refused(self._head_writes.get(climate_id, {}), counted)
         if counted:
             self.room_state.changed()
 
@@ -3036,12 +3043,6 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             partial(self._adoption, climate_id, self._adopt_moved.get(climate_id, set())),
         )
 
-    @callback
-    def drop_head_change(self, climate_id: str) -> None:
-        """A change to the room in Home Assistant during an adopt hold ends it with nothing
-        adopted: the later change wins (``planner.head_dropped``)."""
-        self._perform_head_report(climate_id, head_dropped((climate_id, "adopt")))
-
     def _head_change_seen(self, climate_id: str, state: Any, names: tuple[str, ...]) -> None:
         """A person's change is what the head shows now, whatever MXZ wrote before it."""
         writes_pressed(
@@ -3117,8 +3118,11 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
                 if cancel is not None:
                     self._heal(cancel)
 
-    async def _heal_and_notify(self, entity_id: str, kind: str, mode: str | None) -> None:
-        """Re-apply the plan to a head that drifted; log it, and tell someone once an hour.
+    async def _heal_and_notify(
+        self, entity_id: str, kind: str, mode: str | None, refresh: Refresh,
+    ) -> None:
+        """Re-apply the plan to a head that drifted (ask ``refresh``, ``planner.heal_due``); log
+        it, and tell someone once an hour.
 
         Every heal is logged. The notice names the room and head, and goes out
         at most once per head per HEAL_NOTICE_SECONDS, as floor notices are
@@ -3136,7 +3140,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         )
         if not held:
             self._heal_notice_at[entity_id] = now
-        await self.async_request_refresh()
+        await self._async_ask(refresh)
         if held:
             return
         if kind == "off":
@@ -3420,12 +3424,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         """
         was_on = zone.enable
         zone.enable = on
-        if on:
-            self._hands_off_released.discard(zone.slug)
-        if not was_on or not on:
-            self._startup_resume.pop(zone.slug, None)
-            self._engage_latch[zone.slug] = ""
-        self.drop_head_change(zone.climate_id)
+        self._perform_room_steps(zone, enable_written(zone.climate_id, was_on=was_on, on=on))
 
     def _rooms_record(self) -> dict[str, Any]:
         """Each room's values, by head (``room_state.SECTION_ROOMS``)."""
@@ -3569,7 +3568,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         entities redraw. The caller requests the recompute.
         """
         zone.target_low, zone.target_high = low, high
-        zone.target = (low + high) / 2
+        zone.target = range_target(low, high)
         zone.range_note = None
         self.reset_engage_latch(zone.slug)
         self.async_update_listeners()
@@ -3731,7 +3730,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             )
             _LOGGER.warning("%s: %s", zone.name, zone.range_note)
         zone.target_low, zone.target_high = low, high
-        zone.target = (low + high) / 2
+        zone.target = range_target(low, high)
 
     def reset_engage_latch(self, slug: str) -> None:
         """Forget a zone's engage latch (its target changed -> fresh decision).
@@ -3742,14 +3741,26 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         """
         for zone in self.zones:
             if zone.slug == slug:
-                self.drop_head_change(zone.climate_id)
-        if slug in self._startup_resume or not self.coordinator_enable or not any(
-            zone.slug == slug and zone.enable for zone in self.zones
-        ):
-            self._startup_resume.pop(slug, None)
-            self._engage_latch[slug] = ""
-        else:
-            self._engage_latch.pop(slug, None)
+                self._perform_room_steps(zone, target_written(
+                    zone.climate_id, startup=slug in self._startup_resume,
+                    coordinator=self.coordinator_enable, enabled=zone.enable,
+                ))
+
+    def _perform_room_steps(self, zone: Zone, steps: tuple[RoomStep, ...]) -> None:
+        """Do what a person's write to a room does (``planner.target_written``,
+        ``enable_written``), step by step."""
+        for step in steps:
+            match step:
+                case HeadReport():
+                    self._perform_head_report(zone.climate_id, step)
+                case ReleaseEnded():
+                    self._hands_off_released.discard(zone.slug)
+                case SeedDropped():
+                    self._startup_resume.pop(zone.slug, None)
+                case Latch(entry) if entry is None:
+                    self._engage_latch.pop(zone.slug, None)
+                case Latch(entry) if entry is not None:
+                    self._engage_latch[zone.slug] = entry
 
     async def async_user_changed(self, *, at_once: bool = False) -> None:
         """A helper entity changed by the user -> recompute + act.

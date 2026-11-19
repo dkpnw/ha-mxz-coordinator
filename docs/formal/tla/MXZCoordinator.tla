@@ -752,7 +752,7 @@ Report(v, by) ==
        /\ holding' = (~own /\ v # target /\ ~quiet)
 
 \* number.async_set_native_value: a person sets the target in Home Assistant, which
-\* ends a hold (drop_head_change): the later change wins.
+\* ends a hold (target_written): the later change wins.
 SetTarget == WithAdopt /\ \E v \in Targets :
     /\ v # target /\ target' = v /\ holding' = FALSE
     /\ UNCHANGED <<spShown, spQueue, spMem, quiet, shownKind, adopted, writeInHold, pressedQueued,

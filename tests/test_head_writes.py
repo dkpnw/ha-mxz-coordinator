@@ -11,12 +11,16 @@ from __future__ import annotations
 from custom_components.mxz_coordinator.grid import Grid
 from custom_components.mxz_coordinator.head_writes import (
     HEAD_WRITE_MODE,
+    RememberWrites,
+    SendCall,
     field_shown,
+    issue_steps,
     remember_writes,
     same_as,
     write_is_own,
     writes_caught_up,
     writes_pressed,
+    writes_refused,
 )
 from custom_components.mxz_coordinator.logic import HeadWriteMemory
 
@@ -52,6 +56,33 @@ def test_a_write_is_remembered_per_field_it_carries() -> None:
     assert counted == {"hvac_mode": "cool", "target_temp_low": 66.0}
     assert set(memories) == {"hvac_mode", "target_temp_low"}
     assert memories["hvac_mode"].values == ("off", "cool")
+
+
+def test_a_call_remembers_its_writes_before_it_is_sent() -> None:
+    payload = {"hvac_mode": "heat", "temperature": 68.0}
+    assert issue_steps(payload) == (RememberWrites(payload), SendCall())
+    assert issue_steps(payload) != (SendCall(), RememberWrites(payload))
+
+
+def test_a_refused_call_takes_back_only_the_copies_it_counted() -> None:
+    memories: dict[str, HeadWriteMemory] = {}
+    shows = {"temperature": 66.0}
+    remember_writes(memories, {"temperature": 68.0}, mode="heat", attributes=shows, grid=PLAIN, size=4)
+    counted = remember_writes(
+        memories, {"hvac_mode": "heat", "temperature": 68.0}, mode="heat", attributes=shows,
+        grid=PLAIN, size=4,
+    )
+    # The mode is what the head shows: no copy. 68 counts its second copy.
+    assert counted == {"temperature": 68.0}
+    assert memories["temperature"].record() == [[66.0, 0], [68.0, 2]]
+    writes_refused(memories, counted)
+    assert memories["temperature"].record() == [[66.0, 0], [68.0, 1]]
+    assert memories["hvac_mode"].record() == [["heat", 0]]
+    # Nothing counted, nothing taken back; a field with no memory is passed over.
+    writes_refused(memories, {})
+    writes_refused(memories, {"target_temp_low": 60.0})
+    assert memories["temperature"].record() == [[66.0, 0], [68.0, 1]]
+    assert "target_temp_low" not in memories
 
 
 def test_a_write_of_what_the_head_shows_counts_no_copy() -> None:
