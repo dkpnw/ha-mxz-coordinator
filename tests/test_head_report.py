@@ -2,7 +2,7 @@
 
 planner.head_report (a head's report against the hold), holds_change (the apply's gate),
 adopt_end (the hold's end), startup_report (a startup seed and a reported off) and
-HeadWriteMemory.pressed. Each expectation is the rule as Accept changes made at the head states
+HeadWriteMemory.pressed, and planned_act, the mode the plan wants a head in. Each expectation is the rule as Accept changes made at the head states
 it, worked by hand; each callable that may be read only where it decides raises when read
 anywhere else. Every head and value is invented.
 """
@@ -28,6 +28,7 @@ from custom_components.mxz_coordinator.planner import (
     adopted,
     head_report,
     holds_change,
+    planned_act,
     startup_report,
 )
 from custom_components.mxz_coordinator.timing import Arm
@@ -171,3 +172,36 @@ def test_nothing_shown_or_mxzs_own_value_changes_nothing(shown) -> None:
     before = memory.record()
     memory.pressed(shown)
     assert memory.record() == before
+
+
+# -- the mode the plan wants a head in -------------------------------------------------------
+
+
+def _planned(**change: object) -> str | None:
+    kwargs: dict[str, object] = {
+        "active": None, "paused": False, "state": MODE_COOL, "engage": MODE_COOL,
+        "enabled": True, "eco": False, "idle": lambda: "fan_only",
+    } | change
+    return planned_act(**kwargs)  # type: ignore[arg-type]
+
+
+def test_a_running_delivery_owns_the_heads_writes() -> None:
+    assert _planned(active=MODE_HEAT, paused=True, idle=_never) == MODE_HEAT
+
+
+def test_a_paused_head_is_off_by_plan() -> None:
+    assert _planned(paused=True, idle=_never) == MODE_OFF
+
+
+@pytest.mark.parametrize("change", [{"state": None}, {"state": "off"}, {"engage": None}, {"engage": "dry"}])
+def test_no_plan_for_the_head_says_nothing(change) -> None:
+    assert _planned(idle=_never, **change) is None
+
+
+def test_the_plans_run_and_its_idle_park() -> None:
+    assert _planned() == MODE_COOL
+    assert _planned(engage="satisfied") == "fan_only"
+    # A disabled room parks off, though its parking mode is still read, as the apply reads it.
+    read: list[bool] = []
+    assert _planned(engage="satisfied", enabled=False, idle=lambda: read.append(True) or "fan_only") == MODE_OFF
+    assert read == [True]

@@ -107,7 +107,6 @@ from .const import (
     DOMAIN,
     DUAL_HANDOFF_KEY,
     DUAL_ZONE_ENTITY_SUFFIXES,
-    ENGAGE_SATISFIED,
     EVENT_RECOMPUTE,
     EVIDENCE_HA_WRITE,
     FAN_LADDER,
@@ -205,7 +204,6 @@ from .logic import (
     evidence_contract,
     finite_number,
     freshness_window,
-    head_action,
     sample_evidence,
     season_lockouts,
     sensor_health,
@@ -239,6 +237,7 @@ from .planner import (
     holds_change,
     idle_for,
     mode_change_stamp,
+    planned_act,
     setpoint_field,
     startup_report,
 )
@@ -2441,36 +2440,30 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             self.clock.cancel("dry", climate_id)
 
     def _planned_act_for(self, entity_id: str) -> str | None:
-        """The action owning this head's writes, else the current plan's action.
+        """The action owning this head's writes, else the current plan's action
+        (``planner.planned_act``).
 
-        A newer decision may already be published while this head still reports
-        an older operation. Lets the off-drift self-heal tell a plan-parked off head (idle_action
-        off, eco) from a genuine wall-remote off during an active call — the
-        former must not be "healed" back awake.
+        Lets the off-drift self-heal tell a plan-parked off head (idle_action off, eco) from a
+        genuine wall-remote off during an active call: the former must not be "healed" back
+        awake.
         """
-        if active := self.deliveries.current(entity_id):
-            return active.act
-        if any(
-            zone.climate_id == entity_id and self.openings.paused(zone) for zone in self.zones
-        ):
-            return MODE_OFF  # a paused room's head is off by plan, never drift
+        active = self.deliveries.current(entity_id)
         plan = self._applying_plan if self._applying_plan is not None else self.data
-        if not plan or plan.state not in (MODE_COOL, MODE_HEAT):
-            return None
-        state = plan.state
-        for zone, room in zip(self.zones, plan.rooms):
-            if zone.climate_id == entity_id:
-                engage = room.engage
-                if engage not in (MODE_COOL, MODE_HEAT, ENGAGE_SATISFIED, MODE_OFF):
-                    return None
-                idle = self._idle_act_for(entity_id)
-                return head_action(
-                    engage=engage,
-                    mode=state,
-                    eco=self.eco_active(),
-                    idle=idle if zone.enable else MODE_OFF,  # as _apply
-                )
-        return None
+        found = None if plan is None else next(
+            ((zone, room) for zone, room in zip(self.zones, plan.rooms) if zone.climate_id == entity_id),
+            None,
+        )
+        return planned_act(
+            active=active.act if active else None,
+            paused=any(
+                zone.climate_id == entity_id and self.openings.paused(zone) for zone in self.zones
+            ),
+            state=plan.state if plan else None,
+            engage=None if found is None else found[1].engage,
+            enabled=found is not None and found[0].enable,
+            eco=self.eco_active(),
+            idle=partial(self._idle_act_for, entity_id),
+        )
 
     def _zone_of(self, climate_id: str) -> Zone | None:
         return next((zone for zone in self.zones if zone.climate_id == climate_id), None)

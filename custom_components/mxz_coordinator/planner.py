@@ -856,6 +856,37 @@ def _head_apply(
     )
 
 
+def planned_act(
+    *,
+    active: str | None,
+    paused: bool,
+    state: str | None,
+    engage: str | None,
+    enabled: bool,
+    eco: bool,
+    idle: Callable[[], str],
+) -> str | None:
+    """The mode the plan wants a head in now; None when no plan says.
+
+    ``active`` is the act of a delivery running on the head: a newer decision may already be
+    published while the head still reports an older operation, and the delivery owns its
+    writes. A paused room's head is off by plan, never drift. Otherwise the plan's (``state``,
+    the room's ``engage``; None for a head no room of the plan runs) as the apply would send it,
+    a disabled room parking off. ``idle`` is the head's parking mode (:func:`idle_for`), read
+    for any room the plan runs, as the apply reads it.
+    """
+    if active is not None:
+        return active
+    if paused:
+        return MODE_OFF
+    if state not in (MODE_COOL, MODE_HEAT) or engage is None:
+        return None
+    if engage not in _VALID_ENGAGES:
+        return None
+    parked = idle()
+    return head_action(engage=engage, mode=state, eco=eco, idle=parked if enabled else MODE_OFF)
+
+
 def apply_plan(plan: Plan, heads: Sequence[ApplyHead], shared: ApplyShared) -> ApplyResult:
     """Which heads one apply commands and how, in room order, and the plan's mode write-back.
 
