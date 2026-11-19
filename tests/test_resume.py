@@ -25,7 +25,12 @@ from custom_components.mxz_coordinator.const import (
     MODE_OFF,
 )
 from custom_components.mxz_coordinator.fan_latch import FanRecord
-from custom_components.mxz_coordinator.planner import CallLimits, RoomInput, Shared, decide
+from custom_components.mxz_coordinator.planner import (
+    CallLimits,
+    RoomInput,
+    Shared,
+    decide,
+)
 from custom_components.mxz_coordinator.resume import (
     SECTION_FAN,
     SECTION_FLOOR,
@@ -317,6 +322,7 @@ def test_a_restart_resumes_the_run_each_head_shows_through_the_same_functions() 
     decision = decide(rooms, resumed, latch, startup)
     assert decision.latch == {"study": MODE_COOL, "den": ""}
     assert decision.startup == {}
-    assert [(r.demand, r.engage) for r in decision.rooms][0] == (DEMAND_NEUTRAL, MODE_COOL)
+    study = decision.rooms[0]
+    assert (study.demand, study.engage) == (DEMAND_NEUTRAL, MODE_COOL)
     fresh = decide(rooms, resumed, {"study": "", "den": ""}, {})
     assert fresh.rooms[0].engage != MODE_COOL  # without the seed the run would not carry on
