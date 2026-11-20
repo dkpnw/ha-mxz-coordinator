@@ -24,7 +24,7 @@ Every room, head and number here is invented. Nothing is a measurement of real e
 
 from __future__ import annotations
 
-from collections.abc import Hashable, Iterator, Mapping
+from collections.abc import Hashable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -894,41 +894,67 @@ class MxzRow:
         return did
 
 
-    def _settle(self, did: st.Step | None) -> None:
-        """Run each compute a step asks for, and each one after it."""
+    def _settle(self, did: st.Step | None, after: Sequence[tm.Refresh] = ()) -> None:
+        """Run each compute a step asks for, and each one after it. ``after`` is asked once
+        the first of them has ended, or at once if the step asks for none."""
+        if did is None or did.compute is None:
+            did, after = self._ask_each(did, after), ()
         while did is not None and did.compute is not None:
             self.log.computes.append((self.now, str(did.compute)))
             computed = self._compute()
             timers, did = st.step(self._timers(), computed, self.now)
             self.timers = timers
+            did, after = self._ask_each(did, after), ()
+
+    def _ask_each(self, did: st.Step | None, refreshes: Sequence[tm.Refresh]) -> st.Step | None:
+        """Ask each refresh in order after ``did``. Returns the step that starts a compute, if
+        one of them does, else ``did``."""
+        for refresh in refreshes:
+            asked = self._step(st.Ask(refresh))
+            if asked.compute is not None:
+                did = asked
+        return did
 
     def advance(self, until: float) -> bool:
         """Time passes to ``until``; every MXZ timer due by then runs at its own due time.
 
         Returns whether one ran.
+
+        Home Assistant runs every timer due at one instant before any compute they ask for, and
+        each adopt hold's end as its own task, whose writes to the room yield before the compute
+        they ask for applies. So all the wakeups of one tick run first, each hold end judged and
+        its writes done, and then what they asked for is asked, in order. Each hold end's
+        closing ask comes once the first compute has ended, when its writes return.
         """
         ran = False
         while self.running and self.due() <= until:
             self.now = max(self.now, self.due())
             ran = True
             did = self._step(st.Tick())
-            for wakeup in did.ran:
-                if isinstance(wakeup, st.Fire):
-                    self._fired(wakeup)
-            self._settle(did)
+            asks: list[tm.Refresh] = []
+            closing: list[tm.Refresh] = []
+            self._dispatch = asks
+            try:
+                for wakeup in did.ran:
+                    if isinstance(wakeup, st.Fire) and (refresh := self._fired(wakeup)) is not None:
+                        closing.append(refresh)
+            finally:
+                self._dispatch = None
+            self._settle(self._ask_each(did, asks), closing)
         self.now = max(self.now, until)
         return ran
 
-    def _fired(self, wakeup: st.Fire) -> None:
+    def _fired(self, wakeup: st.Fire) -> tm.Refresh | None:
         """What a wakeup does besides the refresh ``timing.WAKEUPS`` names, which the step
-        already asked for (``MXZCoordinator._on_heal_timer``, ``_on_startup_timer``)."""
+        already asked for (``MXZCoordinator._on_heal_timer``, ``_on_startup_timer``). Returns
+        an adopt hold end's closing ask."""
         if wakeup.name == "startup":
             self.starting = tm.startup_quiet(running=False, startup_ran=True)
         elif wakeup.name == "heal":
             head, kind = wakeup.key  # type: ignore[misc]
             room = next(room for room in self.rooms if room.climate_id == head)
             if kind == "adopt":
-                self._hold_end(room)
+                return self._hold_end(room)
             else:
                 mode = self._mode(room)
                 self._ask(pl.heal_due(
@@ -936,9 +962,11 @@ class MxzRow:
                     enabled=room.enable, eco_idle=False, planned=lambda: self._planned(room),
                     stale=lambda: False, coordinator=self.coordinator, inhibited=False,
                 ))
+        return None
 
-    def _hold_end(self, room: Room) -> None:
-        """Event 7: the adopt hold ends (``MXZCoordinator._async_adopt_head_change``)."""
+    def _hold_end(self, room: Room) -> tm.Refresh:
+        """Event 7: the adopt hold ends (``MXZCoordinator._async_adopt_head_change``): the
+        change is judged and its steps done. Returns the compute it asks for last."""
         moved, room.pending = room.pending, set()
         adoption = self._adoption(room, moved)
         mode = self._mode(room)
@@ -951,7 +979,7 @@ class MxzRow:
         )
         for step in end.steps:
             self._perform(room, step)
-        self._ask(end.refresh)
+        return end.refresh
 
     # -- event 3: a person's write to a room, and the room's readings ----------------------
     def _room(self, key: str) -> Room:

@@ -58,4 +58,7 @@ each head, every pending wakeup and when it runs, each compute and why, what eac
 and at a restart what MXZ saved. The scenarios cover mixed demand, everyone at target, a
 standoff, Comfort priority, the wait between heat and cool, a fan speed a person picks, the fan
 handed back before an off, a restart inside the wait with a held fan, and changes made at a
-head. Broken copies of `mxz_row.py` must fail them.
+head, two of them at one instant. Broken copies of `mxz_row.py` must fail them. When two heads'
+setpoints are changed at one instant, the real coordinator's number of computes varies from
+run to run with how Home Assistant interleaves the two heads' writes, so that case is checked
+on the calls to each head and what the rooms and heads end with.

@@ -351,6 +351,19 @@ SCRIPTS: dict[str, dict[str, Any]] = {
         ],
         temps={"studio": 76.0},
     ),
+    # Studio and Den cool; a person turns both heads off at their remotes at one instant, so
+    # both adopt holds end together with no compute in the 10 seconds before. Each hold end is
+    # judged before the compute the first one asks for, so both rooms are turned off and
+    # neither head is sent anything.
+    "two_holds_off": _script(
+        [
+            ["until", 60.5],
+            ["press", "studio", {"hvac_mode": "off"}],
+            ["press", "den", {"hvac_mode": "off"}],
+            ["until", 120.5],
+        ],
+        temps={"studio": 76.0, "den": 76.0},
+    ),
 }
 
 
@@ -586,6 +599,19 @@ def _off_heal(real: list[dict[str, Any]]) -> None:
     assert healed["heads"]["den"][0] == "heat"
 
 
+ADOPT_DEN = f"heal ('{climate_id('den')}', 'adopt')"
+
+
+def _two_holds_off(real: list[dict[str, Any]]) -> None:
+    pressed = _step(real, "press den {'hvac_mode': 'off'}")
+    assert pressed["waits"][ADOPT_STUDIO] == pressed["waits"][ADOPT_DEN] == 5.0
+    ended = real[-1]
+    assert ended["computes"][0] == [65.5, "ask"]
+    assert ended["rooms"]["studio"]["enable"] is False and ended["rooms"]["den"]["enable"] is False
+    assert _calls(real, "studio", after="press studio {'hvac_mode': 'off'}") == []
+    assert _calls(real, "den", after="press studio {'hvac_mode': 'off'}") == []
+
+
 def _restart_head_writes(real: list[dict[str, Any]]) -> None:
     first, second = (snapshot for snapshot in real if snapshot["do"] == "restart")
     remembered = first["saved"]["head_writes"][climate_id("studio")]
@@ -620,6 +646,7 @@ REACHES = {
     "head_off_adopted": _head_off_adopted,
     "off_heal": _off_heal,
     "restart_head_writes": _restart_head_writes,
+    "two_holds_off": _two_holds_off,
 }
 
 
@@ -714,7 +741,22 @@ BREAKS = {
     "head-write memories at a start": (
         "restart_head_writes", "            room.memories.update(saved_room.head_writes)\n", "",
     ),
+    "hold ends due together, each judged before a compute": (
+        "two_holds_off", "            self._dispatch = asks\n", "",
+    ),
 }
+
+
+def _broken(tmp_path_factory: pytest.TempPathFactory, what: str) -> Path:
+    """The shipped tree with the line ``BREAKS[what]`` names broken in its ``mxz_row.py``."""
+    _name, old, new = BREAKS[what]
+    broken = tmp_path_factory.mktemp("broken")
+    _bundler().write_tree(broken)
+    source = broken / "mxz_row.py"
+    text = source.read_text()
+    assert text.count(old) == 1, what
+    source.write_text(text.replace(old, new))
+    return broken
 
 
 @pytest.mark.parametrize("what", sorted(BREAKS))
@@ -722,19 +764,63 @@ async def test_a_broken_page_row_is_caught(
     what: str, tree: Path, tmp_path_factory: pytest.TempPathFactory, hass: Any, freezer: Any,
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    name, old, new = BREAKS[what]
-    broken = tmp_path_factory.mktemp("broken")
-    _bundler().write_tree(broken)
-    source = broken / "mxz_row.py"
-    text = source.read_text()
-    assert text.count(old) == 1, what
-    source.write_text(text.replace(old, new))
+    name, _old, _new = BREAKS[what]
+    broken = _broken(tmp_path_factory, what)
     real = await Lab(hass, freezer, monkeypatch, tmp_path).run(SCRIPTS[name])
     try:
         page = run_page(broken, SCRIPTS[name])
     except AssertionError:
         return  # the broken row failed outright, which is caught too
     assert _differs(real, page), what
+
+
+# A person raises the cool setpoint at Studio's and Den's remotes at one instant. On the real
+# coordinator both become targets on every run, and every call to each head is the same, but
+# not how many computes follow: Home Assistant interleaves the two heads' deliveries, so a
+# head's report lands before or after the next compute, where the page sends to one head after
+# another (docs/simulator/README.md). So this compares each step's calls to each head and what
+# the rooms, the heads and the shared mode show, and not the computes, waits or plan.
+TWO_SETPOINTS = _script(
+    [
+        ["until", 60.5],
+        ["press", "studio", {"target_temp_high": 73.0}],
+        ["press", "den", {"target_temp_high": 74.0}],
+        ["until", 120.5],
+    ],
+    temps={"studio": 76.0, "den": 76.0},
+)
+
+
+def _taken(snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {"do": s["do"], "calls": modeled(s)["calls"], "rooms": s["rooms"], "heads": s["heads"], "mode": s["mode"]}
+        for s in snapshots
+    ]
+
+
+async def test_two_setpoints_pressed_at_once_are_both_taken(
+    tree: Path, hass: Any, freezer: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    real = await Lab(hass, freezer, monkeypatch, tmp_path).run(TWO_SETPOINTS)
+    rooms = real[-1]["rooms"]
+    assert rooms["studio"]["target"] == 73.0 and rooms["den"]["target"] == 74.0
+    assert _calls(real, "den", after="press den {'target_temp_high': 74.0}")[0] == [
+        "set_temperature", {"hvac_mode": "cool", "target_temp_low": 72.0, "target_temp_high": 74.0},
+    ]
+    assert _taken(run_page(tree, TWO_SETPOINTS)) == _taken(real)
+
+
+async def test_two_setpoints_with_a_compute_between_hold_ends_is_caught(
+    tmp_path_factory: pytest.TempPathFactory, hass: Any, freezer: Any, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The row that runs the first hold end's compute before the second hold end is judged
+    writes Den's head back to 70 and keeps its target: the comparison above catches it."""
+    broken = _broken(tmp_path_factory, "hold ends due together, each judged before a compute")
+    real = await Lab(hass, freezer, monkeypatch, tmp_path).run(TWO_SETPOINTS)
+    page = run_page(broken, TWO_SETPOINTS)
+    assert page[-1]["rooms"]["den"]["target"] == 70.0
+    assert _taken(page) != _taken(real)
 
 
 async def test_a_page_setting_that_differs_is_caught(
