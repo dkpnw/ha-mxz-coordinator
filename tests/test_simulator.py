@@ -775,11 +775,16 @@ BREAKS = {
 def _broken(tmp_path_factory: pytest.TempPathFactory, what: str) -> Path:
     """The shipped tree with the line ``BREAKS[what]`` names broken in its ``mxz_row.py``."""
     _name, old, new = BREAKS[what]
+    return _broken_row(tmp_path_factory, old, new)
+
+
+def _broken_row(tmp_path_factory: pytest.TempPathFactory, old: str, new: str) -> Path:
+    """The shipped tree with ``old`` replaced by ``new`` in its ``mxz_row.py``."""
     broken = tmp_path_factory.mktemp("broken")
     _bundler().write_tree(broken)
     source = broken / "mxz_row.py"
     text = source.read_text()
-    assert text.count(old) == 1, what
+    assert text.count(old) == 1, old
     source.write_text(text.replace(old, new))
     return broken
 
@@ -846,6 +851,111 @@ async def test_two_setpoints_with_a_compute_between_hold_ends_is_caught(
     page = run_page(broken, TWO_SETPOINTS)
     assert page[-1]["rooms"]["den"]["target"] == 70.0
     assert _taken(page) != _taken(real)
+
+
+# A wakeup that ends an adopt hold, due at the instant a compute starts. ``sim_timing.step``
+# lists the compute first, and the real coordinator takes what the hold end asks for during that
+# compute. The page's row judges every hold end of a tick before any compute and asks the hold
+# end's closing refresh once the first compute has ended (``MxzRow.advance``). That order is the
+# row's own, not a product return value, so here the row runs one more compute than the
+# coordinator, and in ``dwell_and_hold`` sends Studio a call the coordinator never sends. The
+# page and docs/simulator/README.md say so (``HOLD_END_LIMIT``). Each check asserts its
+# difference exactly and every other part of every step equal, so a row that comes to match the
+# coordinator here, or differs in any other way, fails it.
+COOL_120_S_AGO = store(
+    targets=AT_70, enables=ALL_ON,
+    mode={"mode": "cool", "mode_at": WALL - 120, "mode_by_votes": False, "last_mode_change": WALL - 120},
+)
+HOLD_END_IN_A_COMPUTE: dict[str, dict[str, Any]] = {
+    # The 10-second cooldown after Loft's reading ends at 70.5 s, and so does Den's adopt hold.
+    "cooldown_and_hold_off": _script(
+        [
+            ["until", 60.5],
+            ["reading", "loft", 70.2],
+            ["press", "studio", {"hvac_mode": "off"}],
+            ["until", 65.5],
+            ["press", "den", {"hvac_mode": "off"}],
+            ["until", 120.5],
+        ],
+        temps={"studio": 76.0, "den": 76.0},
+    ),
+    # Cool was set 2 minutes before the start, so the mode wait ends at 481 s; Den is cold, so
+    # the dwell wakeup is due then too, and a person sets Studio's head 5 seconds before.
+    "dwell_and_hold": _script(
+        [
+            ["until", 30.5],
+            ["reading", "den", 64.0],
+            ["until", 476.0],
+            ["press", "studio", {"hvac_mode": "cool", "target_temp_high": 72.0}],
+            ["until", 700.5],
+        ],
+        saved=COOL_120_S_AGO,
+    ),
+}
+
+
+def _same_but_the_last_step(
+    real: list[dict[str, Any]], page: list[dict[str, Any]], left_out: tuple[str, ...],
+) -> None:
+    assert len(page) == len(real)
+    for want, got in zip(real[:-1], page[:-1], strict=True):
+        assert _compared(got) == _compared(want), want["do"]
+    assert _compared(page[-1], left_out) == _compared(real[-1], left_out)
+
+
+def _cooldown_and_hold_off(real: list[dict[str, Any]], page: list[dict[str, Any]]) -> None:
+    pressed = _step(real, "press den {'hvac_mode': 'off'}")
+    assert pressed["waits"][ADOPT_DEN] == 5.0
+    ended = real[-1]
+    assert ended["computes"] == [[70.5, "cooldown"], [70.5, "followup"]]
+    assert ended["rooms"]["den"]["enable"] is False and ended["rooms"]["studio"]["enable"] is False
+    _same_but_the_last_step(real, page, ("computes",))
+    assert page[-1]["computes"] == [*ended["computes"], [70.5, "followup"]]
+
+
+def _dwell_and_hold(real: list[dict[str, Any]], page: list[dict[str, Any]]) -> None:
+    pressed = _step(real, "press studio {'hvac_mode': 'cool', 'target_temp_high': 72.0}")
+    assert pressed["waits"]["hold_end None"] == pressed["waits"]["dwell None"] == pressed["waits"][ADOPT_STUDIO] == 5.0
+    ended = real[-1]
+    assert ended["computes"] == [[481.0, "ask"], [481.0, "followup"], [491.0, "cooldown"]]
+    assert ended["rooms"]["studio"]["target"] == 72.0 and ended["heads"]["studio"][0] == "heat"
+    assert ["set_hvac_mode", {"hvac_mode": "fan_only"}] not in _calls(real, "studio")
+    _same_but_the_last_step(real, page, ("computes", "calls", "plan"))
+    assert page[-1]["computes"] == [[481.0, "ask"], [481.0, "followup"], [481.0, "followup"]]
+    real_calls, page_calls = modeled(ended)["calls"], modeled(page[-1])["calls"]
+    assert page_calls == {**real_calls, "studio": [["set_hvac_mode", {"hvac_mode": "fan_only"}], *real_calls["studio"]]}
+    # The plan differs only in when the last compute ran: 10 s after the mode change, or at it.
+    assert ended["plan"]["seconds_since_mode_change"] == 10
+    assert page[-1]["plan"] == {**ended["plan"], "seconds_since_mode_change": 0}
+
+
+DIFFERS_AS_THE_PAGE_SAYS = {
+    "cooldown_and_hold_off": _cooldown_and_hold_off,
+    "dwell_and_hold": _dwell_and_hold,
+}
+
+
+@pytest.mark.parametrize("name", sorted(HOLD_END_IN_A_COMPUTE))
+async def test_a_hold_end_inside_a_compute_differs_as_the_page_says(
+    name: str, tree: Path, hass: Any, freezer: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    assert set(DIFFERS_AS_THE_PAGE_SAYS) == set(HOLD_END_IN_A_COMPUTE)
+    real, page = await _both(HOLD_END_IN_A_COMPUTE[name], tree, hass, freezer, monkeypatch, tmp_path)
+    DIFFERS_AS_THE_PAGE_SAYS[name](real, page)
+
+
+@pytest.mark.parametrize("name", sorted(HOLD_END_IN_A_COMPUTE))
+async def test_a_hold_end_inside_a_compute_in_another_order_is_caught(
+    name: str, tmp_path_factory: pytest.TempPathFactory, hass: Any, freezer: Any,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """A row that drops the hold end's closing ask runs fewer computes here, and the check sees
+    that the difference the page states is no longer the one it shows."""
+    broken = _broken_row(tmp_path_factory, "closing.append(refresh)", "pass")
+    real = await Lab(hass, freezer, monkeypatch, tmp_path).run(HOLD_END_IN_A_COMPUTE[name])
+    page = run_page(broken, HOLD_END_IN_A_COMPUTE[name])
+    with pytest.raises(AssertionError):
+        DIFFERS_AS_THE_PAGE_SAYS[name](real, page)
 
 
 async def test_a_page_setting_that_differs_is_caught(
@@ -1010,6 +1120,13 @@ def test_a_module_that_needs_home_assistant_is_refused(monkeypatch: pytest.Monke
 # -- the page ----------------------------------------------------------------------------------
 PAGE = ROOT / "docs" / "simulator"
 PYODIDE = "https://cdn.jsdelivr.net/pyodide/v314.0.8/full/"
+# What the page and docs/simulator/README.md say about a hold end inside a compute
+# (``HOLD_END_IN_A_COMPUTE``), as words read across line breaks.
+HOLD_END_LIMIT = "Home Assistant starts that plan first and this page takes the change first"
+
+
+def _words(text: str) -> str:
+    return " ".join(text.split())
 
 
 def _page_problems(html: str, css: str) -> list[str]:
@@ -1029,6 +1146,8 @@ def _page_problems(html: str, css: str) -> list[str]:
                      "up to 10 seconds later than in Home Assistant"):
         if left_out not in html:
             problems.append(f"does not say it leaves out: {left_out}")
+    if HOLD_END_LIMIT not in _words(html):
+        problems.append(f"does not say it leaves out: {HOLD_END_LIMIT}")
     pinned = re.search(rf'<script src="{re.escape(PYODIDE)}pyodide\.js"\s+integrity="sha384-[\w+/=]+"', html)
     if pinned is None:
         problems.append("Pyodide is not pinned with its integrity hash")
@@ -1049,6 +1168,7 @@ def test_the_page_check_reports_each_missing_part() -> None:
               .replace("It is not stock AUTO.", "")
               .replace("shared-mode select", "select")
               .replace("up to 10 seconds later", "later")
+              .replace("starts that plan", "starts a plan")
               .replace('integrity="sha384-', 'data-x="sha384-'))
     assert _page_problems(broken, css.replace("position: sticky", "position: static")) == [
         "no Simulation band",
@@ -1056,8 +1176,15 @@ def test_the_page_check_reports_each_missing_part() -> None:
         "missing: It is not stock AUTO.",
         "does not say it leaves out: shared-mode select",
         "does not say it leaves out: up to 10 seconds later than in Home Assistant",
+        f"does not say it leaves out: {HOLD_END_LIMIT}",
         "Pyodide is not pinned with its integrity hash",
     ]
+
+
+def test_the_simulator_readme_says_what_a_hold_end_inside_a_compute_does() -> None:
+    readme = (PAGE / "README.md").read_text()
+    assert HOLD_END_LIMIT in _words(readme)
+    assert HOLD_END_LIMIT not in _words(readme.replace("starts that plan", "starts a plan"))
 
 
 def test_the_readme_links_the_simulator_beside_the_hook() -> None:

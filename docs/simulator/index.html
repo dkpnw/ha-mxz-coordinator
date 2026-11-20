@@ -92,6 +92,11 @@
             Home Assistant can work out the next plan at once. Here a plan's commands all go out
             inside it, so the next plan waits for Home Assistant's 10-second cooldown, and a head
             can get its next command up to 10 seconds later than in Home Assistant.</li>
+          <li>MXZ takes a change made at a head 5 seconds after it. When that falls at the same
+            instant as a plan MXZ was going to work out anyway, Home Assistant starts that plan
+            first and this page takes the change first. Then the page can work out one more plan
+            than Home Assistant, later plans can come at other times, and a head can get a
+            command Home Assistant would not send it.</li>
         </ul>
       </details>
       <p>The README's animations show the same scenes without JavaScript.

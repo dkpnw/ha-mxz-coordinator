@@ -920,11 +920,16 @@ class MxzRow:
 
         Returns whether one ran.
 
-        Home Assistant runs every timer due at one instant before any compute they ask for, and
-        each adopt hold's end as its own task, whose writes to the room yield before the compute
-        they ask for applies. So all the wakeups of one tick run first, each hold end judged and
-        its writes done, and then what they asked for is asked, in order. Each hold end's
-        closing ask comes once the first compute has ended, when its writes return.
+        Workaround: this order is the row's own, not a product return value. All the wakeups
+        of one tick run first, each adopt hold end judged and its writes done; then what they
+        asked for is asked, in order, and each hold end's closing ask comes once the first
+        compute has ended. ``sim_timing.step`` hands back one ``Tick`` with every due wakeup
+        already gone, and no order between a hold end's own steps and a compute at that
+        instant. The order matches the real coordinator when hold ends fall together with no
+        compute starting first (``two_holds_off`` in tests/test_simulator.py). When a compute
+        starts first, the real coordinator takes the hold end's asks during it and this row
+        does not; ``HOLD_END_IN_A_COMPUTE`` there pins that difference, and the page and
+        docs/simulator/README.md state it.
         """
         ran = False
         while self.running and self.due() <= until:
