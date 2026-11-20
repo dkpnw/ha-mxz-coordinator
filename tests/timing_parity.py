@@ -291,6 +291,15 @@ async def _head(
     await house.do(label, head)
 
 
+async def _person(house: Timeline, room: int, mode: str, *, low: float | None = None) -> None:
+    """A person changes the head at its remote (``House.person``): an adopt hold starts."""
+
+    async def person() -> None:
+        await House.person(house, room, mode, low=low)
+
+    await house.do(f"person {room} {mode}" + ("" if low is None else f" low {low}"), person)
+
+
 async def _window(house: Timeline, entity_id: str, state: str) -> None:
     async def window() -> None:
         house.hass.states.async_set(entity_id, state)
@@ -443,6 +452,37 @@ async def restart(house: Timeline) -> None:
     await house.until(1300)
 
 
+async def cooldown_and_hold_off(house: Timeline) -> None:
+    """A reading's compute starts the cooldown, and a person turns room 0's head off in it: the
+    hold's end asks inside the cooldown, so one request is kept for its end. Room 2's head is
+    turned off at that hold's end, so its hold ends at the instant the cooldown does."""
+    await _setup(house, [{}, {}, {}], temps=[76.0, 70.0, 76.0], **{CONF_MODE_HYSTERESIS: 0})
+    await house.until(60.5)
+    await _temp(house, 1, 70.2)
+    await _person(house, 0, HVACMode.OFF)
+    await house.until(65.5)
+    await _person(house, 2, HVACMode.OFF)
+    await house.until(120.5)
+
+
+async def dwell_and_hold(house: Timeline) -> None:
+    """Heat after cool starts a mode-change hold; a cool call waits for the dwell wakeup at its
+    end, and a person sets the heating room's head 5 seconds before, so that adopt hold ends at
+    the instant the dwell and hold-end wakeups run."""
+    await _setup(house, [{}, {}], **{CONF_MODE_HYSTERESIS: 600})
+    await house.until(60)
+    await _temp(house, 0, 76)
+    await house.until(100)
+    await _temp(house, 0, 70)
+    await house.until(120)
+    await _temp(house, 1, 64)
+    await house.until(200)
+    await _temp(house, 0, 76)
+    await house.until(716)
+    await _person(house, 1, HVACMode.HEAT, low=68.0)
+    await house.until(900)
+
+
 SCENARIOS: dict[str, Scenario] = {
     "burst": burst,
     "coil_dry_dwell": coil_dry_dwell,
@@ -452,4 +492,6 @@ SCENARIOS: dict[str, Scenario] = {
     "fresh": fresh,
     "lost_settle": lost_settle,
     "restart": restart,
+    "cooldown_and_hold_off": cooldown_and_hold_off,
+    "dwell_and_hold": dwell_and_hold,
 }
