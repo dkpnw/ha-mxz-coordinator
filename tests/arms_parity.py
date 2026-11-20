@@ -19,7 +19,8 @@ MXZ's timers, or one and the request cooldown's end, fall due together (the star
 
 ``tests/test_arms_parity.py`` compares each scenario with
 ``tests/fixtures/arms_parity/<release>/<scenario>.json``. Those were captured on d4cffd2, with
-the wakeups still synced by the coordinator's ``_sync_*`` methods; run with
+the wakeups still synced by the coordinator's ``_sync_*`` methods (``cooldown_and_hold_off`` and
+``dwell_and_hold`` on 37494ed's integration); run with
 ``MXZ_PARITY_CAPTURE=1`` to rewrite this release's, only on a commit whose behavior is known right.
 
 Every room, head, sensor and value is invented; nothing here is a hardware result.

@@ -3,7 +3,8 @@
 Each scenario in ``tests/arms_parity.py`` runs the real integration and is compared, byte for
 byte, with its recording for the Home Assistant release this suite runs on,
 ``tests/fixtures/arms_parity/<release>/<scenario>.json``, captured on d4cffd2 with the wakeups
-still synced by the coordinator's ``_sync_*`` methods. ``MXZ_PARITY_CAPTURE=1`` rewrites this
+still synced by the coordinator's ``_sync_*`` methods (``cooldown_and_hold_off`` and
+``dwell_and_hold`` on 37494ed's integration). ``MXZ_PARITY_CAPTURE=1`` rewrites this
 release's recordings. A release with no recordings fails: capture them on it first.
 """
 
