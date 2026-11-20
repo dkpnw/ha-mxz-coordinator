@@ -32,6 +32,10 @@ hands-off rooms, cloud heads, eco and the season lockouts, a dual setpoint, a ro
 the shared-mode select, and heads that answer late or go out of sight. MXZ sends to one head
 after another, where Home Assistant can interleave the heads' writes, and a command a newer plan
 replaces before it is sent is not modeled.
+When MXZ takes a change made at a head while a plan's commands are still going out, Home
+Assistant can work out the next plan at once. Here a plan's commands all go out inside it, so the
+next plan waits for Home Assistant's 10-second cooldown, and a head can get its next command up
+to 10 seconds later than in Home Assistant.
 
 ## Files
 

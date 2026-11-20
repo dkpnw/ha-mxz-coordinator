@@ -81,6 +81,10 @@ class NotModeled(RuntimeError):
     """A product step for a feature the invented house does not have."""
 
 
+class OutOfRange(ValueError):
+    """A value Home Assistant's number entity refuses (``out_of_range``)."""
+
+
 def climate_id(key: str) -> str:
     return f"climate.{key}_head"
 
@@ -315,10 +319,16 @@ class MxzRow:
         return self.timers is not None and (name, key) in self.timers.waits
 
     # -- event 1: a start ------------------------------------------------------------------
-    def start(self, saved: Mapping[str, Any] | None, *, names: Mapping[str, str]) -> None:
+    def start(
+        self, saved: Mapping[str, Any] | None, *, names: Mapping[str, str],
+        comfort: Mapping[str, tuple[bool, float]] | None = None,
+    ) -> None:
         """MXZ starts with Home Assistant, from the room state store's record ``saved``.
 
-        ``names`` gives each room's name by key, in house order. Follows
+        ``names`` gives each room's name by key, in house order. ``comfort`` gives each room's
+        Comfort priority entity as Home Assistant shows it at the start: whether it is on, and
+        the wall time it last changed. That entity is not MXZ's, so a restart does not reset it;
+        a room missing from ``comfort`` has it off since the clock's start. Follows
         ``MXZCoordinator.__init__``, ``_resume``, the shared-mode select's restore and
         ``async_setup``: the sights, the mode record and its stamp, every stored value through
         ``resume``, the startup seeds, the fan records, the startup quiet, the hold-end wakeup,
@@ -391,7 +401,7 @@ class MxzRow:
             room.memories.update(saved_room.head_writes)
             room.shown = self.heads.shown(room.key)
             room.temp = self.heads.reading(room.key)
-            room.comfort_at = self.wall0
+            room.comfort, room.comfort_at = (comfort or {}).get(room.key, (False, self.wall0))
         self.mode, self.by_votes = rs.resumed_mode(record, None, None)
         self.running = True
         self.timers, did = st.start(self.now)
@@ -440,9 +450,7 @@ class MxzRow:
         comfort = {room.key: (room.comfort, room.comfort_at) for room in self.rooms}
         self.timers = None
         self.running = False
-        self.start(record, names=names)
-        for room in self.rooms:
-            room.comfort, room.comfort_at = comfort[room.key]
+        self.start(record, names=names, comfort=comfort)
         return record
 
     # -- the plan's act for a head ---------------------------------------------------------
@@ -949,9 +957,20 @@ class MxzRow:
     def _room(self, key: str) -> Room:
         return next(room for room in self.rooms if room.key == key)
 
+    def target_bounds(self) -> tuple[float, float]:
+        """The range the room's target number offers (``Grid.target_bounds``)."""
+        return self.grid().target_bounds()
+
     def set_target(self, key: str, value: float) -> None:
-        """A person sets the room's target number."""
+        """A person sets the room's target number (``number.set_value``).
+
+        Home Assistant refuses a value outside the number's range before MXZ sees it; so does
+        this, with ``OutOfRange``.
+        """
         room = self._room(key)
+        low, high = self.target_bounds()
+        if not low <= float(value) <= high:
+            raise OutOfRange(f"{room.name}'s target {value:g} °F is outside {low:g} to {high:g} °F")
         room.target = float(value)
         for step in pl.target_written(
             room.climate_id, startup=room.slug in self.startup, coordinator=self.coordinator,

@@ -19,8 +19,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from homeassistant.exceptions import ServiceValidationError
 
 from tests.simlab_parity import WALL, Lab, climate_id, run_page, store
+from tests.test_drive import _eid
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLER = ROOT / "tools" / "simulator_bundle.py"
@@ -182,6 +184,42 @@ SCRIPTS: dict[str, dict[str, Any]] = {
         ],
         temps={"studio": 76.0},
     ),
+    # Den's Comfort priority wins the standoff and the shared mode goes to heat; the hold ends;
+    # Home Assistant restarts. Comfort priority is Den's own entity and is still on, so the
+    # first compute after the start keeps heat and sends nothing.
+    "restart_comfort_priority": _script(
+        [
+            ["until", 60.5],
+            ["comfort", "den", True],
+            ["until", 700.5],
+            ["restart"],
+            ["until", 760.5],
+        ],
+        temps={"studio": 75.0, "den": 60.0},
+    ),
+    # Accept changes made at the head: a person turns Studio's head off at its remote, and MXZ
+    # turns the room off when the hold ends; then sets it back to cool, and MXZ turns it on.
+    "head_mode_change": _script(
+        [
+            ["until", 60.5],
+            ["press", "studio", {"hvac_mode": "off"}],
+            ["until", 120.5],
+            ["press", "studio", {"hvac_mode": "cool"}],
+            ["until", 200.5],
+        ],
+        temps={"studio": 76.0},
+    ),
+    # A person sets Studio's target number while MXZ holds a change made at its head.
+    "target_write": _script(
+        [
+            ["until", 60.5],
+            ["press", "studio", {"target_temp_high": 73.0}],
+            ["until", 62.5],
+            ["target", "studio", 68.0],
+            ["until", 120.5],
+        ],
+        temps={"studio": 76.0},
+    ),
 }
 
 
@@ -303,6 +341,33 @@ def _head_changes(real: list[dict[str, Any]]) -> None:
     assert real[-1]["rooms"]["den"]["target"] == 73.0
 
 
+def _restart_comfort_priority(real: list[dict[str, Any]]) -> None:
+    assert _step(real, "comfort den True")["mode"] == "heat"
+    restart = _step(real, "restart")
+    assert restart["hold"] == 0.0 and restart["mode"] == "heat"
+    assert restart["plan"]["mode_by_comfort_priority"] and restart["plan"]["rooms"][2]["comfort_priority"]
+    assert _calls(real, "studio", after="restart") == _calls(real, "den", after="restart") == []
+    assert real[-1]["mode"] == "heat"
+
+
+def _head_mode_change(real: list[dict[str, Any]]) -> None:
+    assert _step(real, "until 120.5")["rooms"]["studio"]["enable"] is False
+    assert real[-1]["rooms"]["studio"]["enable"] is True
+    assert _calls(real, "studio", after="press studio {'hvac_mode': 'off'}") == []
+
+
+ADOPT_STUDIO = "heal ('climate.studio_head', 'adopt')"
+
+
+def _target_write(real: list[dict[str, Any]]) -> None:
+    assert ADOPT_STUDIO in _step(real, "until 62.5")["waits"]
+    written = _step(real, "target studio 68.0")
+    assert ADOPT_STUDIO not in written["waits"]
+    assert written["calls"] == [["studio", "set_temperature",
+                                 {"hvac_mode": "cool", "target_temp_low": 66.0, "target_temp_high": 68.0}]]
+    assert real[-1]["rooms"]["studio"]["target"] == 68.0
+
+
 # What each script shows, read off the real coordinator alone: a script that stopped reaching
 # its behavior would compare equal and prove nothing.
 REACHES = {
@@ -316,6 +381,9 @@ REACHES = {
     "room_turned_off": _room_turned_off,
     "restart_held_fan": _restart_held_fan,
     "head_changes": _head_changes,
+    "restart_comfort_priority": _restart_comfort_priority,
+    "head_mode_change": _head_mode_change,
+    "target_write": _target_write,
 }
 
 
@@ -341,6 +409,16 @@ BREAKS = {
     ),
     "a target a person set at the head": (
         "head_changes", "                self.set_target(room.key, value)\n", "                pass\n",
+    ),
+    "Comfort priority across a restart": (
+        "restart_comfort_priority", "self.start(record, names=names, comfort=comfort)",
+        "self.start(record, names=names)",
+    ),
+    "an enable a person set at the head": (
+        "head_mode_change", "                self.set_enable(room.key, on)\n", "                pass\n",
+    ),
+    "a target write's steps": (
+        "target_write", "pl.target_written(", "(lambda *_args, **_kwargs: ())(",
     ),
     "the latch the fan step keeps": (
         "fan_hold", "            case fl.KeepLatch(latch):\n                room.latch = latch\n",
@@ -376,6 +454,54 @@ async def test_a_page_setting_that_differs_is_caught(
     script = {**SCRIPTS["dwell_hold"], "page_settings": {"hold": 300.0}}
     real = await Lab(hass, freezer, monkeypatch, tmp_path).run(script)
     assert _differs(real, run_page(tree, script))
+
+
+async def test_the_target_takes_what_home_assistant_takes(
+    tree: Path, hass: Any, freezer: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The page's target control offers, and its row takes, the range the room's target number
+    has in Home Assistant, and refuses a value outside it as Home Assistant does."""
+    lab = Lab(hass, freezer, monkeypatch, tmp_path)
+    await lab.start(SCRIPTS["mixed_demand"])
+    number = _eid(hass, lab.entry, f"_{lab._slug('studio')}_target")
+    shown = hass.states.get(number)
+    assert shown is not None
+    low, high = shown.attributes["min"], shown.attributes["max"]
+    for outside in (low - 1, high + 1):
+        with pytest.raises(ServiceValidationError) as refused:
+            await hass.services.async_call(
+                "number", "set_value", {"entity_id": number, "value": outside}, blocking=True,
+            )
+        assert refused.value.translation_key == "out_of_range"
+    bounds, taken = _page_targets(tree, [low - 1, low, high, high + 1])
+    assert bounds == [low, high]
+    assert [[refused is None, target] for refused, target in taken] == [
+        [False, 70.0], [True, low], [True, high], [False, high],
+    ]
+    assert "view.mxz.target_bounds" in (PAGE / "lab.js").read_text()
+
+
+# The page's world: the target bounds it offers, then what each value does to Studio's target.
+TARGETS = """
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import world
+w = world.World("mixed")
+taken = []
+for value in json.loads(sys.argv[2]):
+    refused = w.mxz_target("studio", value)
+    taken.append([refused, json.loads(w.view())["mxz"]["rooms"][0]["target"]])
+print(json.dumps([json.loads(w.view())["mxz"]["target_bounds"], taken]))
+"""
+
+
+def _page_targets(tree: Path, values: list[float]) -> Any:
+    done = subprocess.run(
+        [sys.executable, "-I", "-c", TARGETS, str(tree), json.dumps(values)],
+        capture_output=True, text=True, check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
 
 
 def test_several_readings_in_one_dispatch_are_refused(tree: Path) -> None:
@@ -498,7 +624,8 @@ def _page_problems(html: str, css: str) -> list[str]:
                   "Neither row measures real equipment"):
         if words not in html:
             problems.append(f"missing: {words}")
-    for left_out in ("shared-mode select", "interleave", "A command a newer plan replaces"):
+    for left_out in ("shared-mode select", "interleave", "A command a newer plan replaces",
+                     "up to 10 seconds later than in Home Assistant"):
         if left_out not in html:
             problems.append(f"does not say it leaves out: {left_out}")
     pinned = re.search(rf'<script src="{re.escape(PYODIDE)}pyodide\.js"\s+integrity="sha384-[\w+/=]+"', html)
@@ -520,12 +647,14 @@ def test_the_page_check_reports_each_missing_part() -> None:
     broken = (html.replace("<strong>Simulation</strong>", "<strong>Demo</strong>")
               .replace("It is not stock AUTO.", "")
               .replace("shared-mode select", "select")
+              .replace("up to 10 seconds later", "later")
               .replace('integrity="sha384-', 'data-x="sha384-'))
     assert _page_problems(broken, css.replace("position: sticky", "position: static")) == [
         "no Simulation band",
         "the band does not stay on screen",
         "missing: It is not stock AUTO.",
         "does not say it leaves out: shared-mode select",
+        "does not say it leaves out: up to 10 seconds later than in Home Assistant",
         "Pyodide is not pinned with its integrity hash",
     ]
 

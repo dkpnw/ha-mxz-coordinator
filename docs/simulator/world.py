@@ -24,7 +24,7 @@ from typing import Any
 
 from invented_house import devices as dv
 from invented_house import model
-from mxz_row import InventedHeads, MxzRow, climate_id, plan_view
+from mxz_row import InventedHeads, MxzRow, OutOfRange, climate_id, plan_view
 
 # The wall clock at the simulation's start: 2026-11-19 15:00 UTC. Only differences matter.
 WALL = 1_795_100_400.0
@@ -197,8 +197,14 @@ class World:
         self.stock.heads[key] = dv.Head(**_set(mode, float(to), fan))
         self.stock.outdoor = model.direction(self.stock, self.stock.outdoor)
 
-    def mxz_target(self, key: str, value: float) -> None:
-        self.row.set_target(key, float(value))
+    def mxz_target(self, key: str, value: float) -> str | None:
+        """A person sets an MXZ room's target number. Returns why Home Assistant refused it,
+        or None."""
+        try:
+            self.row.set_target(key, float(value))
+        except OutOfRange as refused:
+            return f"Home Assistant refused it: {refused}."
+        return None
 
     def mxz_enable(self, key: str, on: bool) -> None:
         self.row.set_enable(key, bool(on))
@@ -237,10 +243,13 @@ class World:
         out: dict[str, Any] = {
             "now": self.now,
             "preset": {"title": self.preset.title, "try_this": self.preset.try_this},
+            # The range of an invented head's setpoints, which its remote offers.
+            "head_range": [self.house["head"]["min_temp"], self.house["head"]["max_temp"]],
             "stock": {"outdoor": self.stock.outdoor, "rooms": []},
             "mxz": {
                 "outdoor": self.mxz.outdoor,
                 "mode": row.mode,
+                "target_bounds": list(row.target_bounds()),
                 "hold_left": row.hold_left(),
                 "standoff": None if plan is None else plan["standoff"],
                 "by_comfort": None if plan is None else plan["mode_by_comfort_priority"],

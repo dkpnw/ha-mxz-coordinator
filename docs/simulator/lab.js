@@ -36,6 +36,12 @@ function fail(error) {
   console.error(error);
 }
 
+// A refusal the product gives (not a failure): shown, and the simulation carries on.
+function note(text) {
+  const status = $("status");
+  if (!status.classList.contains("error")) status.textContent = text ?? "";
+}
+
 function run(action) {
   try {
     action();
@@ -59,8 +65,10 @@ function select(options, value, label) {
   return node;
 }
 
-function number(value, label) {
-  const node = element("input", { type: "number", min: 50, max: 90, step: 1, value });
+// A number input over [low, high]. The room temperatures take 50 to 90 °F; a head's set-to
+// takes its own range; MXZ's target number takes the range the row's grid gives it.
+function number(value, label, [low, high] = [50, 90]) {
+  const node = element("input", { type: "number", min: low, max: high, step: 1, value });
   node.setAttribute("aria-label", label);
   return node;
 }
@@ -95,7 +103,7 @@ function buildRooms(view) {
   stock.replaceChildren();
   for (const room of view.stock.rooms) {
     const mode = select(MODES, room.mode, `${room.name} stock head mode`);
-    const to = number(Math.round(room.mode === "cool" ? room.high ?? 70 : room.low ?? 70), `${room.name} stock head set to`);
+    const to = number(Math.round(room.mode === "cool" ? room.high ?? 70 : room.low ?? 70), `${room.name} stock head set to`, view.head_range);
     const fan = select(FANS, room.fan, `${room.name} stock head fan`);
     const send = () => run(() => lab.world.stock_head(room.key, mode.value, Number(to.value), fan.value));
     mode.addEventListener("change", send);
@@ -111,9 +119,9 @@ function buildRooms(view) {
   const mxz = $("mxz-rooms");
   mxz.replaceChildren();
   for (const room of view.mxz.rooms) {
-    const target = number(room.target, `${room.name} target`);
+    const target = number(room.target, `${room.name} target`, view.mxz.target_bounds);
     const setTarget = element("button", { type: "button", textContent: "Set" });
-    setTarget.addEventListener("click", () => run(() => lab.world.mxz_target(room.key, Number(target.value))));
+    setTarget.addEventListener("click", () => run(() => note(lab.world.mxz_target(room.key, Number(target.value)))));
     const [enable, enableLabel] = check(room.enable, "Room on");
     enable.addEventListener("change", () => run(() => lab.world.mxz_enable(room.key, enable.checked)));
     const [comfort, comfortLabel] = check(room.comfort, "Comfort priority");
@@ -122,7 +130,7 @@ function buildRooms(view) {
     auto.addEventListener("change", () => run(() => lab.world.mxz_fan_auto(room.key, auto.checked)));
     const mode = select(MODES, room.mode, `${room.name} remote mode`);
     mode.addEventListener("change", () => run(() => lab.world.mxz_remote(room.key, mode.value, undefined, undefined)));
-    const to = number(70, `${room.name} remote set to`);
+    const to = number(70, `${room.name} remote set to`, view.head_range);
     const press = element("button", { type: "button", textContent: "Press" });
     press.addEventListener("click", () => run(() => lab.world.mxz_remote(room.key, undefined, Number(to.value), undefined)));
     const fan = select(FANS, room.fan, `${room.name} remote fan`);
