@@ -51,6 +51,17 @@ def _script(steps: list[Any], *, temps: dict[str, float] | None = None, heads: d
     }
 
 
+COOL_120_S_AGO = store(
+    targets=AT_70, enables=ALL_ON,
+    mode={"mode": "cool", "mode_at": WALL - 120, "mode_by_votes": False, "last_mode_change": WALL - 120},
+)
+COOL_2_HOURS_AGO = store(
+    targets=AT_70, enables=ALL_ON,
+    mode={"mode": "cool", "mode_at": WALL - 7200, "mode_by_votes": False, "last_mode_change": WALL - 7200},
+)
+# The page's standoff starting point, as its world fed the MXZ row (the file says how).
+STANDOFF_FAN_CALL = json.loads((ROOT / "tests" / "fixtures" / "simlab" / "standoff_fan_call.json").read_text())
+
 SCRIPTS: dict[str, dict[str, Any]] = {
     # The README hook: Loft and Den satisfied, Studio hot. MXZ cools Studio and leaves the
     # others off; Studio's fan steps down as it nears its target, then coil-dry, then off.
@@ -365,6 +376,54 @@ SCRIPTS: dict[str, dict[str, Any]] = {
         ],
         temps={"studio": 76.0, "den": 76.0},
     ),
+    # As ``two_holds_off``, then Loft warms 5 seconds after the hold ends. Studio's hold end goes
+    # on inside the follow-up its own write's compute started, so its last ask lands there and
+    # leaves no cooldown running: Loft's reading is worked out at once, and Loft is sent cool.
+    "two_holds_off_then_reading": _script(
+        [
+            ["until", 60.5],
+            ["press", "studio", {"hvac_mode": "off"}],
+            ["press", "den", {"hvac_mode": "off"}],
+            ["until", 70.5],
+            ["reading", "loft", 74.0],
+            ["until", 120.5],
+        ],
+        temps={"studio": 76.0, "den": 76.0},
+    ),
+    # Loft's reading starts a compute and its 10-second cooldown; Studio and then Den are turned
+    # off at their remotes, so Den's adopt hold ends at 70.5 s, when the cooldown does. The
+    # cooldown's compute starts first and Den's hold end runs inside it.
+    "cooldown_and_hold_off": _script(
+        [
+            ["until", 60.5],
+            ["reading", "loft", 70.2],
+            ["press", "studio", {"hvac_mode": "off"}],
+            ["until", 65.5],
+            ["press", "den", {"hvac_mode": "off"}],
+            ["until", 120.5],
+        ],
+        temps={"studio": 76.0, "den": 76.0},
+    ),
+    # Cool was set 2 minutes before the start, so the mode wait ends at 481 s; Den is cold, so
+    # the dwell wakeup is due then too, and a person sets Studio's head 5 seconds before. The
+    # dwell wakeup's compute starts first and Studio's hold end runs inside it.
+    "dwell_and_hold": _script(
+        [
+            ["until", 30.5],
+            ["reading", "den", 64.0],
+            ["until", 476.0],
+            ["press", "studio", {"hvac_mode": "cool", "target_temp_high": 72.0}],
+            ["until", 700.5],
+        ],
+        saved=COOL_120_S_AGO,
+    ),
+    # The page's standoff: Studio cools, then Den heats once Studio is within 3 °F of its
+    # target. At 8:30 a person turns Studio's head off at its remote; at the next wakeup a person
+    # sets Den's to 73. MXZ takes both, and Den's fan steps down at the time Home Assistant
+    # steps it.
+    "standoff_fan_call": _script(
+        STANDOFF_FAN_CALL["steps"], temps=STANDOFF_FAN_CALL["temps"], saved=COOL_2_HOURS_AGO,
+    ),
 }
 
 
@@ -407,6 +466,7 @@ BEFORE_2025_11: dict[str, tuple[str, ...]] = {
     # follow-up takes them all. Later releases start it at once, and the closing asks bring a
     # second one. The calls, waits, plan and what each head and room show are the same.
     "two_holds_off": ("computes",),
+    "two_holds_off_then_reading": ("computes",),
 }
 
 
@@ -635,6 +695,39 @@ def _two_holds_off(real: list[dict[str, Any]]) -> None:
     assert _calls(real, "den", after="press studio {'hvac_mode': 'off'}") == []
 
 
+def _two_holds_off_then_reading(real: list[dict[str, Any]]) -> None:
+    _two_holds_off(real[: real.index(_step(real, "until 70.5")) + 1])
+    read = _step(real, "reading loft 74.0")
+    assert read["computes"] == [[70.5, "ask"]]
+    assert ["loft", "set_hvac_mode", {"hvac_mode": "cool"}] in read["calls"]
+
+
+def _cooldown_and_hold_off(real: list[dict[str, Any]]) -> None:
+    assert _step(real, "press den {'hvac_mode': 'off'}")["waits"][ADOPT_DEN] == 5.0
+    ended = real[-1]
+    assert ended["computes"] == [[70.5, "cooldown"], [70.5, "followup"]]
+    assert ended["rooms"]["den"]["enable"] is False and ended["rooms"]["studio"]["enable"] is False
+
+
+def _dwell_and_hold(real: list[dict[str, Any]]) -> None:
+    pressed = _step(real, "press studio {'hvac_mode': 'cool', 'target_temp_high': 72.0}")
+    assert pressed["waits"]["hold_end None"] == pressed["waits"]["dwell None"] == pressed["waits"][ADOPT_STUDIO] == 5.0
+    ended = real[-1]
+    assert ended["computes"] == [[481.0, "ask"], [481.0, "followup"], [491.0, "cooldown"]]
+    assert ended["rooms"]["studio"]["target"] == 72.0 and ended["heads"]["studio"][0] == "heat"
+    assert ["set_hvac_mode", {"hvac_mode": "fan_only"}] not in _calls(real, "studio")
+
+
+def _standoff_fan_call(real: list[dict[str, Any]]) -> None:
+    assert _step(real, "until 510.0")["mode"] == "heat" and real[0]["plan"]["standoff"]
+    pressed = _step(real, "press den {'target_temp_low': 73.0}")
+    assert pressed["t"] == 515.0 and ADOPT_DEN in pressed["waits"]
+    assert real[-1]["rooms"]["studio"]["enable"] is False and real[-1]["rooms"]["den"]["target"] == 73.0
+    stepped = next(snapshot for snapshot in real if snapshot["t"] >= 570.0)
+    assert ["den", "set_fan_mode", {"fan_mode": "middle"}] in stepped["calls"]
+    assert [570.0, "cooldown"] in stepped["computes"]
+
+
 def _restart_head_writes(real: list[dict[str, Any]]) -> None:
     first, second = (snapshot for snapshot in real if snapshot["do"] == "restart")
     remembered = first["saved"]["head_writes"][climate_id("studio")]
@@ -670,6 +763,10 @@ REACHES = {
     "off_heal": _off_heal,
     "restart_head_writes": _restart_head_writes,
     "two_holds_off": _two_holds_off,
+    "two_holds_off_then_reading": _two_holds_off_then_reading,
+    "cooldown_and_hold_off": _cooldown_and_hold_off,
+    "dwell_and_hold": _dwell_and_hold,
+    "standoff_fan_call": _standoff_fan_call,
 }
 
 
@@ -689,6 +786,25 @@ def _differs(real: list[dict[str, Any]], page: list[dict[str, Any]], left_out: t
         _compared(a, left_out) != _compared(b, left_out) for a, b in zip(real, page, strict=False)
     )
 
+
+# The row runs a compute, then each timer still due at its instant inside it (``MxzRow._settle``).
+INSIDE_THE_COMPUTE = (
+    "        while self.due() <= self.now:\n"
+    "            self._settle(self._step(st.Tick()))\n"
+    "        self._settle(self._step(computed), ended=True)\n"
+)
+# Broken: every timer due at the compute's instant is taken off before it runs and done after,
+# so the compute reads an adopt hold due then as already over (``sim_timing``'s tick before
+# planner1120).
+TAKEN_BEFORE_THE_COMPUTE = "        computed = self._compute()\n"
+TAKEN_BEFORE_THE_COMPUTE_BROKEN = (
+    "        taken = []\n"
+    "        while self.due() <= self.now:\n"
+    "            taken.append(self._step(st.Tick()))\n"
+    "        computed = self._compute()\n"
+    "        for each in taken:\n"
+    "            self._settle(each)\n"
+)
 
 # One line of the page's row broken at a time, each where a script above must notice.
 BREAKS = {
@@ -766,8 +882,20 @@ BREAKS = {
     "head-write memories at a start": (
         "restart_head_writes", "            room.memories.update(saved_room.head_writes)\n", "",
     ),
-    "hold ends due together, each judged before a compute": (
-        "two_holds_off", "            self._dispatch = asks\n", "",
+    "a timer due at a compute's start, still armed while it runs": (
+        "two_holds_off", TAKEN_BEFORE_THE_COMPUTE, TAKEN_BEFORE_THE_COMPUTE_BROKEN,
+    ),
+    "a timer due at a compute's start runs inside it": (
+        "cooldown_and_hold_off", INSIDE_THE_COMPUTE, "        self._settle(self._step(computed), ended=True)\n",
+    ),
+    "an adopt hold due at the dwell wakeup, still on while its compute runs": (
+        "dwell_and_hold", TAKEN_BEFORE_THE_COMPUTE, TAKEN_BEFORE_THE_COMPUTE_BROKEN,
+    ),
+    "an adopt hold end goes on inside the compute after its own": (
+        "two_holds_off_then_reading", "            self._go_on()\n", "            pass\n",
+    ),
+    "a timer due at a compute's start runs inside it, in the standoff": (
+        "standoff_fan_call", INSIDE_THE_COMPUTE, "        self._settle(self._step(computed), ended=True)\n",
     ),
 }
 
@@ -844,118 +972,13 @@ async def test_two_setpoints_with_a_compute_between_hold_ends_is_caught(
     tmp_path_factory: pytest.TempPathFactory, hass: Any, freezer: Any, monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """The row that runs the first hold end's compute before the second hold end is judged
-    writes Den's head back to 70 and keeps its target: the comparison above catches it."""
-    broken = _broken(tmp_path_factory, "hold ends due together, each judged before a compute")
+    """A row whose compute takes the second hold end's timer off before it runs reads that hold
+    as over, writes Den's head back to 70 and keeps its target: the comparison above catches it."""
+    broken = _broken(tmp_path_factory, "a timer due at a compute's start, still armed while it runs")
     real = await Lab(hass, freezer, monkeypatch, tmp_path).run(TWO_SETPOINTS)
     page = run_page(broken, TWO_SETPOINTS)
     assert page[-1]["rooms"]["den"]["target"] == 70.0
     assert _taken(page) != _taken(real)
-
-
-# A wakeup that ends an adopt hold, due at the instant a compute starts. ``sim_timing.step``
-# lists the compute first, and the real coordinator takes what the hold end asks for during that
-# compute. The page's row judges every hold end of a tick before any compute and asks the hold
-# end's closing refresh once the first compute has ended (``MxzRow.advance``). That order is the
-# row's own, not a product return value, so here the row runs one more compute than the
-# coordinator, and in ``dwell_and_hold`` sends Studio a call the coordinator never sends. The
-# page and docs/simulator/README.md say so (``HOLD_END_LIMIT``). Each check asserts its
-# difference exactly and every other part of every step equal, so a row that comes to match the
-# coordinator here, or differs in any other way, fails it.
-COOL_120_S_AGO = store(
-    targets=AT_70, enables=ALL_ON,
-    mode={"mode": "cool", "mode_at": WALL - 120, "mode_by_votes": False, "last_mode_change": WALL - 120},
-)
-HOLD_END_IN_A_COMPUTE: dict[str, dict[str, Any]] = {
-    # The 10-second cooldown after Loft's reading ends at 70.5 s, and so does Den's adopt hold.
-    "cooldown_and_hold_off": _script(
-        [
-            ["until", 60.5],
-            ["reading", "loft", 70.2],
-            ["press", "studio", {"hvac_mode": "off"}],
-            ["until", 65.5],
-            ["press", "den", {"hvac_mode": "off"}],
-            ["until", 120.5],
-        ],
-        temps={"studio": 76.0, "den": 76.0},
-    ),
-    # Cool was set 2 minutes before the start, so the mode wait ends at 481 s; Den is cold, so
-    # the dwell wakeup is due then too, and a person sets Studio's head 5 seconds before.
-    "dwell_and_hold": _script(
-        [
-            ["until", 30.5],
-            ["reading", "den", 64.0],
-            ["until", 476.0],
-            ["press", "studio", {"hvac_mode": "cool", "target_temp_high": 72.0}],
-            ["until", 700.5],
-        ],
-        saved=COOL_120_S_AGO,
-    ),
-}
-
-
-def _same_but_the_last_step(
-    real: list[dict[str, Any]], page: list[dict[str, Any]], left_out: tuple[str, ...],
-) -> None:
-    assert len(page) == len(real)
-    for want, got in zip(real[:-1], page[:-1], strict=True):
-        assert _compared(got) == _compared(want), want["do"]
-    assert _compared(page[-1], left_out) == _compared(real[-1], left_out)
-
-
-def _cooldown_and_hold_off(real: list[dict[str, Any]], page: list[dict[str, Any]]) -> None:
-    pressed = _step(real, "press den {'hvac_mode': 'off'}")
-    assert pressed["waits"][ADOPT_DEN] == 5.0
-    ended = real[-1]
-    assert ended["computes"] == [[70.5, "cooldown"], [70.5, "followup"]]
-    assert ended["rooms"]["den"]["enable"] is False and ended["rooms"]["studio"]["enable"] is False
-    _same_but_the_last_step(real, page, ("computes",))
-    assert page[-1]["computes"] == [*ended["computes"], [70.5, "followup"]]
-
-
-def _dwell_and_hold(real: list[dict[str, Any]], page: list[dict[str, Any]]) -> None:
-    pressed = _step(real, "press studio {'hvac_mode': 'cool', 'target_temp_high': 72.0}")
-    assert pressed["waits"]["hold_end None"] == pressed["waits"]["dwell None"] == pressed["waits"][ADOPT_STUDIO] == 5.0
-    ended = real[-1]
-    assert ended["computes"] == [[481.0, "ask"], [481.0, "followup"], [491.0, "cooldown"]]
-    assert ended["rooms"]["studio"]["target"] == 72.0 and ended["heads"]["studio"][0] == "heat"
-    assert ["set_hvac_mode", {"hvac_mode": "fan_only"}] not in _calls(real, "studio")
-    _same_but_the_last_step(real, page, ("computes", "calls", "plan"))
-    assert page[-1]["computes"] == [[481.0, "ask"], [481.0, "followup"], [481.0, "followup"]]
-    real_calls, page_calls = modeled(ended)["calls"], modeled(page[-1])["calls"]
-    assert page_calls == {**real_calls, "studio": [["set_hvac_mode", {"hvac_mode": "fan_only"}], *real_calls["studio"]]}
-    # The plan differs only in when the last compute ran: 10 s after the mode change, or at it.
-    assert ended["plan"]["seconds_since_mode_change"] == 10
-    assert page[-1]["plan"] == {**ended["plan"], "seconds_since_mode_change": 0}
-
-
-DIFFERS_AS_THE_PAGE_SAYS = {
-    "cooldown_and_hold_off": _cooldown_and_hold_off,
-    "dwell_and_hold": _dwell_and_hold,
-}
-
-
-@pytest.mark.parametrize("name", sorted(HOLD_END_IN_A_COMPUTE))
-async def test_a_hold_end_inside_a_compute_differs_as_the_page_says(
-    name: str, tree: Path, hass: Any, freezer: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-) -> None:
-    assert set(DIFFERS_AS_THE_PAGE_SAYS) == set(HOLD_END_IN_A_COMPUTE)
-    real, page = await _both(HOLD_END_IN_A_COMPUTE[name], tree, hass, freezer, monkeypatch, tmp_path)
-    DIFFERS_AS_THE_PAGE_SAYS[name](real, page)
-
-
-@pytest.mark.parametrize("name", sorted(HOLD_END_IN_A_COMPUTE))
-async def test_a_hold_end_inside_a_compute_in_another_order_is_caught(
-    name: str, tmp_path_factory: pytest.TempPathFactory, hass: Any, freezer: Any,
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-) -> None:
-    """A row that drops the hold end's closing ask runs fewer computes here, and the check sees
-    that the difference the page states is no longer the one it shows."""
-    broken = _broken_row(tmp_path_factory, "closing.append(refresh)", "pass")
-    real = await Lab(hass, freezer, monkeypatch, tmp_path).run(HOLD_END_IN_A_COMPUTE[name])
-    page = run_page(broken, HOLD_END_IN_A_COMPUTE[name])
-    with pytest.raises(AssertionError):
-        DIFFERS_AS_THE_PAGE_SAYS[name](real, page)
 
 
 async def test_a_page_setting_that_differs_is_caught(
@@ -1120,9 +1143,10 @@ def test_a_module_that_needs_home_assistant_is_refused(monkeypatch: pytest.Monke
 # -- the page ----------------------------------------------------------------------------------
 PAGE = ROOT / "docs" / "simulator"
 PYODIDE = "https://cdn.jsdelivr.net/pyodide/v314.0.8/full/"
-# What the page and docs/simulator/README.md say about a hold end inside a compute
-# (``HOLD_END_IN_A_COMPUTE``), as words read across line breaks.
-HOLD_END_LIMIT = "Home Assistant starts that plan first and this page takes the change first"
+# What the page and docs/simulator/README.md say about the row's one ordering rule of its own
+# (``MxzRow._go_on``; ``two_holds_off_then_reading`` fails without it), as words read across
+# line breaks.
+HOLD_END_RULE = "No MXZ function says so, so this page follows that order by a rule of its own"
 
 
 def _words(text: str) -> str:
@@ -1146,8 +1170,8 @@ def _page_problems(html: str, css: str) -> list[str]:
                      "up to 10 seconds later than in Home Assistant"):
         if left_out not in html:
             problems.append(f"does not say it leaves out: {left_out}")
-    if HOLD_END_LIMIT not in _words(html):
-        problems.append(f"does not say it leaves out: {HOLD_END_LIMIT}")
+    if HOLD_END_RULE not in _words(html):
+        problems.append(f"does not name the row's own rule: {HOLD_END_RULE}")
     pinned = re.search(rf'<script src="{re.escape(PYODIDE)}pyodide\.js"\s+integrity="sha384-[\w+/=]+"', html)
     if pinned is None:
         problems.append("Pyodide is not pinned with its integrity hash")
@@ -1168,7 +1192,7 @@ def test_the_page_check_reports_each_missing_part() -> None:
               .replace("It is not stock AUTO.", "")
               .replace("shared-mode select", "select")
               .replace("up to 10 seconds later", "later")
-              .replace("starts that plan", "starts a plan")
+              .replace("No MXZ function says so", "MXZ says so")
               .replace('integrity="sha384-', 'data-x="sha384-'))
     assert _page_problems(broken, css.replace("position: sticky", "position: static")) == [
         "no Simulation band",
@@ -1176,15 +1200,15 @@ def test_the_page_check_reports_each_missing_part() -> None:
         "missing: It is not stock AUTO.",
         "does not say it leaves out: shared-mode select",
         "does not say it leaves out: up to 10 seconds later than in Home Assistant",
-        f"does not say it leaves out: {HOLD_END_LIMIT}",
+        f"does not name the row's own rule: {HOLD_END_RULE}",
         "Pyodide is not pinned with its integrity hash",
     ]
 
 
-def test_the_simulator_readme_says_what_a_hold_end_inside_a_compute_does() -> None:
+def test_the_simulator_readme_names_the_rows_own_rule() -> None:
     readme = (PAGE / "README.md").read_text()
-    assert HOLD_END_LIMIT in _words(readme)
-    assert HOLD_END_LIMIT not in _words(readme.replace("starts that plan", "starts a plan"))
+    assert HOLD_END_RULE in _words(readme)
+    assert HOLD_END_RULE not in _words(readme.replace("No MXZ function says so", "MXZ says so"))
 
 
 def test_the_readme_links_the_simulator_beside_the_hook() -> None:

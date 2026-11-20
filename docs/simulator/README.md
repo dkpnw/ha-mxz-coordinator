@@ -36,12 +36,11 @@ When MXZ takes a change made at a head while a plan's commands are still going o
 Assistant can work out the next plan at once. Here a plan's commands all go out inside it, so the
 next plan waits for Home Assistant's 10-second cooldown, and a head can get its next command up
 to 10 seconds later than in Home Assistant.
-MXZ takes a change made at a head 5 seconds after it. When that falls at the same instant as a
-plan MXZ was going to work out anyway, Home Assistant starts that plan first and this page takes
-the change first. Then the page can work out one more plan than Home Assistant, later plans can
-come at other times, and a head can get a command Home Assistant would not send it. The page's
-row orders these by a rule of its own, because the product's timing step does not hand back the
-order of a hold's end and a plan that fall at one instant.
+MXZ takes a change made at a head 5 seconds after it and writes it to the room. When that write
+starts a plan, Home Assistant finishes taking the change inside the plan that comes next: the
+write is a service call that waits for its plan, and the follow-up plan starts before the wait
+returns. No MXZ function says so, so this page follows that order by a rule of its own
+(`MxzRow._go_on`). It shows when two heads are changed at the same moment.
 
 ## Files
 
@@ -67,6 +66,9 @@ handed back before an off, a restart inside the wait with a held fan, and change
 head, two of them at one instant. Broken copies of `mxz_row.py` must fail them. When two heads'
 setpoints are changed at one instant, the real coordinator's number of computes varies from
 run to run with how Home Assistant interleaves the two heads' writes, so that case is checked
-on the calls to each head and what the rooms and heads end with. Two more scenarios have a
-change at a head taken at the instant a plan starts; they check that the page differs from the
-real coordinator exactly as described above and agrees on everything else.
+on the calls to each head and what the rooms and heads end with. Three more scenarios have a
+change at a head taken at the instant a plan starts: at the end of the 10-second cooldown, at
+the end of the wait between heat and cool, and in the page's standoff after two remote presses.
+They must agree in full, the number and times of the computes included. One more turns two heads
+off at one instant and then changes a reading 5 seconds later; it fails if the row drops its rule
+of its own.

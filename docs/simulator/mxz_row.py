@@ -1,10 +1,12 @@
 """The simulator's MXZ row: MXZ Coordinator's own decisions over the invented house's heads.
 
-Every decision, every order of steps and every wakeup here comes from a product function in
-``custom_components/mxz_coordinator`` that imports no Home Assistant (``tools/import_bounds.py``
+Every decision, every wakeup and every order of steps here but one comes from a product function
+in ``custom_components/mxz_coordinator`` that imports no Home Assistant (``tools/import_bounds.py``
 ``STDLIB_ONLY``): ``planner``, ``timing``, ``sim_timing``, ``grid``, ``head_writes``,
-``fan_latch``, ``resume`` and ``logic``. This module only maps the page's controls to those
-functions' inputs and performs the steps they return, each with the call its docstring names.
+``fan_latch``, ``resume`` and ``logic``. This module maps the page's controls to those functions'
+inputs and performs the steps they return, each with the call its docstring names. The one order
+of its own is where an adopt hold's end goes on after its write started a compute
+(``MxzRow._go_on``).
 It follows the per-event list in planner1118d's WRITE-SUMMARY.md, with the hold-end wakeup armed
 at a start (``MXZCoordinator.async_setup``). Where a step belongs to a feature the invented house
 does not have (a door/window pause, Dry, a floor, a hands-off room, a head going out of sight),
@@ -24,7 +26,8 @@ Every room, head and number here is invented. Nothing is a measurement of real e
 
 from __future__ import annotations
 
-from collections.abc import Hashable, Iterator, Mapping, Sequence
+from collections import deque
+from collections.abc import Hashable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -297,6 +300,7 @@ class MxzRow:
         self.rooms: list[Room] = []
         self._computing = False
         self._dispatch: list[tm.Refresh] | None = None
+        self._holds: list[tuple[Room, deque[object]]] = []
 
     # -- the clock -------------------------------------------------------------------------
     @property
@@ -367,6 +371,7 @@ class MxzRow:
         self._armed: list[tm.Arm | tm.CancelAll] = []
         self._asked: list[tm.Refresh] = []
         self._dispatch: list[tm.Refresh] | None = None
+        self._holds: list[tuple[Room, deque[object]]] = []
         switches = {KEY_COORDINATOR_ENABLE: False, KEY_ECO_IDLE: False, KEY_HEAT_LOCKOUT: False,
                     KEY_COOL_LOCKOUT: False}
         resumed = rs.resume(
@@ -893,73 +898,49 @@ class MxzRow:
         self.timers = timers
         return did
 
-
-    def _settle(self, did: st.Step | None, after: Sequence[tm.Refresh] = ()) -> None:
-        """Run each compute a step asks for, and each one after it. ``after`` is asked once
-        the first of them has ended, or at once if the step asks for none."""
-        if did is None or did.compute is None:
-            did, after = self._ask_each(did, after), ()
-        while did is not None and did.compute is not None:
-            self.log.computes.append((self.now, str(did.compute)))
-            computed = self._compute()
-            timers, did = st.step(self._timers(), computed, self.now)
-            self.timers = timers
-            did, after = self._ask_each(did, after), ()
-
-    def _ask_each(self, did: st.Step | None, refreshes: Sequence[tm.Refresh]) -> st.Step | None:
-        """Ask each refresh in order after ``did``. Returns the step that starts a compute, if
-        one of them does, else ``did``."""
-        for refresh in refreshes:
-            asked = self._step(st.Ask(refresh))
-            if asked.compute is not None:
-                did = asked
-        return did
+    def _settle(self, did: st.Step, *, ended: bool = False) -> None:
+        """Do what one ``sim_timing`` step handed back, in its order: the wakeup it ran, then
+        the compute it started, if any. The compute runs whole; then each timer still due at
+        this instant runs inside it, one ``Tick`` each; then ``Computed``, and a compute that
+        starts runs the same way (``sim_timing``'s module docstring). ``ended``: the step was a
+        ``Computed``."""
+        for ran in did.ran:
+            if isinstance(ran, st.Fire):
+                self._fired(ran)
+        if did.compute is None:
+            return
+        self.log.computes.append((self.now, str(did.compute)))
+        computed = self._compute()
+        if ended:
+            self._go_on()
+        while self.due() <= self.now:
+            self._settle(self._step(st.Tick()))
+        self._settle(self._step(computed), ended=True)
 
     def advance(self, until: float) -> bool:
-        """Time passes to ``until``; every MXZ timer due by then runs at its own due time.
+        """Time passes to ``until``: each ``Tick`` runs MXZ's next timer at its due time, and
+        what it hands back is done (``_settle``).
 
         Returns whether one ran.
-
-        Workaround: this order is the row's own, not a product return value. All the wakeups
-        of one tick run first, each adopt hold end judged and its writes done; then what they
-        asked for is asked, in order, and each hold end's closing ask comes once the first
-        compute has ended. ``sim_timing.step`` hands back one ``Tick`` with every due wakeup
-        already gone, and no order between a hold end's own steps and a compute at that
-        instant. The order matches the real coordinator when hold ends fall together with no
-        compute starting first (``two_holds_off`` in tests/test_simulator.py). When a compute
-        starts first, the real coordinator takes the hold end's asks during it and this row
-        does not; ``HOLD_END_IN_A_COMPUTE`` there pins that difference, and the page and
-        docs/simulator/README.md state it.
         """
         ran = False
         while self.running and self.due() <= until:
             self.now = max(self.now, self.due())
             ran = True
-            did = self._step(st.Tick())
-            asks: list[tm.Refresh] = []
-            closing: list[tm.Refresh] = []
-            self._dispatch = asks
-            try:
-                for wakeup in did.ran:
-                    if isinstance(wakeup, st.Fire) and (refresh := self._fired(wakeup)) is not None:
-                        closing.append(refresh)
-            finally:
-                self._dispatch = None
-            self._settle(self._ask_each(did, asks), closing)
+            self._settle(self._step(st.Tick()))
         self.now = max(self.now, until)
         return ran
 
-    def _fired(self, wakeup: st.Fire) -> tm.Refresh | None:
+    def _fired(self, wakeup: st.Fire) -> None:
         """What a wakeup does besides the refresh ``timing.WAKEUPS`` names, which the step
-        already asked for (``MXZCoordinator._on_heal_timer``, ``_on_startup_timer``). Returns
-        an adopt hold end's closing ask."""
+        already asked for (``MXZCoordinator._on_heal_timer``, ``_on_startup_timer``)."""
         if wakeup.name == "startup":
             self.starting = tm.startup_quiet(running=False, startup_ran=True)
         elif wakeup.name == "heal":
             head, kind = wakeup.key  # type: ignore[misc]
             room = next(room for room in self.rooms if room.climate_id == head)
             if kind == "adopt":
-                return self._hold_end(room)
+                self._hold_end(room)
             else:
                 mode = self._mode(room)
                 self._ask(pl.heal_due(
@@ -967,11 +948,10 @@ class MxzRow:
                     enabled=room.enable, eco_idle=False, planned=lambda: self._planned(room),
                     stale=lambda: False, coordinator=self.coordinator, inhibited=False,
                 ))
-        return None
 
-    def _hold_end(self, room: Room) -> tm.Refresh:
+    def _hold_end(self, room: Room) -> None:
         """Event 7: the adopt hold ends (``MXZCoordinator._async_adopt_head_change``): the
-        change is judged and its steps done. Returns the compute it asks for last."""
+        change is judged, its steps done in order, then the compute it asks for last."""
         moved, room.pending = room.pending, set()
         adoption = self._adoption(room, moved)
         mode = self._mode(room)
@@ -982,9 +962,33 @@ class MxzRow:
             ),
             dual=False,
         )
-        for step in end.steps:
-            self._perform(room, step)
-        return end.refresh
+        left: deque[object] = deque(end.steps)
+        if end.refresh is not None:
+            left.append(end.refresh)
+        self._holds.append((room, left))
+        try:
+            while left:
+                self._perform(room, left.popleft())
+        finally:
+            self._holds.pop()
+
+    def _go_on(self) -> None:
+        """The row's one ordering rule of its own: a hold end whose write to its room started a
+        compute goes on with its other steps once that compute has ended, inside the compute
+        its end started.
+
+        In Home Assistant the hold end writes the room's target or enable with a blocking
+        service call, which waits on the compute the write asks for; the delivery queue starts
+        its follow-up before that wait returns (2025.11 and later). No product function returns
+        that, so the row keeps the steps each hold end has left (``_holds``) and does them here,
+        after the follow-up's own apply. Of the scripts in tests/test_simulator.py it changes
+        only those where two hold ends fall together with no compute running
+        (``two_holds_off``, ``two_holds_off_then_reading``, ``TWO_SETPOINTS``). The page and
+        docs/simulator/README.md name it.
+        """
+        for room, left in list(self._holds):
+            while left:
+                self._perform(room, left.popleft())
 
     # -- event 3: a person's write to a room, and the room's readings ----------------------
     def _room(self, key: str) -> Room:
