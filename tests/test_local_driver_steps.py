@@ -28,6 +28,7 @@ from custom_components.mxz_coordinator.const import (
     MODE_FAN_ONLY,
     MODE_OFF,
 )
+from custom_components.mxz_coordinator.grid import Grid
 from custom_components.mxz_coordinator.heads import LocalDriver
 
 HEAD = "climate.invented_head"
@@ -64,12 +65,12 @@ class Floor:
         pass
 
 
-class Grid:
-    def clamp(self, climate_id: str, low: float, high: float) -> tuple[float, float]:
-        return low, high
+class Heads:
+    """A head with no band and no grid of its own: nothing is clamped, and its 70 °F is never
+    where a command puts it."""
 
-    def already_at(self, climate_id: str, current: float | None, wanted: float) -> bool:
-        return False
+    def read(self, climate_id: str) -> Grid:
+        return Grid(system_unit="°F", target_step=1.0, clamp_min=50.0, clamp_max=90.0)
 
 
 class Host:
@@ -104,7 +105,7 @@ async def _deliver(
 ) -> list[tuple[str, ...]]:
     hass.states.async_set(HEAD, shows, {"supported_features": 0, "temperature": 70.0})
     host = Host(hass, idle_action=idle_action, inhibited=inhibited, hold_after_write=hold_after_write)
-    driver = LocalDriver(HEAD, host, Grid())  # type: ignore[arg-type]
+    driver = LocalDriver(HEAD, host, Heads())  # type: ignore[arg-type]
     await driver.async_deliver(object(), act, 68.0, 72.0, 3.0, engage)  # type: ignore[arg-type]
     return host.log
 

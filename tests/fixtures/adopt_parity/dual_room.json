@@ -1,0 +1,422 @@
+[
+ {
+  "step": "cooling",
+  "calls": [],
+  "room": {
+   "target": "70.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    69,
+    71
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      69.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      71.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": [],
+  "clock": [
+   [
+    "cancel",
+    "('climate.property_head_a', 'adopt')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_b', 'adopt')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'adopt')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_b', 'adopt')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'band')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'off')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'adopt')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'band')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'off')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_b', 'band')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_b', 'off')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_b', 'adopt')"
+   ]
+  ],
+  "refreshes": 5,
+  "numbers": {
+   "_primary_target": "70.0",
+   "_primary_target_low": "69.0",
+   "_primary_target_high": "71.0"
+  },
+  "startup": {}
+ },
+ {
+  "step": "pressed_in_cool",
+  "calls": [],
+  "room": {
+   "target": "70.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    64,
+    67
+   ]
+  },
+  "hold": true,
+  "moved": [
+   "setpoint"
+  ],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      69.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      71.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": [],
+  "clock": [
+   [
+    "cancel",
+    "('climate.property_head_a', 'band')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'off')"
+   ],
+   [
+    "call_later",
+    "('climate.property_head_a', 'adopt')",
+    5
+   ]
+  ],
+  "refreshes": 0,
+  "numbers": {
+   "_primary_target": "70.0",
+   "_primary_target_low": "69.0",
+   "_primary_target_high": "71.0"
+  },
+  "startup": {}
+ },
+ {
+  "step": "cool_to_adopted",
+  "calls": [
+   {
+    "call": "number.set_value",
+    "data": {
+     "entity_id": "number.mxz_coordinator_study_cool_to",
+     "value": 67.0
+    }
+   },
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "cool",
+     "target_temp_low": 65.0,
+     "target_temp_high": 67.0
+    }
+   }
+  ],
+  "room": {
+   "target": "66.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    65,
+    67
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      65.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      67.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": [
+   "INFO MXZ: adopting a change made at climate.property_head_a: {'target': 67.0}"
+  ],
+  "clock": [
+   [
+    "cancel",
+    "('climate.property_head_a', 'adopt')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'band')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'off')"
+   ]
+  ],
+  "refreshes": 2,
+  "numbers": {
+   "_primary_target": "66.0",
+   "_primary_target_low": "65.0",
+   "_primary_target_high": "67.0"
+  },
+  "startup": {}
+ },
+ {
+  "step": "pressed_in_heat",
+  "calls": [],
+  "room": {
+   "target": "66.0",
+   "enable": "on",
+   "mode": "heat",
+   "edges": [
+    63,
+    67
+   ]
+  },
+  "hold": true,
+  "moved": [
+   "mode",
+   "setpoint"
+  ],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      65.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      67.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": [],
+  "clock": [
+   [
+    "cancel",
+    "('climate.property_head_a', 'band')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'off')"
+   ],
+   [
+    "call_later",
+    "('climate.property_head_a', 'adopt')",
+    5
+   ]
+  ],
+  "refreshes": 0,
+  "numbers": {
+   "_primary_target": "66.0",
+   "_primary_target_low": "65.0",
+   "_primary_target_high": "67.0"
+  },
+  "startup": {}
+ },
+ {
+  "step": "heat_to_adopted",
+  "calls": [
+   {
+    "call": "number.set_value",
+    "data": {
+     "entity_id": "number.mxz_coordinator_study_heat_to",
+     "value": 63.0
+    }
+   },
+   {
+    "call": "climate.set_temperature",
+    "data": {
+     "entity_id": "climate.property_head_a",
+     "hvac_mode": "cool",
+     "target_temp_low": 65.0,
+     "target_temp_high": 67.0
+    }
+   }
+  ],
+  "room": {
+   "target": "65.0",
+   "enable": "on",
+   "mode": "cool",
+   "edges": [
+    65,
+    67
+   ]
+  },
+  "hold": false,
+  "moved": [],
+  "memory": {
+   "climate.property_head_a": {
+    "hvac_mode": [
+     [
+      "cool",
+      0
+     ]
+    ],
+    "target_temp_low": [
+     [
+      65.0,
+      0
+     ]
+    ],
+    "target_temp_high": [
+     [
+      67.0,
+      0
+     ]
+    ]
+   },
+   "climate.property_head_b": {
+    "hvac_mode": [
+     [
+      "fan_only",
+      0
+     ]
+    ]
+   }
+  },
+  "log": [
+   "INFO MXZ: adopting a change made at climate.property_head_a: {'target': 63.0}"
+  ],
+  "clock": [
+   [
+    "cancel",
+    "('climate.property_head_a', 'adopt')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'band')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'off')"
+   ],
+   [
+    "cancel",
+    "('climate.property_head_a', 'adopt')"
+   ]
+  ],
+  "refreshes": 2,
+  "numbers": {
+   "_primary_target": "65.0",
+   "_primary_target_low": "63.0",
+   "_primary_target_high": "67.0"
+  },
+  "startup": {}
+ }
+]

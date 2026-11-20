@@ -26,16 +26,20 @@ LAYERS = (
     # Monotonic seconds and every wait; the one caller of async_call_later (tools/raw_timers.py).
     ("clock", {"clock"}),
     ("helpers", {"logic", "cloud", "capabilities", "host", "settings"}),
+    # What a head accepts, and what a local head is sent for a command.
+    ("grid", {"grid"}),
+    # MXZ's memory of its own mode and setpoint writes to a head, field by field.
+    ("head writes", {"head_writes"}),
     # The plan one compute decides and the attributes it is shown as.
     ("plan", {"plan"}),
+    # What each input and wakeup asks of the plan, each wakeup's delay, the heartbeat.
+    ("timing", {"timing"}),
     # What one compute decides from what it read: the rooms' calls and the shared mode.
     ("planner", {"planner"}),
     # Whether a fan speed a head shows is a person's pick: the manual fan hold's decision.
     ("fan latch", {"fan_latch"}),
     # What a start takes back from the room state store and the mode record.
     ("resume", {"resume"}),
-    # What each input and wakeup asks of the plan, each wakeup's delay, the heartbeat.
-    ("timing", {"timing"}),
     # When MXZ computes, for a simulator: timing's rules on a model of HA's debouncer.
     ("simulator", {"sim_timing"}),
     # The one store of each room's state; the controllers hand it their records.
@@ -60,7 +64,7 @@ LAYERS = (
 
 # Kept free of Home Assistant so their math is tested directly (docs/DEVELOPMENT.md).
 STDLIB_ONLY = {
-    "const", "units", "logic", "cloud", "plan", "planner", "fan_latch", "resume", "settings", "timing",
+    "const", "units", "logic", "cloud", "grid", "head_writes", "plan", "planner", "fan_latch", "resume", "settings", "timing",
     "sim_timing",
 }
 

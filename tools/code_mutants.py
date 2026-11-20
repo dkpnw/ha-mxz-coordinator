@@ -149,9 +149,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_properties_fan.py::test_a_cloud_heads_pick_is_never_written_over',
     ),
     'C14': Mutant(
-        "a paused head isn't sent off", '_apply',
-        'task = self.deliveries.queue(zone.climate_id, MODE_OFF, 0.0, 0.0)\n                if task is not None:\n                    tasks.append(task)\n                continue',
-        'continue',
+        "a paused head isn't sent off", '_head_apply',
+        'return HeadApply(cid, steps=(FanRead(MODE_OFF), Queue(_PAUSE_OFF)))',
+        'return HeadApply(cid, steps=(FanRead(MODE_OFF),))',
         'tests/test_properties_window.py::test_a_pause_stops_the_head_and_a_takeover_holds_until_the_window_closes',
     ),
     'C15': Mutant(
@@ -319,12 +319,12 @@ MUTANTS: dict[str, Mutant] = {
     # The mode's record and each head's command (RecordLeadsHeads, ci-apply).
     'C42': Mutant(
         'the heads are sent the mode before it is recorded', '_apply',
-        'self._write_back_mode(plan, engages)\n        await self.deliveries.async_wait(tasks)',
-        'await self.deliveries.async_wait(tasks)\n        self._write_back_mode(plan, engages)',
+        'self._write_back_mode(part)\n',
+        'await self.deliveries.async_wait(tasks)\n                self._write_back_mode(part)\n',
         'tests/test_head_fault.py::test_a_head_is_sent_a_new_mode_only_once_it_is_the_recorded_mode',
     ),
     'C43': Mutant(
-        "a head's unexpected error fails the plan", '_async_issue',
+        "a head's unexpected error fails the plan", '_async_call',
         'if isinstance(err, HomeAssistantError):\n                raise',
         'if True:\n                raise',
         'tests/test_head_fault.py::test_a_head_that_raises_during_a_mode_change_doesnt_undo_the_change[RuntimeError]',
@@ -332,15 +332,15 @@ MUTANTS: dict[str, Mutant] = {
     # Changes made at a head and MXZ's memory of its own writes (OwnWriteNeverAdopted,
     # HoldBlocksWrite, StartWriteNeverAdopted in ci-adopt and ci-adopt-restart).
     'C44': Mutant(
-        "a write to a head isn't remembered", 'remember_head_write',
+        "a write to a head isn't remembered", 'remember_writes',
         'if name in payload:',
         'if False:',
         'tests/test_accept_head_changes.py::test_a_head_two_writes_behind_is_not_adopted',
     ),
     'C45': Mutant(
-        "a change at the head doesn't stop MXZ's write", '_head_change_settling',
-        'return self.clock.waiting("heal", (climate_id, "adopt")) and bool(',
-        'return False and bool(',
+        "a change at the head doesn't stop MXZ's write", 'holds_change',
+        'return holding and adopted(adoption())',
+        'return False and adopted(adoption())',
         'tests/test_accept_head_changes.py::test_a_change_must_hold_and_isnt_overwritten_while_it_does',
     ),
     'C46': Mutant(
@@ -404,7 +404,7 @@ MUTANTS: dict[str, Mutant] = {
     # A call the head refused is never shown: the copy it counted is taken back (review 3 of
     # smfix1111). The model has no refused call, so this is a code-only check.
     'C55': Mutant(
-        "a refused write's copy is kept", '_async_issue',
+        "a refused write's copy is kept", '_async_call',
         'self._host.take_back_head_write(climate_id, counted)',
         'pass',
         'tests/test_accept_head_changes.py::test_a_refused_write_leaves_no_copy_to_take_a_later_press',
@@ -580,9 +580,9 @@ MUTANTS: dict[str, Mutant] = {
         'tests/test_door_window.py::test_a_pause_outlives_a_restart',
     ),
     'H24': Mutant(
-        'the pause sends the coil-dry fan run first', '_apply',
-        '                task = self.deliveries.queue(zone.climate_id, MODE_OFF, 0.0, 0.0)\n',
-        '                task = self.deliveries.queue(\n                    zone.climate_id, self._idle_act_for(zone.climate_id), 0.0, 0.0\n                )\n',
+        'the pause sends the coil-dry fan run first', '_head_apply',
+        'return HeadApply(cid, steps=(FanRead(MODE_OFF), Queue(_PAUSE_OFF)))',
+        'return HeadApply(cid, steps=(FanRead(MODE_OFF), Queue(replace(_PAUSE_OFF, mode=idle_for(cid, shared.idle_action, head.coil_dry().last_run, head.head, shared.coil_dry_seconds, shared.clock, dry_waiting=head.coil_dry().waiting).idle))))',
         'tests/test_door_window.py::test_open_for_the_open_delay_pauses_straight_to_off',
     ),
 

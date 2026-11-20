@@ -26,7 +26,6 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity_component import DATA_INSTANCES
 from homeassistant.helpers.event import async_track_state_report_event
 from homeassistant.util import dt as dt_util
-from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .cloud import CLOUD_PENDING, CloudHead, drive_setpoint
 from .const import (
@@ -55,10 +54,11 @@ from .const import (
     VOTE_BASIS_MODE,
     WRITE_INTERVAL_BOUNDS,
 )
+from .grid import Grid, convert, local_calls
 from .host import ControllerHost, Effect
 from .logic import as_float, bounded
 from .planner import DeliverySteps, delivery_steps
-from .timing import cloud_delay
+from .timing import Arm, CancelAll, CloudWaits, cloud_arm
 from .units import clamp, offset_in_unit, snap_to_step
 
 if TYPE_CHECKING:
@@ -91,8 +91,8 @@ class HeadsHost(ControllerHost, Protocol):
     Read: the unit, step and clamp band, the standby hold, the idle action and
     eco (for the fan's hand-back), the delivery queue and the fan hold. Called:
     the publication of the plan's rows, the floor's record of an accepted
-    command, and the coil-dry dwell's note of what a head is being sent
-    (``planner.delivery_steps`` says what it counts).
+    command, the coil-dry dwell's note of what a head is being sent
+    (``planner.delivery_steps`` says what it counts), and the arming of a wakeup.
     """
 
     temp_unit: str
@@ -111,13 +111,11 @@ class HeadsHost(ControllerHost, Protocol):
     def eco_active(self) -> bool: ...
     def publish_delivery(self) -> None: ...
     def note_head_act(self, climate_id: str, steps: DeliverySteps, act: str, at: float) -> None: ...
+    def perform_arm(self, arm: Arm | CancelAll) -> None: ...
 
 
 class HeadGrid:
-    """What each head accepts, read off its live climate entity (#10).
-
-    Its native band as system-unit edges it will take, and its setpoint grid.
-    """
+    """What each head accepts, read off its live climate entity (#10), as a ``grid.Grid``."""
 
     def __init__(self, host: HeadsHost) -> None:
         self._host = host
@@ -130,151 +128,84 @@ class HeadGrid:
     def native_limits(
         self, climate_id: str
     ) -> tuple[float, float, str] | None:
-        """This head's UNROUNDED native (min, max, unit), or None if unknown.
+        """This head's UNROUNDED native (min, max, unit), or None if unknown."""
+        return _native_limits(self.entity(climate_id))
 
-        Read from the live entity object — the same values HA's own
-        set_temperature validator range-checks against — because the head's
-        min_temp/max_temp STATE ATTRIBUTES are display-rounded to the system
-        unit's precision and so can read ABOVE the true native ceiling (a
-        26.0 °C max shows as 79 °F but rejects 79 °F). Best-effort: any missing
-        entity / odd unit / inverted band yields None and the caller falls back.
-        """
-        entity = self.entity(climate_id)
-        if entity is None:
-            return None
-        try:
-            nmin = float(entity.min_temp)
-            nmax = float(entity.max_temp)
-            nunit = _native_unit(entity)
-        except (TypeError, ValueError, AttributeError):
-            return None
-        if nunit not in (
-            UnitOfTemperature.CELSIUS,
-            UnitOfTemperature.FAHRENHEIT,
-        ) or nmax <= nmin:
-            return None
-        return (nmin, nmax, nunit)
+    def read(self, climate_id: str) -> Grid:
+        """This head's grid as its entity shows it now.
 
-    def safe_band(self, climate_id: str) -> tuple[float, float] | None:
-        """The head's operating band as system-unit edges it will ACCEPT.
-
-        Convert the head's native limits into the system unit and snap the
-        ceiling DOWN / the floor UP to our step, so every edge round-trips back
-        through HA's unit conversion still inside the native band (78.8 °F ->
-        78 °F, which converts to 25.56 °C <= the 26.0 °C native max). For a head
-        already native to the system unit this is a no-op on whole values. Falls
-        back to the display-rounded state attributes when the entity object
-        isn't reachable (keeps the common same-unit case correct).
-        """
-        temp_unit = self._host.temp_unit
-        native = self.native_limits(climate_id)
-        lo: float | None
-        hi: float | None
-        if native is not None:
-            nmin, nmax, nunit = native
-            lo = TemperatureConverter.convert(nmin, nunit, temp_unit)
-            hi = TemperatureConverter.convert(nmax, nunit, temp_unit)
-        else:
-            st = self._host.hass.states.get(climate_id)
-            if st is None:
-                return None
-            lo = as_float(st.attributes.get("min_temp"))
-            hi = as_float(st.attributes.get("max_temp"))
-            if lo is None or hi is None:
-                return None
-        step = self._host.target_step or 1.0
-        # +/-1e-9 absorbs float noise so an exact 26.0/0.5 doesn't fall a step.
-        safe_low = math.ceil(lo / step - 1e-9) * step
-        safe_high = math.floor(hi / step + 1e-9) * step
-        if native is not None and nunit != temp_unit:
-            # Verify each snapped edge round-trips through the SAME conversion
-            # HA's validator performs: the noise epsilon can promote an edge a
-            # float-ulp past the true native limit (a 78.8 °F native max in a
-            # °C system snaps to 26.0 °C, which converts back to 78.800…01).
-            # One extra step inward always clears a 1-ulp overshoot.
-            if TemperatureConverter.convert(safe_high, temp_unit, nunit) > nmax:
-                safe_high -= step
-            if TemperatureConverter.convert(safe_low, temp_unit, nunit) < nmin:
-                safe_low += step
-        if safe_low > safe_high:
-            return None  # degenerate band (narrower than a step) -> don't clamp
-        return (safe_low, safe_high)
-
-    def clamp(
-        self, climate_id: str, low: float, high: float
-    ) -> tuple[float, float]:
-        """Clamp (low, high) into the head's accept-able band; pass through if unknown."""
-        band = self.safe_band(climate_id)
-        if band is None:
-            return (low, high)
-        safe_low, safe_high = band
-        return (
-            min(max(low, safe_low), safe_high),
-            min(max(high, safe_low), safe_high),
-        )
-
-    def target_bounds(self, climate_id: str) -> tuple[float, float]:
-        """UI setpoint bounds for a zone: [clamp_min, clamp_max] narrowed to the
-        head's own accept-able band, so the number/thermostat facade never offers
-        a target the head would reject (#10). If the head band is unknown or
-        disjoint from the clamp band, fall back to the plain clamp band.
+        The native band is read from the live entity object, the same values HA's own
+        set_temperature validator range-checks against, because the head's min_temp/max_temp
+        STATE ATTRIBUTES are display-rounded to the system unit's precision and so can read
+        ABOVE the true native ceiling (a 26.0 °C max shows as 79 °F but rejects 79 °F). Only
+        when that isn't known (no entity, an odd unit, an inverted band) are the state
+        attributes read.
         """
         host = self._host
-        lo, hi = float(host.clamp_min), float(host.clamp_max)
-        band = self.safe_band(climate_id)
-        if band is None:
-            return (lo, hi)
-        safe_low, safe_high = band
-        lo, hi = max(lo, safe_low), min(hi, safe_high)
-        if lo > hi:
-            return (float(host.clamp_min), float(host.clamp_max))
-        return (lo, hi)
-
-    def already_at(
-        self, climate_id: str, reported: float | None, desired: float
-    ) -> bool:
-        """True if sending ``desired`` would leave the head's setpoint unchanged.
-
-        A head can only hold setpoints on its own native grid. A °C-native
-        0.5 °C head (ESPHome CN105) in a °F system latches 18.0 °C for a
-        commanded 64 °F (17.78 °C) and reports it back as 64.4 °F, displayed
-        64.5 °F. That is the closest it can get to 64 °F, so comparing whole °F
-        never matches and every cycle re-sends a value that changes nothing.
-
-        So compare on the head's grid: convert ``desired`` to the native unit
-        and snap it to the native step (the value the head will latch); the
-        head already holds it when ``reported`` converts back to within half a
-        native step. The reported value's display rounding (at most 0.14 °C at
-        0.5 °F precision) and the raw commanded value the head publishes just
-        before its echo (at most 0.22 °C from the grid for a whole °F) both
-        stay inside that half step; a head one native step off does not. With
-        no known native unit/step, fall back to half our own step.
-
-        Known limits: this assumes the head rounds to the nearest step, as the
-        CN105 does; a head that truncated to its grid would still re-send. It
-        also assumes the entity displays at 0.5 °F or finer; at whole-°F
-        display precision a one-step move on a 0.5 °C head can read as already
-        there (the old whole-°F check had the same blind spot).
-        """
-        if reported is None:
-            return False
         entity = self.entity(climate_id)
+        native = _native_limits(entity)
+        shown_band = None
+        if native is None and (st := host.hass.states.get(climate_id)) is not None:
+            shown_band = (
+                as_float(st.attributes.get("min_temp")), as_float(st.attributes.get("max_temp")),
+            )
         try:
             step = float(entity.target_temperature_step)
             unit = _native_unit(entity)
         except (TypeError, ValueError, AttributeError):
             step, unit = 0.0, None
-        if step <= 0 or unit not in (
-            UnitOfTemperature.CELSIUS,
-            UnitOfTemperature.FAHRENHEIT,
-        ):
-            return abs(reported - desired) < self._host.target_step / 2
-        # Half up, as the CN105 firmware rounds (round() is half to even).
-        latched = math.floor(
-            TemperatureConverter.convert(desired, self._host.temp_unit, unit) / step + 0.5
-        ) * step
-        held = TemperatureConverter.convert(reported, self._host.temp_unit, unit)
-        return abs(held - latched) < step / 2
+        return Grid(
+            system_unit=host.temp_unit,
+            target_step=host.target_step,
+            clamp_min=host.clamp_min,
+            clamp_max=host.clamp_max,
+            native=native,
+            shown_band=shown_band,
+            native_step=step,
+            native_unit=unit,
+        )
+
+    def safe_band(self, climate_id: str) -> tuple[float, float] | None:
+        """The head's operating band as system-unit edges it will accept (``Grid.safe_band``)."""
+        return self.read(climate_id).safe_band()
+
+    def clamp(
+        self, climate_id: str, low: float, high: float
+    ) -> tuple[float, float]:
+        """Clamp (low, high) into the head's accept-able band (``Grid.clamp``)."""
+        return self.read(climate_id).clamp(low, high)
+
+    def target_bounds(self, climate_id: str) -> tuple[float, float]:
+        """UI setpoint bounds for a zone (``Grid.target_bounds``)."""
+        return self.read(climate_id).target_bounds()
+
+    def already_at(
+        self, climate_id: str, reported: float | None, desired: float
+    ) -> bool:
+        """True if sending ``desired`` would leave the head's setpoint unchanged (``Grid.already_at``)."""
+        return self.read(climate_id).already_at(reported, desired)
+
+
+def _native_limits(entity: Any) -> tuple[float, float, str] | None:
+    """An entity object's UNROUNDED native (min, max, unit), or None if unknown.
+
+    Best-effort: a missing entity, an odd unit or an inverted band yields None and the caller
+    falls back.
+    """
+    if entity is None:
+        return None
+    try:
+        nmin = float(entity.min_temp)
+        nmax = float(entity.max_temp)
+        nunit = _native_unit(entity)
+    except (TypeError, ValueError, AttributeError):
+        return None
+    if nunit not in (
+        UnitOfTemperature.CELSIUS,
+        UnitOfTemperature.FAHRENHEIT,
+    ) or nmax <= nmin:
+        return None
+    return (nmin, nmax, nunit)
 
 
 class HeadDriver(Protocol):
@@ -319,109 +250,45 @@ class LocalDriver:
         self, delivery: Delivery, act: str,
         low: float, high: float, delta: float, engage: str | None,
     ) -> None:
-        """One delivery's steps at this head."""
+        """One delivery's steps at this head, in the order ``DeliverySteps.order`` gives."""
         host = self._host
         climate_id = self.climate_id
         at = host.clock()
         steps = _steps(host, act, engage, host.hass.states.get(climate_id))
-        host.note_head_act(climate_id, steps, act, at)
-        if steps.handback:
-            await host.fan.async_apply(climate_id, MODE_FAN_ONLY, delta)
+        for step in steps.order:
+            if step == "note":
+                host.note_head_act(climate_id, steps, act, at)
+                continue
+            if step == "handback":
+                await host.fan.async_apply(climate_id, MODE_FAN_ONLY, delta)
+            elif step == "setpoints":
+                await self._async_apply(act, low, high)
+                host.floor.accepted(climate_id, delivery)
+            else:
+                # The standby hold as it reads now, after the write: a hold that started
+                # or ended during the write decides the fan step.
+                fan = steps.fan(inhibited=host.inhibited)
+                if fan == "drop_rung":
+                    host.fan.drop_rung(climate_id)
+                elif fan == "boost":
+                    await host.fan.async_apply(climate_id, act, delta)
             if not host.deliveries.owned(delivery):
                 return
-        await self._async_apply(act, low, high)
-        host.floor.accepted(climate_id, delivery)
-        if not steps.fan_machinery or not host.deliveries.owned(delivery):
-            return
-        # The standby hold as it reads now, after the write: a hold that started
-        # or ended during the write decides the fan step.
-        fan = steps.fan(inhibited=host.inhibited)
-        if fan == "drop_rung":
-            host.fan.drop_rung(climate_id)
-        elif fan == "boost":
-            await host.fan.async_apply(climate_id, act, delta)
 
     async def _async_apply(self, act: str, low: float, high: float) -> None:
-        """Issue (or skip, if already correct) the command for this head."""
+        """Send this head what ``grid.local_calls`` says for the command, in order; or nothing."""
+        host = self._host
         climate_id = self.climate_id
-        state = self._host.hass.states.get(climate_id)
-        cur_mode = state.state if state else None
-
-        if act in (MODE_COOL, MODE_HEAT):
-            # Clamp each edge to what THIS head will actually accept. The global
-            # clamp_min/clamp_max can exceed an individual head's operating band,
-            # and HA validates set_temperature by converting our (system-unit)
-            # value into the head's NATIVE unit and range-checking there — so a
-            # °C-native head whose native max is 26.0 °C rejects 79 °F (26.11 °C)
-            # even though it REPORTS max_temp = 79 °F (78.8 rounded up). Clamping
-            # in the head's native band (rounded toward the safe interior) keeps
-            # a head-exceeding target from erroring every cycle / degrading the
-            # zone (#10) — it lands on the head's real ceiling/floor instead.
-            low, high = self._grid.clamp(climate_id, low, high)
-            features = (
-                int(state.attributes.get("supported_features") or 0) if state else 0
-            )
-            # ClimateEntityFeature.TARGET_TEMPERATURE_RANGE == 2. Heads without
-            # it (single-setpoint — common on MXZ indoor units) reject
-            # target_temp_low/high, so send the one setpoint they accept (#6):
-            # the clamped room target (= high edge in cool, low edge in heat).
-            if not features & 2:
-                setpoint = high if act == MODE_COOL else low
-                cur = as_float(state.attributes.get("temperature")) if state else None
-                if cur_mode == act and self._grid.already_at(climate_id, cur, setpoint):
-                    return  # idempotent
-                await self._async_set_mode_and_setpoints(
-                    act, cur_mode, {"temperature": setpoint},
-                )
-                return
-            cur_low = as_float(state.attributes.get("target_temp_low")) if state else None
-            cur_high = (
-                as_float(state.attributes.get("target_temp_high")) if state else None
-            )
-            if (
-                cur_mode == act
-                and self._grid.already_at(climate_id, cur_low, low)
-                and self._grid.already_at(climate_id, cur_high, high)
-            ):
-                return  # idempotent
-            await self._async_set_mode_and_setpoints(
-                act, cur_mode,
-                {"target_temp_low": low, "target_temp_high": high},
-            )
-            return
-
-        # fan_only / off -> set_hvac_mode only (a bare temperature throws)
-        if cur_mode == act:
-            return
-        await self._host.deliveries.async_send(
-            climate_id, "set_hvac_mode",
-            {"hvac_mode": act},
-        )
-
-    async def _async_set_mode_and_setpoints(
-        self, act: str, cur_mode: str | None, setpoints: dict[str, float],
-    ) -> None:
-        """Send cool/heat and its setpoint(s) the way this head will honor.
-
-        An ESPHome head (the CN105) applies the hvac_mode HA passes along
-        inside set_temperature, so it gets today's single combined call. Other
-        integrations may drop it: Kumo Cloud heads through comfort_HA parked in
-        fan_only never woke. So a mode change on those goes first as its own
-        set_hvac_mode, then set_temperature carries only the setpoint(s). A
-        failed mode call raises before the setpoint write and the next compute
-        retries. A head with no registry entry can't be identified, so it
-        keeps the combined call as before.
-        """
-        climate_id = self.climate_id
-        deliveries = self._host.deliveries
-        entry = er.async_get(self._host.hass).async_get(climate_id)
-        if cur_mode == act or entry is None or entry.platform == "esphome":
-            await deliveries.async_send(
-                climate_id, "set_temperature", {"hvac_mode": act, **setpoints},
-            )
-            return
-        await deliveries.async_send(climate_id, "set_hvac_mode", {"hvac_mode": act})
-        await deliveries.async_send(climate_id, "set_temperature", setpoints)
+        state = host.hass.states.get(climate_id)
+        entry = er.async_get(host.hass).async_get(climate_id)
+        for service, data in local_calls(
+            act, low, high,
+            mode=state.state if state else None,
+            attributes=state.attributes if state else None,
+            grid=self._grid.read(climate_id),
+            combined=entry is None or entry.platform == "esphome",
+        ):
+            await host.deliveries.async_send(climate_id, service, data)
 
 
 class CloudDriver:
@@ -464,23 +331,17 @@ class CloudDriver:
         value = drive_setpoint(
             act=act, target=high if act == MODE_COOL else low, offset=offset
         )
-        entity = self._grid.entity(self.climate_id)
-        try:
-            step = float(entity.target_temperature_step)
-            unit = _native_unit(entity)
-        except (TypeError, ValueError, AttributeError):
-            step, unit = 0.0, None
+        grid = self._grid.read(self.climate_id)
+        step, unit = grid.native_step, grid.native_unit
         if step > 0 and math.isfinite(step) and unit in (
             UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT,
         ):
-            native = snap_to_step(
-                TemperatureConverter.convert(value, host.temp_unit, unit), step
-            )
+            native = snap_to_step(convert(value, host.temp_unit, unit), step)
             # Two places: a whole °C step back in °F is 69.8, not 69.80000000000001.
-            value = round(TemperatureConverter.convert(native, unit, host.temp_unit), 2)
+            value = round(convert(native, unit, host.temp_unit), 2)
         else:
             value = snap_to_step(value, CLOUD_STEP_C if host.celsius else CLOUD_STEP_F)
-        return clamp(value, self._grid.safe_band(self.climate_id))
+        return clamp(value, grid.safe_band())
 
     def watch(self, wall: float, out: list[Effect]) -> bool:
         """Whether this head is out of MXZ's control now.
@@ -836,35 +697,31 @@ class HeadDrivers:
         driver = self._clouds.get(zone.climate_id)
         return driver.attributes() if driver is not None else {}
 
-    def sync_timer(self) -> None:
-        """Keep one wakeup armed for the nearest cloud head deadline.
+    def cloud_waits(self, clock: float) -> list[CloudWaits]:
+        """Each cloud head's deadlines on MXZ's clock read as ``clock`` (``timing.CloudWaits``)."""
+        return [
+            CloudWaits(
+                pending=driver.record.pending(clock),
+                window_until=driver.record.window_until,
+                release_at=driver.record.release_at,
+                unresponsive=driver.record.unresponsive,
+                seen=None if driver.record.unresponsive else driver.seen(),
+            )
+            for driver in self._clouds.values()
+        ]
 
-        The end of a confirm window (confirm, or send again), a batch or fan
-        step held back by its limit, and the moment a quiet head would become
-        not controllable. A cloud head that reports nothing new emits nothing,
-        so without this each would wait for an unrelated update.
+    def sync_timer(self) -> None:
+        """Keep one wakeup armed for the nearest cloud head deadline (``timing.cloud_arm``).
+
+        A cloud head that reports nothing new emits nothing, so without this each deadline
+        would wait for an unrelated update. A compute arms it with every other wakeup; a
+        refused batch arms it here.
         """
         host = self._host
-        if host.retired or not self._clouds:
-            host.clock.cancel("cloud")
-            return
         clock = host.clock()
-        wall = dt_util.utcnow().timestamp()
-        waits: list[float] = []
-        for driver in self._clouds.values():
-            cloud = driver.record
-            if cloud.pending(clock):
-                waits.append(cloud.window_until - clock)
-            if cloud.release_at is not None and cloud.release_at > clock:
-                waits.append(cloud.release_at - clock)
-            if not cloud.unresponsive:
-                since, limit = driver.seen()
-                if limit is not None:
-                    waits.append(since + limit - wall)
-        if (delay := cloud_delay(waits)) is None:
-            host.clock.cancel("cloud")
-            return
-        host.clock.call_later(delay, partial(host.wake, "cloud"), name="cloud")
+        host.perform_arm(cloud_arm(
+            host.retired, self.cloud_waits(clock), clock, dt_util.utcnow().timestamp(),
+        ))
 
     def track_reports(self) -> Callable[[], None] | None:
         """Listen for every report from a cloud head, changed or not; None with no cloud head.

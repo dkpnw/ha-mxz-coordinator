@@ -33,6 +33,7 @@ from .const import (
     MODE_HEAT,
 )
 from .fan_latch import FanRecord
+from .head_writes import HEAD_WRITE_FIELDS
 from .logic import HeadWriteMemory, finite_number
 from .units import offset_in_unit, snap_to_step, target_in_unit
 
@@ -49,8 +50,6 @@ SECTION_HEAD_WRITES = "head_writes"
 SWITCH_KEYS = (KEY_COORDINATOR_ENABLE, KEY_ECO_IDLE, KEY_HEAT_LOCKOUT, KEY_COOL_LOCKOUT)
 
 # What MXZ remembers of its head writes (logic.HeadWriteMemory), by service field.
-HEAD_WRITE_MODE = "hvac_mode"
-HEAD_WRITE_FIELDS = (HEAD_WRITE_MODE, "temperature", "target_temp_low", "target_temp_high")
 
 # The mode record: the room state store's ``mode`` section, and for one release also its
 # own file (coordinator.py, where it is written and loaded). It holds the time of the last

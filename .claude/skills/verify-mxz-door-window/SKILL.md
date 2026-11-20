@@ -43,7 +43,7 @@ them, and run both commands under Run.
 
 | Check | Covers (custom_components/mxz_coordinator/) |
 | --- | --- |
-| Model `Decide` (the window part) | `openings.py` `OpeningPause.step`, `OpeningPause._transition`, `OpeningPause._store_write`; `logic.py` `opening_state`, `opening_due`, `opening_reading`; `planner.py` `decide` (a paused room has no call, no run, an empty latch), `coordinator.py` `_apply` (a paused head straight to off); `fan_hold.py` `FanHold.read` |
+| Model `Decide` (the window part) | `openings.py` `OpeningPause.step`, `OpeningPause._transition`, `OpeningPause._store_write`; `logic.py` `opening_state`, `opening_due`, `opening_reading`; `planner.py` `decide` (a paused room has no call, no run, an empty latch), `coordinator.py` `_apply` and `planner.py` `apply_plan` (a paused head straight to off); `fan_hold.py` `FanHold.read` and `fan_latch.py` `fan_read` |
 | Model `WindowReads` | `openings.py` `OpeningPause.on_change` |
 | Model `PersonMode` | `coordinator.py` `_on_head_change`; `openings.py` `OpeningPause.take_over` |
 | Model `OverrideSwitch` | `openings.py` `OpeningPause.async_set_override` |

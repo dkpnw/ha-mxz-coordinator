@@ -929,6 +929,12 @@ class HeadWriteMemory:
             self._entries.popleft()
         self._entries.appendleft([shown, 0])
 
+    def pressed(self, shown: Any, same: Callable[[Any, Any], bool] = operator.eq) -> None:
+        """A person's change the hold adopted: what the head shows now replaces what it last
+        showed (``seen``), unless nothing is shown or MXZ's own writes explain it."""
+        if shown is not None and not self.own(shown, same):
+            self.seen(shown)
+
 
 class HeadSight:
     """What MXZ last saw of one head, and since when it has been out of sight.

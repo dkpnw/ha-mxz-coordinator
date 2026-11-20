@@ -45,9 +45,18 @@ from custom_components.mxz_coordinator.timing import (
     opening_wait,
     run_changed,
     same_reading_refresh,
+    startup_quiet,
 )
 
 FAN = {"fan_mode": "auto", "fan_modes": ["auto", "low"], "supported_features": 395}
+
+
+def test_a_start_is_quiet_until_its_startup_wakeup_runs() -> None:
+    assert startup_quiet(running=False, startup_ran=False)
+    assert not startup_quiet(running=False, startup_ran=True)
+    # A reload while Home Assistant runs is never quiet, before or after the wakeup.
+    assert not startup_quiet(running=True, startup_ran=False)
+    assert not startup_quiet(running=True, startup_ran=True)
 
 
 def test_the_constants() -> None:

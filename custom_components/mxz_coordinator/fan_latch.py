@@ -17,7 +17,7 @@ which ``fan_record`` builds.
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, Self
@@ -393,6 +393,27 @@ def fan_record(latch: FanLatch, observed: str | None) -> FanRecord:
     )
 
 
+def fan_read(
+    latch: FanLatch,
+    observed: str | None,
+    act: str,
+    *,
+    modes: Sequence[str] | None,
+    limits: FanLimits,
+) -> FanLatch:
+    """The manual fan hold read on a head MXZ sends no fan, and nothing written.
+
+    A head paused for an open door or window (``act`` off), or one a person runs in dry
+    under Allow Dry (``act`` dry). ``observed`` is the speed it shows and ``modes`` the
+    speeds it lists; the report was passed to ``latch.echo.caught_up`` first. MXZ set no
+    speed there, so the read has no delta. With boost off, no fan list, no ``auto`` in it,
+    or no speed showing, nothing is read.
+    """
+    if not limits.boost or not modes or FAN_AUTO not in modes or observed is None:
+        return latch
+    return observe_fan(latch, observed, act, 0.0, limits)
+
+
 def fan_step(
     latch: FanLatch,
     observed: str | None,
@@ -442,6 +463,72 @@ def fan_step(
     if token not in modes or observed == token:
         return latch, None
     return latch, token
+
+
+@dataclass(frozen=True, slots=True)
+class EchoCaughtUp:
+    """The head's report of a speed put MXZ's earlier fan writes behind it
+    (``FanEcho.caught_up`` changed the memory): the hold is published."""
+
+
+@dataclass(frozen=True, slots=True)
+class KeepLatch:
+    """The hold :func:`fan_step` left is kept, and published."""
+
+    latch: FanLatch
+
+
+@dataclass(frozen=True, slots=True)
+class WroteFan:
+    """``token`` is remembered as MXZ's own (``FanEcho.wrote``), and published, before it goes
+    out: the head's report of it can come back while the write is running."""
+
+    token: str
+
+
+@dataclass(frozen=True, slots=True)
+class SendFan:
+    """The head is sent ``set_fan_mode`` with ``token``."""
+
+    token: str
+
+
+type BoostStep = EchoCaughtUp | KeepLatch | WroteFan | SendFan
+
+
+def fan_boost(
+    latch: Callable[[], FanLatch],
+    observed: str | None,
+    act: str,
+    delta: float,
+    *,
+    boost: bool,
+    modes: Sequence[str] | None,
+    limits: Callable[[], FanLimits],
+) -> tuple[BoostStep, ...]:
+    """A local delivery's fan boost step at a head (``"boost"``, or the hand-back), in order.
+
+    ``observed`` is the speed the head shows (None with no state) and ``modes`` the speeds it
+    lists. Nothing at all with fan boost off (``boost``); with no fan list or no ``auto`` in it
+    (no way to release a hold or return a satisfied head to auto: the head's fan is left
+    entirely alone, as a ladder could only ratchet it up); or with no speed showing (a head
+    still loading: nothing to reconcile a restored hold or the latch against, and a write would
+    override a speed nobody can see; restored truth stays pending and a standing hold stands).
+
+    Otherwise the head's hold (``latch``, read now) takes the report first
+    (``FanEcho.caught_up``), then :func:`fan_step` decides, with ``limits`` read after that. Its
+    hold is kept, and a token to send is remembered before it is sent.
+    """
+    if not boost or not modes or FAN_AUTO not in modes or observed is None:
+        return ()
+    held = latch()
+    caught = held.echo.caught_up(observed)
+    held, token = fan_step(held, observed, act, delta, modes=modes, limits=limits())
+    return (
+        *((EchoCaughtUp(),) if caught else ()),
+        KeepLatch(held),
+        *((WroteFan(token), SendFan(token)) if token is not None else ()),
+    )
 
 
 def reconcile_restored_hold(

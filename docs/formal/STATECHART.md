@@ -43,8 +43,8 @@ stateDiagram-v2
 
 | Id | What happens | Code |
 | --- | --- | --- |
-| M1 | With the gate open, the first calling room in rank order decides. With nothing calling, Resting mode decides, once no room still runs in the shared mode. The new mode is stamped and stored before any head is sent it. | `_compute`, `decide`, `arbitrate`, `shared_mode`, `_apply`, `_write_back_mode`, `_stamp_mode_change`, `_record_mode` |
-| M2 | The gate reads `elapsed >= hysteresis` on the monotonic clock. A timer re-renders the entities at the hold's end and decides nothing; another wakes the plan for a flip the hold deferred. | `_mode_change_elapsed`, `_arm_hold_end_timer`, `hold_end_delay`, `_sync_dwell_timer`, `dwell_delay`, `held_back` |
+| M1 | With the gate open, the first calling room in rank order decides. With nothing calling, Resting mode decides, once no room still runs in the shared mode. The new mode is stamped and stored before any head is sent it. | `_compute`, `decide`, `arbitrate`, `shared_mode`, `_apply`, `apply_plan`, `_write_back_mode`, `_stamp_mode_change`, `stamp_mode_change`, `_record_mode` |
+| M2 | The gate reads `elapsed >= hysteresis` on the monotonic clock. A timer re-renders the entities at the hold's end and decides nothing; another wakes the plan for a flip the hold deferred. | `_mode_change_elapsed`, `_arm_hold_end_timer`, `_arm_hold_end`, `stamp_mode_change`, `hold_end_arm`, `hold_end_delay`, `arms`, `dwell_delay`, `held_back` |
 | M3 | A person's pick is never gated. A changed direction stamps the hold at once. An apply already running recorded its direction before it sent any head, so the pick is the newer record. | `async_select_option`, `async_select_shared_mode` |
 | M4 | With the gate shut, the mode stays, whatever is asked, at any rank. A head wanting the other mode parks at its idle action. | `shared_mode`, `head_action`, `head_command` |
 | M5 | A change only hands-off votes made starts no hold. Not in this spec: `verification/modehold/MXZModeHold.tla` covers it. | `arbitrate`, `_write_back_mode`, `mode_write_back` |
@@ -70,10 +70,10 @@ stateDiagram-v2
 
 | Id | What happens | Code |
 | --- | --- | --- |
-| A1 | Every report passes MXZ's older writes, then is read against what is left. A write is remembered as it goes out. | `_on_head_change`, `_watch_head_change`, `head_moved`, `DeliveryQueue._async_issue`, `MXZCoordinator.remember_head_write`, `_head_writes_caught_up`, `wrote`, `caught_up` |
-| A2 | While the hold runs, `_apply` writes nothing to that head, and a command of MXZ's still waiting for the head is disowned. | `_head_change_settling`, `_apply`, `_arm_or_cancel`, `DeliveryQueue.disown` |
-| A3 | Eco, a standby hold, Coordinator off, a start, a pause, a floor run, a hands-off room's disablement or a stale cloud report: the change counts for nothing. A head report that ends the hold this way, the head put back by hand say, asks for a compute, because the apply skipped that head and A2 disowned its waiting command. | `_head_adoption`, `adopt_head_change`, `drop_head_change`, `_watch_head_change`, `_on_head_change` |
-| A4 | The room's own number and switch take the change, held to the room's bounds. What the head shows then replaces what it last showed in the memory. | `_on_heal_timer`, `_async_adopt_head_change`, `_head_change_seen`, `seen` |
+| A1 | Every report passes MXZ's older writes, then is read against what is left. A write is remembered as it goes out. | `_on_head_change`, `report_steps`, `head_moved`, `DeliveryQueue._async_issue`, `issue_steps`, `MXZCoordinator.remember_head_write`, `remember_writes`, `_head_writes_caught_up`, `writes_caught_up`, `wrote`, `caught_up` |
+| A2 | While the hold runs, `_apply` writes nothing to that head, and a command of MXZ's still waiting for the head is disowned. | `_head_change_settling`, `holds_change`, `_apply`, `apply_plan`, `report_steps`, `_perform_head_report`, `head_report`, `DeliveryQueue.disown` |
+| A3 | Eco, a standby hold, Coordinator off, a start, a pause, a floor run, a hands-off room's disablement or a stale cloud report: the change counts for nothing. A head report that ends the hold this way, the head put back by hand say, asks for a compute, because the apply skipped that head and A2 disowned its waiting command. | `_head_adoption`, `_adoption`, `head_change`, `adopt_head_change`, `target_written`, `enable_written`, `_perform_room_steps`, `head_dropped`, `report_steps`, `head_report`, `_on_head_change` |
+| A4 | The room's own number and switch take the change, held to the room's bounds. What the head shows then replaces what it last showed in the memory. | `_on_heal_timer`, `_async_adopt_head_change`, `hold_end`, `adopt_end`, `_perform_adopt_step`, `off_heal_recheck`, `_head_change_seen`, `writes_pressed`, `pressed`, `seen` |
 | A5 | The next compute and apply. The head's heat or cool never reaches the shared mode. | `_apply` |
 
 ## A room's run
@@ -119,7 +119,7 @@ stateDiagram-v2
 | Id | What happens | Code |
 | --- | --- | --- |
 | W1, W2, W3 | The delay counts from the reading, or from this coordinator's start if that is later. A start can lengthen a delay, never shorten it. No reading never starts a pause. | `OpeningPause.step`, `opening_state`, `opening_reading` |
-| W3 | Entering the pause: the head goes straight to off, with no coil-dry run and no fan, setpoint or vane write. A speed picked on the off head is read and held. The state is stored right after the compute that decides it. | `OpeningPause._transition`, `_apply`, `FanHold.read`, `OpeningPause._store_write` |
+| W3 | Entering the pause: the head goes straight to off, with no coil-dry run and no fan, setpoint or vane write. A speed picked on the off head is read and held. The state is stored right after the compute that decides it. | `OpeningPause._transition`, `_apply`, `_head_apply`, `FanHold.read`, `fan_read`, `OpeningPause._store_write` |
 | W4, W5, W6 | A closed reading counts down the close delay. Opening again starts it over. No reading doesn't end a pause. | `opening_state`, `opening_due` |
 | W7 | A real mode change on a paused head, to anything but off, not MXZ's own, takes the room over at once. So does the Window Override switch. The room is coordinated normally: MXZ doesn't turn the head back off. | `_on_head_change`, `OpeningPause.take_over`, `OpeningPause.async_set_override` |
 | W8 | With the window already closed and the close delay running, a change on the head is recorded, and the closed reading ends it at the next compute: the room goes on closing and the head is sent off again. This is the documented "until the window closes", at its edge. | `_on_head_change`, `OpeningPause.step` |
@@ -152,7 +152,7 @@ stateDiagram-v2
 | Id | What happens | Code |
 | --- | --- | --- |
 | F1, F2 | With no memory, `auto` sets the baseline. A speed the ladder would stay on is adopted (a hold placed there is lost: documented), a fan_only idle on an established entry reads as ours (#25), and anything else seeds a hold. | `FanHold._observe_latch`, `observe_fan`, `seed_matches_boost`, `seed_is_own_idle` |
-| F3 | Boost picks a rung and writes it once. A rewrite of the commanded token doesn't roll the memory (#14). | `FanHold.async_apply`, `fan_step`, `fan_for_delta`, `FanHold._async_write` |
+| F3 | Boost picks a rung and writes it once. A rewrite of the commanded token doesn't roll the memory (#14). | `FanHold.async_apply`, `fan_boost`, `fan_step`, `fan_for_delta`, `FanHold._wrote` |
 | F4 | A speed that is neither of the last two writes (`FanEcho.last`, `FanEcho.prior`), and not in `FanEcho.older` either, is a person's. MXZ makes no fan write while held. | `FanHold._observe_latch`, `observe_fan`, `FanEcho.own`, `hold_at` |
 | F5 | One of the two remembered speeds reads as MXZ's echo: not held, and boost writes over it. So does an older write, until the head's reports pass it (F1). A pick of the speed showing can't be read at all. | `FanHold._observe_latch`, `observe_fan`, `FanEcho.own`, `FanEcho.wrote`, `FanEcho.caught_up` |
 | F6 | A hold's memory is the held speed, so any other speed moves it. | `hold_at` |
@@ -178,7 +178,7 @@ stateDiagram-v2
 | --- | --- | --- |
 | D1 | One task per head, which waits for the head's lock. The apply records the mode, then waits until every head is done or a new input comes in. | `DeliveryQueue.queue`, `_write_back_mode`, `DeliveryQueue.async_wait` |
 | D2 | A superseded command issues nothing more. A change at the head that will be adopted disowns it. | `DeliveryQueue.owned`, `DeliveryQueue.disown` |
-| D3 | Whatever a head's handler raises is that room's: its row reads rejected and the next update tries again. Only a fault in MXZ's own steps fails the plan. | `DeliveryQueue._deliver`, `DeliveryQueue._async_issue`, `DeliveryQueue._finish` |
+| D3 | Whatever a head's handler raises is that room's: its row reads rejected and the next update tries again. Only a fault in MXZ's own steps fails the plan. | `DeliveryQueue._deliver`, `DeliveryQueue._async_issue`, `DeliveryQueue._async_call`, `DeliveryQueue._finish` |
 | D4 | A retired coordinator's command sends nothing more; what it sent stays sent. | `DeliveryQueue.retire` |
 
 ## Lifecycle

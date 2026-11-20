@@ -730,7 +730,7 @@ Crash == WithCrash /\ \E t \in (IF WithFan THEN Tokens ELSE {fanShown}) : Start(
 
 (***************************************************************************)
 (* WithAdopt: room 1's setpoint and changes made at its head               *)
-(* (coordinator._watch_head_change, _head_adoption, planner.head_moved,    *)
+(* (planner.report_steps, _head_adoption, planner.head_moved,              *)
 (* planner.adopt_head_change, _async_adopt_head_change;                    *)
 (* logic.HeadWriteMemory). The head is running,                            *)
 (* so its setpoint field is fixed; only the setpoint moves. A head that    *)
@@ -752,7 +752,7 @@ Report(v, by) ==
        /\ holding' = (~own /\ v # target /\ ~quiet)
 
 \* number.async_set_native_value: a person sets the target in Home Assistant, which
-\* ends a hold (drop_head_change): the later change wins.
+\* ends a hold (target_written): the later change wins.
 SetTarget == WithAdopt /\ \E v \in Targets :
     /\ v # target /\ target' = v /\ holding' = FALSE
     /\ UNCHANGED <<spShown, spQueue, spMem, quiet, shownKind, adopted, writeInHold, pressedQueued,

@@ -193,7 +193,7 @@ class OpeningPause:
     The coordinator calls it from the compute (``step``), the apply (``paused``,
     then ``async_restore_vanes``), a head's report (``take_over``), a vane pick
     (``keep_vane``), the Window Override switch (``async_set_override``), and
-    its own setup and its wakeups (``start``, ``sync_timers``).
+    its own setup and its wakeups (``start``, ``dues``).
     """
 
     def __init__(
@@ -497,7 +497,7 @@ class OpeningPause:
         The recompute is the ordinary request, which can wait out the request
         cooldown; the wakeup is armed from the reading itself, so a short
         delay still ends on time. The compute that follows re-arms it from
-        the room's state (sync_timers).
+        the room's state (``dues``, ``timing.arms``).
         """
         new_state = event.data.get("new_state")
         reading = opening_reading(new_state.state if new_state is not None else None)
@@ -515,15 +515,10 @@ class OpeningPause:
             )
         self._hass.async_create_task(self._host.async_request_refresh())
 
-    def sync_timers(self) -> None:
-        """One wakeup per room at the end of its open or close delay."""
-        self._host.clock.cancel_all("opening")
-        if self._host.retired:
-            return
-        now = dt_util.utcnow().timestamp()
-        for slug, record in self._records.items():
-            if record.due is not None:
-                self._arm_timer(slug, record.due - now)
+    def dues(self) -> list[tuple[str, float | None]]:
+        """Each room's slug and the end of its open or close delay (wall clock; None with
+        none running), for the wakeups a compute arms (``timing.arms``)."""
+        return [(slug, record.due) for slug, record in self._records.items()]
 
     def _arm_timer(self, slug: str, delay: float) -> None:
         """Replace this room's wakeup with one ``delay`` seconds from now."""
