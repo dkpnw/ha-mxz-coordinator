@@ -1,0 +1,79 @@
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(#fbfaf7, #15171a);
+  --card: light-dark(#ffffff, #1e2125);
+  --ink: light-dark(#1d1f22, #e8e6e1);
+  --muted: light-dark(#5d6168, #a3a7ad);
+  --line: light-dark(#dedad2, #33373d);
+  --band: light-dark(#fff3c4, #3a3214);
+  --band-ink: light-dark(#4a3b00, #f3e3a0);
+  --heat: light-dark(#b8461b, #ff8a5c);
+  --cool: light-dark(#1f63b8, #7db4ff);
+  --accent: light-dark(#2f6f4f, #7fd1a6);
+  font: 16px/1.45 system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); }
+main { max-width: 72rem; margin-inline: auto; padding: 1rem clamp(0.75rem, 3vw, 2rem) 3rem; }
+h1 { font-size: clamp(1.4rem, 3vw, 2rem); margin-block: 0.5rem 0.25rem; }
+h2 { font-size: 1.1rem; margin: 0; }
+.lede, .try, .rule { color: var(--muted); }
+.lede { max-width: 60ch; }
+
+.band {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; align-items: center; justify-content: space-between;
+  padding: 0.5rem clamp(0.75rem, 3vw, 2rem);
+  background: var(--band); color: var(--band-ink); border-block-end: 1px solid var(--line);
+}
+.band .label { margin: 0; }
+.clock { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+#time { font-variant-numeric: tabular-nums; font-weight: 600; min-inline-size: 5ch; }
+
+.buttons { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+button {
+  font: inherit; font-size: 0.9rem; padding: 0.3rem 0.7rem; border-radius: 0.4rem;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer;
+}
+button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.presets { margin-block: 1rem; }
+.presets h2 { margin-block-end: 0.4rem; }
+.temps h2 { margin-block-end: 0.4rem; }
+.temp-set { display: flex; gap: 0.35rem; align-items: center; margin-inline-end: 1rem; }
+.temp-set input { inline-size: 5rem; font: inherit; }
+.status { padding: 0.5rem 0.75rem; border-radius: 0.4rem; background: var(--card); border: 1px solid var(--line); }
+.status:empty { display: none; }
+.status.error { border-color: var(--heat); color: var(--heat); }
+
+.row { margin-block: 1.25rem; padding: 1rem; background: var(--card); border: 1px solid var(--line); border-radius: 0.6rem; }
+.row-head { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; align-items: baseline; }
+.row-head p { margin: 0; }
+.row-head button { margin-inline-start: auto; }
+.rule { margin-block: 0.4rem 0.8rem; font-size: 0.92rem; }
+
+.rooms { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 0.75rem; }
+.room { padding: 0.75rem; border: 1px solid var(--line); border-radius: 0.5rem; }
+.room h3 { margin: 0; font-size: 1rem; display: flex; justify-content: space-between; gap: 0.5rem; }
+.temp { font-size: 1.8rem; font-variant-numeric: tabular-nums; margin: 0.15rem 0; }
+.head { margin: 0 0 0.5rem; color: var(--muted); font-size: 0.9rem; }
+.doing-heating, .mode-heat { color: var(--heat); }
+.doing-cooling, .mode-cool { color: var(--cool); }
+.room form { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.5rem; align-items: center; font-size: 0.9rem; margin-block-start: 0.4rem; }
+.room fieldset { border: 0; padding: 0; margin: 0.5rem 0 0; display: contents; }
+.room legend { grid-column: 1 / -1; font-weight: 600; font-size: 0.85rem; color: var(--muted); padding-block-start: 0.4rem; }
+.room input[type="number"] { inline-size: 5.5rem; }
+.room input, .room select { font: inherit; font-size: 0.9rem; }
+.room .wide { grid-column: 1 / -1; justify-self: start; }
+.room label { white-space: nowrap; }
+.quiet { margin-block: 0 0.8rem; font-size: 0.92rem; color: var(--accent); }
+.quiet:empty { display: none; }
+.badge { font-size: 0.8rem; font-weight: 500; color: var(--accent); }
+
+.writes { margin-block-start: 0.75rem; font-size: 0.9rem; }
+.writes ol { margin: 0.4rem 0 0; padding-inline-start: 1.5rem; color: var(--muted); }
+.notes ul { padding-inline-start: 1.2rem; }
+.notes li { margin-block: 0.35rem; }

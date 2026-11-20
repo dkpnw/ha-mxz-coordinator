@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simulator: stock versus MXZ Coordinator (simulation)</title>
+  <link rel="stylesheet" href="lab.css">
+</head>
+<body>
+  <header class="band" role="banner">
+    <p class="label"><strong>Simulation</strong> · invented heads and rooms · not a model of real equipment</p>
+    <div class="clock" aria-label="Simulated clock">
+      <output id="time" aria-live="off">0:00</output>
+      <div class="buttons" role="group" aria-label="Clock">
+        <button id="play" type="button" disabled>Pause</button>
+        <button type="button" data-speed="1" disabled>1×</button>
+        <button type="button" data-speed="25" aria-pressed="true" disabled>25×</button>
+        <button type="button" data-speed="100" disabled>100×</button>
+        <button id="skip" type="button" disabled>Skip to MXZ's next wakeup</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <h1>Stock versus MXZ Coordinator</h1>
+    <p class="lede">The same three invented rooms twice, from the same start. Change the rooms,
+      the heads and MXZ's settings, and watch what each row does.</p>
+
+    <section class="presets" aria-labelledby="presets-title">
+      <h2 id="presets-title">Start from</h2>
+      <div class="buttons" id="presets" role="group" aria-label="Starting points"></div>
+      <p id="try" class="try"></p>
+    </section>
+
+    <section class="temps" aria-labelledby="temps-title">
+      <h2 id="temps-title">Room temperatures, both rows</h2>
+      <div class="buttons" id="temps"></div>
+    </section>
+
+    <p id="status" class="status" role="status">Loading MXZ Coordinator's code into your browser (Pyodide, about 10 MB)…</p>
+
+    <section class="row" aria-labelledby="stock-title">
+      <div class="row-head">
+        <h2 id="stock-title">Stock</h2>
+        <p>Outdoor unit: <output id="stock-outdoor">–</output></p>
+      </div>
+      <p class="rule">Follows one rule from Mitsubishi's manual for heads that share an outdoor unit:
+        "the unit selected last goes into standby mode." A person sets each head. It is not stock AUTO.</p>
+      <div class="rooms" id="stock-rooms"></div>
+    </section>
+
+    <section class="row" aria-labelledby="mxz-title">
+      <div class="row-head">
+        <h2 id="mxz-title">MXZ Coordinator</h2>
+        <p>Shared mode: <output id="mxz-mode">–</output> · Outdoor unit: <output id="mxz-outdoor">–</output></p>
+        <p>Can switch heat and cool in: <output id="mxz-hold">–</output></p>
+        <button id="restart" type="button" disabled>Restart Home Assistant</button>
+      </div>
+      <p class="rule">MXZ Coordinator's own decision code at its default settings, run in this page.
+        <output id="mxz-why"></output></p>
+      <p class="quiet" id="mxz-quiet" role="status"></p>
+      <div class="rooms" id="mxz-rooms"></div>
+      <details class="writes">
+        <summary>What MXZ sent the heads</summary>
+        <ol id="mxz-calls" reversed></ol>
+      </details>
+    </section>
+
+    <section class="notes" aria-labelledby="notes-title">
+      <h2 id="notes-title">About this simulation</h2>
+      <ul>
+        <li>The heads and rooms are invented. A running head moves its room 1 °F a minute, a room
+          no head moves drifts toward 76 °F, and the fan does not change either rate. Each room
+          moves every 5 simulated seconds, a second after the room before it.</li>
+        <li>The stock row applies only the manual's standby rule quoted above.
+          <a href="../HOW-IT-WORKS.md#the-problem-in-detail">What stock AUTO does, with sources</a>.</li>
+        <li>The MXZ row runs the integration's own planner, timing and fan-hold code from
+          <code>custom_components/mxz_coordinator</code>, the same functions the integration
+          calls in Home Assistant. Its timing follows Home Assistant 2025.11 and later.</li>
+        <li>Neither row measures real equipment, energy, comfort or noise.</li>
+      </ul>
+      <details>
+        <summary>What this page leaves out</summary>
+        <ul>
+          <li>Door and window pauses, Dry, freeze floors and overheat ceilings, hands-off rooms,
+            cloud heads, eco and the season lockouts, a dual setpoint, a room's own drift, and the
+            shared-mode select. MXZ has each of these; this page has no control for them.</li>
+          <li>A head that answers late or goes out of sight. These heads show each change at once.</li>
+          <li>MXZ sends to one head after another; in Home Assistant the heads' writes can
+            interleave. A command a newer plan replaces before it is sent is not modeled.</li>
+          <li>When MXZ takes a change made at a head while a plan's commands are still going out,
+            Home Assistant can work out the next plan at once. Here a plan's commands all go out
+            inside it, so the next plan waits for Home Assistant's 10-second cooldown, and a head
+            can get its next command up to 10 seconds later than in Home Assistant.</li>
+          <li>MXZ takes a change made at a head 5 seconds after it and writes it to the room.
+            When that write starts a plan, Home Assistant finishes taking the change inside the
+            plan that comes next. No MXZ function says so, so this page follows that order by a
+            rule of its own. It shows when two heads are changed at the same moment.</li>
+        </ul>
+      </details>
+      <p>The README's animations show the same scenes without JavaScript.
+        <a href="../../README.md">Back to the README</a>.</p>
+    </section>
+  </main>
+
+  <script src="bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/pyodide/v314.0.8/full/pyodide.js"
+          integrity="sha384-0Tw0jFeRF+UzB1HbzjzDi5ZNMyMclQPHmYkEquv9V+lAj/rZBHxu1c35Uq28kDPo"
+          crossorigin="anonymous"></script>
+  <script src="lab.js"></script>
+</body>
+</html>
