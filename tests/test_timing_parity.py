@@ -3,8 +3,9 @@
 Each scenario in ``tests/timing_parity.py`` runs the real integration and is compared, byte for
 byte, with its recording for the Home Assistant release this suite runs on,
 ``tests/fixtures/timing_parity/<release>/<scenario>.json``. Those were captured on 725ba24, with
-MXZ's timing still written out in the coordinator's handlers. ``MXZ_PARITY_CAPTURE=1`` rewrites
-the recordings of this release. A release with no recordings fails: capture them on it first.
+MXZ's timing still written out in the coordinator's handlers; ``cooldown_and_hold_off`` and
+``dwell_and_hold`` on 37494ed's integration. ``MXZ_PARITY_CAPTURE=1`` rewrites the recordings
+of this release. A release with no recordings fails: capture them on it first.
 
 ``tests/test_sim_timing_parity.py`` checks ``sim_timing.step`` against every release's
 recordings.
