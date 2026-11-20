@@ -1,12 +1,15 @@
 """``sim_timing.step`` computes, fires and beats as the real coordinator did, on every release.
 
 Each recording in ``tests/fixtures/timing_parity/<release>/`` (``tests/timing_parity.py``) is
-replayed through the model. The replay feeds it what a simulator's own compute would report and
-what the script did: each script step's asks and wakeups, and for each compute whether it sent,
-what its heads asked for while it was applied, and the wakeups it armed. Everything else comes
-from the model: when each compute runs and why, each wakeup's run and what it asks for, the
-heartbeat, the cooldown, and the start. The computes, wakeup runs and heartbeats it produces must
-equal the recording's, entry for entry.
+replayed through the model, driven as a simulator drives it. The replay feeds it what a
+simulator's own code would: each script step's asks and wakeups; what a wakeup's own handler did
+when the model runs that wakeup (a heal's asks and cancels, which ``planner.hold_end`` and
+``heal_due`` give); and for each compute whether it sent, what its heads asked for while it was
+applied, and the wakeups it armed. Everything else comes from the model: when each compute runs
+and why, each wakeup's run and what ``timing.WAKEUPS`` has it ask, the heartbeat, the cooldown,
+and the start. A compute runs where a simulator runs it, after the step that asked for it, so it
+is recorded there. The computes, wakeup runs and heartbeats the model produces must equal the
+recording's, entry for entry.
 
 Where a release differs from the model, the difference is named in ``DIFFERENCES``, with what it
 changes; each must change the comparison, so one that stops applying fails too.
@@ -18,7 +21,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +48,7 @@ FIXTURES = Path(__file__).with_name("fixtures") / "timing_parity"
 RELEASES = ("2024.12.5", "2026.2.3", "2026.9.4", "2026.10.4", "2026.11.2")
 SCENARIOS = (
     "burst", "coil_dry_dwell", "coast", "cooldown_after_report", "window_now", "fresh",
-    "lost_settle", "restart",
+    "lost_settle", "restart", "cooldown_and_hold_off", "dwell_and_hold",
 )
 # A refresh the coordinator asked for, by its kind in the recording.
 ASKS = {"request": Refresh.REQUEST, "report": Refresh.REPORT, "now": Refresh.NOW, "direct": Refresh.NOW}
@@ -103,35 +106,62 @@ def _computes(timeline: list[Entry]) -> dict[int, _Compute]:
     return computes
 
 
+def _handled(timeline: list[Entry]) -> dict[tuple[float, str, Any], list[list[Entry]]]:
+    """What each wakeup's own handler did when it ran, by its time, name and key, in order: every
+    entry from that run but the ask ``timing.WAKEUPS`` makes, which is the model's own."""
+    handled: dict[tuple[float, str, Any], list[list[Entry]]] = {}
+    effects: list[Entry] | None = None
+    name = ""
+    for entry in timeline:
+        if "fire" in entry:
+            name, key = entry["fire"]
+            effects = []
+            handled.setdefault((entry["t"], name, key), []).append(effects)
+        elif "do" in entry or "heartbeat" in entry or "end" in entry:
+            effects = None
+        elif (
+            effects is not None
+            and entry.get("from") == f"fire {name}"
+            and ("ask" not in entry or WAKEUPS.get(name) is None)
+        ):
+            effects.append(entry)
+    return handled
+
+
 class _Replay:
-    """The model driven by one recording's inputs; ``out`` is what it produced."""
+    """The model driven by one recording's inputs, as a simulator drives it; ``out`` is what it
+    produced."""
 
     def __init__(self, timeline: list[Entry]) -> None:
         self.computes = _computes(timeline)
+        self.handled = _handled(timeline)
         self.timers: Timers | None = None
         self.out: list[Entry] = []
         self.count = 0
 
-    def record(self, now: float, ran: tuple[Fire | Beat | Why, ...]) -> None:
-        for what in ran:
+    def run(self, now: float, result: tuple[Timers, Any]) -> None:
+        """Keep the timers, do what the step ran, then run the compute it asked for."""
+        self.timers, did = result
+        for what in did.ran:
             if isinstance(what, Fire):
                 self.out.append({"t": now, "fire": [what.name, what.key]})
+                runs = self.handled.get((now, what.name, what.key))
+                for entry in runs.pop(0) if runs else []:
+                    self.send(now, Ask(ASKS[entry["ask"]]) if "ask" in entry else _arm(entry))
             elif isinstance(what, Beat):
                 self.out.append({"t": now, "heartbeat": True})
-            else:
-                self.count += 1
-                self.out.append({"t": now, "compute": self.count, "why": str(what)})
+        if did.compute is not None:
+            self.compute(now, did.compute)
 
-    def run(self, now: float, result: tuple[Timers, Any]) -> None:
-        """Keep the timers, and run each compute the model asks for with what it reported."""
-        self.timers, did = result
-        self.record(now, did.ran)
-        while did.compute is not None:
-            report = self.computes.get(self.count, _Compute())
-            self.timers, did = step(
-                self.timers, Computed(report.sent, report.asked, report.armed), now,
-            )
-            self.record(now, did.ran)
+    def compute(self, now: float, why: Why) -> None:
+        """The compute runs; each timer still due at ``now`` runs inside it; then it ends with
+        what it reported."""
+        self.count += 1
+        self.out.append({"t": now, "compute": self.count, "why": str(why)})
+        report = self.computes.get(self.count, _Compute())
+        self.until(now)
+        assert self.timers is not None
+        self.run(now, step(self.timers, Computed(report.sent, report.asked, report.armed), now))
 
     def until(self, now: float) -> None:
         """Every timer due by ``now`` runs, each at its own due time."""
@@ -195,9 +225,11 @@ def _swap_dry_at_321(expected: list[Entry], name: str) -> list[Entry]:
 
 
 def _dwell_before_hold_end(expected: list[Entry], name: str) -> list[Entry]:
-    if name != "coil_dry_dwell":
-        return expected
-    return [entry for entry in expected if entry != {"t": 1001.0, "fire": ["hold_end", None]}]
+    dwells = {entry["t"] for entry in expected if entry.get("fire") == ["dwell", None]}
+    return [
+        entry for entry in expected
+        if not (entry.get("fire") == ["hold_end", None] and entry["t"] in dwells)
+    ]
 
 
 # Each difference between the recordings and the model (pr-body.md lists them).
@@ -222,10 +254,12 @@ DIFFERENCES: dict[str, Difference] = {
         RELEASES,
         "At the end of a mode-change hold the dwell and hold-end wakeups are both due one second "
         "after it (each is the hold left plus one). Home Assistant ran the dwell one first in the "
-        "recordings (why its event loop orders these two so was not established); its compute "
-        "starts a new hold, which cancels the hold-end wakeup before it runs. The model runs "
-        "them in the order they were armed, so it runs the hold-end wakeup, which asks for "
-        "nothing, first. The computes are the same.",
+        "recordings (coil_dry_dwell at 1001 s, dwell_and_hold at 721 s; why its event loop "
+        "orders these two so was not established); its compute starts a new hold, which cancels "
+        "the hold-end wakeup before it runs. The model runs them in the order they were armed, "
+        "so it runs the hold-end wakeup, which asks for nothing, first; here the model's "
+        "hold-end run at an instant it also runs the dwell wakeup is left out. The computes are "
+        "the same.",
         _dwell_before_hold_end,
     ),
 }
@@ -289,8 +323,11 @@ def test_each_named_difference_still_applies() -> None:
 
 
 def test_each_wakeup_asks_what_the_coordinator_asked() -> None:
-    """The refresh the model asks for at each wakeup's run is the one the coordinator asked."""
+    """The refresh the model asks for at each wakeup's run is the one the coordinator asked. A
+    wakeup that asks nothing by itself (``WAKEUPS`` None) asks only through its handler, whose
+    asks the replay feeds: only the heal wakeup does."""
     seen = set()
+    handlers = set()
     for release in RELEASES:
         for name in SCENARIOS:
             timeline = _recording(release, name)
@@ -298,24 +335,41 @@ def test_each_wakeup_asks_what_the_coordinator_asked() -> None:
                 source = entry.get("from", "")
                 if "ask" in entry and source.startswith("fire "):
                     wakeup = source.removeprefix("fire ")
-                    assert WAKEUPS[wakeup] is ASKS[entry["ask"]], (release, name, entry)
-                    seen.add(wakeup)
+                    if WAKEUPS[wakeup] is None:
+                        handlers.add(wakeup)
+                    else:
+                        assert WAKEUPS[wakeup] is ASKS[entry["ask"]], (release, name, entry)
+                        seen.add(wakeup)
     assert seen >= {"startup", "dry", "coast", "dwell", "fresh", "lost", "settle", "opening"}
+    assert handlers == {"heal"}
 
 
-@pytest.mark.parametrize("change", ["cooldown", "followup", "heartbeat", "now_cancels"])
+@pytest.mark.parametrize(
+    "change", ["cooldown", "followup", "heartbeat", "now_cancels", "all_due_at_once"]
+)
 def test_the_replay_catches_a_broken_model(monkeypatch: pytest.MonkeyPatch, change: str) -> None:
-    """A model with a longer cooldown, no delivery follow-up, a heartbeat every 10 minutes, or a
-    refresh at once that leaves the cooldown running differs from the recordings."""
+    """A model with a longer cooldown, no delivery follow-up, a heartbeat every 10 minutes, a
+    refresh at once that leaves the cooldown running, or a tick that runs every timer due at
+    once (so a compute one starts runs after the others) differs from the recordings."""
     begin = sim_timing._Run.begin
-    name = {"cooldown": "burst", "followup": "coil_dry_dwell", "heartbeat": "lost_settle"}.get(
-        change, "window_now"
-    )
+    tick = sim_timing._Run.tick
+    name = {
+        "cooldown": "burst", "followup": "coil_dry_dwell", "heartbeat": "lost_settle",
+        "all_due_at_once": "cooldown_and_hold_off",
+    }.get(change, "window_now")
     assert _expected("2026.11.2", name) == _recorded("2026.11.2", name)
     if change == "cooldown":
         monkeypatch.setattr(sim_timing, "REQUEST_COOLDOWN", 11)
     elif change == "heartbeat":
         monkeypatch.setattr(sim_timing, "HEARTBEAT", 600)
+    elif change == "all_due_at_once":
+
+        def all_due_at_once(run: Any) -> None:
+            tick(run)
+            while due(replace(run.timers, waits=run.waits)) <= run.now:
+                tick(run)
+
+        monkeypatch.setattr(sim_timing._Run, "tick", all_due_at_once)
     elif change == "followup":
 
         def no_followup(run: Any, why: Why) -> None:

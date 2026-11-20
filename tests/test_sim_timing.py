@@ -130,9 +130,92 @@ def test_wakeups_due_together_run_before_the_compute_the_first_started_ends() ->
     for head in ("a", "b"):
         timers, _ = step(timers, Arm("dry", head, 100.0), 50.0)
     timers, did = step(timers, Tick(), 150.0)
-    assert did.ran == (Fire("dry", "a"), Why.ASK, Fire("dry", "b"))
+    assert did.ran == (Fire("dry", "a"), Why.ASK)
+    assert due(timers) == 150.0
+    timers, did = step(timers, Tick(), 150.0)  # inside the compute dry a started
+    assert (did.ran, did.compute) == ((Fire("dry", "b"),), None)
     timers, did = step(timers, Computed(sent=True), 150.0)
     assert did.compute is Why.FOLLOWUP
+
+
+def test_each_tick_runs_one_timer_in_the_order_they_were_set() -> None:
+    timers = started()
+    timers, _ = step(timers, Arm("hold_end", None, 50.0), 50.0)
+    timers, _ = step(timers, Arm("heal", ("a", "adopt"), 95.0), 5.0)
+    timers, did = step(timers, Tick(), 100.0)
+    assert (did.ran, did.compute) == ((Fire("hold_end", None),), None)
+    assert due(timers) == 100.0
+    timers, did = step(timers, Tick(), 100.0)
+    assert (did.ran, did.compute) == ((Fire("heal", ("a", "adopt")),), None)
+    timers, did = step(timers, Tick(), 100.0)
+    assert did.ran == ()
+    assert due(timers) == 900.0
+
+
+def test_heartbeat_cooldown_end_and_a_wakeup_at_one_instant_run_one_per_tick() -> None:
+    """At 900 s: the heartbeat (set first), the cooldown's end with a request it kept, then a
+    wakeup set after it. The cooldown's compute starts before the wakeup runs, and the wakeup's
+    request lands in it."""
+    timers = started()
+    timers, _ = computes(timers, Ask(REQUEST), 890.0)
+    timers, _ = step(timers, Ask(REQUEST), 895.0)
+    timers, _ = step(timers, Arm("coast", None, 5.0), 895.0)
+    assert due(timers) == 900.0
+    timers, did = step(timers, Tick(), 900.0)
+    assert (did.ran, did.compute, did.kept) == ((Beat(),), None, True)
+    timers, did = step(timers, Tick(), 900.0)
+    assert (did.ran, did.compute) == ((Why.COOLDOWN,), Why.COOLDOWN)
+    assert ("coast", None) in timers.waits  # still to run when the compute starts
+    timers, did = step(timers, Tick(), 900.0)
+    assert (did.ran, did.compute) == ((Fire("coast", None),), None)
+    assert due(timers) == 1800.0
+    timers, did = step(timers, Computed(sent=True), 900.0)
+    assert did.compute is Why.FOLLOWUP
+
+
+def test_a_compute_that_ends_before_the_next_timer_at_its_instant_leaves_it_to_the_cooldown() -> None:
+    """``Computed`` between two timers due at one instant: the second one's request comes after
+    the compute, so it waits for the cooldown that compute started."""
+    timers = started()
+    for head in ("a", "b"):
+        timers, _ = step(timers, Arm("dry", head, 100.0), 50.0)
+    timers, did = step(timers, Tick(), 150.0)
+    assert did.compute is Why.ASK
+    timers, did = step(timers, Computed(sent=False), 150.0)
+    assert did.compute is None
+    timers, did = step(timers, Tick(), 150.0)
+    assert (did.ran, did.compute, did.kept) == ((Fire("dry", "b"),), None, True)
+    assert due(timers) == 160.0
+    timers, did = step(timers, Tick(), 160.0)
+    assert did.compute is Why.COOLDOWN
+
+
+def test_a_tick_inside_a_compute_runs_only_a_timer_due() -> None:
+    timers = started()
+    timers, _ = step(timers, Arm("settle", None, 10.0), 50.0)
+    timers, did = step(timers, Ask(REQUEST), 60.0)
+    timers, did = step(timers, Tick(), 60.0)
+    assert (did.ran, did.compute) == ((Fire("settle", None),), None)
+    with pytest.raises(ValueError, match="send Computed"):
+        step(timers, Tick(), 60.0)
+    timers, did = step(timers, Computed(sent=False), 60.0)
+    assert did.compute is Why.NOW  # the settle wakeup's refresh at once, asked inside it
+
+
+def test_a_restart_keeps_none_of_the_old_timers() -> None:
+    timers = started()
+    timers, _ = step(timers, Arm("coast", None, 100.0), 10.0)
+    timers, did = start(50.0)
+    assert did.compute is Why.NOW
+    timers, _ = step(timers, Computed(sent=False), 50.0)
+    assert due(timers) == 90.0
+    timers, did = step(timers, Tick(), 90.0)
+    assert (did.ran, did.compute) == ((Fire("startup", None), Why.ASK), Why.ASK)
+    timers, _ = step(timers, Computed(sent=False), 90.0)
+    assert due(timers) == 100.0
+    timers, did = step(timers, Tick(), 100.0)
+    assert did.ran == ()  # the cooldown's end; the old coast wakeup at 110 is gone
+    assert due(timers) == 950.0
 
 
 def test_each_wakeup_asks_what_timing_says() -> None:
