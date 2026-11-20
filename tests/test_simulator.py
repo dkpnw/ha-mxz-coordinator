@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
 from homeassistant.exceptions import ServiceValidationError
 
 from tests.simlab_parity import WALL, Lab, climate_id, run_page, store
@@ -398,14 +399,36 @@ async def _both(
     return real, run_page(tree, script)
 
 
+# Where the real coordinator on Home Assistant before 2025.11 differs from the page, whose timing
+# follows 2025.11 and later: by script, the snapshot fields left out of the comparison there.
+BEFORE_2025_11: dict[str, tuple[str, ...]] = {
+    # Those releases start the delivery queue's follow-up compute from a zero-delay wait
+    # (``DeliveryQueue.legacy``), so both hold ends' closing asks land before it starts and one
+    # follow-up takes them all. Later releases start it at once, and the closing asks bring a
+    # second one. The calls, waits, plan and what each head and room show are the same.
+    "two_holds_off": ("computes",),
+}
+
+
+def _left_out(name: str) -> tuple[str, ...]:
+    return BEFORE_2025_11.get(name, ()) if (MAJOR_VERSION, MINOR_VERSION) < (2025, 11) else ()
+
+
+def _compared(snapshot: dict[str, Any], left_out: tuple[str, ...] = ()) -> dict[str, Any]:
+    return {key: value for key, value in modeled(snapshot).items() if key not in left_out}
+
+
 @pytest.mark.parametrize("name", sorted(SCRIPTS))
 async def test_page_row_is_the_coordinator(
     name: str, tree: Path, hass: Any, freezer: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     real, page = await _both(SCRIPTS[name], tree, hass, freezer, monkeypatch, tmp_path)
+    left_out = _left_out(name)
     assert len(page) == len(real)
     for want, got in zip(real, page, strict=True):
-        assert modeled(got) == modeled(want), want["do"]
+        assert _compared(got, left_out) == _compared(want, left_out), want["do"]
+    if left_out:  # the difference named for this release is still there
+        assert any(modeled(got) != modeled(want) for want, got in zip(real, page, strict=True))
 
 
 def _calls(snapshots: list[dict[str, Any]], head: str, *, after: str | None = None) -> list[Any]:
@@ -661,8 +684,10 @@ async def test_script_reaches_its_behavior(
     REACHES[name](await Lab(hass, freezer, monkeypatch, tmp_path).run(SCRIPTS[name]))
 
 
-def _differs(real: list[dict[str, Any]], page: list[dict[str, Any]]) -> bool:
-    return len(real) != len(page) or any(modeled(a) != modeled(b) for a, b in zip(real, page, strict=False))
+def _differs(real: list[dict[str, Any]], page: list[dict[str, Any]], left_out: tuple[str, ...] = ()) -> bool:
+    return len(real) != len(page) or any(
+        _compared(a, left_out) != _compared(b, left_out) for a, b in zip(real, page, strict=False)
+    )
 
 
 # One line of the page's row broken at a time, each where a script above must notice.
@@ -771,7 +796,7 @@ async def test_a_broken_page_row_is_caught(
         page = run_page(broken, SCRIPTS[name])
     except AssertionError:
         return  # the broken row failed outright, which is caught too
-    assert _differs(real, page), what
+    assert _differs(real, page, _left_out(name)), what
 
 
 # A person raises the cool setpoint at Studio's and Den's remotes at one instant. On the real
