@@ -16,17 +16,22 @@ The model, for a refresh asked for (``timing.Refresh``):
 - While a compute runs: a ``REPORT`` is kept for the end of a cooldown that starts then. A
   ``REQUEST`` made while that plan's deliveries run is followed up by a compute at once after
   it, and so is a ``NOW``; either ends the cooldown and what it kept. A ``REQUEST`` made during
-  a plan that sent nothing is asked once it ends. Timers due at the same instant all run before
-  the compute the first of them started has ended.
+  a plan that sent nothing is asked once it ends.
+- Timers due at the same instant run one at a time, in the order they were set. A compute one
+  of them starts runs before the next one: Home Assistant starts it at once, and the next timer
+  runs while it waits on its deliveries, so that timer runs inside it and what it asks lands
+  in it.
 - The heartbeat runs every ``timing.HEARTBEAT`` seconds from MXZ's start and asks ``REQUEST``.
   Each wakeup runs at its due time and asks what ``timing.WAKEUPS`` says.
 
 ``tests/test_sim_timing_parity.py`` checks this against the real coordinator on every supported
 release (``tests/timing_parity.py``); where a release differs it names the difference.
 
-A simulator calls ``start`` at MXZ's start, then ``step`` with each input (``Ask``, ``Arm``), with
-``Tick`` at ``due(timers)``, and with ``Computed`` after each compute a step asked for. A
-restart is ``start`` again: nothing of the old timers is kept.
+A simulator calls ``start`` at MXZ's start, then ``step`` with each input (``Ask``, ``Arm``) and
+with ``Tick`` while ``due(timers)`` is not after now; each ``Tick`` runs one timer. When a step
+asks for a compute, the simulator runs it, steps ``Tick`` while a timer is still due at that
+instant, then sends ``Computed``. A restart is ``start`` again: nothing of the old timers is
+kept.
 """
 
 from __future__ import annotations
@@ -79,7 +84,8 @@ class Computed:
 
 @dataclass(frozen=True, slots=True)
 class Tick:
-    """Time has come to ``now``: every timer due by then runs."""
+    """Time has come to ``now``: the first timer due by then runs, inside the compute running if
+    there is one."""
 
 
 type Event = Ask | Arm | Computed | Tick
@@ -129,9 +135,9 @@ class Step:
     """What one step did.
 
     ``compute``: run one compute now, then send ``Computed``; None: nothing to run. ``ran``:
-    what ran, in order: each wakeup, the heartbeat, and the start of the compute. ``kept``: a
-    request waits for the end of the cooldown (the debounce outcome of an ask that computed
-    nothing).
+    what ran, in order: the wakeup or the heartbeat a ``Tick`` ran, and the start of the
+    compute. ``kept``: a request waits for the end of the cooldown (the debounce outcome of an
+    ask that computed nothing).
     """
 
     compute: Why | None = None
@@ -250,26 +256,24 @@ class _Run:
                 self.ask(Refresh.REQUEST)
 
     def tick(self) -> None:
-        if self.timers.computing is not None:
-            raise ValueError("a compute is running: send Computed first")
-        timers = self.timers
-        names = {timer: name for name, timer in timers.waits.items()}
-        for timer in sorted(
-            (timer for timer in _timers(timers) if timer.at <= self.now),
-            key=lambda timer: (timer.at, timer.order),
-        ):
-            if timer is timers.heartbeat:
-                self.set(heartbeat=self.due(HEARTBEAT))
-                self.ran.append(Beat())
-                self.ask(Refresh.REQUEST)
-            elif timer is timers.cooldown:
-                kept = self.timers.kept
-                self.set(cooldown=None, kept=False)
-                if kept:
-                    self.begin(Why.COOLDOWN)
-            else:
-                name, key = names[timer]
-                del self.waits[name, key]
-                self.ran.append(Fire(name, key))
-                if (refresh := WAKEUPS.get(name)) is not None:
-                    self.ask(refresh)
+        timers = replace(self.timers, waits=self.waits)
+        ready = [timer for timer in _timers(timers) if timer.at <= self.now]
+        if not ready:
+            if timers.computing is not None:
+                raise ValueError("a compute is running: send Computed first")
+            return
+        timer = min(ready, key=lambda timer: (timer.at, timer.order))
+        if timer is timers.heartbeat:
+            self.set(heartbeat=self.due(HEARTBEAT))
+            self.ran.append(Beat())
+            self.ask(Refresh.REQUEST)
+        elif timer is timers.cooldown:
+            self.set(cooldown=None, kept=False)
+            if timers.kept:
+                self.begin(Why.COOLDOWN)
+        else:
+            name, key = next(wait for wait, due in self.waits.items() if due is timer)
+            del self.waits[name, key]
+            self.ran.append(Fire(name, key))
+            if (refresh := WAKEUPS.get(name)) is not None:
+                self.ask(refresh)

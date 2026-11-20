@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -344,19 +344,32 @@ def test_each_wakeup_asks_what_the_coordinator_asked() -> None:
     assert handlers == {"heal"}
 
 
-@pytest.mark.parametrize("change", ["cooldown", "followup", "heartbeat", "now_cancels"])
+@pytest.mark.parametrize(
+    "change", ["cooldown", "followup", "heartbeat", "now_cancels", "all_due_at_once"]
+)
 def test_the_replay_catches_a_broken_model(monkeypatch: pytest.MonkeyPatch, change: str) -> None:
-    """A model with a longer cooldown, no delivery follow-up, a heartbeat every 10 minutes, or a
-    refresh at once that leaves the cooldown running differs from the recordings."""
+    """A model with a longer cooldown, no delivery follow-up, a heartbeat every 10 minutes, a
+    refresh at once that leaves the cooldown running, or a tick that runs every timer due at
+    once (so a compute one starts runs after the others) differs from the recordings."""
     begin = sim_timing._Run.begin
-    name = {"cooldown": "burst", "followup": "coil_dry_dwell", "heartbeat": "lost_settle"}.get(
-        change, "window_now"
-    )
+    tick = sim_timing._Run.tick
+    name = {
+        "cooldown": "burst", "followup": "coil_dry_dwell", "heartbeat": "lost_settle",
+        "all_due_at_once": "cooldown_and_hold_off",
+    }.get(change, "window_now")
     assert _expected("2026.11.2", name) == _recorded("2026.11.2", name)
     if change == "cooldown":
         monkeypatch.setattr(sim_timing, "REQUEST_COOLDOWN", 11)
     elif change == "heartbeat":
         monkeypatch.setattr(sim_timing, "HEARTBEAT", 600)
+    elif change == "all_due_at_once":
+
+        def all_due_at_once(run: Any) -> None:
+            tick(run)
+            while due(replace(run.timers, waits=run.waits)) <= run.now:
+                tick(run)
+
+        monkeypatch.setattr(sim_timing._Run, "tick", all_due_at_once)
     elif change == "followup":
 
         def no_followup(run: Any, why: Why) -> None:
