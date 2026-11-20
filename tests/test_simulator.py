@@ -220,6 +220,137 @@ SCRIPTS: dict[str, dict[str, Any]] = {
         ],
         temps={"studio": 76.0},
     ),
+    # A person sets Studio's target to 73; Home Assistant restarts. The target comes back from
+    # the store, so the head keeps what MXZ sent it for 73.
+    "restart_target": _script(
+        [
+            ["until", 60.5],
+            ["target", "studio", 73.0],
+            ["until", 120.5],
+            ["restart"],
+            ["until", 300.5],
+        ],
+        temps={"studio": 76.0},
+    ),
+    # Studio cools and MXZ steps its fan down; a person picks medium at its head. Home Assistant
+    # restarts. Medium is a speed MXZ's fan boost could have left the head at this close to the
+    # target, so the head alone would read as MXZ's own; the store's fan record says it is a
+    # person's, and the pick stays held through readings that would step the fan.
+    "restart_fan_record": _script(
+        [
+            ["until", 60.5],
+            ["reading", "studio", 72.8],
+            ["until", 90.5],
+            ["press", "studio", {"fan_mode": "medium"}],
+            ["until", 120.5],
+            ["restart"],
+            ["until", 240.5],
+            ["reading", "studio", 71.6],
+            ["until", 300.5],
+            ["reading", "studio", 70.4],
+            ["until", 700.5],
+        ],
+        temps={"studio": 76.0},
+    ),
+    # A person raises Studio's cool setpoint at its remote 10 seconds after a start, inside the
+    # startup quiet: MXZ takes nothing from the head, and the startup compute writes 70 back.
+    "startup_quiet": _script(
+        [
+            ["until", 10.5],
+            ["press", "studio", {"target_temp_high": 73.0}],
+            ["until", 120.5],
+        ],
+        temps={"studio": 76.0},
+    ),
+    # A person raises Studio's cool setpoint at its remote, and a reading asks for a compute one
+    # second later, inside the 5-second hold: the compute leaves the head alone, and the hold's
+    # end takes 73 as the target.
+    "adopt_hold_reading": _script(
+        [
+            ["until", 60.5],
+            ["press", "studio", {"target_temp_high": 73.0}],
+            ["until", 61.5],
+            ["reading", "studio", 75.0],
+            ["until", 120.5],
+        ],
+        temps={"studio": 76.0},
+    ),
+    # Studio is hot and its head is heating when MXZ starts. MXZ resumes the run the head shows
+    # (the startup seed): that heat run is over, so the head goes off and the room coasts before
+    # the coast wakeup lets it cool.
+    "startup_resume": _script(
+        [["until", 120.5]],
+        temps={"studio": 76.0},
+        heads={"studio": {"hvac_mode": "heat", "target_temp_low": 70.0, "target_temp_high": 72.0}},
+    ),
+    # Den sits at its target in heat; a person turns its head to heat at 71, one degree above
+    # the room. MXZ takes 71 as the target and forgets Den's run (a Latch step), so the next
+    # compute takes the head's heat as the run and keeps heating, though a fresh decision would
+    # wait out the 1-degree drift.
+    "head_run_adopted": _script(
+        [
+            ["until", 60.5],
+            ["press", "den", {"hvac_mode": "heat", "target_temp_low": 71.0}],
+            ["until", 120.5],
+        ],
+        saved=store(targets=AT_70, enables=ALL_ON,
+                    mode={"mode": "heat", "mode_at": WALL - 7200, "mode_by_votes": False,
+                          "last_mode_change": WALL - 7200}),
+    ),
+    # A person raises Studio's cool setpoint at its remote, then turns Studio's enable switch on
+    # (it already is) inside the hold: the write ends the hold with nothing taken, and Studio is
+    # sent 70 again.
+    "enable_in_hold": _script(
+        [
+            ["until", 60.5],
+            ["press", "studio", {"target_temp_high": 73.0}],
+            ["until", 62.5],
+            ["enable", "studio", True],
+            ["until", 120.5],
+        ],
+        temps={"studio": 76.0},
+    ),
+    # A person turns Studio's head off at its remote while it cools. The off arms the off heal
+    # and the adopt hold; when the hold ends, MXZ takes the off as turning the room off and
+    # cancels the off heal then, not when it would run.
+    "head_off_adopted": _script(
+        [
+            ["until", 60.5],
+            ["press", "studio", {"hvac_mode": "off"}],
+            ["until", 70.5],
+            ["until", 200.5],
+        ],
+        temps={"studio": 76.0},
+    ),
+    # Den heats; a person turns its head off 5 seconds after a start, inside the startup quiet,
+    # so MXZ takes nothing from the head. The off heal runs 30 seconds later and asks for the
+    # compute that turns the head back on, before the startup compute.
+    "off_heal": _script(
+        [
+            ["until", 5.5],
+            ["press", "den", {"hvac_mode": "off"}],
+            ["until", 36.0],
+            ["until", 120.5],
+        ],
+        temps={"den": 66.0},
+        heads={"den": {"hvac_mode": "heat", "target_temp_low": 70.0, "target_temp_high": 72.0,
+                       "fan_mode": "high"}},
+        saved=store(targets=AT_70, enables=ALL_ON,
+                    mode={"mode": "heat", "mode_at": WALL - 7200, "mode_by_votes": False,
+                          "last_mode_change": WALL - 7200}),
+    ),
+    # Studio cools; Home Assistant restarts twice. MXZ's memory of what it wrote to each head
+    # comes back from the store at the first start, so the second stop saves it again.
+    "restart_head_writes": _script(
+        [
+            ["until", 60.5],
+            ["restart"],
+            ["until", 120.5],
+            ["restart"],
+            ["until", 180.5],
+        ],
+        temps={"studio": 76.0},
+    ),
 }
 
 
@@ -368,6 +499,101 @@ def _target_write(real: list[dict[str, Any]]) -> None:
     assert real[-1]["rooms"]["studio"]["target"] == 68.0
 
 
+def _restart_target(real: list[dict[str, Any]]) -> None:
+    restart = _step(real, "restart")
+    assert restart["saved"]["rooms"][climate_id("studio")]["target"] == 73.0
+    assert all(snapshot["rooms"]["studio"]["target"] == 73.0 for snapshot in real[real.index(restart):])
+    assert restart["heads"]["studio"][:3] == ["cool", 71.0, 73.0]
+    assert _calls(real, "studio", after="restart") == []
+
+
+def _restart_fan_record(real: list[dict[str, Any]]) -> None:
+    picked = "press studio {'fan_mode': 'medium'}"
+    assert _calls(real, "studio", after="reading studio 72.8")[0] == ["set_fan_mode", {"fan_mode": "middle"}]
+    restart = _step(real, "restart")
+    assert restart["saved"]["fan"][climate_id("studio")]["held"] is True
+    assert all(snapshot["rooms"]["studio"]["fan_held"] for snapshot in real[real.index(_step(real, picked)):])
+    assert [c for c in _calls(real, "studio", after=picked) if c[0] == "set_fan_mode"] == []
+    assert real[-1]["heads"]["studio"][3] == "medium"
+
+
+def _startup_quiet(real: list[dict[str, Any]]) -> None:
+    pressed = _step(real, "press studio {'target_temp_high': 73.0}")
+    assert "startup None" in pressed["waits"] and ADOPT_STUDIO not in pressed["waits"]
+    assert _calls(real, "studio", after="press studio {'target_temp_high': 73.0}") == [
+        ["set_temperature", {"hvac_mode": "cool", "target_temp_low": 68.0, "target_temp_high": 70.0}],
+    ]
+    assert [40.0, "ask"] in real[-1]["computes"]
+    assert real[-1]["rooms"]["studio"]["target"] == 70.0
+
+
+def _adopt_hold_reading(real: list[dict[str, Any]]) -> None:
+    read = _step(real, "reading studio 75.0")
+    assert read["computes"] == [[61.5, "ask"]] and read["calls"] == []
+    assert ADOPT_STUDIO in read["waits"] and read["heads"]["studio"][2] == 73.0
+    assert _calls(real, "studio", after="until 120.5")[0] == [
+        "set_temperature", {"hvac_mode": "cool", "target_temp_low": 71.0, "target_temp_high": 73.0},
+    ]
+    assert real[-1]["rooms"]["studio"]["target"] == 73.0
+
+
+def _startup_resume(real: list[dict[str, Any]]) -> None:
+    start = real[0]
+    assert start["plan"]["rooms"][0]["demand"] == "cool" and start["plan"]["rooms"][0]["engage"] == "satisfied"
+    assert start["calls"] == [["studio", "set_hvac_mode", {"hvac_mode": "off"}]]
+    assert start["waits"]["coast None"] == 11.0
+    assert [11.0, "ask"] in real[-1]["computes"] and real[-1]["plan"]["rooms"][0]["engage"] == "cool"
+    assert ["set_hvac_mode", {"hvac_mode": "cool"}] in _calls(real, "studio", after="until 120.5")
+
+
+def _head_run_adopted(real: list[dict[str, Any]]) -> None:
+    den = real[-1]["plan"]["rooms"][2]
+    assert real[-1]["rooms"]["den"]["target"] == 71.0
+    assert den["demand"] == "neutral" and den["engage"] == "heat"
+    assert _calls(real, "den", after="until 120.5")[0] == [
+        "set_temperature", {"hvac_mode": "heat", "target_temp_low": 71.0, "target_temp_high": 73.0},
+    ]
+
+
+def _enable_in_hold(real: list[dict[str, Any]]) -> None:
+    assert ADOPT_STUDIO in _step(real, "until 62.5")["waits"]
+    written = _step(real, "enable studio True")
+    assert ADOPT_STUDIO not in written["waits"]
+    assert written["calls"] == [["studio", "set_temperature",
+                                 {"hvac_mode": "cool", "target_temp_low": 68.0, "target_temp_high": 70.0}]]
+    assert real[-1]["rooms"]["studio"]["target"] == 70.0
+
+
+OFF_HEAL_STUDIO = f"heal ('{climate_id('studio')}', 'off')"
+OFF_HEAL_DEN = f"heal ('{climate_id('den')}', 'off')"
+
+
+def _head_off_adopted(real: list[dict[str, Any]]) -> None:
+    pressed = _step(real, "press studio {'hvac_mode': 'off'}")
+    assert pressed["waits"][OFF_HEAL_STUDIO] == 30.0 and pressed["waits"][ADOPT_STUDIO] == 5.0
+    adopted = _step(real, "until 70.5")
+    assert adopted["rooms"]["studio"]["enable"] is False and OFF_HEAL_STUDIO not in adopted["waits"]
+    assert _calls(real, "studio", after="press studio {'hvac_mode': 'off'}") == []
+
+
+def _off_heal(real: list[dict[str, Any]]) -> None:
+    pressed = _step(real, "press den {'hvac_mode': 'off'}")
+    assert pressed["waits"][OFF_HEAL_DEN] == 30.0
+    assert not any(wait.startswith("heal") and "adopt" in wait for wait in pressed["waits"])
+    healed = _step(real, "until 36.0")
+    assert healed["computes"] == [[35.5, "ask"]] and "startup None" in healed["waits"]
+    assert healed["calls"][0] == ["den", "set_hvac_mode", {"hvac_mode": "heat"}]
+    assert healed["heads"]["den"][0] == "heat"
+
+
+def _restart_head_writes(real: list[dict[str, Any]]) -> None:
+    first, second = (snapshot for snapshot in real if snapshot["do"] == "restart")
+    remembered = first["saved"]["head_writes"][climate_id("studio")]
+    assert remembered["hvac_mode"] and remembered["target_temp_high"]
+    assert second["saved"]["head_writes"] == first["saved"]["head_writes"]
+    assert _calls(real, "studio", after="restart") == []
+
+
 # What each script shows, read off the real coordinator alone: a script that stopped reaching
 # its behavior would compare equal and prove nothing.
 REACHES = {
@@ -384,6 +610,16 @@ REACHES = {
     "restart_comfort_priority": _restart_comfort_priority,
     "head_mode_change": _head_mode_change,
     "target_write": _target_write,
+    "restart_target": _restart_target,
+    "restart_fan_record": _restart_fan_record,
+    "startup_quiet": _startup_quiet,
+    "adopt_hold_reading": _adopt_hold_reading,
+    "startup_resume": _startup_resume,
+    "head_run_adopted": _head_run_adopted,
+    "enable_in_hold": _enable_in_hold,
+    "head_off_adopted": _head_off_adopted,
+    "off_heal": _off_heal,
+    "restart_head_writes": _restart_head_writes,
 }
 
 
@@ -423,6 +659,60 @@ BREAKS = {
     "the latch the fan step keeps": (
         "fan_hold", "            case fl.KeepLatch(latch):\n                room.latch = latch\n",
         "            case fl.KeepLatch(latch):\n                pass\n",
+    ),
+    "the saved target at a start": (
+        "restart_target", "                room.target = saved_room.target\n", "                pass\n",
+    ),
+    "the fan record at a start": (
+        "restart_fan_record",
+        (
+            "                room.latch = fl.restored(\n"
+            "                    room.latch, fan.held, last=fan.last, prior=fan.prior, older=fan.older,\n"
+            "                    on_pending=fan.on_pending, ceiling=s.ceiling,\n"
+            "                )\n"
+        ),
+        "                pass\n",
+    ),
+    "the startup quiet": (
+        "startup_quiet", "self.starting = tm.startup_quiet(running=False, startup_ran=False)",
+        "self.starting = False",
+    ),
+    "the adopt hold in an apply": (
+        "adopt_hold_reading",
+        (
+            "                settling=lambda room=room: pl.holds_change(\n"
+            "                    self.waiting(\"heal\", (room.climate_id, \"adopt\")),\n"
+            "                    lambda: self._adoption(room, room.pending),\n"
+            "                ),\n"
+        ),
+        "                settling=lambda: False,\n",
+    ),
+    "the startup seed": (
+        "startup_resume", "                self.latch, self.startup = seed.latch, seed.startup\n", "",
+    ),
+    "a Latch step": (
+        "head_run_adopted",
+        (
+            "                if entry is None:\n"
+            "                    self.latch.pop(room.slug, None)\n"
+            "                else:\n"
+            "                    self.latch[room.slug] = entry\n"
+        ),
+        "                pass\n",
+    ),
+    "an enable write's steps": (
+        "enable_in_hold", "pl.enable_written(", "(lambda *_args, **_kwargs: ())(",
+    ),
+    "the off heal's recheck": (
+        "head_off_adopted",
+        "                if cancel is not None:\n                    self._arm(cancel)\n",
+        "                pass\n",
+    ),
+    "the off heal's compute": (
+        "off_heal", "                self._ask(pl.heal_due(", "                (lambda _refresh: None)(pl.heal_due(",
+    ),
+    "head-write memories at a start": (
+        "restart_head_writes", "            room.memories.update(saved_room.head_writes)\n", "",
     ),
 }
 
