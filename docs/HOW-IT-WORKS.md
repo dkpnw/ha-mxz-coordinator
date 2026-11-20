@@ -163,6 +163,9 @@ room an invented 1 °F a minute. No clip measures real equipment, energy, comfor
 noise. How each one is filmed and checked is in
 [the verification instance's README](../verification/instance/README.md#the-demo-scenes).
 
+To set the rooms, the heads and MXZ's settings yourself, use [the simulator](simulator/): a
+page that runs MXZ's own code in your browser beside the same stock rule.
+
 The README's clip also shows coil drying: when Studio reaches its target after cooling,
 MXZ runs its head on fan only to dry the coil, and turns it off 10 minutes later.
 
