@@ -29,6 +29,10 @@ ACTIONS = {
     "off": HVACAction.OFF, "fan": HVACAction.FAN, "standby": HVACAction.IDLE,
     "heating": HVACAction.HEATING, "cooling": HVACAction.COOLING, "idle": HVACAction.IDLE,
 }
+# HA 2026.11 renamed ClimateEntity's temperature members native_* and reports a class that
+# still provides an old name; older cores read only the old names. Read from HA itself: this
+# component runs on its own in the instance.
+NATIVE = hasattr(ClimateEntity, "native_current_temperature")
 
 
 async def async_setup_platform(
@@ -39,7 +43,10 @@ async def async_setup_platform(
 
 
 class InventedHead(InventedEntity, ClimateEntity):
-    _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
+    if NATIVE:
+        _attr_native_temperature_unit = UnitOfTemperature.FAHRENHEIT
+    else:
+        _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
         | ClimateEntityFeature.FAN_MODE
@@ -80,13 +87,18 @@ class InventedHead(InventedEntity, ClimateEntity):
     def _doing(self) -> str:
         return action(self._head, self.bench.devices.rooms[self.key], self.bench.devices.outdoor)
 
-    @property
-    def target_temperature_low(self) -> float | None:
+    def _low(self) -> float | None:
         return self._head.target_temp_low
 
-    @property
-    def target_temperature_high(self) -> float | None:
+    def _high(self) -> float | None:
         return self._head.target_temp_high
+
+    if NATIVE:
+        native_target_temperature_low = property(_low)
+        native_target_temperature_high = property(_high)
+    else:
+        target_temperature_low = property(_low)
+        target_temperature_high = property(_high)
 
     @property
     def fan_mode(self) -> str:

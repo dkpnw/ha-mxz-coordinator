@@ -5,7 +5,8 @@ byte, with its recording for the Home Assistant release this suite runs on,
 ``tests/fixtures/timing_parity/<release>/<scenario>.json``. Those were captured on 725ba24, with
 MXZ's timing still written out in the coordinator's handlers; ``cooldown_and_hold_off`` and
 ``dwell_and_hold`` on 37494ed's integration. ``MXZ_PARITY_CAPTURE=1`` rewrites the recordings
-of this release. A release with no recordings fails: capture them on it first.
+of this release. A release with no recordings fails: capture them on it first. An unrecorded
+Home Assistant dev build skips every test here (``tests/parity_release.py``).
 
 ``tests/test_sim_timing_parity.py`` checks ``sim_timing.step`` against every release's
 recordings.
@@ -15,14 +16,20 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+from pathlib import Path
 from typing import Any
 
 import pytest
 from homeassistant.core import HomeAssistant
 
+from tests import timing_parity
+from tests.parity_release import skip_reason
 from tests.timing_parity import RELEASE, RELEASES, SCENARIOS, Timeline, recorded
 
 CAPTURE = os.environ.get("MXZ_PARITY_CAPTURE") == "1"
+SKIP = skip_reason(RELEASE, RELEASES, capture=CAPTURE)
+pytestmark = pytest.mark.skipif(SKIP is not None, reason=SKIP or "")
 
 
 async def _run(hass: HomeAssistant, freezer: Any, monkeypatch: Any, name: str) -> Timeline:
@@ -36,6 +43,20 @@ def test_this_release_has_recordings() -> None:
         f"no timing recordings for Home Assistant {RELEASE}: capture them on it with "
         "MXZ_PARITY_CAPTURE=1 and add it to RELEASES"
     )
+    missing = [name for name in SCENARIOS if not recorded(RELEASE, name).is_file()]
+    assert missing == [], f"no timing recordings of {missing} for Home Assistant {RELEASE}"
+
+
+def test_negative_a_release_missing_one_recording_fails_the_check(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    (tmp_path / RELEASE).mkdir()
+    for name in SCENARIOS:
+        if name != "fresh":
+            shutil.copy(recorded(RELEASE, name), tmp_path / RELEASE)
+    monkeypatch.setattr(timing_parity, "FIXTURES", tmp_path)
+    with pytest.raises(AssertionError, match=r"no timing recordings of \['fresh'\]"):
+        test_this_release_has_recordings()
 
 
 @pytest.mark.parametrize("name", list(SCENARIOS))
@@ -53,6 +74,15 @@ async def test_the_coordinator_times_what_it_did_on_the_base(
         assert mine == recorded_entry, f"entry {at}"
     assert len(house.timeline) == len(theirs)
     assert rendered == path.read_text()
+
+
+async def test_negative_a_scenario_with_no_recording_fails(
+    hass: HomeAssistant, freezer: Any, monkeypatch: Any, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(timing_parity, "FIXTURES", tmp_path)
+    monkeypatch.setitem(globals(), "CAPTURE", False)
+    with pytest.raises(FileNotFoundError):
+        await test_the_coordinator_times_what_it_did_on_the_base(hass, freezer, monkeypatch, "fresh")
 
 
 def _first(timeline: list[dict[str, Any]], key: str, **match: Any) -> dict[str, Any]:
