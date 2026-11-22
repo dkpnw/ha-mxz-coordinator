@@ -1,15 +1,18 @@
 # Simulator: stock versus MXZ Coordinator
 
-A page where you set the rooms, the heads and MXZ's settings yourself and watch two rows side
-by side: stock, and MXZ Coordinator. It is a simulation with invented heads and rooms. It
+Open the simulator at https://dkpnw.github.io/ha-mxz-coordinator/simulator/.
+
+It is a page where you set the rooms, the heads and MXZ's settings yourself and watch two rows
+side by side: stock, and MXZ Coordinator. It is a simulation with invented heads and rooms. It
 measures nothing about real equipment, energy, comfort or noise.
 
-## Open it
+The page needs an internet connection the first time: it loads
+[Pyodide](https://pyodide.org/) (Python in the browser, about 10 MB) from cdn.jsdelivr.net,
+pinned to release 314.0.8.
 
-GitHub shows this folder's files, not the page. To run it, download or clone the repository
-and open `docs/simulator/index.html` in a browser. The page needs an internet connection the
-first time: it loads [Pyodide](https://pyodide.org/) (Python in the browser, about 10 MB)
-from cdn.jsdelivr.net, pinned to release 314.0.8.
+## Run it from your own copy
+
+Download or clone the repository and open `docs/simulator/index.html` in a browser.
 
 ## What each row is
 
