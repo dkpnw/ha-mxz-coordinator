@@ -154,8 +154,9 @@ The plan, with each room's reasons, is on `sensor.*_plan`; see
 ## More scenarios
 
 These clips are made the same way as the one at the top of the README: invented heads
-and rooms on a throwaway Home Assistant, each row filmed on its own instance and sped up
-25 times (the Comfort priority clip, which is shorter, 10 times). A stock row follows
+and rooms on a throwaway Home Assistant, each row filmed on its own instance. The clips
+below are sped up 25 times, except the Comfort priority clip, which is shorter and plays
+at 10 times. The README clip also plays at 10 times. A stock row follows
 only the manual's standby rule quoted in [The problem in detail](#the-problem-in-detail).
 An MXZ row is the real integration at its default settings, except where the caption
 names a setting. A running head moves its
