@@ -58,7 +58,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .status:empty { display: none; }
 .status.error { border-color: var(--heat); color: var(--heat); }
 
-.row { margin-block: 0.75rem; padding: 0.6rem 0.9rem 0.75rem; background: var(--card); border: 1px solid var(--line); border-radius: 0.6rem; }
+.row { margin-block: 0.5rem; padding: 0.6rem 0.9rem 0.75rem; background: var(--card); border: 1px solid var(--line); border-radius: 0.6rem; }
 .row-head { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; align-items: baseline; }
 .row-head p { margin: 0; }
 .rule { margin-block: 0.2rem 0.5rem; font-size: 0.9rem; }

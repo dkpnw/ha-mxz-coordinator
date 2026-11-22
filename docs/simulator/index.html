@@ -26,7 +26,7 @@
   <main>
     <h1>Stock vs. MXZ Coordinator</h1>
     <p class="lede">The same three rooms from the same start: stock heads on top, MXZ Coordinator
-      below.</p>
+      below. Try a scenario or adjust room targets and remotes to compare them.</p>
 
     <p id="status" class="status" role="status">Loading the simulator (about 10 MB the first time)…</p>
     <noscript><p class="status">This simulator needs JavaScript. The
@@ -82,13 +82,13 @@
         <li>The stock row applies one rule from Mitsubishi's manual for heads that share an outdoor
           unit: "the unit selected last goes into standby mode." A person sets each head.
           It is not stock AUTO. <a href="../HOW-IT-WORKS.md#the-problem-in-detail">What stock AUTO does, with sources</a>.</li>
-        <li>The MXZ row runs the integration's own planner, timing and fan-hold code from
-          <code>custom_components/mxz_coordinator</code>, the same functions the integration
-          calls in Home Assistant. Its timing follows Home Assistant 2025.11 and later.</li>
+        <li>The MXZ row runs the integration's own planner, timing and fan-hold code, the same
+          functions the integration calls in Home Assistant. Its timing follows Home Assistant
+          2025.11 and later.</li>
         <li>Neither row measures real equipment, energy, comfort or noise.</li>
       </ul>
       <details>
-        <summary>What this page leaves out</summary>
+        <summary>Technical details</summary>
         <h3>Features with no control here</h3>
         <ul>
           <li>Door and window pauses, Dry, freeze floors and overheat ceilings, hands-off rooms,
@@ -110,6 +110,12 @@
             Assistant finishes taking the change inside the plan that comes next.
             No MXZ function says so, so this page follows that order by a rule of its own.
             It shows when two heads are changed at the same moment.</li>
+        </ul>
+        <h3>Where the MXZ row's code comes from</h3>
+        <ul>
+          <li>The page carries a copy of each module in
+            <code>custom_components/mxz_coordinator</code> that the MXZ row needs and that imports
+            no Home Assistant.</li>
         </ul>
       </details>
       <p>The README's animations show the same scenes without JavaScript.

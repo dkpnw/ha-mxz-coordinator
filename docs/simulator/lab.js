@@ -184,7 +184,7 @@ function mxzCard(room, view, index) {
     element("summary", { textContent: "Room switches and wall remote" }),
     element("div", { className: "form" }, [
       element("span", { className: "wide" }, [enableLabel, " ", autoLabel]),
-      element("p", { className: "legend", textContent: "Wall remote (a person at the head)" }),
+      element("p", { className: "legend", textContent: "Wall remote (overrides at the head)" }),
       "Mode", mode, "Set to", to.cell, "Fan", fan,
     ]),
   ]);
