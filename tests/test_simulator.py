@@ -1143,6 +1143,10 @@ def test_a_module_that_needs_home_assistant_is_refused(monkeypatch: pytest.Monke
 # -- the page ----------------------------------------------------------------------------------
 PAGE = ROOT / "docs" / "simulator"
 PYODIDE = "https://cdn.jsdelivr.net/pyodide/v314.0.8/full/"
+# Where the page is served (GitHub Pages, from main's docs/) and where its back link goes. A
+# relative link to the README works from a clone and 404s on Pages, which serves only docs/.
+LIVE = "https://dkpnw.github.io/ha-mxz-coordinator/simulator/"
+BACK = "https://github.com/dkpnw/ha-mxz-coordinator#readme"
 # What the page and docs/simulator/README.md say about the row's one ordering rule of its own
 # (``MxzRow._go_on``; ``two_holds_off_then_reading`` fails without it), as words read across
 # line breaks.
@@ -1155,7 +1159,8 @@ def _words(text: str) -> str:
 
 def _page_problems(html: str, css: str) -> list[str]:
     """What the page must say and load: the Simulation band that stays on screen, the stock
-    rule as the README states it, what it leaves out, and the pinned Pyodide."""
+    rule as the README states it, what it leaves out, the pinned Pyodide, and a back link that
+    works on Pages."""
     problems = []
     band = re.search(r'<header class="band"[^>]*>(.*?)</header>', html, re.DOTALL)
     if band is None or "<strong>Simulation</strong> · invented heads and rooms" not in band.group(1):
@@ -1177,6 +1182,8 @@ def _page_problems(html: str, css: str) -> list[str]:
         problems.append("Pyodide is not pinned with its integrity hash")
     if '<script src="bundle.js"></script>' not in html:
         problems.append("the bundle is not loaded")
+    if f'<a href="{BACK}">Back to the README</a>' not in html:
+        problems.append("the back link does not open the README on GitHub")
     return problems
 
 
@@ -1193,7 +1200,8 @@ def test_the_page_check_reports_each_missing_part() -> None:
               .replace("shared-mode select", "select")
               .replace("up to 10 seconds later", "later")
               .replace("No MXZ function says so", "MXZ says so")
-              .replace('integrity="sha384-', 'data-x="sha384-'))
+              .replace('integrity="sha384-', 'data-x="sha384-')
+              .replace(BACK, "../../README.md"))
     assert _page_problems(broken, css.replace("position: sticky", "position: static")) == [
         "no Simulation band",
         "the band does not stay on screen",
@@ -1202,6 +1210,7 @@ def test_the_page_check_reports_each_missing_part() -> None:
         "does not say it leaves out: up to 10 seconds later than in Home Assistant",
         f"does not name the row's own rule: {HOLD_END_RULE}",
         "Pyodide is not pinned with its integrity hash",
+        "the back link does not open the README on GitHub",
     ]
 
 
@@ -1214,8 +1223,34 @@ def test_the_simulator_readme_names_the_rows_own_rule() -> None:
 def test_the_readme_links_the_simulator_beside_the_hook() -> None:
     readme = (ROOT / "README.md").read_text()
     caption = readme.split("</picture>", 1)[1].split("</sub>", 1)[0]
-    assert "[Try it yourself in the simulator](docs/simulator/)" in caption
+    assert f"[Try it yourself in the simulator]({LIVE})" in caption
+    assert "[run it from your own copy](docs/simulator/README.md#run-it-from-your-own-copy)" in caption
     assert "](simulator/)" in (ROOT / "docs" / "HOW-IT-WORKS.md").read_text()
+
+
+def test_the_simulator_readme_leads_with_the_live_page() -> None:
+    first = (PAGE / "README.md").read_text().split("\n\n", 2)[1]
+    assert first == f"Open the simulator at {LIVE}."
+
+
+def _root_problems(html: str) -> list[str]:
+    """What the Pages root (docs/index.html) must do: send a visitor on to the simulator, and
+    link it for a browser that ignores the refresh."""
+    problems = []
+    if '<meta http-equiv="refresh" content="0; url=simulator/">' not in html:
+        problems.append("does not refresh to simulator/")
+    if '<a href="simulator/">' not in html:
+        problems.append("does not link simulator/")
+    return problems
+
+
+def test_the_pages_root_sends_you_to_the_simulator() -> None:
+    html = (ROOT / "docs" / "index.html").read_text()
+    assert _root_problems(html) == []
+    assert _root_problems(html.replace("url=simulator/", "url=../").replace('href="simulator/"', 'href="#"')) == [
+        "does not refresh to simulator/",
+        "does not link simulator/",
+    ]
 
 
 # -- the page's starting points, run for 40 simulated minutes from the bundle --------------------
