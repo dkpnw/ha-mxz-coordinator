@@ -75,7 +75,7 @@ def test_the_registry_check_reports_each_kind_of_bad_row() -> None:
 def test_the_hook_keeps_what_its_published_gif_was_made_with() -> None:
     """The README's top demo: a recapture must film and compose it the same way."""
     hook = SCENES["stock-vs-mxz"]
-    assert (hook.window, hook.speed, hook.start_step) == (450, 25, "start: Studio reads 76, Loft and Den read 70")
+    assert (hook.window, hook.speed, hook.start_step) == (450, 10, "start: Studio reads 76, Loft and Den read 70")
     assert [(row.feature, row.card) for row in hook.rows] == [("demo-stock", "stock"), ("demo-coordinated", "mxz")]
     assert next(iter(SCENES)) == "stock-vs-mxz"
 
@@ -122,6 +122,59 @@ def test_the_entity_check_reports_a_room_the_house_does_not_have() -> None:
     """Negative."""
     card = cards.stock_card() + "\n| **Attic** | {{ states('sensor.attic_temperature') }} |"
     assert unknown_entities(card, _house_entities()) == ["sensor.attic_temperature"]
+
+
+def render(card: str, states: dict[str, tuple[str, dict]]) -> str:
+    """The card as Home Assistant's markdown would get it, over invented states."""
+    import jinja2
+
+    env = jinja2.Environment()
+    env.globals["states"] = lambda entity: states.get(entity, ("unknown", {}))[0]
+    env.globals["state_attr"] = lambda entity, name: states.get(entity, ("unknown", {}))[1].get(name)
+    return env.from_string(card).render()
+
+
+def cells(shown: str) -> list[list[str]]:
+    """Each room row of a rendered card, as its stripped cells."""
+    return [[cell.strip() for cell in line.split("|")[1:-1]] for line in shown.splitlines() if line.startswith("| **")]
+
+
+def _stock_states(standby: bool) -> dict[str, tuple[str, dict]]:
+    heads = {"studio": ("cool", {"target_temp_high": 70, "standby": standby, "hvac_action": "idle"}),
+             "loft": ("heat", {"target_temp_low": 70, "standby": False, "hvac_action": "idle"}),
+             "den": ("heat", {"target_temp_low": 70, "standby": False, "hvac_action": "idle"})}
+    return {"sensor.outdoor_unit": ("heat", {}),
+            **{f"climate.{key}_head": head for key, head in heads.items()},
+            **{f"sensor.{key}_temperature": ("76.0" if key == "studio" else "70.0", {}) for key in heads}}
+
+
+def test_the_stock_card_warns_while_a_head_waits_in_standby() -> None:
+    shown = render(cards.stock_card(), _stock_states(standby=True))
+    assert cells(shown)[0] == ["**Studio**", "76.0 °F", "70 °F", "Cool · waiting in standby"]
+    assert ('<ha-alert alert-type="warning">Studio waits in standby. Its head is set to cool, '
+            "and the outdoor unit is running heat.</ha-alert>") in shown
+    assert shown.count("<ha-alert") == 1
+
+
+def test_the_stock_card_has_no_warning_when_no_head_waits() -> None:
+    """Negative: the same heads with Studio's standby off."""
+    shown = render(cards.stock_card(), _stock_states(standby=False))
+    assert "<ha-alert" not in shown
+    assert cells(shown)[0] == ["**Studio**", "76.0 °F", "70 °F", "Cool · idle"]
+
+
+@pytest.mark.parametrize(("idle_action", "studio"), [
+    ("off_after_dry", "Fan only · drying the coil"),
+    ("fan_only", "Fan only"),  # negative: MXZ circulates; nothing says the coil is drying
+])
+def test_the_mxz_card_says_drying_only_under_the_idle_action_that_dries(idle_action: str, studio: str) -> None:
+    ids = _mxz_ids()
+    states = {"climate.studio_head": ("fan_only", {"fan_mode": "auto"}),
+              "climate.loft_head": ("off", {}), "climate.den_head": ("off", {}),
+              ids["plan"]: ("cool", {"idle_action": idle_action}), ids["shared_mode"]: ("cool", {}),
+              **{ids[f"{slug}_target"]: ("70", {}) for slug in SLUGS},
+              **{f"sensor.{key}_temperature": ("70.0", {}) for key in ("studio", "loft", "den")}}
+    assert [row[3] for row in cells(render(cards.CARDS["mxz"](ids), states))] == [studio, "Off", "Off"]
 
 
 def test_a_card_built_without_an_entity_it_needs_fails() -> None:
@@ -204,6 +257,27 @@ def test_compose_runs_past_the_last_shot_on_the_last_one(tmp_path: Path) -> None
     assert len(shown) == 13
     assert [_near(image.getpixel((compose.MARGIN + 5, compose.BAND + 5)), COLOURS[-1]) for image, _ in shown[8:]] \
         == [True] * 5
+
+
+def test_compose_keeps_a_row_at_its_tallest_shot(tmp_path: Path) -> None:
+    """A card that grows partway (a warning appears): every frame has one size, and the
+    shorter shots sit on the background with the row below in the same place."""
+    scene = Scene("grows", (Row("demo-stock", "journeys.demo_stock", "stock"),
+                            Row("demo-coordinated", "journeys.demo_coordinated", "mxz")), 10, "start")
+    start = 4_000_000.0
+    short = _frames(tmp_path, "demo-stock", start, (40, 20))
+    for theme in compose.THEMES:  # from 5 s on, the stock card is 30 high
+        for shot in sorted((short / theme).glob("*.png"))[1:]:
+            Image.new("RGB", (40, 30), COLOURS[2]).save(shot)
+    rows = [(_run(tmp_path, "demo-stock", "start", start), short),
+            (_run(tmp_path, "demo-coordinated", "start", start), _frames(tmp_path, "demo-coordinated", start, (40, 10)))]
+    shown = _gif_frames(compose.compose(scene, tmp_path / "out", rows)[0])
+    size = (40 + 2 * compose.MARGIN, compose.BAND + (30 + compose.MARGIN) + (10 + compose.MARGIN))
+    assert [image.size for image, _ in shown] == [size] * 3
+    first = shown[0][0]
+    assert _near(first.getpixel((compose.MARGIN + 5, compose.BAND + 25)), (250, 250, 250))  # padding, light theme
+    below = compose.BAND + 30 + compose.MARGIN + 5
+    assert all(_near(image.getpixel((compose.MARGIN + 5, below)), COLOURS[i]) for i, (image, _) in enumerate(shown))
 
 
 def test_compose_refuses_a_run_of_another_feature(tmp_path: Path) -> None:

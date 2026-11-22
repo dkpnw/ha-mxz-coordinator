@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-HEAD = """{%- macro head(e, fan) -%}
+HEAD = """{%- macro head(e, fan, drying=false) -%}
 {%- set mode = states(e) -%}{%- set doing = state_attr(e, 'hvac_action') -%}
 {%- if mode == 'off' -%}Off
-{%- elif mode == 'fan_only' -%}Fan only
-{%- elif state_attr(e, 'standby') -%}{{ mode | capitalize }} · waiting
+{%- elif mode == 'fan_only' -%}Fan only{{ ' · drying the coil' if drying }}
+{%- elif state_attr(e, 'standby') -%}{{ mode | capitalize }} · waiting in standby
 {%- elif doing in ['heating', 'cooling'] -%}{{ doing | capitalize }}{{ ' · fan ' ~ state_attr(e, 'fan_mode') if fan }}
 {%- else -%}{{ mode | capitalize }} · idle{%- endif -%}
 {%- endmacro -%}
@@ -38,19 +38,36 @@ def stock_card(ids: dict[str, str] | None = None) -> str:
                     f"else state_attr('{head}', 'target_temp_high')) | int(0) if m in ['heat', 'cool'] else '–' }}}}"
                     f"{{{{ ' °F' if m in ['heat', 'cool'] }}}}")
         lines.append(f"| **{name}** | {{{{ reads('{key}') }}}} | {setpoint} | {{{{ head('{head}', false) }}}} |")
+    lines.append("")
+    lines.extend(standby_alert(key, name) for key, name in ROOMS)
     return "\n".join(lines)
 
 
+def standby_alert(key: str, name: str) -> str:
+    """A warning box under the stock table while the room's head waits in standby.
+
+    The equipment's own `standby` attribute decides it; the box only says it in words.
+    """
+    head = f"climate.{key}_head"
+    return (f"{{% if state_attr('{head}', 'standby') %}}<ha-alert alert-type=\"warning\">{name} waits in standby. "
+            f"Its head is set to {{{{ states('{head}') }}}}, and the outdoor unit is running "
+            f"{{{{ states('sensor.outdoor_unit') }}}}.</ha-alert>{{% endif %}}")
+
+
 def mxz_card(ids: dict[str, str], header: tuple[str, ...] = (), column: Column | None = None) -> str:
-    """The MXZ row: each room's one target, the shared mode, and a running head's fan."""
+    """The MXZ row: each room's one target, the shared mode, and a running head's fan.
+
+    A head on fan only is drying its coil when MXZ's plan publishes the idle action that does
+    that (`off_after_dry`, the default)."""
     title = f"### MXZ Coordinator · shared mode: {{{{ states('{ids['shared_mode']}') }}}}"
-    lines = [HEAD, " · ".join((title, *header)), "",
+    drying = f"{{%- set drying = state_attr('{ids['plan']}', 'idle_action') == 'off_after_dry' -%}}"
+    lines = [HEAD + drying, " · ".join((title, *header)), "",
              "| Room | Reads | Target | Head |" + (f" {column[0]} |" if column else ""),
              "|:--|--:|--:|:--|" + (":--|" if column else "")]
     for (key, name), slug in zip(ROOMS, SLUGS, strict=True):
         target = f"{{{{ states('{ids[slug + '_target']}') | int(0) }}}} °F"
         cell = f" {column[1](ids, key, slug, name)} |" if column else ""
-        lines.append(f"| **{name}** | {{{{ reads('{key}') }}}} | {target} | {{{{ head('climate.{key}_head', true) }}}} |{cell}")
+        lines.append(f"| **{name}** | {{{{ reads('{key}') }}}} | {target} | {{{{ head('climate.{key}_head', true, drying) }}}} |{cell}")
     return "\n".join(lines)
 
 
