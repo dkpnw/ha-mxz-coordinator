@@ -578,6 +578,10 @@ heat. Coordinated, MXZ turns the system to cool for Studio alone. Window 450 sec
   are never sent heat or cool and stay off; check 1 of section 4 holds.
 - **Run on readme1110 (HA 2026.9.4).** Mode to cool 10 s after the start; fan to middle at
   170 s, medium 226 s, low 286 s, quiet 341 s; Studio at 70 and fan only at 371 s.
+- **Run on simux1122 (HA 2026.9.4, the film composed at 10 times).** Mode to cool 10 s after
+  the start; fan to middle at 170 s, medium 230 s, low 290 s, quiet 351 s; Studio at 70 and fan
+  only at 381 s; at 450 s Studio 70.1, Loft and Den 70.4. The stock arm passed with Studio in
+  standby for the whole window.
 
 **The turn-taking story this section used to describe is not the demo.** With Studio at
 76 and Loft at 64 it expected Studio to reach 70 before the plan turned to heat. By

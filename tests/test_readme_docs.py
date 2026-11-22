@@ -34,6 +34,7 @@ import yaml
 from PIL import Image, ImageStat
 
 sys.path.append(str(Path(__file__).parents[1] / "verification" / "instance"))
+from compose import EVERY
 from scenes import SCENES
 
 ROOM_STEP = json.loads(
@@ -691,6 +692,45 @@ def test_scene_check_reports_a_scene_the_docs_do_not_show() -> None:
     """Negative: only the hook's end still is shown, so neither scene's GIF is."""
     text = Path("docs/HOW-IT-WORKS.md").read_text().split("## More scenarios")[0]
     assert _unshown_scenes(text, ["stock-vs-mxz", "fan-hold"]) == ["stock-vs-mxz", "fan-hold"]
+
+
+def _hook_speed_problems(readme: str, gif: Path, speed: int) -> list[str]:
+    """The hook's GIF plays at ``speed``, and its alt text and caption say that speed."""
+    problems = []
+    with Image.open(gif) as image:
+        durations = []
+        for index in range(image.n_frames):
+            image.seek(index)
+            durations.append(image.info["duration"])
+    if set(durations[:-1]) != {round(1000 * EVERY / speed)}:
+        problems.append(f"the GIF does not play at {speed}×: {sorted(set(durations[:-1]))} ms a frame")
+    alt = next((alt for _, light, alt in _demo_pictures(readme) if light == gif.name), "")
+    if f"sped up {speed} times" not in alt:
+        problems.append(f"the alt text does not say sped up {speed} times")
+    if f"<sub>Simulation, sped up {speed}×." not in readme:
+        problems.append(f"the caption does not say sped up {speed}×")
+    return problems
+
+
+def test_the_hook_says_the_speed_its_gif_plays_at() -> None:
+    speed = SCENES["stock-vs-mxz"].speed
+    assert _hook_speed_problems(Path("README.md").read_text(), Path("images/demo-stock-vs-mxz-light.gif"), speed) == []
+
+
+def test_hook_speed_check_reports_a_gif_and_words_at_another_speed(tmp_path: Path) -> None:
+    """Negative: a GIF made at 25 times, with words that say 25, checked against 10."""
+    gif = tmp_path / "demo-stock-vs-mxz-light.gif"
+    frames = [Image.new("RGB", (8, 8), (shade, shade, shade)) for shade in (200, 210, 220)]
+    frames[0].save(gif, save_all=True, append_images=frames[1:], duration=[200, 200, 3000], loop=0)
+    readme = ('<picture>\n  <source media="(prefers-color-scheme: dark)" srcset="x/images/demo-stock-vs-mxz-dark.gif">\n'
+              '  <img src="x/images/demo-stock-vs-mxz-light.gif" alt="Simulation, sped up 25 times.">\n</picture>\n'
+              "<sub>Simulation, sped up 25×.</sub>")
+    assert _hook_speed_problems(readme, gif, 10) == [
+        "the GIF does not play at 10×: [200] ms a frame",
+        "the alt text does not say sped up 10 times",
+        "the caption does not say sped up 10×",
+    ]
+    assert _hook_speed_problems(readme, gif, 25) == []
 
 
 def _first_demo(readme: str) -> str:

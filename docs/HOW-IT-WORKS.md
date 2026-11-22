@@ -22,7 +22,7 @@ unit may be unable to switch between COOL and HEAT and enter standby.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-stock-vs-mxz-end-dark.png">
-  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-stock-vs-mxz-end-light.png" width="440" alt="Last frame of the README's simulation, 7 minutes 30 seconds into the run. Stock: the outdoor unit runs heat, Studio reads 76 °F with its head set to cool at 70 °F and waiting, and Loft and Den read 70.4 °F with their heads idle in heat. MXZ Coordinator: shared mode cool, Studio reads 70.1 °F with its head on fan only, and Loft and Den read 70.4 °F with their heads off.">
+  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-stock-vs-mxz-end-light.png" width="440" alt="Last frame of the README's simulation, 7 minutes 30 seconds into the run. Stock: the outdoor unit runs heat, Studio reads 76 °F with its head set to cool at 70 °F and waiting in standby, a warning under the table says so, and Loft and Den read 70.4 °F with their heads idle in heat. MXZ Coordinator: shared mode cool, Studio reads 70.1 °F with its head on fan only drying the coil, and Loft and Den read 70.4 °F with their heads off.">
 </picture>
 
 The README's simulation applies only that rule to invented heads: the room selected last,

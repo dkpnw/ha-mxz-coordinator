@@ -58,7 +58,9 @@ def mxz_card(ids: dict[str, str], header: tuple[str, ...] = (), column: Column |
     """The MXZ row: each room's one target, the shared mode, and a running head's fan.
 
     A head on fan only is drying its coil when MXZ's plan publishes the idle action that does
-    that (`off_after_dry`, the default)."""
+    that (`off_after_dry`, the default): under it MXZ parks a head on fan only only for the
+    coil-dry run after cooling (`planner.idle_park`), and treats a head it finds on fan only at
+    a start as mid-run (`planner.rebuilt_last_run`)."""
     title = f"### MXZ Coordinator · shared mode: {{{{ states('{ids['shared_mode']}') }}}}"
     drying = f"{{%- set drying = state_attr('{ids['plan']}', 'idle_action') == 'off_after_dry' -%}}"
     lines = [HEAD + drying, " · ".join((title, *header)), "",
