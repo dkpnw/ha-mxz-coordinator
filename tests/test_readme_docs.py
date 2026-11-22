@@ -694,17 +694,29 @@ def test_scene_check_reports_a_scene_the_docs_do_not_show() -> None:
     assert _unshown_scenes(text, ["stock-vs-mxz", "fan-hold"]) == ["stock-vs-mxz", "fan-hold"]
 
 
-def _hook_speed_problems(readme: str, gif: Path, speed: int) -> list[str]:
-    """The hook's GIF plays at ``speed``, and its alt text and caption say that speed."""
-    problems = []
+HOOK = "demo-stock-vs-mxz-light.gif"
+
+
+def _frame_durations(gif: Path) -> list[int]:
     with Image.open(gif) as image:
         durations = []
         for index in range(image.n_frames):
             image.seek(index)
             durations.append(image.info["duration"])
-    if set(durations[:-1]) != {round(1000 * EVERY / speed)}:
-        problems.append(f"the GIF does not play at {speed}×: {sorted(set(durations[:-1]))} ms a frame")
-    alt = next((alt for _, light, alt in _demo_pictures(readme) if light == gif.name), "")
+    return durations
+
+
+def _hook_speed_problems(readme: str, images: Path, speed: int) -> list[str]:
+    """Both theme copies of the hook GIF the README names play at ``speed``, and its alt text
+    and caption say that speed."""
+    problems = []
+    dark, light, alt = next((picture for picture in _demo_pictures(readme) if picture[1] == HOOK), ("", "", ""))
+    if not light:
+        return [f"the README shows no {HOOK} picture"]
+    for name in (light, dark):
+        played = sorted(set(_frame_durations(images / name)[:-1]))
+        if played != [round(1000 * EVERY / speed)]:
+            problems.append(f"{name} does not play at {speed}×: {played} ms a frame")
     if f"sped up {speed} times" not in alt:
         problems.append(f"the alt text does not say sped up {speed} times")
     if f"<sub>Simulation, sped up {speed}×." not in readme:
@@ -714,23 +726,47 @@ def _hook_speed_problems(readme: str, gif: Path, speed: int) -> list[str]:
 
 def test_the_hook_says_the_speed_its_gif_plays_at() -> None:
     speed = SCENES["stock-vs-mxz"].speed
-    assert _hook_speed_problems(Path("README.md").read_text(), Path("images/demo-stock-vs-mxz-light.gif"), speed) == []
+    assert _hook_speed_problems(Path("README.md").read_text(), Path("images"), speed) == []
+
+
+def _hook_readme(speed: int) -> str:
+    return ('<picture>\n  <source media="(prefers-color-scheme: dark)" srcset="x/images/demo-stock-vs-mxz-dark.gif">\n'
+            f'  <img src="x/images/{HOOK}" alt="Simulation, sped up {speed} times.">\n</picture>\n'
+            f"<sub>Simulation, sped up {speed}×.</sub>")
+
+
+def _hook_gif(path: Path, every: int) -> None:
+    frames = [Image.new("RGB", (8, 8), (shade, shade, shade)) for shade in (200, 210, 220)]
+    frames[0].save(path, save_all=True, append_images=frames[1:], duration=[every, every, 3000], loop=0)
 
 
 def test_hook_speed_check_reports_a_gif_and_words_at_another_speed(tmp_path: Path) -> None:
-    """Negative: a GIF made at 25 times, with words that say 25, checked against 10."""
-    gif = tmp_path / "demo-stock-vs-mxz-light.gif"
-    frames = [Image.new("RGB", (8, 8), (shade, shade, shade)) for shade in (200, 210, 220)]
-    frames[0].save(gif, save_all=True, append_images=frames[1:], duration=[200, 200, 3000], loop=0)
-    readme = ('<picture>\n  <source media="(prefers-color-scheme: dark)" srcset="x/images/demo-stock-vs-mxz-dark.gif">\n'
-              '  <img src="x/images/demo-stock-vs-mxz-light.gif" alt="Simulation, sped up 25 times.">\n</picture>\n'
-              "<sub>Simulation, sped up 25×.</sub>")
-    assert _hook_speed_problems(readme, gif, 10) == [
-        "the GIF does not play at 10×: [200] ms a frame",
+    """Negative: both GIFs made at 25 times, with words that say 25, checked against 10."""
+    _hook_gif(tmp_path / HOOK, 200)
+    _hook_gif(tmp_path / "demo-stock-vs-mxz-dark.gif", 200)
+    readme = _hook_readme(25)
+    assert _hook_speed_problems(readme, tmp_path, 10) == [
+        f"{HOOK} does not play at 10×: [200] ms a frame",
+        "demo-stock-vs-mxz-dark.gif does not play at 10×: [200] ms a frame",
         "the alt text does not say sped up 10 times",
         "the caption does not say sped up 10×",
     ]
-    assert _hook_speed_problems(readme, gif, 25) == []
+    assert _hook_speed_problems(readme, tmp_path, 25) == []
+
+
+def test_hook_speed_check_reports_a_dark_gif_at_another_speed(tmp_path: Path) -> None:
+    """Negative: the light GIF and the words say 10, but the dark GIF is still the 25 times one."""
+    _hook_gif(tmp_path / HOOK, 500)
+    _hook_gif(tmp_path / "demo-stock-vs-mxz-dark.gif", 200)
+    assert _hook_speed_problems(_hook_readme(10), tmp_path, 10) == [
+        "demo-stock-vs-mxz-dark.gif does not play at 10×: [200] ms a frame",
+    ]
+
+
+def test_hook_speed_check_reports_a_readme_without_the_hook(tmp_path: Path) -> None:
+    """Negative: a README whose first picture is another scene names no hook GIF to check."""
+    readme = _hook_readme(10).replace("demo-stock-vs-mxz", "demo-fan-hold")
+    assert _hook_speed_problems(readme, tmp_path, 10) == [f"the README shows no {HOOK} picture"]
 
 
 def _first_demo(readme: str) -> str:
