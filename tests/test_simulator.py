@@ -1012,6 +1012,9 @@ async def test_the_target_takes_what_home_assistant_takes(
     assert [[refused is None, target] for refused, target in taken] == [
         [False, 70.0], [True, low], [True, high], [False, high],
     ]
+    assert [refused for refused, _ in taken[::3]] == [
+        f"Target must be {low:g} to {high:g} °F. Home Assistant refused {value:g} °F." for value in (low - 1, high + 1)
+    ]
     assert "view.mxz.target_bounds" in (PAGE / "lab.js").read_text()
 
 
@@ -1184,6 +1187,14 @@ def _page_problems(html: str, css: str) -> list[str]:
         problems.append("the bundle is not loaded")
     if f'<a href="{BACK}">Back to the README</a>' not in html:
         problems.append("the back link does not open the README on GitHub")
+    if not re.search(r'<button type="button" data-speed="10" aria-pressed="true"', html):
+        problems.append("10× is not the speed it starts at")
+    if '<button id="replay" type="button"' not in html:
+        problems.append("no Replay button")
+    rows = html.find('id="mxz-rooms"')
+    temps = html.find('<details class="temps">')
+    if not 0 < rows < temps:
+        problems.append("the room temperatures are not tucked away below the rows")
     return problems
 
 
@@ -1201,7 +1212,10 @@ def test_the_page_check_reports_each_missing_part() -> None:
               .replace("up to 10 seconds later", "later")
               .replace("No MXZ function says so", "MXZ says so")
               .replace('integrity="sha384-', 'data-x="sha384-')
-              .replace(BACK, "../../README.md"))
+              .replace(BACK, "../../README.md")
+              .replace('data-speed="10" aria-pressed="true"', 'data-speed="10"')
+              .replace('<button id="replay"', '<button id="again"')
+              .replace('<details class="temps">', '<section class="temps">'))
     assert _page_problems(broken, css.replace("position: sticky", "position: static")) == [
         "no Simulation band",
         "the band does not stay on screen",
@@ -1211,7 +1225,11 @@ def test_the_page_check_reports_each_missing_part() -> None:
         f"does not name the row's own rule: {HOLD_END_RULE}",
         "Pyodide is not pinned with its integrity hash",
         "the back link does not open the README on GitHub",
+        "10× is not the speed it starts at",
+        "no Replay button",
+        "the room temperatures are not tucked away below the rows",
     ]
+    assert "speed: 10," in (PAGE / "lab.js").read_text()
 
 
 def test_the_simulator_readme_names_the_rows_own_rule() -> None:
@@ -1285,6 +1303,70 @@ def presets(tree: Path) -> dict[str, list[dict[str, Any]]]:
     done = subprocess.run([sys.executable, "-I", "-c", PRESETS, str(tree)], capture_output=True, text=True, check=False)
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout)
+
+
+def _hardcoded_titles(js: str, titles: list[str]) -> list[str]:
+    """Scenario titles the page's script spells out itself instead of reading world.presets()."""
+    return [title for title in titles if title in js]
+
+
+def test_the_page_reads_scenario_titles_from_world(tree: Path) -> None:
+    done = subprocess.run([sys.executable, "-I", "-c", PRESET_LIST, str(tree)],
+                          capture_output=True, text=True, check=True)
+    listed = json.loads(done.stdout)
+    assert [entry["name"] for entry in listed] == ["mixed", "satisfied", "standoff", "mode_wait", "fan_hold", "restart"]
+    assert [entry["name"] for entry in listed if entry["more"]] == ["mode_wait", "fan_hold", "restart"]
+    js = (PAGE / "lab.js").read_text()
+    assert "lab.module.presets()" in js
+    titles = [entry["title"] for entry in listed]
+    assert _hardcoded_titles(js, titles) == []
+    assert _hardcoded_titles(js + '\nconst PRESETS = [["mixed", "One room wants cool"]];', titles) == [
+        "One room wants cool"]  # negative: a second copy of a title
+
+
+PRESET_LIST = """
+import sys
+sys.path.insert(0, sys.argv[1])
+import world
+print(world.presets())
+"""
+
+# The startup-quiet note: when the page shows it, and why.
+QUIET = """
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import world
+shown = lambda w: [json.loads(w.view())["mxz"][k] is not None if k == "quiet_for" else json.loads(w.view())["mxz"][k]
+                   for k in ("quiet_for", "quiet_shown")]
+out = {}
+w = world.World("mixed"); out["start"] = shown(w)
+w.mxz_remote("den", mode="heat"); out["pressed in quiet"] = shown(w)
+w = world.World("mixed"); w.advance(120); w.mxz_remote("den", mode="heat"); out["pressed after quiet"] = shown(w)
+w = world.World("mixed"); w.advance(120); w.restart(); out["restarted"] = shown(w)
+print(json.dumps(out))
+"""
+
+
+def test_the_quiet_note_shows_after_a_restart_or_a_press_during_it(tree: Path) -> None:
+    done = subprocess.run([sys.executable, "-I", "-c", QUIET, str(tree)], capture_output=True, text=True, check=True)
+    assert json.loads(done.stdout) == {
+        "start": [True, False],  # quiet, but nothing has asked about it
+        "pressed in quiet": [True, True],
+        "pressed after quiet": [False, False],  # negative: a press after the quiet asks nothing about it
+        "restarted": [True, True],
+    }
+    assert "mxz.quiet_for === null || !mxz.quiet_shown" in (PAGE / "lab.js").read_text()
+
+
+def test_mixed_preset_names_coil_drying_while_the_head_dries(presets: dict[str, list[dict[str, Any]]]) -> None:
+    """At its default idle action MXZ parks a head on fan only to dry the coil after cooling, then
+    turns it off. drying reads the dry wakeup, so over 40 minutes it is on exactly while a head is on
+    fan only: Studio from 6:30, and Loft and Den once they drift up, are cooled and dry in turn."""
+    rooms = [room for view in presets["mixed"] for room in view["mxz"]["rooms"]]
+    assert [room["drying"] for room in rooms] == [room["mode"] == "fan_only" for room in rooms]
+    assert {room["key"] for room in rooms if room["drying"]} == {"studio", "loft", "den"}
+    assert [_room(view, "mxz", "studio")["drying"] for view in presets["mixed"][11:14]] == [False, True, True]
+    assert not _room(presets["mixed"][-1], "mxz", "studio")["drying"]  # dried and off by 40:00
 
 
 def _room(view: dict[str, Any], side: str, key: str) -> dict[str, Any]:

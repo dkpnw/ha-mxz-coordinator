@@ -12,8 +12,8 @@ measures real equipment.
 
 Each room moves on its own 5-second tick, a second apart from the room before it, so each room's
 sensor reports on its own, as real sensors do (``mxz_row.MxzRow.world_changed`` says why that
-matters). The page calls ``preset``, then ``advance`` as time passes and one method per control,
-and draws ``view()``.
+matters). The page reads ``presets()`` for its scenario buttons, starts a ``World`` from one,
+then calls ``advance`` as time passes and one method per control, and draws ``view()``.
 """
 
 from __future__ import annotations
@@ -34,7 +34,11 @@ PHASE = 1.0  # seconds between one room's tick and the next room's
 @dataclass(frozen=True)
 class Preset:
     """A starting point: each room's temperature, each stock head as a person set it, and
-    what MXZ's store holds at its start (its targets and the last heat/cool change)."""
+    what MXZ's store holds at its start (its targets and the last heat/cool change).
+
+    ``title`` is the scenario's one name; the page's buttons read it. ``more`` puts the
+    scenario after the three that compare the rows. ``remote`` is the room whose wall remote
+    ``try_this`` asks for, so the page opens it."""
 
     title: str
     try_this: str
@@ -44,6 +48,8 @@ class Preset:
     mode: str
     changed_ago: float | None = None  # seconds since MXZ's last heat/cool change; None: none
     targets: dict[str, float] = field(default_factory=lambda: {"studio": 70.0, "loft": 70.0, "den": 70.0})
+    more: bool = False
+    remote: str | None = None
 
 
 def _set(mode: str, to: float = 70.0, fan: str = "auto") -> dict[str, Any]:
@@ -52,56 +58,63 @@ def _set(mode: str, to: float = 70.0, fan: str = "auto") -> dict[str, Any]:
 
 PRESETS: dict[str, Preset] = {
     "mixed": Preset(
-        title="One room wants cool, two are done heating",
-        try_this="Watch Studio. Stock leaves it waiting while the outdoor unit runs heat. MXZ "
-                 "switches the shared mode to cool and steps the fan down as Studio nears 70 °F.",
+        title="One room wants cool",
+        try_this="Watch Studio at 76 °F. Stock leaves it waiting in standby because the outdoor unit "
+                 "is running heat. MXZ switches the shared mode to cool, steps the fan down as Studio "
+                 "nears 70 °F, then dries the coil.",
         temps={"studio": 76.0, "loft": 70.0, "den": 70.0},
         stock_heads={"studio": _set("cool"), "loft": _set("heat"), "den": _set("heat")},
         stock_outdoor="heat", mode="heat", changed_ago=7200.0,
     ),
     "satisfied": Preset(
-        title="Every room at target",
+        title="Every room reaches target",
         try_this="Each row heats all three rooms to 70 °F. Then the stock heads stay in heat and "
-                 "idle; MXZ turns every head off.",
+                 "idle, and MXZ turns every head off.",
         temps={"studio": 66.0, "loft": 66.0, "den": 66.0},
         stock_heads={key: _set("heat") for key in ("studio", "loft", "den")},
         stock_outdoor="heat", mode="heat", changed_ago=7200.0,
     ),
     "standoff": Preset(
-        title="A standoff, and Comfort priority",
-        try_this="Studio wants cool and Den wants heat. MXZ gives the standoff to Studio, the first "
-                 "room, until Studio is within 3 °F of its target. Turn on Den's Comfort priority "
-                 "before then to give it to Den.",
+        title="Opposite modes (standoff)",
+        try_this="Studio, first in the room order, wants cool, and Den wants heat. MXZ cools Studio "
+                 "until it is within 3 °F of its target. Turn on Den's Comfort priority before then "
+                 "to switch to heat right away.",
         temps={"studio": 79.0, "loft": 70.0, "den": 66.0},
         stock_heads={"studio": _set("cool"), "loft": _set("off"), "den": _set("heat")},
         stock_outdoor="cool", mode="cool", changed_ago=7200.0,
     ),
     "mode_wait": Preset(
-        title="The wait between heat and cool",
-        try_this="MXZ switched to heat a minute ago. Studio wants cool, so MXZ waits out the "
-                 "10-minute minimum between mode switches first. Watch the count.",
+        title="10-minute mode-switch wait",
+        try_this="MXZ switched to heat 1 minute ago. Studio wants cool, so MXZ waits out the "
+                 "10-minute minimum between mode switches. Watch the countdown.",
         temps={"studio": 76.0, "loft": 70.0, "den": 70.0},
         stock_heads={"studio": _set("cool"), "loft": _set("heat"), "den": _set("heat")},
-        stock_outdoor="heat", mode="heat", changed_ago=60.0,
+        stock_outdoor="heat", mode="heat", changed_ago=60.0, more=True,
     ),
     "fan_hold": Preset(
-        title="A fan speed you pick is kept",
-        try_this="MXZ cools Studio with the fan on high. Pick a speed on Studio's remote in the "
-                 "MXZ row: MXZ keeps it. Turn Fan auto back on to hand the fan back.",
+        title="Manual fan speed",
+        try_this="MXZ cools Studio with the fan on high. Pick a fan speed on Studio's wall remote in "
+                 "the MXZ row: MXZ keeps it until you turn Fan auto back on.",
         temps={"studio": 76.0, "loft": 70.0, "den": 70.0},
         stock_heads={"studio": _set("cool"), "loft": _set("off"), "den": _set("off")},
-        stock_outdoor="cool", mode="cool", changed_ago=7200.0,
+        stock_outdoor="cool", mode="cool", changed_ago=7200.0, more=True, remote="studio",
     ),
     "restart": Preset(
-        title="Restart Home Assistant",
-        try_this="MXZ has just switched to cool, so the 10-minute wait runs. Pick a fan speed on "
-                 "Studio's remote, then press Restart: the fan you picked and the wait both carry "
-                 "over.",
+        title="Restart during the wait",
+        try_this="MXZ has just switched to cool, which starts the 10-minute wait. Pick a fan speed "
+                 "on Studio's wall remote, then press Restart Home Assistant: the fan speed and the "
+                 "wait both carry over.",
         temps={"studio": 76.0, "loft": 70.0, "den": 70.0},
         stock_heads={"studio": _set("cool"), "loft": _set("heat"), "den": _set("heat")},
-        stock_outdoor="heat", mode="heat", changed_ago=7200.0,
+        stock_outdoor="heat", mode="heat", changed_ago=7200.0, more=True, remote="studio",
     ),
 }
+
+
+def presets() -> str:
+    """The scenarios in order, for the page's buttons: name, title and whether it is one more."""
+    return json.dumps([{"name": name, "title": preset.title, "more": preset.more}
+                       for name, preset in PRESETS.items()])
 
 
 def store(preset: Preset, keys: list[str]) -> dict[str, Any]:
@@ -143,6 +156,9 @@ class World:
         self.row = MxzRow(self.heads, start=0.0, wall=WALL)
         self.row.start(store(self.preset, self.keys), names=self.names)
         self.restarts = 0
+        # A person pressed a wall remote while MXZ's start was quiet, so the page says why
+        # MXZ did not take it. On the first start nothing else needs that said.
+        self.pressed_while_quiet = False
 
     # -- time ------------------------------------------------------------------------------
     def _next_tick(self) -> tuple[float, int]:
@@ -172,10 +188,6 @@ class World:
         self.row.advance(until)
         self.now = until
 
-    def next_wakeup(self) -> float:
-        """When MXZ's next timer runs."""
-        return self.row.due()
-
     def _tick(self, key: str) -> None:
         """One room moves by the model's rules, in both rows."""
         minutes = self.climate.tick / 60
@@ -202,8 +214,9 @@ class World:
         or None."""
         try:
             self.row.set_target(key, float(value))
-        except OutOfRange as refused:
-            return f"Home Assistant refused it: {refused}."
+        except OutOfRange:
+            low, high = self.row.target_bounds()
+            return f"Target must be {low:g} to {high:g} °F. Home Assistant refused {float(value):g} °F."
         return None
 
     def mxz_enable(self, key: str, on: bool) -> None:
@@ -228,6 +241,8 @@ class World:
             fields["target_temp_low" if running == "heat" else "target_temp_high"] = float(to)
         if fan is not None:
             fields["fan_mode"] = fan
+        if self.row.starting:
+            self.pressed_while_quiet = True
         self.row.press(key, **fields)
 
     def restart(self) -> None:
@@ -242,7 +257,8 @@ class World:
         rooms = {view["key"]: view for view in row.rooms_view()}
         out: dict[str, Any] = {
             "now": self.now,
-            "preset": {"title": self.preset.title, "try_this": self.preset.try_this},
+            "preset": {"title": self.preset.title, "try_this": self.preset.try_this,
+                       "remote": self.preset.remote},
             # The range of an invented head's setpoints, which its remote offers.
             "head_range": [self.house["head"]["min_temp"], self.house["head"]["max_temp"]],
             "stock": {"outdoor": self.stock.outdoor, "rooms": []},
@@ -253,10 +269,11 @@ class World:
                 "hold_left": row.hold_left(),
                 "standoff": None if plan is None else plan["standoff"],
                 "by_comfort": None if plan is None else plan["mode_by_comfort_priority"],
-                "next": round(row.due() - self.now, 1),
                 # While MXZ's start is quiet it takes no change made at a head
-                # (timing.startup_quiet); its startup wakeup ends that.
+                # (timing.startup_quiet); its startup wakeup ends that. The page shows it after
+                # a restart, or once a person has pressed a wall remote in it.
                 "quiet_for": row.pending_waits().get("startup None") if row.starting else None,
+                "quiet_shown": bool(self.restarts or self.pressed_while_quiet),
                 "waits": row.pending_waits(),
                 "restarts": self.restarts,
                 "calls": [

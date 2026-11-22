@@ -10,16 +10,19 @@
   --heat: light-dark(#b8461b, #ff8a5c);
   --cool: light-dark(#1f63b8, #7db4ff);
   --accent: light-dark(#2f6f4f, #7fd1a6);
+  --warn: light-dark(#fde7c8, #4a2f0c);
+  --warn-ink: light-dark(#7a3d00, #ffcf8f);
+  --warn-line: light-dark(#e09a3c, #c07a28);
   font: 16px/1.45 system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); }
-main { max-width: 72rem; margin-inline: auto; padding: 1rem clamp(0.75rem, 3vw, 2rem) 3rem; }
-h1 { font-size: clamp(1.4rem, 3vw, 2rem); margin-block: 0.5rem 0.25rem; }
+main { max-width: 72rem; margin-inline: auto; padding: 0.5rem clamp(0.75rem, 3vw, 2rem) 3rem; }
+h1 { font-size: clamp(1.3rem, 2.5vw, 1.6rem); margin-block: 0.25rem 0; }
 h2 { font-size: 1.1rem; margin: 0; }
 .lede, .try, .rule { color: var(--muted); }
-.lede { max-width: 60ch; }
+.lede { margin-block: 0.15rem 0.5rem; }
 
 .band {
   position: sticky; top: 0; z-index: 1;
@@ -40,40 +43,63 @@ button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0
 button:disabled { opacity: 0.5; cursor: default; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.presets { margin-block: 1rem; }
-.presets h2 { margin-block-end: 0.4rem; }
-.temps h2 { margin-block-end: 0.4rem; }
+.presets { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1rem; align-items: baseline; margin-block: 0.5rem; }
+.presets .try { grid-column: 1 / -1; }
+#presets { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; }
+#presets .more { align-items: center; }
+#presets .more .label { color: var(--muted); font-size: 0.9rem; }
+.try { margin-block: 0; max-width: 90ch; }
+.temps { margin-block: 1rem; }
+.temps summary, .room summary, .writes summary { cursor: pointer; }
+.temps .buttons { margin-block-start: 0.5rem; }
 .temp-set { display: flex; gap: 0.35rem; align-items: center; margin-inline-end: 1rem; }
 .temp-set input { inline-size: 5rem; font: inherit; }
 .status { padding: 0.5rem 0.75rem; border-radius: 0.4rem; background: var(--card); border: 1px solid var(--line); }
 .status:empty { display: none; }
 .status.error { border-color: var(--heat); color: var(--heat); }
 
-.row { margin-block: 1.25rem; padding: 1rem; background: var(--card); border: 1px solid var(--line); border-radius: 0.6rem; }
+.row { margin-block: 0.75rem; padding: 0.6rem 0.9rem 0.75rem; background: var(--card); border: 1px solid var(--line); border-radius: 0.6rem; }
 .row-head { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; align-items: baseline; }
 .row-head p { margin: 0; }
-.row-head button { margin-inline-start: auto; }
-.rule { margin-block: 0.4rem 0.8rem; font-size: 0.92rem; }
+.rule { margin-block: 0.2rem 0.5rem; font-size: 0.9rem; }
+.row-foot { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: start; justify-content: space-between; margin-block-start: 0.6rem; }
 
-.rooms { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 0.75rem; }
-.room { padding: 0.75rem; border: 1px solid var(--line); border-radius: 0.5rem; }
-.room h3 { margin: 0; font-size: 1rem; display: flex; justify-content: space-between; gap: 0.5rem; }
-.temp { font-size: 1.8rem; font-variant-numeric: tabular-nums; margin: 0.15rem 0; }
-.head { margin: 0 0 0.5rem; color: var(--muted); font-size: 0.9rem; }
+.rooms { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 0.6rem; }
+.room { padding: 0.5rem 0.75rem; border: 1px solid var(--line); border-radius: 0.5rem; }
+.room h3 { margin: 0; font-size: 1rem; display: flex; gap: 0.5rem; align-items: baseline; }
+.order { font-size: 0.8rem; font-weight: 400; color: var(--muted); }
+.badge { margin-inline-start: auto; font-size: 0.8rem; font-weight: 500; color: var(--accent); }
+.temp { font-size: 1.4rem; font-variant-numeric: tabular-nums; margin: 0; }
+.head, .plan { margin: 0 0 0.3rem; color: var(--muted); font-size: 0.9rem; }
 .doing-heating, .mode-heat { color: var(--heat); }
 .doing-cooling, .mode-cool { color: var(--cool); }
-.room form { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.5rem; align-items: center; font-size: 0.9rem; margin-block-start: 0.4rem; }
-.room fieldset { border: 0; padding: 0; margin: 0.5rem 0 0; display: contents; }
-.room legend { grid-column: 1 / -1; font-weight: 600; font-size: 0.85rem; color: var(--muted); padding-block-start: 0.4rem; }
-.room input[type="number"] { inline-size: 5.5rem; }
+.doing-drying { color: var(--accent); }
+/* Stock's failure: a head that wants the other mode waits. Make it the loudest thing in the row. */
+.head.doing-standby {
+  color: var(--warn-ink); background: var(--warn); font-weight: 600;
+  padding: 0.15rem 0.4rem; border-radius: 0.3rem; border-inline-start: 3px solid var(--warn-line);
+}
+.room:has(.doing-standby) { border-color: var(--warn-line); }
+.room .form { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.5rem; align-items: center; font-size: 0.9rem; }
+.room details { font-size: 0.9rem; margin-block-start: 0.3rem; }
+.room details .form { margin-block-start: 0.4rem; }
+.room .legend { grid-column: 1 / -1; margin: 0.3rem 0 0; font-weight: 600; font-size: 0.85rem; color: var(--muted); }
+.room input[type="number"] { inline-size: 5rem; }
 .room input, .room select { font: inherit; font-size: 0.9rem; }
 .room .wide { grid-column: 1 / -1; justify-self: start; }
-.room label { white-space: nowrap; }
-.quiet { margin-block: 0 0.8rem; font-size: 0.92rem; color: var(--accent); }
+.room label { white-space: nowrap; margin-inline-start: 0.5rem; }
+.room .wide label:first-child { margin-inline-start: 0; }
+.hint { display: block; font-size: 0.8rem; color: var(--muted); }
+.hint[hidden] { display: none; }
+.refused { margin: 0.25rem 0 0; font-size: 0.85rem; color: var(--heat); }
+.refused:empty { display: none; }
+.quiet { margin-block: 0 0.5rem; font-size: 0.92rem; color: var(--accent); }
 .quiet:empty { display: none; }
-.badge { font-size: 0.8rem; font-weight: 500; color: var(--accent); }
 
-.writes { margin-block-start: 0.75rem; font-size: 0.9rem; }
-.writes ol { margin: 0.4rem 0 0; padding-inline-start: 1.5rem; color: var(--muted); }
+.writes { font-size: 0.9rem; }
+.writes ol, .writes .none { margin: 0.4rem 0 0; color: var(--muted); }
+.writes ol { padding-inline-start: 1.5rem; }
+.writes ol:empty { display: none; }
 .notes ul { padding-inline-start: 1.2rem; }
+.notes h3 { font-size: 0.95rem; margin-block: 0.75rem 0; }
 .notes li { margin-block: 0.35rem; }
