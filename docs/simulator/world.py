@@ -14,7 +14,9 @@ One set of controls drives both rows. A person sets each room's mode, set-to and
 stock head takes them as they are. On the MXZ row, off or on is the room's switch, the set-to
 is its target number, and the fan is pressed at the room's remote, where a speed is held and
 auto hands the fan back (``fan_latch.observe_fan``). A speed the head already shows is held
-with the room's Fan auto off, because pressing it changes nothing MXZ sees.
+with the room's Fan auto off, because pressing it changes nothing MXZ sees. A pick of the
+speed MXZ set one step earlier is not held: MXZ reads it as its own write (``FanEcho.own``) and
+puts back its own speed, as it does in Home Assistant.
 
 Each room moves on its own 5-second tick, a second apart from the room before it, so each room's
 sensor reports on its own, as real sensors do (``mxz_row.MxzRow.world_changed`` says why that
@@ -102,15 +104,17 @@ PRESETS: dict[str, Preset] = {
     ),
     "fan_hold": Preset(
         title="Manual fan speed",
-        try_this="Pick a fan speed for Studio: both rows keep it. Auto gives the fan back to MXZ.",
+        try_this="Pick a fan speed for Studio. Stock keeps it, and MXZ holds it unless it is the speed "
+                 "MXZ set one step earlier. MXZ reads that pick as its own write and puts back its own "
+                 "speed. Auto gives the fan back to MXZ.",
         temps={"studio": 76.0, "loft": 70.0, "den": 70.0},
         settings={"studio": Setting("cool"), "loft": Setting("off"), "den": Setting("off")},
         stock_outdoor="cool", mode="cool", changed_ago=7200.0, more=True,
     ),
     "restart": Preset(
         title="Restart during the wait",
-        try_this="Home Assistant restarts at 5:00. Pick a fan speed for Studio first: MXZ keeps it and "
-                 "the 10-minute wait through the restart.",
+        try_this="Home Assistant restarts at 5:00. Pick a fan speed for Studio first: MXZ keeps a held "
+                 "speed and the 10-minute wait through the restart.",
         temps={"studio": 76.0, "loft": 70.0, "den": 70.0},
         settings={"studio": Setting("cool"), "loft": Setting("heat"), "den": Setting("heat")},
         stock_outdoor="heat", mode="heat", changed_ago=7200.0, more=True, restart_at=300.0,

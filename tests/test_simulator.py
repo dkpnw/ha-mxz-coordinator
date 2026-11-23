@@ -1549,3 +1549,72 @@ def test_picking_the_speed_the_mxz_head_shows_holds_it(tree: Path) -> None:
         assert not any(held for _, _, held in alone["seen"]), name
         assert {fan for _, fan, _ in alone["seen"]} - {"high"}, (name, alone["seen"])
         assert alone["fan_calls"] > 0, name
+
+
+# A fan pick of the speed MXZ set one step earlier, in "Manual fan speed": at 5:00 while Studio
+# cools (the head shows low and MXZ set medium before it), and at 7:00 while it dries the coil
+# (the head shows auto and MXZ set quiet before it). The product reads that pick as its own
+# write (``fan_latch.FanEcho.own``), so the simulator does too. Each moment also gets a pick of a
+# speed MXZ has not just set, which is held.
+ECHO_PICK = """
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import world
+def studio(w):
+    view = json.loads(w.view())
+    stock, mxz = view["stock"]["rooms"][0], view["mxz"]["rooms"][0]
+    return [stock["fan"], mxz["fan"], mxz["fan_held"]]
+def fans(w, since=0):
+    return [c[3]["fan_mode"] for c in w.row.log.calls[since:] if c[1] == "studio" and c[2] == "set_fan_mode"]
+out = {}
+for case, at, other in (("cooling", 300, "high"), ("drying", 420, "low")):
+    w = world.World("fan_hold")
+    w.advance(at)
+    room = json.loads(w.view())["mxz"]["rooms"][0]
+    previous = fans(w)[-2]
+    entry = {"mode": room["mode"], "drying": room["drying"], "shown": room["fan"], "previous": previous}
+    for pick in (previous, other):
+        w = world.World("fan_hold")
+        w.advance(at)
+        before = len(w.row.log.calls)
+        w.set_fan("studio", pick)
+        seen = []
+        for later in range(at + 30, at + 601, 30):
+            w.advance(later)
+            seen.append(studio(w))
+        entry[pick] = {"seen": seen, "fan_calls": fans(w, before)}
+    out[case] = entry
+out["fan_hold"] = world.PRESETS["fan_hold"].try_this
+out["restart"] = world.PRESETS["restart"].try_this
+print(json.dumps(out))
+"""
+
+
+def test_picking_the_speed_mxz_set_one_step_earlier_is_not_held(tree: Path) -> None:
+    """The head reports only its current speed, so MXZ can't tell a pick of the speed it set one
+    step earlier from that write coming back. Stock keeps the pick; MXZ never holds it and puts
+    back its own speed within 30 seconds, while cooling and while drying the coil. The page and
+    the simulator README say so. Negative: a speed MXZ has not just set, picked at the same
+    moment, is held in both rows."""
+    done = subprocess.run([sys.executable, "-I", "-c", ECHO_PICK, str(tree)], capture_output=True, text=True,
+                          check=True)
+    cases = json.loads(done.stdout)
+    assert {key: cases[key]["mode"] for key in ("cooling", "drying")} == {"cooling": "cool", "drying": "fan_only"}
+    assert not cases["cooling"]["drying"] and cases["drying"]["drying"]
+    for name, other in (("cooling", "high"), ("drying", "low")):
+        case = cases[name]
+        previous = case["previous"]
+        assert previous not in (case["shown"], "auto"), (name, case)
+        echo = case[previous]
+        assert all(stock == previous for stock, _, _ in echo["seen"]), (name, echo)
+        assert not any(held or fan == previous for _, fan, held in echo["seen"]), (name, echo)
+        assert echo["fan_calls"] and echo["fan_calls"][0] != previous, (name, echo)
+        # negative: the other speed is held in both rows and MXZ sends that head no fan command
+        assert all(seen == [other, other, True] for seen in case[other]["seen"]), (name, case[other])
+        assert case[other]["fan_calls"] == [], (name, case[other])
+    for text in (cases["fan_hold"], cases["restart"]):
+        assert "both rows keep it" not in text and "MXZ keeps it" not in text, text
+    assert "MXZ holds it unless it is the speed MXZ set one step earlier" in _words(cases["fan_hold"])
+    assert "reads that pick as its own write" in cases["fan_hold"]
+    readme = _words((PAGE / "README.md").read_text())
+    assert "MXZ reads a pick of the speed it set one step earlier as its own write" in readme

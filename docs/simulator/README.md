@@ -22,7 +22,9 @@ Download or clone the repository and open `docs/simulator/index.html` in a brows
 Each control sets the stock head directly. On the MXZ row, Set to is the room's target, Off
 turns the room off and Heat or Cool turns it on, and the fan is set at the room's remote. A
 speed the head already shows is held by turning the room's Fan auto off, since pressing it at
-the remote changes nothing MXZ can see. MXZ picks heat or cool itself. A running head moves its room 1 °F a minute, and a room with no head
+the remote changes nothing MXZ can see. MXZ reads a pick of the speed it set one step
+earlier as its own write and puts back its own speed, as it does in Home Assistant. MXZ picks
+heat or cool itself. A running head moves its room 1 °F a minute, and a room with no head
 running drifts toward 76 °F (`verification/instance/invented_house/model.py`).
 
 ## What it leaves out
