@@ -10,7 +10,7 @@ on your equipment.
 
 ## Unreleased
 
-- CI and tests only: hypothesis moves to 6.170.16 in the test requirements and each HA test-lane lock, each lock regenerated from a fresh venv, and the hassfest and OpenSSF Scorecard actions move to newer pinned commits. This takes Dependabot PR #159 and the hypothesis half of #160.
+- CI and tests only: ruff moves to 0.17.6 in the CI tools and the pre-commit hook, hypothesis moves to 6.170.16 in the test requirements and each HA test-lane lock, each lock regenerated from a fresh venv, and the hassfest and OpenSSF Scorecard actions move to newer pinned commits. This takes Dependabot PRs #159 and #160.
 
 ## 3.23.0 (November 18, 2026)
 

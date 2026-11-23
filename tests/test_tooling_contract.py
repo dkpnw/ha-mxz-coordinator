@@ -219,8 +219,8 @@ def test_a_raised_floor_is_accepted(config):
 
 @pytest.mark.parametrize(("change", "expected"), [
     (lambda s, k, t: (s.replace("mypy==2.4.1", "mypy==2.4.0"), k, t), "lock differs from its source"),
-    (lambda s, k, t: (s, k.replace("ruff==0.17.4", "ruff==0.16.0"), t), "lock differs from its source"),
-    (lambda s, k, t: (s, k, t + "ruff==0.17.4\n"), "two ruff versions"),
+    (lambda s, k, t: (s, k.replace(f"ruff=={CI_RUFF}", "ruff==0.16.0"), t), "lock differs from its source"),
+    (lambda s, k, t: (s, k, t + f"ruff=={CI_RUFF}\n"), "two ruff versions"),
     (lambda s, k, t: (s, re.sub(r"(ruff==\S+)(?: \\\n\s+--hash=\S+)+", r"\1", k), t), "requirement without a hash"),
 ])
 def test_a_drifted_tool_lock_is_refused(change, expected):
