@@ -198,8 +198,6 @@ function draw(now = false) {
   if (mxz.standoff) why.push("One room wants heat and another wants cool.");
   if (mxz.restarts) why.push(`Home Assistant restarted ${mxz.restarts === 1 ? "once" : `${mxz.restarts} times`}.`);
   $("mxz-why").textContent = why.join(" ");
-  $("mxz-quiet").textContent = mxz.quiet_for === null || !mxz.quiet_shown ? ""
-    : `Home Assistant just started. MXZ ignores remote changes for ${span(mxz.quiet_for)} more.`;
   for (const side of ["stock", "mxz"]) {
     for (const room of view[side].rooms) {
       const node = $(`${side}-${room.key}`);

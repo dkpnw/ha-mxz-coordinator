@@ -169,9 +169,6 @@ class World:
         self.row = MxzRow(self.heads, start=0.0, wall=WALL)
         self.row.start(store(self.preset, self.keys), names=self.names)
         self.restarts = 0
-        # A person pressed a remote while MXZ's start was quiet, so the page says why MXZ did
-        # not take it. On the first start nothing else needs that said.
-        self.pressed_while_quiet = False
 
     # -- time ------------------------------------------------------------------------------
     def _next_tick(self) -> tuple[float, int]:
@@ -253,18 +250,13 @@ class World:
         if fan != "auto" and self.mxz.heads[key].fan_mode == fan:
             self.row.set_fan_auto(key, False)
         else:
-            self._press(key, fan_mode=fan)
+            self.row.press(key, fan_mode=fan)
 
     def _stock(self, key: str, **fields: Any) -> None:
         head = self.stock.heads[key]
         for name, value in fields.items():
             setattr(head, name, value)
         self.stock.outdoor = model.direction(self.stock, self.stock.outdoor)
-
-    def _press(self, key: str, **fields: Any) -> None:
-        if self.row.starting:
-            self.pressed_while_quiet = True
-        self.row.press(key, **fields)
 
     def restart(self) -> None:
         """Home Assistant stops and starts. The heads and rooms carry on."""
@@ -286,11 +278,6 @@ class World:
                 "target_bounds": list(row.target_bounds()),
                 "hold_left": row.hold_left(),
                 "standoff": None if plan is None else plan["standoff"],
-                # While MXZ's start is quiet it takes no change made at a head
-                # (timing.startup_quiet); its startup wakeup ends that. The page shows it after
-                # a restart, or once a person has pressed a remote in it.
-                "quiet_for": row.pending_waits().get("startup None") if row.starting else None,
-                "quiet_shown": bool(self.restarts or self.pressed_while_quiet),
                 "waits": row.pending_waits(),
                 "restarts": self.restarts,
                 "calls": [

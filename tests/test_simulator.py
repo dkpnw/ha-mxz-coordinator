@@ -1330,31 +1330,60 @@ import world
 print(world.presets())
 """
 
-# The startup-quiet note: when the page shows it, and why.
-QUIET = """
+# A fan pick of a speed MXZ's head does not show, made while MXZ's start is quiet: at 0:00 in
+# "Manual fan speed", and right after the restart at 5:00 in "Restart during the wait". Each case
+# also runs without the pick, to show the hold comes from it.
+QUIET_PICK = """
 import json, sys
 sys.path.insert(0, sys.argv[1])
 import world
-shown = lambda w: [json.loads(w.view())["mxz"][k] is not None if k == "quiet_for" else json.loads(w.view())["mxz"][k]
-                   for k in ("quiet_for", "quiet_shown")]
+def studio(w):
+    view = json.loads(w.view())
+    return [view["stock"]["rooms"][0]["fan"], view["mxz"]["rooms"][0]["fan"], view["mxz"]["rooms"][0]["fan_held"]]
 out = {}
-w = world.World("mixed"); out["start"] = shown(w)
-w.set_fan("den", "low"); out["pressed in quiet"] = shown(w)
-w = world.World("mixed"); w.advance(120); w.set_fan("den", "low"); out["pressed after quiet"] = shown(w)
-w = world.World("mixed"); w.advance(120); w.restart(); out["restarted"] = shown(w)
+for name, at in (("fan_hold", 0), ("restart", 300)):
+    case = {}
+    w = world.World(name)
+    w.advance(at)
+    shown = studio(w)[1]
+    pick = next(fan for fan in ("quiet", "low", "medium") if fan != shown)
+    for picked in (True, False):
+        w = world.World(name)
+        w.advance(at)
+        quiet = w.row.starting
+        if picked:
+            w.set_fan("studio", pick)
+        w.advance(at + 15)
+        early = [w.row.starting, studio(w)]
+        seen = []
+        for later in range(at + 30, at + 601, 30):
+            w.advance(later)
+            seen.append(studio(w))
+        case["picked" if picked else "not picked"] = {"quiet": quiet, "early": early, "seen": seen}
+    out[f"{name} {at}"] = {"shown": shown, "pick": pick, **case}
 print(json.dumps(out))
 """
 
 
-def test_the_quiet_note_shows_after_a_restart_or_a_press_during_it(tree: Path) -> None:
-    done = subprocess.run([sys.executable, "-I", "-c", QUIET, str(tree)], capture_output=True, text=True, check=True)
-    assert json.loads(done.stdout) == {
-        "start": [True, False],  # quiet, but nothing has asked about it
-        "pressed in quiet": [True, True],
-        "pressed after quiet": [False, False],  # negative: a press after the quiet asks nothing about it
-        "restarted": [True, True],
-    }
-    assert "mxz.quiet_for === null || !mxz.quiet_shown" in (PAGE / "lab.js").read_text()
+def test_a_fan_pick_during_the_startup_quiet_is_held(tree: Path) -> None:
+    """MXZ's startup quiet keeps it from taking a mode or setpoint changed at a head, and the
+    fan is the only control on the page pressed at a head. A fan pick inside the quiet is held
+    in both rows within 15 seconds, while the quiet still runs, and for the next 10 minutes. So
+    the page says nothing about MXZ ignoring a change."""
+    done = subprocess.run([sys.executable, "-I", "-c", QUIET_PICK, str(tree)], capture_output=True, text=True,
+                          check=True)
+    cases = json.loads(done.stdout)
+    assert set(cases) == {"fan_hold 0", "restart 300"}
+    for name, case in cases.items():
+        pick, picked, alone = case["pick"], case["picked"], case["not picked"]
+        assert pick != case["shown"], name
+        assert picked["quiet"] and alone["quiet"], name  # the pick lands inside the quiet
+        assert picked["early"] == [True, [pick, pick, True]], (name, picked["early"])
+        assert all(seen == [pick, pick, True] for seen in picked["seen"]), (name, picked["seen"])
+        # negative: without the pick MXZ runs the fan and never holds it
+        assert not alone["early"][1][2] and not any(held for _, _, held in alone["seen"]), (name, alone)
+    page = (PAGE / "index.html").read_text() + (PAGE / "lab.js").read_text()
+    assert "ignor" not in page.lower()
 
 
 def test_mixed_preset_names_coil_drying_while_the_head_dries(presets: dict[str, list[dict[str, Any]]]) -> None:

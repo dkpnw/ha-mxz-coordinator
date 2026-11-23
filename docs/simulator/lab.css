@@ -87,8 +87,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 #shared-controls input[type="number"] { inline-size: 4.5rem; }
 .refused { margin: 0.25rem 0 0; font-size: 0.85rem; color: var(--heat); }
 .refused:empty { display: none; }
-.quiet { margin-block: 0 0.5rem; font-size: 0.92rem; color: var(--accent); }
-.quiet:empty { display: none; }
 
 .writes { font-size: 0.9rem; }
 .writes ol, .writes .none { margin: 0.4rem 0 0; color: var(--muted); }
