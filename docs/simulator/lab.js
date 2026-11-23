@@ -1,16 +1,17 @@
 // The simulator page's shell: loads Pyodide, writes the bundled Python (bundle.js) into its
 // file system, and drives world.World. Every decision is made in Python; this file draws the
-// rows and passes the controls through.
+// rows and passes the one set of controls through to both.
 "use strict";
 
 const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v314.0.8/full/";
 const HOME = "/home/pyodide/simulator";
-const MODES = ["off", "heat", "cool", "fan_only"];
+const MODES = ["off", "heat", "cool"];
 const FANS = ["auto", "quiet", "low", "medium", "middle", "high"];
 const ORDINALS = ["1st", "2nd", "3rd"];
 
 const $ = (id) => document.getElementById(id);
-const lab = {
+// On window so a headless page check can read lab.world.view().
+const lab = window.lab = {
   py: null, module: null, world: null, preset: "mixed", speed: 10, playing: true, last: null, drawn: 0,
 };
 
@@ -64,39 +65,20 @@ function select(options, value, label) {
   return node;
 }
 
-// A number input over [low, high]. The room temperatures take 50 to 90 °F; a head's set-to
-// takes its own range; MXZ's target number takes the range the row's grid gives it.
-function number(value, label, [low, high] = [50, 90]) {
+function number(value, label, [low, high]) {
   const node = element("input", { type: "number", min: low, max: high, step: 1, value });
   node.setAttribute("aria-label", label);
   return node;
 }
 
-function check(checked, label) {
-  const box = element("input", { type: "checkbox", checked });
-  return [box, element("label", {}, [box, ` ${label}`])];
-}
-
-// A head's set-to: off in off and fan only, with the reason beside it.
-function setTo(value, label, range) {
-  const input = number(value, label, range);
-  const hint = element("span", { className: "hint", textContent: "Set mode to heat or cool first", hidden: true });
-  return { input, hint, cell: element("span", { className: "set-to" }, [input, " °F ", hint]) };
-}
-
-function allowSetTo({ input, hint }, mode) {
-  input.disabled = !runsTo(mode);
-  hint.hidden = runsTo(mode);
-}
-
-// The setpoint a head runs to in its mode, or the room's target when it runs to none.
-const setpoint = (room, fallback) => (room.mode === "heat" ? room.low : room.mode === "cool" ? room.high : fallback);
+// The setpoint a head runs to in its mode; none in off or fan only.
+const setpoint = (room) => (room.mode === "heat" ? room.low : room.mode === "cool" ? room.high : null);
 
 // What a head is doing, in words, where its mode alone does not say it.
 function headLine(room, outdoor) {
   if (room.mode === "off") return "off";
   if (room.mode === "fan_only") return room.drying ? "drying coil (fan only)" : `fan only · fan ${room.fan}`;
-  const to = setpoint(room, null);
+  const to = setpoint(room);
   const parts = [words(room.mode) + (to === null || to === undefined ? "" : ` to ${Math.round(to)} °F`)];
   if (room.doing === "standby") {
     parts.push(`waiting in standby (outdoor unit running ${outdoor})`);
@@ -129,97 +111,69 @@ function command(data) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-// -- the rooms' cards, built once per start --------------------------------------------------
-function buildTemps(view) {
-  const temps = $("temps");
-  temps.replaceChildren();
-  for (const room of view.stock.rooms) {
-    const value = number("", `${room.name} temperature`);
-    value.placeholder = "°F";
-    const set = element("button", { type: "button", textContent: "Set" });
-    set.addEventListener("click", () => {
-      if (value.value === "") return;
-      run(() => lab.world.set_temperature(room.key, Number(value.value)));
-      value.value = "";
-    });
-    temps.append(element("div", { className: "temp-set" }, [element("span", { textContent: room.name }), value, set]));
-  }
-}
-
-function stockCard(room, view) {
-  const mode = select(MODES, room.mode, `${room.name} stock head mode`);
-  const to = setTo(Math.round(setpoint(room, 70)), `${room.name} stock head set to`, view.head_range);
-  const fan = select(FANS, room.fan, `${room.name} stock head fan`);
-  allowSetTo(to, room.mode);
-  const send = () => {
-    allowSetTo(to, mode.value);
-    run(() => lab.world.stock_head(room.key, mode.value, Number(to.input.value), fan.value));
+// -- the shared controls and the rooms' cards, built once per start ---------------------------
+// One line per room. Each control calls one World method, which changes both rows. The
+// controls start at what the scenario set for each room: the stock heads, which nothing but
+// these controls changes.
+function controlLine(room, bounds, refused) {
+  const name = room.name;
+  const temp = number("", `${name} room temperature`, [50, 90]);
+  temp.placeholder = "°F";
+  const setTemp = () => {
+    if (temp.value === "") return;
+    run(() => lab.world.set_temperature(room.key, Number(temp.value)));
+    temp.value = "";
   };
-  for (const control of [mode, to.input, fan]) control.addEventListener("change", send);
-  return card(room, "stock", element("details", { className: "controls" }, [
-    element("summary", { textContent: "Change this head" }),
-    element("div", { className: "form" }, ["Mode", mode, "Set to", to.cell, "Fan", fan]),
-  ]));
-}
-
-function mxzCard(room, view, index) {
-  const target = number(room.target, `${room.name} target`, view.mxz.target_bounds);
-  const refused = element("p", { className: "refused", role: "alert" });
-  target.addEventListener("change", () => run(() => {
-    refused.textContent = lab.world.mxz_target(room.key, Number(target.value)) ?? "";
+  temp.addEventListener("keydown", (event) => { if (event.key === "Enter") setTemp(); });
+  const set = element("button", { type: "button", textContent: "Set" });
+  set.addEventListener("click", setTemp);
+  const mode = select(MODES, room.mode, `${name} mode`);
+  // A stock head holds the set-to as both its setpoints, in every mode.
+  const to = number(Math.round(room.low), `${name} set to`, bounds);
+  to.disabled = !runsTo(room.mode);
+  const fan = select(FANS, room.fan, `${name} fan`);
+  mode.addEventListener("change", () => {
+    to.disabled = !runsTo(mode.value);
+    run(() => lab.world.set_mode(room.key, mode.value));
+  });
+  let taken = to.value;
+  to.addEventListener("change", () => run(() => {
+    refused.textContent = lab.world.set_to(room.key, Number(to.value)) ?? "";
+    if (refused.textContent) to.value = taken;
+    else taken = to.value;
   }));
-  const [comfort, comfortLabel] = check(room.comfort, "Comfort priority");
-  comfort.addEventListener("change", () => run(() => lab.world.mxz_comfort(room.key, comfort.checked)));
-  const [enable, enableLabel] = check(room.enable, "Room on");
-  enable.addEventListener("change", () => run(() => lab.world.mxz_enable(room.key, enable.checked)));
-  const [auto, autoLabel] = check(!room.fan_held, "Fan auto");
-  auto.addEventListener("change", () => run(() => lab.world.mxz_fan_auto(room.key, auto.checked)));
-  const mode = select(MODES, room.mode, `${room.name} wall remote mode`);
-  mode.addEventListener("change", () => run(() => lab.world.mxz_remote(room.key, mode.value, undefined, undefined)));
-  const to = setTo(Math.round(setpoint(room, room.target)), `${room.name} wall remote set to`, view.head_range);
-  to.input.addEventListener("change", () => run(() => lab.world.mxz_remote(room.key, undefined, Number(to.input.value), undefined)));
-  const fan = select(FANS, room.fan, `${room.name} wall remote fan`);
-  fan.addEventListener("change", () => run(() => lab.world.mxz_remote(room.key, undefined, undefined, fan.value)));
-  const more = element("details", { className: "controls" }, [
-    element("summary", { textContent: "Room switches and wall remote" }),
-    element("div", { className: "form" }, [
-      element("span", { className: "wide" }, [enableLabel, " ", autoLabel]),
-      element("p", { className: "legend", textContent: "Wall remote (overrides at the head)" }),
-      "Mode", mode, "Set to", to.cell, "Fan", fan,
-    ]),
+  fan.addEventListener("change", () => run(() => lab.world.set_fan(room.key, fan.value)));
+  const cell = (...children) => element("td", {}, children);
+  return element("tr", {}, [
+    element("th", { scope: "row", textContent: name }),
+    cell(temp, " ", set), cell(mode), cell(to, " °F"), cell(fan),
   ]);
-  more.open = view.preset.remote === room.key;
-  const node = card(room, "mxz", element("div", {}, [
-    element("div", { className: "form" }, ["Target", element("span", {}, [target, " °F ", comfortLabel])]),
-    refused,
-    more,
-  ]), ORDINALS[index] ? `${ORDINALS[index]} in room order` : "");
-  node.controls = { target, enable, comfort, auto, mode, to, fan };
-  return node;
 }
 
-function buildRooms(view) {
-  buildTemps(view);
-  $("stock-rooms").replaceChildren(...view.stock.rooms.map((room) => stockCard(room, view)));
-  $("mxz-rooms").replaceChildren(...view.mxz.rooms.map((room, index) => mxzCard(room, view, index)));
+function buildControls(view) {
+  const refused = $("refused");
+  refused.textContent = "";
+  $("controls").replaceChildren(...view.stock.rooms.map((room) => controlLine(room, view.mxz.target_bounds, refused)));
 }
 
-function card(room, side, controls, order = "") {
+function card(room, side, order = "") {
   return element("article", { className: "room", id: `${side}-${room.key}` }, [
     element("h3", {}, [element("span", { textContent: room.name }), element("span", { className: "order", textContent: order }),
       element("span", { className: "badge" })]),
     element("p", { className: "temp" }),
     element("p", { className: "head" }),
     ...(side === "mxz" ? [element("p", { className: "plan" })] : []),
-    controls,
   ]);
 }
 
-// -- drawing ---------------------------------------------------------------------------------
-function keep(input, value) {
-  if (document.activeElement !== input && String(input.value) !== String(value)) input.value = value;
+function build(view) {
+  buildControls(view);
+  $("stock-rooms").replaceChildren(...view.stock.rooms.map((room) => card(room, "stock")));
+  $("mxz-rooms").replaceChildren(...view.mxz.rooms.map((room, index) =>
+    card(room, "mxz", ORDINALS[index] ? `${ORDINALS[index]} in room order` : "")));
 }
 
+// -- drawing ---------------------------------------------------------------------------------
 function draw(now = false) {
   if (!lab.world) return;
   const stamp = performance.now();
@@ -241,12 +195,11 @@ function draw(now = false) {
   $("mxz-mode").className = `mode-${mxz.mode}`;
   $("mxz-hold").textContent = mxz.hold_left > 0 ? `Mode switch wait: ${span(mxz.hold_left)}` : "Mode switch: ready";
   const why = [];
-  if (mxz.standoff) why.push("Standoff: one room wants heat and another wants cool.");
-  if (mxz.by_comfort) why.push("Comfort priority decided the shared mode.");
-  if (mxz.restarts) why.push(`Home Assistant restarted ${mxz.restarts} time${mxz.restarts === 1 ? "" : "s"}.`);
+  if (mxz.standoff) why.push("One room wants heat and another wants cool.");
+  if (mxz.restarts) why.push(`Home Assistant restarted ${mxz.restarts === 1 ? "once" : `${mxz.restarts} times`}.`);
   $("mxz-why").textContent = why.join(" ");
   $("mxz-quiet").textContent = mxz.quiet_for === null || !mxz.quiet_shown ? ""
-    : `Home Assistant just started, so MXZ does not take wall-remote changes for another ${span(mxz.quiet_for)}.`;
+    : `Home Assistant just started. MXZ ignores remote changes for ${span(mxz.quiet_for)} more.`;
   for (const side of ["stock", "mxz"]) {
     for (const room of view[side].rooms) {
       const node = $(`${side}-${room.key}`);
@@ -254,30 +207,19 @@ function draw(now = false) {
       const head = node.querySelector(".head");
       head.textContent = headLine(room, view[side].outdoor);
       head.className = `head doing-${room.drying ? "drying" : room.doing}`;
-      if (side === "mxz") drawMxz(node, room, mxz.mode);
+      if (side === "mxz") {
+        const badges = [];
+        if (room.fan_held) badges.push("Manual fan");
+        if (room.adopting) badges.push("Taking the remote's change…");
+        node.querySelector(".badge").textContent = badges.join(" · ");
+        node.querySelector(".plan").textContent = planLine(room, mxz.mode);
+      }
     }
   }
   const calls = mxz.calls.slice().reverse();
   $("mxz-calls-none").hidden = calls.length > 0;
   $("mxz-calls").replaceChildren(...calls.map((call) =>
     element("li", { textContent: `${clock(call.t)} ${call.room}: ${command(call.data)}` })));
-}
-
-function drawMxz(node, room, mode) {
-  const badges = [];
-  if (room.fan_held) badges.push("Manual fan");
-  if (room.adopting) badges.push("Taking the remote's change…");
-  node.querySelector(".badge").textContent = badges.join(" · ");
-  node.querySelector(".plan").textContent = planLine(room, mode);
-  const c = node.controls;
-  keep(c.target, room.target);
-  c.enable.checked = room.enable;
-  c.comfort.checked = room.comfort;
-  c.auto.checked = !room.fan_held;
-  keep(c.mode, room.mode);
-  keep(c.fan, room.fan);
-  keep(c.to.input, Math.round(setpoint(room, room.target)));
-  allowSetTo(c.to, room.mode);
 }
 
 // -- the clock -------------------------------------------------------------------------------
@@ -308,7 +250,7 @@ function start(name) {
     const status = $("status");
     status.classList.remove("error");
     status.textContent = "";
-    buildRooms(JSON.parse(lab.world.view()));
+    build(JSON.parse(lab.world.view()));
     lab.playing = true;
     $("play").textContent = "Pause";
   });
@@ -337,7 +279,6 @@ function wire() {
     });
   }
   $("skip").addEventListener("click", () => run(() => lab.world.advance(lab.world.now + 60)));
-  $("restart").addEventListener("click", () => run(() => lab.world.restart()));
   for (const button of document.querySelectorAll("button:disabled")) button.disabled = false;
 }
 

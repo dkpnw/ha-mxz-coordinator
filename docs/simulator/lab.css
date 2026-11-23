@@ -43,17 +43,14 @@ button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0
 button:disabled { opacity: 0.5; cursor: default; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.presets { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1rem; align-items: baseline; margin-block: 0.5rem; }
+.setup { display: flex; flex-wrap: wrap; gap: 0.5rem 2.5rem; align-items: start; margin-block: 0.5rem; }
+.presets { flex: 1 1 26rem; display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1rem; align-items: baseline; }
 .presets .try { grid-column: 1 / -1; }
 #presets { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; }
 #presets .more { align-items: center; }
 #presets .more .label { color: var(--muted); font-size: 0.9rem; }
 .try { margin-block: 0; max-width: 90ch; }
-.temps { margin-block: 1rem; }
-.temps summary, .room summary, .writes summary { cursor: pointer; }
-.temps .buttons { margin-block-start: 0.5rem; }
-.temp-set { display: flex; gap: 0.35rem; align-items: center; margin-inline-end: 1rem; }
-.temp-set input { inline-size: 5rem; font: inherit; }
+.writes summary, .notes summary { cursor: pointer; }
 .status { padding: 0.5rem 0.75rem; border-radius: 0.4rem; background: var(--card); border: 1px solid var(--line); }
 .status:empty { display: none; }
 .status.error { border-color: var(--heat); color: var(--heat); }
@@ -80,17 +77,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   padding: 0.15rem 0.4rem; border-radius: 0.3rem; border-inline-start: 3px solid var(--warn-line);
 }
 .room:has(.doing-standby) { border-color: var(--warn-line); }
-.room .form { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.5rem; align-items: center; font-size: 0.9rem; }
-.room details { font-size: 0.9rem; margin-block-start: 0.3rem; }
-.room details .form { margin-block-start: 0.4rem; }
-.room .legend { grid-column: 1 / -1; margin: 0.3rem 0 0; font-weight: 600; font-size: 0.85rem; color: var(--muted); }
-.room input[type="number"] { inline-size: 5rem; }
-.room input, .room select { font: inherit; font-size: 0.9rem; }
-.room .wide { grid-column: 1 / -1; justify-self: start; }
-.room label { white-space: nowrap; margin-inline-start: 0.5rem; }
-.room .wide label:first-child { margin-inline-start: 0; }
-.hint { display: block; font-size: 0.8rem; color: var(--muted); }
-.hint[hidden] { display: none; }
+
+#shared-controls { flex: 0 1 auto; min-inline-size: 0; max-inline-size: 100%; overflow-x: auto; }
+#shared-controls .rule { margin-block: 0.3rem 0; max-inline-size: 34rem; }
+#shared-controls table { border-collapse: collapse; font-size: 0.9rem; }
+#shared-controls th, #shared-controls td { padding: 0.1rem 0.75rem 0.1rem 0; text-align: start; white-space: nowrap; }
+#shared-controls thead th { font-weight: 500; color: var(--muted); }
+#shared-controls input, #shared-controls select { font: inherit; }
+#shared-controls input[type="number"] { inline-size: 4.5rem; }
 .refused { margin: 0.25rem 0 0; font-size: 0.85rem; color: var(--heat); }
 .refused:empty { display: none; }
 .quiet { margin-block: 0 0.5rem; font-size: 0.92rem; color: var(--accent); }
