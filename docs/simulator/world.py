@@ -13,7 +13,8 @@ measures real equipment.
 One set of controls drives both rows. A person sets each room's mode, set-to and fan; the
 stock head takes them as they are. On the MXZ row, off or on is the room's switch, the set-to
 is its target number, and the fan is pressed at the room's remote, where a speed is held and
-auto hands the fan back (``fan_latch.observe_fan``).
+auto hands the fan back (``fan_latch.observe_fan``). A speed the head already shows is held
+with the room's Fan auto off, because pressing it changes nothing MXZ sees.
 
 Each room moves on its own 5-second tick, a second apart from the room before it, so each room's
 sensor reports on its own, as real sensors do (``mxz_row.MxzRow.world_changed`` says why that
@@ -243,9 +244,16 @@ class World:
         return None
 
     def set_fan(self, key: str, fan: str) -> None:
-        """A person sets the room's fan: on the stock head, and at the MXZ head's remote."""
+        """A person sets the room's fan: on the stock head, and at the MXZ head's remote.
+
+        A speed the MXZ head already shows changes nothing the head reports, so MXZ would not
+        see it. For that pick the person turns the room's Fan auto off instead, which holds the
+        speed the head shows (``fan_latch.fan_auto``)."""
         self._stock(key, fan_mode=fan)
-        self._press(key, fan_mode=fan)
+        if fan != "auto" and self.mxz.heads[key].fan_mode == fan:
+            self.row.set_fan_auto(key, False)
+        else:
+            self._press(key, fan_mode=fan)
 
     def _stock(self, key: str, **fields: Any) -> None:
         head = self.stock.heads[key]

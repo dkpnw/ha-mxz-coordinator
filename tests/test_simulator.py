@@ -1470,3 +1470,53 @@ def test_each_control_changes_both_rows(tree: Path) -> None:
     assert seen["fan auto"]["stock"][3] == "auto" and seen["fan auto"]["mxz"][3] is False
     assert seen["off"]["stock"][1] == "off" and seen["off"]["mxz"][1] is False
     assert seen["cool"]["stock"][1] == "cool" and seen["cool"]["mxz"][1] is True
+
+
+# A fan pick of the speed MXZ's head already shows, in each scenario that cools Studio on a
+# boosted fan: at 1:03, after MXZ's start is quiet, and at 0:00, inside it. Each case also runs
+# without the pick, to show the fan would have stepped.
+SAME_SPEED = """
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import world
+def studio(w):
+    view = json.loads(w.view())
+    return [view["stock"]["rooms"][0]["fan"], view["mxz"]["rooms"][0]["fan"], view["mxz"]["rooms"][0]["fan_held"]]
+out = {}
+for name, at in (("fan_hold", 63), ("fan_hold", 0), ("mixed", 63), ("restart", 63)):
+    case = {}
+    for pick in (True, False):
+        w = world.World(name)
+        w.advance(at)
+        shown = studio(w)[1]
+        before = len(w.row.log.calls)
+        if pick:
+            w.set_fan("studio", shown)
+        seen = [studio(w)]
+        for later in range(at + 30, at + 601, 30):
+            w.advance(later)
+            seen.append(studio(w))
+        fan_calls = [c for c in w.row.log.calls[before:] if c[1] == "studio" and c[2] == "set_fan_mode"]
+        case["picked" if pick else "not picked"] = {"shown": shown, "seen": seen, "fan_calls": len(fan_calls)}
+    out[f"{name} {at}"] = case
+print(json.dumps(out))
+"""
+
+
+def test_picking_the_speed_the_mxz_head_shows_holds_it(tree: Path) -> None:
+    """A pick of the speed MXZ's head already shows is held in both rows for the next 10
+    minutes, through the restart scenario's restart at 5:00, and MXZ sends that head no fan
+    command. Without the pick, MXZ steps the same fan within those 10 minutes."""
+    done = subprocess.run([sys.executable, "-I", "-c", SAME_SPEED, str(tree)], capture_output=True, text=True,
+                          check=True)
+    cases = json.loads(done.stdout)
+    assert set(cases) == {"fan_hold 63", "fan_hold 0", "mixed 63", "restart 63"}
+    for name, case in cases.items():
+        picked, alone = case["picked"], case["not picked"]
+        assert picked["shown"] == alone["shown"] == "high", name
+        assert all(seen == ["high", "high", True] for seen in picked["seen"]), (name, picked["seen"])
+        assert picked["fan_calls"] == 0, name
+        # negative: without the pick MXZ runs the fan, so it is never held and it steps down
+        assert not any(held for _, _, held in alone["seen"]), name
+        assert {fan for _, fan, _ in alone["seen"]} - {"high"}, (name, alone["seen"])
+        assert alone["fan_calls"] > 0, name
