@@ -1,4 +1,4 @@
 # Each lane lock in requirements/ pins Home Assistant and its test plugin.
-hypothesis>=6.170.15
+hypothesis>=6.170.16
 pytest>=8.3.3
 pytest-asyncio>=0.24.0

@@ -279,7 +279,7 @@ FLOOR_LOCK = "requirements/constraints-py312-ha2024.12.5.txt"
      ["pytest>=9.2.0 refuses 8.3.3", "pytest-asyncio>=1.4.1.post1 refuses 0.24.0",
       "pytest-homeassistant-custom-component>=0.13.375 refuses 0.13.195"]),
     ("pytest-asyncio==0.23.0\n", ["pytest-asyncio==0.23.0 refuses 0.24.0"]),
-    ("hypothesis>=6.170.16  # one above the lock\n", ["hypothesis>=6.170.16 refuses 6.170.15"]),
+    ("hypothesis>=6.170.17  # one above the lock\n", ["hypothesis>=6.170.17 refuses 6.170.16"]),
     ("invented-plugin>=1\n", ["invented-plugin not in the lock"]),
     # Names compare normalized, and a floor equal to the pin is admitted.
     ("Pytest_Asyncio>=0.24.0\npytest>=8.3.3\n", []),

@@ -54,7 +54,7 @@ Hypothesis and sortedcontainers keep the versions every lock shares
 ```bash
 python3.14 -m venv /tmp/lane
 /tmp/lane/bin/python -m pip install --index-url https://pypi.org/simple \
-  pytest-homeassistant==2026.11.2 numpy==2.3.2 hypothesis==6.170.15 -r requirements_test.txt
+  pytest-homeassistant==2026.11.2 numpy==2.3.2 hypothesis==6.170.16 -r requirements_test.txt
 /tmp/lane/bin/python -m pip check
 /tmp/lane/bin/python -m pip freeze --all --exclude pip > requirements/constraints-py314-ha2026.11.2.txt
 ```

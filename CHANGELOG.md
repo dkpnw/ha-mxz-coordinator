@@ -10,6 +10,8 @@ on your equipment.
 
 ## Unreleased
 
+- CI and tests only: hypothesis moves to 6.170.16 in the test requirements and each HA test-lane lock, each lock regenerated from a fresh venv, and the hassfest and OpenSSF Scorecard actions move to newer pinned commits. This takes Dependabot PR #159 and the hypothesis half of #160.
+
 ## 3.23.0 (November 18, 2026)
 
 One temperature sensor can now serve several heads, so two heads in one space can both follow
