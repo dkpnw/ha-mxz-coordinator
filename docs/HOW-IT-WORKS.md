@@ -22,7 +22,7 @@ unit may be unable to switch between COOL and HEAT and enter standby.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-stock-vs-mxz-end-dark.png">
-  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-stock-vs-mxz-end-light.png" width="440" alt="Last frame of the README's simulation, 7 minutes 30 seconds into the run. Stock: the outdoor unit runs heat, Studio reads 76 °F with its head set to cool at 70 °F and waiting, and Loft and Den read 70.4 °F with their heads idle in heat. MXZ Coordinator: shared mode cool, Studio reads 70.1 °F with its head on fan only, and Loft and Den read 70.4 °F with their heads off.">
+  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-stock-vs-mxz-end-light.png" width="440" alt="Last frame of the README's simulation, 7 minutes 30 seconds into the run. Stock: the outdoor unit runs heat, Studio reads 76 °F with its head set to cool at 70 °F and waiting in standby, a warning under the table says so, and Loft and Den read 70.4 °F with their heads idle in heat. MXZ Coordinator: shared mode cool, Studio reads 70.1 °F with its head on fan only drying the coil, and Loft and Den read 70.4 °F with their heads off.">
 </picture>
 
 The README's simulation applies only that rule to invented heads: the room selected last,
@@ -154,8 +154,9 @@ The plan, with each room's reasons, is on `sensor.*_plan`; see
 ## More scenarios
 
 These clips are made the same way as the one at the top of the README: invented heads
-and rooms on a throwaway Home Assistant, each row filmed on its own instance and sped up
-25 times (the Comfort priority clip, which is shorter, 10 times). A stock row follows
+and rooms on a throwaway Home Assistant, each row filmed on its own instance. The clips
+below are sped up 25 times, except the Comfort priority clip, which is shorter and plays
+at 10 times. The README clip also plays at 10 times. A stock row follows
 only the manual's standby rule quoted in [The problem in detail](#the-problem-in-detail).
 An MXZ row is the real integration at its default settings, except where the caption
 names a setting. A running head moves its
@@ -163,8 +164,8 @@ room an invented 1 °F a minute. No clip measures real equipment, energy, comfor
 noise. How each one is filmed and checked is in
 [the verification instance's README](../verification/instance/README.md#the-demo-scenes).
 
-To set the rooms, the heads and MXZ's settings yourself, use [the simulator](simulator/): a
-page that runs MXZ's own code in your browser beside the same stock rule.
+To change room temperatures, targets and wall remotes yourself, open [the simulator](simulator/):
+a page that runs MXZ's own code in your browser beside the same stock rule.
 
 The README's clip also shows coil drying: when Studio reaches its target after cooling,
 MXZ runs its head on fan only to dry the coil, and turns it off 10 minutes later.

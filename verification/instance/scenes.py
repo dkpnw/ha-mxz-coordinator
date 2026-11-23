@@ -33,11 +33,12 @@ class Scene:
 
 
 SCENES = {scene.name: scene for scene in (
-    # The README hook. Its numbers are the ones the published GIF was made with.
+    # The README hook. Its numbers are the ones the published GIF was made with: 10 times, so
+    # a first-time viewer can read both rows before Studio reaches its target.
     Scene("stock-vs-mxz", (
         Row("demo-stock", "journeys.demo_stock", "stock"),
         Row("demo-coordinated", "journeys.demo_coordinated", "mxz"),
-    ), demo.WINDOW, demo.START_STEP),
+    ), demo.WINDOW, demo.START_STEP, demo.SPEED),
     Scene("satisfied", (
         Row("satisfied-stock", "journeys.satisfied_stock", "stock"),
         Row("satisfied-coordinated", "journeys.satisfied_coordinated", "mxz-outdoor"),

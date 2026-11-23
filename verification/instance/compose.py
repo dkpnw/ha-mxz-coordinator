@@ -6,8 +6,8 @@ One run and one frames folder per row, top to bottom. A run is a journey's
 evidence directory (it holds transcript.json); frames are what film.py wrote.
 Each row's clock starts at its journey's start step, and every row advances on
 that clock in fixed steps, sped up evenly; no time is cut from one row or one
-beat. The band above the rows says what this is, the speed, and the time into
-the run. Needs Pillow. Nothing here reads or changes a state.
+beat. Each row keeps one height for the whole GIF. The band above the rows says
+what this is, the speed, and the time into the run. Needs Pillow. Nothing here reads or changes a state.
 """
 
 from __future__ import annotations
@@ -64,21 +64,38 @@ def timeline(window: float, every: float = EVERY) -> list[float]:
     return [step * every for step in range(int(window // every) + 1)]
 
 
-def frame(rows: list[Path], seconds: float, theme: str, speed: int) -> Image.Image:
+def slots(rows: list[list[Path]]) -> tuple[int, list[int]]:
+    """The width of every frame and each row's height: the widest and tallest shot shown.
+
+    A card grows when a line appears on it (the stock card's standby warning), so each row
+    keeps the height of its tallest shot and every frame of the GIF is the same size.
+    """
+    width, heights = 0, []
+    for shown in rows:
+        sizes = []
+        for path in set(shown):
+            with Image.open(path) as shot:
+                sizes.append(shot.size)
+        width = max(width, *(w for w, _ in sizes))
+        heights.append(max(h for _, h in sizes))
+    return width + 2 * MARGIN, heights
+
+
+def frame(rows: list[Path], seconds: float, theme: str, speed: int, size: tuple[int, list[int]]) -> Image.Image:
     back, text, quiet = THEMES[theme]
     shots = [Image.open(row).convert("RGB") for row in rows]
-    width = max(shot.width for shot in shots) + 2 * MARGIN
-    canvas = Image.new("RGB", (width, BAND + sum(shot.height + MARGIN for shot in shots)), back)
+    width, heights = size
+    canvas = Image.new("RGB", (width, BAND + sum(height + MARGIN for height in heights)), back)
     draw = ImageDraw.Draw(canvas)
     font = ImageFont.truetype(FONT, 22)
-    draw.text((MARGIN, BAND // 2), f"Simulation · invented heads and rooms · {speed}× speed",
+    draw.text((MARGIN, BAND // 2), f"Simulation · invented rooms · sped up {speed}×",
               fill=quiet, font=font, anchor="lm")
     clock = f"{int(seconds) // 60}:{int(seconds) % 60:02d} into the run"
     draw.text((width - MARGIN, BAND // 2), clock, fill=text, font=font, anchor="rm")
     top = BAND
-    for shot in shots:
+    for shot, height in zip(shots, heights, strict=True):
         canvas.paste(shot, (MARGIN, top))
-        top += shot.height + MARGIN
+        top += height + MARGIN
     return canvas
 
 
@@ -91,8 +108,9 @@ def compose(scene: Scene, out: Path, rows: list[tuple[Path, Path]]) -> list[Path
     written = []
     for theme in THEMES:
         shots = [frames(folder / theme) for _, folder in rows]
-        images = [frame([at(row, start + t) for row, start in zip(shots, zero, strict=True)], t, theme, scene.speed)
-                  for t in timeline(scene.window)]
+        shown = [[at(row, start + t) for row, start in zip(shots, zero, strict=True)] for t in timeline(scene.window)]
+        size = slots([list(row) for row in zip(*shown, strict=True)])
+        images = [frame(paths, t, theme, scene.speed, size) for paths, t in zip(shown, timeline(scene.window), strict=True)]
         durations = [round(1000 * EVERY / scene.speed)] * len(images)
         durations[-1] = round(1000 * HOLD)
         gif = out / f"demo-{scene.name}-{theme}.gif"

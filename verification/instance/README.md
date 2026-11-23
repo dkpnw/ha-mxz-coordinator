@@ -118,7 +118,7 @@ and the card `film.py` shows for it (`cards.py`), and the window, start step and
 
 | Scene | Rows: feature (card) | Window |
 |---|---|---|
-| `stock-vs-mxz`, the README's top demo | `demo-stock` (`stock`), `demo-coordinated` (`mxz`) | 450 s |
+| `stock-vs-mxz`, the README's top demo | `demo-stock` (`stock`), `demo-coordinated` (`mxz`) | 450 s, at 10 times |
 | `satisfied` | `satisfied-stock` (`stock`), `satisfied-coordinated` (`mxz-outdoor`) | 450 s |
 | `fan-hold` | `fan-hold` (`mxz-fan`) | 450 s |
 | `mode-wait` | `mode-wait` (`mxz-wait`) | 600 s |
@@ -156,9 +156,11 @@ namespace. It saves a one-card dashboard whose markdown Home Assistant renders f
 live states, and screenshots it in a light and a dark browser every 5 seconds until it
 is stopped. `compose.py` (Pillow) takes one run and one frames folder per row, top to
 bottom, and refuses a run of another feature. It starts each row's clock at its
-journey's start step, stacks the rows, and speeds them all up evenly, 25 times. Each demo
-journey checks its own beats; one that does not happen is a finding, not a caption to
-change.
+journey's start step, stacks the rows, and speeds them all up evenly, 25 times unless the
+table above gives another speed. Each row keeps the height of its tallest shot, so a
+line that appears on a card partway (the stock card's standby warning) does not resize
+the GIF. Each demo journey checks its own beats; one that does not happen is a finding,
+not a caption to change.
 
 ## Cleanup
 

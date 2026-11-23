@@ -92,6 +92,8 @@ def main() -> int:
             (args.out / theme).mkdir(parents=True, exist_ok=True)
             page.goto(f"{URL}/{DASHBOARD}/row")
             page.wait_for_selector("hui-markdown-card ha-markdown table", timeout=60_000)
+            # The frontend's launch screen fades out over the card after it renders.
+            page.wait_for_selector("#ha-launch-screen", state="detached", timeout=60_000)
         print(f"FILMING {args.feature} every {args.every:g} s into {args.out}", flush=True)
         while not stop:
             shot = time.time()

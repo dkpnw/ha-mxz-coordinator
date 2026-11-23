@@ -1073,6 +1073,7 @@ class MxzRow:
                 "key": room.key, "target": room.target, "enable": room.enable,
                 "comfort": room.comfort, "fan_held": room.latch.holds,
                 "adopting": self.waiting("heal", (room.climate_id, "adopt")),
+                "drying": self.waiting("dry", room.climate_id),
             })
         return out
 
