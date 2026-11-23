@@ -219,8 +219,8 @@ def test_a_raised_floor_is_accepted(config):
 
 @pytest.mark.parametrize(("change", "expected"), [
     (lambda s, k, t: (s.replace("mypy==2.4.1", "mypy==2.4.0"), k, t), "lock differs from its source"),
-    (lambda s, k, t: (s, k.replace("ruff==0.17.4", "ruff==0.16.0"), t), "lock differs from its source"),
-    (lambda s, k, t: (s, k, t + "ruff==0.17.4\n"), "two ruff versions"),
+    (lambda s, k, t: (s, k.replace(f"ruff=={CI_RUFF}", "ruff==0.16.0"), t), "lock differs from its source"),
+    (lambda s, k, t: (s, k, t + f"ruff=={CI_RUFF}\n"), "two ruff versions"),
     (lambda s, k, t: (s, re.sub(r"(ruff==\S+)(?: \\\n\s+--hash=\S+)+", r"\1", k), t), "requirement without a hash"),
 ])
 def test_a_drifted_tool_lock_is_refused(change, expected):
@@ -279,7 +279,7 @@ FLOOR_LOCK = "requirements/constraints-py312-ha2024.12.5.txt"
      ["pytest>=9.2.0 refuses 8.3.3", "pytest-asyncio>=1.4.1.post1 refuses 0.24.0",
       "pytest-homeassistant-custom-component>=0.13.375 refuses 0.13.195"]),
     ("pytest-asyncio==0.23.0\n", ["pytest-asyncio==0.23.0 refuses 0.24.0"]),
-    ("hypothesis>=6.170.16  # one above the lock\n", ["hypothesis>=6.170.16 refuses 6.170.15"]),
+    ("hypothesis>=6.170.17  # one above the lock\n", ["hypothesis>=6.170.17 refuses 6.170.16"]),
     ("invented-plugin>=1\n", ["invented-plugin not in the lock"]),
     # Names compare normalized, and a floor equal to the pin is admitted.
     ("Pytest_Asyncio>=0.24.0\npytest>=8.3.3\n", []),
