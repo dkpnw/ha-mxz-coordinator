@@ -7,12 +7,12 @@ Set a temperature in each room and forget it. Like a Tesla's climate Auto, MXZ p
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-stock-vs-mxz-dark.gif">
-  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-stock-vs-mxz-light.gif" alt="Simulation with invented heads, sped up 10 times. Two rows show the same three rooms from the same start: Loft and Den at their 70 °F targets after a morning of heating, and Studio warmed to 76 °F. Top row, stock: Studio's head is set to cool at 70 °F and waits in standby while the other two heads sit in heat. A warning under the table says Studio waits in standby because the outdoor unit is running heat, and Studio still reads 76 °F at the end. Bottom row, MXZ Coordinator: the shared mode changes from heat to cool, Studio cools with its fan stepping from high through middle, medium and low to quiet, and Studio ends at 70 °F with its head on fan only, drying the coil, while Loft's and Den's heads stay off.">
+  <img src="https://raw.githubusercontent.com/dkpnw/ha-mxz-coordinator/main/images/demo-stock-vs-mxz-light.gif" alt="Simulation, sped up 10 times. Two rows show the same three rooms from the same start: Loft and Den at their 70 °F targets after a morning of heating, and Studio warmed to 76 °F. Top row, stock: Studio's head is set to cool at 70 °F and waits in standby while the other two heads sit in heat. A warning under the table says Studio waits in standby because the outdoor unit is running heat, and Studio still reads 76 °F at the end. Bottom row, MXZ Coordinator: the shared mode changes from heat to cool, Studio cools with its fan stepping from high through middle, medium and low to quiet, and Studio ends at 70 °F with its head on fan only, drying the coil, while Loft's and Den's heads stay off.">
 </picture>
 
 **[Try it yourself in the simulator](https://dkpnw.github.io/ha-mxz-coordinator/simulator/)** in your browser, or [run it from your own copy](docs/simulator/README.md#run-it-from-your-own-copy).
 
-<sub>Simulation, sped up 10×. The heads and rooms are invented; a running head moves its room 1 °F a minute. The top row follows one rule from Mitsubishi's manual for heads that share an outdoor unit: "the unit selected last goes into standby mode." The bottom row is MXZ Coordinator at its default settings. Neither row measures real equipment. [What stock AUTO does, with sources](docs/HOW-IT-WORKS.md#the-problem-in-detail). [More scenarios](docs/HOW-IT-WORKS.md#more-scenarios).</sub>
+<sub>Simulation, sped up 10×. A running head moves its room 1 °F a minute. The top row follows one rule from Mitsubishi's manual for heads that share an outdoor unit: "the unit selected last goes into standby mode." The bottom row is MXZ Coordinator at its default settings. Neither row measures real equipment. [What stock AUTO does, with sources](docs/HOW-IT-WORKS.md#the-problem-in-detail). [More scenarios](docs/HOW-IT-WORKS.md#more-scenarios).</sub>
 
 <p align="center">
   <a href="https://my.home-assistant.io/redirect/marketplace_repository/?owner=dkpnw&repository=ha-mxz-coordinator&category=integration"><img src="https://my.home-assistant.io/badges/marketplace_repository.svg" alt="Open this repository in the Home Assistant Marketplace (2026.11 or newer)."></a>
@@ -83,7 +83,7 @@ an hour while the other head sat satisfied
 One target per room, one shared mode: Studio cools while Loft and Den, already at target,
 sit idle.
 
-> Shared as-is; support is best-effort. Automated checks use invented heads and sensors.
+> Shared as-is; support is best-effort. Automated checks run against simulated heads and sensors.
 > They establish software behavior, not physical performance on your equipment.
 
 [How it works](docs/HOW-IT-WORKS.md) walks through each decision, cites the Mitsubishi
@@ -96,7 +96,7 @@ manuals on stock AUTO, and has the full list of what MXZ does and why.
 | Mitsubishi heads on [echavet/MitsubishiCN105ESPHome](https://github.com/echavet/MitsubishiCN105ESPHome), local | Built for it. Hardware-tested on the maintainer's two-head system. | 2 to 8 heads on one outdoor unit. |
 | 4-zone MXZ-4C36NA2 | Tested by a user. | |
 | 3-zone and 6-zone systems | Reported by users. Models not stated. | |
-| Home Assistant `melcloud`, `kumo_cloud` ([comfort_HA](https://github.com/jjustinwilson/comfort_HA)), `kumo` ([hass-kumo](https://github.com/dlarrick/hass-kumo)) | [Cloud (beta)](#cloud-heads-beta). Tested on invented heads only. One forum report, for comfort_HA. | Fan boost moves one speed every 5 minutes. Timing is minutes, not seconds. |
+| Home Assistant `melcloud`, `kumo_cloud` ([comfort_HA](https://github.com/jjustinwilson/comfort_HA)), `kumo` ([hass-kumo](https://github.com/dlarrick/hass-kumo)) | [Cloud (beta)](#cloud-heads-beta). Tested on simulated heads only. One forum report, for comfort_HA. | Fan boost moves one speed every 5 minutes. Timing is minutes, not seconds. |
 | Any other `climate` entity with heat and cool | [Generic (beta)](#generic-heads-beta). None verified. | Same fan limit. |
 | Simultaneous heat and cool, branch-box VRF | Out of scope. | |
 | Cool-only units | Refused in setup. | |
@@ -117,7 +117,7 @@ has the details. If you try it, please
 
 Any Home Assistant `climate` entity that offers `heat` and `cool`, such as another brand's
 mini-split, can be coordinated too: turn on **Generic heads (beta)** on setup's first
-page. It is tested only on invented heads, with no user reports yet
+page. It is tested only on simulated heads, with no user reports yet
 ([tested by users](docs/FEATURES.md#tested-by-users)).
 [Generic heads (beta)](docs/FEATURES.md#generic-heads-beta) has what it needs and what MXZ
 does differently. If you try one,
