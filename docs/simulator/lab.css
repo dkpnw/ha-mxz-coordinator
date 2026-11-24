@@ -21,8 +21,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); }
 main { max-width: 72rem; margin-inline: auto; padding: 0.5rem clamp(0.75rem, 3vw, 2rem) 3rem; }
 h1 { font-size: clamp(1.3rem, 2.5vw, 1.6rem); margin-block: 0.25rem 0; }
 h2 { font-size: 1.1rem; margin: 0; }
-.lede, .try, .rule { color: var(--muted); }
-.lede { margin-block: 0.15rem 0.5rem; }
+.rule { color: var(--muted); }
 
 .band {
   position: sticky; top: 0; z-index: 1;
@@ -43,14 +42,10 @@ button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0
 button:disabled { opacity: 0.5; cursor: default; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.setup { display: flex; flex-wrap: wrap; gap: 0.5rem 2.5rem; align-items: start; margin-block: 0.5rem; }
-.presets { flex: 1 1 26rem; display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1rem; align-items: baseline; }
-.presets .try { grid-column: 1 / -1; }
-#presets { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; }
-#presets .more { align-items: center; }
-#presets .more .label { color: var(--muted); font-size: 0.9rem; }
-.try { margin-block: 0; max-width: 90ch; }
-.writes summary, .notes summary { cursor: pointer; }
+.presets { margin-block: 0.5rem; }
+.line { margin-block: 0.4rem 0; }
+#try-it { margin-block: 0.5rem; }
+summary { cursor: pointer; }
 .status { padding: 0.5rem 0.75rem; border-radius: 0.4rem; background: var(--card); border: 1px solid var(--line); }
 .status:empty { display: none; }
 .status.error { border-color: var(--heat); color: var(--heat); }
@@ -58,28 +53,31 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .row { margin-block: 0.5rem; padding: 0.6rem 0.9rem 0.75rem; background: var(--card); border: 1px solid var(--line); border-radius: 0.6rem; }
 .row-head { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; align-items: baseline; }
 .row-head p { margin: 0; }
-.rule { margin-block: 0.2rem 0.5rem; font-size: 0.9rem; }
-.row-foot { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: start; justify-content: space-between; margin-block-start: 0.6rem; }
+.row-head { margin-block-end: 0.4rem; }
+.row-head .rule { font-size: 0.9rem; }
 
 .rooms { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 0.6rem; }
 .room { padding: 0.5rem 0.75rem; border: 1px solid var(--line); border-radius: 0.5rem; }
 .room h3 { margin: 0; font-size: 1rem; display: flex; gap: 0.5rem; align-items: baseline; }
-.order { font-size: 0.8rem; font-weight: 400; color: var(--muted); }
 .badge { margin-inline-start: auto; font-size: 0.8rem; font-weight: 500; color: var(--accent); }
-.temp { font-size: 1.4rem; font-variant-numeric: tabular-nums; margin: 0; }
-.head, .plan { margin: 0 0 0.3rem; color: var(--muted); font-size: 0.9rem; }
-.doing-heating, .mode-heat { color: var(--heat); }
-.doing-cooling, .mode-cool { color: var(--cool); }
+.room p { margin: 0; }
+.temp { font-size: 1.4rem; font-variant-numeric: tabular-nums; }
+.to, .head { color: var(--muted); font-size: 0.9rem; }
+.doing-heating { color: var(--heat); }
+.doing-cooling { color: var(--cool); }
 .doing-drying { color: var(--accent); }
-/* Stock's failure: a head that wants the other mode waits. Make it the loudest thing in the row. */
-.head.doing-standby {
-  color: var(--warn-ink); background: var(--warn); font-weight: 600;
-  padding: 0.15rem 0.4rem; border-radius: 0.3rem; border-inline-start: 3px solid var(--warn-line);
+/* A room that waits for the other mode is the loudest thing in its row. Every card keeps the
+   flag's line, so a row does not change height when a wait starts or ends. */
+.flag {
+  min-block-size: 1.65rem; font-size: 0.85rem; font-weight: 600;
+  padding: 0.15rem 0.4rem; border-radius: 0.3rem;
 }
-.room:has(.doing-standby) { border-color: var(--warn-line); }
+.flag:not(:empty) { color: var(--warn-ink); background: var(--warn); border-inline-start: 3px solid var(--warn-line); }
+.room:has(.flag:not(:empty)) { border-color: var(--warn-line); }
 
-#shared-controls { flex: 0 1 auto; min-inline-size: 0; max-inline-size: 100%; overflow-x: auto; }
-#shared-controls .rule { margin-block: 0.3rem 0; max-inline-size: 34rem; }
+#shared-controls { display: flex; flex-wrap: wrap; gap: 0.5rem 2rem; margin-block-start: 0.4rem; overflow-x: auto; }
+#shared-controls .help { flex: 1 1 20rem; max-inline-size: 34rem; font-size: 0.9rem; color: var(--muted); }
+#shared-controls .help p { margin-block: 0 0.4rem; }
 #shared-controls table { border-collapse: collapse; font-size: 0.9rem; }
 #shared-controls th, #shared-controls td { padding: 0.1rem 0.75rem 0.1rem 0; text-align: start; white-space: nowrap; }
 #shared-controls thead th { font-weight: 500; color: var(--muted); }
@@ -88,7 +86,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .refused { margin: 0.25rem 0 0; font-size: 0.85rem; color: var(--heat); }
 .refused:empty { display: none; }
 
-.writes { font-size: 0.9rem; }
+.writes { font-size: 0.9rem; margin-block-start: 0.5rem; }
 .writes ol, .writes .none { margin: 0.4rem 0 0; color: var(--muted); }
 .writes ol { padding-inline-start: 1.5rem; }
 .writes ol:empty { display: none; }

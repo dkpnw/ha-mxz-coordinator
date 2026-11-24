@@ -10,6 +10,7 @@ on your equipment.
 
 ## Unreleased
 
+- Docs only: the simulator lists only the two scenarios where stock leaves a room waiting, its page is shorter, and its controls are under "Try it yourself".
 - CI and tests only: ruff moves to 0.17.6 in the CI tools and the pre-commit hook, hypothesis moves to 6.170.16 in the test requirements and each HA test-lane lock, each lock regenerated from a fresh venv, and the hassfest and OpenSSF Scorecard actions move to newer pinned commits. This takes Dependabot PRs #159 and #160.
 
 ## 3.23.0 (November 18, 2026)
