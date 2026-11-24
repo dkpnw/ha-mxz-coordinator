@@ -5,11 +5,12 @@ each release are in [docs/MIGRATION.md](docs/MIGRATION.md). The GitHub
 [releases page](https://github.com/dkpnw/ha-mxz-coordinator/releases) has every tag.
 
 Hardware tests below were run on two-head and four-zone MXZ systems. Automated tests use
-invented heads and sensors: they establish software behavior, not physical performance
+simulated heads and sensors: they establish software behavior, not physical performance
 on your equipment.
 
 ## Unreleased
 
+- Docs and demo scenes only: the README, How it works and the introduction above use shorter wording for the simulated heads and rooms, and the clip of every room reaching its target is gone from How it works and from the filmed scenes.
 - Docs only: the simulator lists only the two scenarios where stock leaves a room waiting, its page is shorter, and its controls are under "Try it yourself".
 - CI and tests only: ruff moves to 0.17.6 in the CI tools and the pre-commit hook, hypothesis moves to 6.170.16 in the test requirements and each HA test-lane lock, each lock regenerated from a fresh venv, and the hassfest and OpenSSF Scorecard actions move to newer pinned commits. This takes Dependabot PRs #159 and #160.
 
