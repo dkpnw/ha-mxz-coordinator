@@ -15,6 +15,7 @@ import json
 import re
 import subprocess
 import sys
+from html import unescape
 from pathlib import Path
 from typing import Any
 
@@ -1167,10 +1168,20 @@ def _words(text: str) -> str:
     return " ".join(text.split())
 
 
+# The speed buttons, in order: each button's data-speed and its label.
+SPEEDS = [("1", "1×"), ("10", "10×"), ("25", "25×")]
+HUNDRED_TIMES = re.compile(r"\b100\s*[×x]", re.IGNORECASE)
+
+
+def _says_100x(text: str) -> bool:
+    """Whether ``text`` says 100× or 100x, also with the sign as an HTML entity or a JS escape."""
+    return HUNDRED_TIMES.search(re.sub(r"\\(?:u00d7|xd7)", "×", unescape(text), flags=re.IGNORECASE)) is not None
+
+
 def _page_problems(html: str, css: str) -> list[str]:
     """What the page must say and load: the Simulation band that stays on screen, the stock
-    rule as the README states it, what it leaves out, the pinned Pyodide, and a back link that
-    works on Pages."""
+    rule as the README states it, what it leaves out, the pinned Pyodide, the speed buttons, and
+    a back link that works on Pages."""
     problems = []
     band = re.search(r'<header class="band"[^>]*>(.*?)</header>', html, re.DOTALL)
     if band is None or '<p class="label"><strong>Simulation</strong></p>' not in band.group(1):
@@ -1196,6 +1207,11 @@ def _page_problems(html: str, css: str) -> list[str]:
         problems.append("the back link does not open the README on GitHub")
     if not re.search(r'<button type="button" data-speed="10" aria-pressed="true"', html):
         problems.append("10× is not the speed it starts at")
+    speeds = re.findall(r'<button\b[^>]*\bdata-speed="([^"]*)"[^>]*>(.*?)</button>', html, re.DOTALL)
+    if speeds != SPEEDS or html.count("data-speed") != len(SPEEDS):
+        problems.append(f"the speeds are {speeds}")
+    if _says_100x(html):
+        problems.append("says 100×")
     if '<button id="replay" type="button"' not in html:
         problems.append("no Replay button")
     panel = html.find('id="shared-controls"')
@@ -1250,9 +1266,88 @@ def test_the_page_check_reports_each_missing_part() -> None:
         "the controls are not in a closed Try it yourself"]
     old_band = html.replace("<strong>Simulation</strong>", "<strong>Simulation</strong> · invented heads and rooms")
     assert _page_problems(old_band, css) == ["no Simulation band"]
+    fast = '<button type="button" data-speed="25" disabled>25×</button>'
+    old = '<button type="button" data-speed="100" disabled>100×</button>'
+    ten = '<button type="button" data-speed="10" aria-pressed="true" disabled>10×</button>'
+    at_1, at_10, at_25 = SPEEDS
+    assert html.count(fast) == html.count(ten) == 1
+    for changed, problems in (
+        (html.replace(fast, old), [f"the speeds are {[at_1, at_10, ('100', '100×')]}", "says 100×"]),
+        (html.replace(fast, fast + old), [f"the speeds are {[*SPEEDS, ('100', '100×')]}", "says 100×"]),
+        (html.replace(fast, ""), [f"the speeds are {[at_1, at_10]}"]),
+        (html.replace(fast, fast.replace('"25"', '"100"')), [f"the speeds are {[at_1, at_10, ('100', '25×')]}"]),
+        (html.replace(fast, fast.replace("25×", "100&times;")),
+         [f"the speeds are {[at_1, at_10, ('25', '100&times;')]}", "says 100×"]),
+        (html.replace(fast, "").replace(ten, fast + ten), [f"the speeds are {[at_1, at_25, at_10]}"]),
+        (html.replace(fast, fast + '<a data-speed="50">50×</a>'), [f"the speeds are {SPEEDS}"]),
+        (html.replace('aria-label="Clock"', 'aria-label="Clock, up to 100x"'), ["says 100×"]),
+    ):
+        assert _page_problems(changed, css) == problems
     js = (PAGE / "lab.js").read_text()
     assert "speed: 10," in js
     assert [label for label in JARGON if label.lower() in js.lower()] == []
+
+
+def test_no_simulator_file_says_100x() -> None:
+    texts = {path.name: path.read_text() for path in PAGE.iterdir() if path.is_file()}
+    assert {"index.html", "lab.js", "lab.css", "README.md", "world.py", "bundle.js"} <= set(texts)
+    assert [name for name, text in texts.items() if _says_100x(text)] == []
+    for said in ("100×", "up to 100x.", "100 ×", "100&times;", "100&#215;", r"100\u00d7", r"100\xd7"):
+        assert _says_100x(said), said  # negative
+    for other in ("10×", "25×", "1100×", "100 pixels", "min(100%, 15rem)"):
+        assert not _says_100x(other), other
+
+
+# Each listed scenario at each speed, as lab.js's frame() runs it: one advance per frame, by the
+# frame's real time times the speed. The real times are a 64 Hz frame and the 0.25 s cap frame()
+# puts on a slow one; both are exact in binary, so every speed lands on the same instants. Each
+# view is kept every 12.5 simulated seconds. "broken" is a world that moves one room a frame.
+AT_EACH_SPEED = """
+import hashlib, json, sys
+sys.path.insert(0, sys.argv[1])
+import world
+class OneTickAFrame(world.World):
+    def advance(self, until):
+        at, i = self._next_tick()
+        if at <= until:
+            self.row.advance(at)
+            self.now = at
+            self._tick(self.keys[i])
+        self.row.advance(until)
+        self.now = until
+def run(name, speed, real, until):
+    w = world.load(name)
+    seen = []
+    while w.now < until:
+        w.advance(w.now + real * speed)
+        if w.now % 12.5 == 0:
+            view = w.view()
+            assert json.loads(view)["now"] == w.now
+            seen.append(hashlib.sha256(view.encode()).hexdigest())
+    return seen
+names = [preset["name"] for preset in json.loads(world.presets())]
+speeds = [int(speed) for speed in sys.argv[2:]]
+out = {"right": {n: {f"{s}x, {r} s": run(n, s, r, 1500) for s in speeds for r in (1 / 64, 0.25)} for n in names}}
+world.World = OneTickAFrame
+out["broken"] = {n: {f"{s}x": run(n, s, 0.25, 1500) for s in speeds} for n in names}
+print(json.dumps(out))
+"""
+
+
+def test_each_speed_shows_the_same_states(tree: Path) -> None:
+    """Over the same 25 simulated minutes, each listed scenario shows the same states and sends
+    the same commands at 1×, 10× and 25×."""
+    done = subprocess.run([sys.executable, "-I", "-c", AT_EACH_SPEED, str(tree), *(speed for speed, _ in SPEEDS)],
+                          capture_output=True, text=True, check=True)
+    out = json.loads(done.stdout)
+    assert set(out["right"]) == {"mixed", "standoff"}
+    for name, runs_at in out["right"].items():
+        assert len(runs_at) == 6
+        first = next(iter(runs_at.values()))
+        assert len(first) == 120 and len(set(first)) == 120, name  # every view differs from the last
+        assert [label for label, seen in runs_at.items() if seen != first] == [], name
+    for name, runs_at in out["broken"].items():  # negative: a world whose states depend on the frame
+        assert runs_at["1x"] != runs_at["25x"], name
 
 
 # What a reader must not be told: it is a simulation, so its rooms and heads need no disclaimer.
