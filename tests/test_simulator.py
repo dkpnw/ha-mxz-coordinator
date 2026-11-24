@@ -4,7 +4,7 @@ The parity tests run each script on the real coordinator over the real invented 
 page's row from the shipped bundle without Home Assistant (``tests/simlab_parity.py``), and
 compare them after every step.
 
-Every room, head and number is invented; nothing here is a hardware result.
+Nothing here is a hardware result.
 """
 
 from __future__ import annotations
@@ -1025,7 +1025,7 @@ TARGETS = """
 import json, sys
 sys.path.insert(0, sys.argv[1])
 import world
-w = world.World("mixed")
+w = world.load("mixed")
 taken = []
 for value in json.loads(sys.argv[2]):
     refused = w.set_to("studio", value)
@@ -1159,6 +1159,10 @@ BACK = "https://github.com/dkpnw/ha-mxz-coordinator#readme"
 HOLD_END_RULE = "No MXZ function says so, so this page follows that order by a rule of its own"
 
 
+# Labels the page dropped to keep it plain. The page builds none of them in lab.js either.
+JARGON = ("room order", "Shared mode:", "Mode switch:", "More:")
+
+
 def _words(text: str) -> str:
     return " ".join(text.split())
 
@@ -1169,7 +1173,7 @@ def _page_problems(html: str, css: str) -> list[str]:
     works on Pages."""
     problems = []
     band = re.search(r'<header class="band"[^>]*>(.*?)</header>', html, re.DOTALL)
-    if band is None or "<strong>Simulation</strong> · invented heads and rooms" not in band.group(1):
+    if band is None or '<p class="label"><strong>Simulation</strong></p>' not in band.group(1):
         problems.append("no Simulation band")
     if not re.search(r"\.band\s*\{[^}]*position:\s*sticky;\s*top:\s*0", css):
         problems.append("the band does not stay on screen")
@@ -1197,6 +1201,9 @@ def _page_problems(html: str, css: str) -> list[str]:
     panel = html.find('id="shared-controls"')
     if html.count('id="shared-controls"') != 1 or not 0 < panel < html.find('id="stock-rooms"'):
         problems.append("no one shared control panel above the rows")
+    if not re.search(r'<details id="try-it">\s*<summary>Try it yourself</summary>\s*<section id="shared-controls"', html):
+        problems.append("the controls are not in a closed Try it yourself")
+    problems += [f"a label a newcomer does not need: {label}" for label in JARGON if label.lower() in html.lower()]
     rows = re.findall(r'<section class="row".*?</section>', html, re.DOTALL)
     if len(rows) != 2 or any(re.search(r"<(?:input|select|button|textarea)\b", row) for row in rows):
         problems.append("a row has controls of its own")
@@ -1234,9 +1241,73 @@ def test_the_page_check_reports_each_missing_part() -> None:
         "10× is not the speed it starts at",
         "no Replay button",
         "no one shared control panel above the rows",
+        "the controls are not in a closed Try it yourself",
         "a row has controls of its own",
     ]
-    assert "speed: 10," in (PAGE / "lab.js").read_text()
+    for label in JARGON:
+        assert _page_problems(html.replace("Outdoor unit:", label), css) == [f"a label a newcomer does not need: {label}"]
+    assert _page_problems(html.replace('<details id="try-it">', '<details id="try-it" open>'), css) == [
+        "the controls are not in a closed Try it yourself"]
+    old_band = html.replace("<strong>Simulation</strong>", "<strong>Simulation</strong> · invented heads and rooms")
+    assert _page_problems(old_band, css) == ["no Simulation band"]
+    js = (PAGE / "lab.js").read_text()
+    assert "speed: 10," in js
+    assert [label for label in JARGON if label.lower() in js.lower()] == []
+
+
+# What a reader must not be told: it is a simulation, so its rooms and heads need no disclaimer.
+BANNED = re.compile(r"\binvent|made[- ]up|\bfake (?:room|head|house)s?\b", re.IGNORECASE)
+
+
+def _prose(markdown: str) -> str:
+    """The text outside code fences and code spans."""
+    return re.sub(r"`[^`]*`", "", re.sub(r"^```.*?^```", "", markdown, flags=re.DOTALL | re.MULTILINE))
+
+
+def _strings(source: str) -> str:
+    """Each string constant of Python source that is not a docstring, one a line."""
+    tree = ast.parse(source)
+    docs = {
+        node.body[0].value for node in ast.walk(tree)
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef)
+        and node.body and isinstance(node.body[0], ast.Expr)
+    }
+    return "\n".join(node.value for node in ast.walk(tree)
+                     if isinstance(node, ast.Constant) and isinstance(node.value, str) and node not in docs)
+
+
+def _reader_texts() -> dict[str, str]:
+    """Every text a reader of the page or its README can see, by file. All of index.html and
+    lab.js counts, which takes in each attribute and each string."""
+    return {
+        "index.html": (PAGE / "index.html").read_text(),
+        "lab.js": (PAGE / "lab.js").read_text(),
+        "world.py": _strings((PAGE / "world.py").read_text()),
+        "README.md": _prose((PAGE / "README.md").read_text()),
+    }
+
+
+def _banned(texts: dict[str, str]) -> list[str]:
+    return [f"{name}: {found.group(0).lower()}" for name, text in texts.items() for found in BANNED.finditer(text)]
+
+
+def test_no_reader_is_told_the_rooms_are_invented() -> None:
+    assert _banned(_reader_texts()) == []
+
+
+def test_the_wording_check_reports_the_old_text() -> None:
+    """The lines the page and its README had, and the reading of each file: a title in world.py
+    is checked and its docstring is not; README prose is checked and a code span is not."""
+    texts = _reader_texts()
+    assert "One room wants cool" in texts["world.py"] and "Waiting: outdoor unit is in " in texts["world.py"]
+    assert "Try it yourself" in texts["README.md"] and "invented_house" in (PAGE / "README.md").read_text()
+    old = {
+        "index.html": "<p>The same three invented rooms, stock on top.</p>",
+        "lab.js": 'node.title = "Made-up rooms";',
+        "world.py": _strings('def f():\n    """Invented."""\n    return Preset(title="Three fake rooms")\n'),
+        "README.md": _prose("Runs three invented rooms (`invented_house/model.py`).\n```\nfake heads\n```\n"),
+    }
+    assert _banned(old) == ["index.html: invent", "lab.js: made-up", "world.py: fake rooms", "README.md: invent"]
 
 
 def test_the_simulator_readme_names_the_rows_own_rule() -> None:
@@ -1278,14 +1349,17 @@ def test_the_pages_root_sends_you_to_the_simulator() -> None:
     ]
 
 
-# -- the page's starting points, run for 40 simulated minutes from the bundle --------------------
-PRESETS = """
+# -- the page's scenarios and the tests' other starting points, run for 40 simulated minutes -----
+TESTS = ROOT / "tests"  # holds simlab_starts, which the scripts below import beside the bundle
+RUNS = """
 import json, sys
 sys.path.insert(0, sys.argv[1])
+sys.path.append(sys.argv[2])
+import simlab_starts
 import world
 out = {}
-for name in world.PRESETS:
-    w = world.World(name)
+for name in [*world.PRESETS, *(name for name in simlab_starts.UNLISTED if name not in world.PRESETS)]:
+    w = simlab_starts.load(name)
     seen = []
     for until in range(30, 2401, 30):
         if name in ("fan_hold", "restart") and until == 120:
@@ -1293,15 +1367,151 @@ for name in world.PRESETS:
         w.advance(until)
         seen.append(json.loads(w.view()))
     out[name] = seen
+print(json.dumps({"listed": list(world.PRESETS), "views": out}))
+"""
+
+
+def _runs(tree: Path) -> dict[str, Any]:
+    """The listed scenarios' names, and every starting point's views."""
+    done = subprocess.run([sys.executable, "-I", "-c", RUNS, str(tree), str(TESTS)],
+                          capture_output=True, text=True, check=False)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+@pytest.fixture(scope="module")
+def runs(tree: Path) -> dict[str, Any]:
+    return _runs(tree)
+
+
+@pytest.fixture(scope="module")
+def presets(runs: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    return runs["views"]
+
+
+def _stuck(views: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+    """Each room stock leaves in standby in every view and ends 2 °F or more from its set-to,
+    while MXZ brings it to that set-to and ends within 1 °F of it: its set-to, both rows' end
+    temperatures, and when MXZ first has it there."""
+    out: dict[str, dict[str, float]] = {}
+    for room in views[-1]["stock"]["rooms"]:
+        key = room["key"]
+        stock = [_room(view, "stock", key) for view in views]
+        mxz = [_room(view, "mxz", key) for view in views]
+        there = [view["now"] for view, seen in zip(views, mxz, strict=True) if seen["temperature"] == room["to"]]
+        if (all(seen["doing"] == "standby" for seen in stock) and abs(stock[-1]["temperature"] - room["to"]) >= 2
+                and there and abs(mxz[-1]["temperature"] - room["to"]) <= 1):
+            out[key] = {"to": room["to"], "stock": stock[-1]["temperature"], "mxz": mxz[-1]["temperature"],
+                        "mxz_there_at": there[0]}
+    return out
+
+
+def _without_a_difference(runs: dict[str, Any]) -> list[str]:
+    """The listed scenarios in which stock does no worse than MXZ."""
+    return [name for name in runs["listed"] if not _stuck(runs["views"][name])]
+
+
+def test_every_listed_scenario_shows_stock_doing_worse(runs: dict[str, Any]) -> None:
+    """In each listed scenario stock leaves a room in standby for all 40 minutes, and MXZ brings
+    it to its set-to. Every MXZ room that is on ends within 1 °F of its target, so no other room
+    pays for it."""
+    assert _without_a_difference(runs) == []
+    assert {name: _stuck(runs["views"][name]) for name in runs["listed"]} == {
+        "mixed": {"studio": {"to": 70.0, "stock": 76.0, "mxz": 70.5, "mxz_there_at": 360.0}},
+        "standoff": {"den": {"to": 70.0, "stock": 67.9, "mxz": 70.3, "mxz_there_at": 600.0}},
+    }
+    for name in runs["listed"]:
+        for room in runs["views"][name][-1]["mxz"]["rooms"]:
+            assert not room["enable"] or abs(room["temperature"] - room["target"]) <= 1, (name, room)
+
+
+# The old "Every room reaches target", listed again.
+SATISFIED_AGAIN = """
+
+PRESETS["satisfied"] = Preset(
+    title="Every room reaches target",
+    line="Both rows heat every room to 70 °F.",
+    start=Start(
+        temps={"studio": 66.0, "loft": 66.0, "den": 66.0},
+        settings={key: Setting("heat") for key in ("studio", "loft", "den")},
+        stock_outdoor="heat", mode="heat", changed_ago=7200.0,
+    ),
+)
+"""
+
+
+def test_a_listed_scenario_that_works_on_both_rows_is_caught(tmp_path: Path) -> None:
+    _bundler().write_tree(tmp_path)
+    source = tmp_path / "world.py"
+    source.write_text(source.read_text() + SATISFIED_AGAIN)
+    assert _without_a_difference(_runs(tmp_path)) == ["satisfied"]
+
+
+def _flag_problems(views: list[dict[str, Any]]) -> list[tuple[float, str]]:
+    """Where a stock room's flag is not what its head and the outdoor unit are doing."""
+    return [
+        (view["now"], room["key"]) for view in views for room in view["stock"]["rooms"]
+        if room["flag"] != (f"Waiting: outdoor unit is in {view['stock']['outdoor']} mode"
+                            if room["doing"] == "standby" else None)
+    ]
+
+
+def test_the_stock_flag_is_the_rows_own_state(presets: dict[str, list[dict[str, Any]]]) -> None:
+    """A stock room is flagged exactly while its head waits in standby, in every view of every
+    starting point; the ones where no stock head waits have no flag."""
+    assert {name: _flag_problems(views) for name, views in presets.items()} == {name: [] for name in presets}
+    flagged = {name: {(room["key"], room["flag"]) for view in views for room in view["stock"]["rooms"] if room["flag"]}
+               for name, views in presets.items()}
+    heat, cool = "Waiting: outdoor unit is in heat mode", "Waiting: outdoor unit is in cool mode"
+    assert flagged == {
+        "mixed": {("studio", heat)}, "standoff": {("den", cool)}, "satisfied": set(),
+        "mode_wait": {("studio", heat)}, "fan_hold": set(), "restart": {("studio", heat)},
+    }
+    moved = json.loads(json.dumps(presets["mixed"][:1]))  # negative: a flag on a room that is not waiting
+    moved[0]["stock"]["rooms"][1]["flag"] = heat
+    assert _flag_problems(moved) == [(30.0, "loft")]
+
+
+def test_the_mxz_flag_says_when_mxz_makes_a_room_wait(presets: dict[str, list[dict[str, Any]]]) -> None:
+    """The MXZ row flags its own waits too: Den while Studio cools first, then Studio while Den
+    heats and the 10-minute minimum runs, which MXZ's next switch does wait for. A room whose
+    mode MXZ is in has no flag."""
+    views = presets["standoff"]
+    assert all(_room(view, "mxz", "den")["flag"] == "Waiting: MXZ is in cool mode" for view in views[:12])
+    at_7 = views[13]
+    assert at_7["now"] == 420.0
+    assert _room(at_7, "mxz", "studio")["flag"] == "Waiting: MXZ can't switch for 9:10"
+    assert _room(at_7, "mxz", "den")["flag"] is None
+    assert all(view["mxz"]["mode"] == "heat" for view in views[13:] if view["now"] < 420 + 550)
+    assert next(view for view in views[13:] if view["mxz"]["mode"] == "cool")["now"] >= 420 + 550
+    assert not any(room["flag"] for view in presets["mixed"] for room in view["mxz"]["rooms"])
+
+
+# The flag follows the controls: in "mixed", Studio turned off and back to cool, then Loft and
+# Den turned off, which frees the outdoor unit.
+FLAG = """
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import world
+w = world.load("mixed")
+def flags():
+    return [room["flag"] for room in json.loads(w.view())["stock"]["rooms"]]
+out = [flags()]
+w.set_mode("studio", "off"); out.append(flags())
+w.set_mode("studio", "cool"); out.append(flags())
+w.set_mode("loft", "off"); w.set_mode("den", "off"); out.append(flags())
+w.set_mode("den", "heat"); out.append(flags())
 print(json.dumps(out))
 """
 
 
-@pytest.fixture(scope="module")
-def presets(tree: Path) -> dict[str, list[dict[str, Any]]]:
-    done = subprocess.run([sys.executable, "-I", "-c", PRESETS, str(tree)], capture_output=True, text=True, check=False)
-    assert done.returncode == 0, done.stderr
-    return json.loads(done.stdout)
+def test_the_stock_flag_follows_the_controls(tree: Path) -> None:
+    done = subprocess.run([sys.executable, "-I", "-c", FLAG, str(tree)], capture_output=True, text=True, check=True)
+    heat, cool = "Waiting: outdoor unit is in heat mode", "Waiting: outdoor unit is in cool mode"
+    assert json.loads(done.stdout) == [
+        [heat, None, None], [None, None, None], [heat, None, None], [None, None, None], [None, None, cool]]
+    js = (PAGE / "lab.js").read_text()
+    assert 'node.querySelector(".flag").textContent = room.flag ?? "";' in js
 
 
 def _hardcoded_titles(js: str, titles: list[str]) -> list[str]:
@@ -1309,16 +1519,21 @@ def _hardcoded_titles(js: str, titles: list[str]) -> list[str]:
     return [title for title in titles if title in js]
 
 
-def test_the_page_reads_scenario_titles_from_world(tree: Path) -> None:
+def _listed(tree: Path) -> list[dict[str, str]]:
+    """The scenarios the page lists, as it reads them."""
     done = subprocess.run([sys.executable, "-I", "-c", PRESET_LIST, str(tree)],
                           capture_output=True, text=True, check=True)
-    listed = json.loads(done.stdout)
-    assert [entry["name"] for entry in listed] == ["mixed", "satisfied", "standoff", "mode_wait", "fan_hold", "restart"]
-    assert [entry["name"] for entry in listed if entry["more"]] == ["mode_wait", "fan_hold", "restart"]
+    return json.loads(done.stdout)
+
+
+def test_the_page_reads_scenario_titles_from_world(tree: Path) -> None:
+    listed = _listed(tree)
+    assert [entry["name"] for entry in listed] == ["mixed", "standoff"]
+    assert all(set(entry) == {"name", "title", "line"} and entry["line"] for entry in listed)
     js = (PAGE / "lab.js").read_text()
     assert "lab.module.presets()" in js
     titles = [entry["title"] for entry in listed]
-    assert _hardcoded_titles(js, titles) == []
+    assert _hardcoded_titles(js, titles + [entry["line"] for entry in listed]) == []
     assert _hardcoded_titles(js + '\nconst PRESETS = [["mixed", "One room wants cool"]];', titles) == [
         "One room wants cool"]  # negative: a second copy of a title
 
@@ -1331,24 +1546,25 @@ print(world.presets())
 """
 
 # A fan pick of a speed MXZ's head does not show, made while MXZ's start is quiet: at 0:00 in
-# "Manual fan speed", and right after the restart at 5:00 in "Restart during the wait". Each case
+# "fan_hold", and right after the restart at 5:00 in "restart" (tests/simlab_starts.py). Each case
 # also runs without the pick, to show the hold comes from it.
 QUIET_PICK = """
 import json, sys
 sys.path.insert(0, sys.argv[1])
-import world
+sys.path.append(sys.argv[2])
+import simlab_starts
 def studio(w):
     view = json.loads(w.view())
     return [view["stock"]["rooms"][0]["fan"], view["mxz"]["rooms"][0]["fan"], view["mxz"]["rooms"][0]["fan_held"]]
 out = {}
 for name, at in (("fan_hold", 0), ("restart", 300)):
     case = {}
-    w = world.World(name)
+    w = simlab_starts.load(name)
     w.advance(at)
     shown = studio(w)[1]
     pick = next(fan for fan in ("quiet", "low", "medium") if fan != shown)
     for picked in (True, False):
-        w = world.World(name)
+        w = simlab_starts.load(name)
         w.advance(at)
         quiet = w.row.starting
         if picked:
@@ -1370,7 +1586,7 @@ def test_a_fan_pick_during_the_startup_quiet_is_held(tree: Path) -> None:
     fan is the only control on the page pressed at a head. A fan pick inside the quiet is held
     in both rows within 15 seconds, while the quiet still runs, and for the next 10 minutes. So
     the page says nothing about MXZ ignoring a change."""
-    done = subprocess.run([sys.executable, "-I", "-c", QUIET_PICK, str(tree)], capture_output=True, text=True,
+    done = subprocess.run([sys.executable, "-I", "-c", QUIET_PICK, str(tree), str(TESTS)], capture_output=True, text=True,
                           check=True)
     cases = json.loads(done.stdout)
     assert set(cases) == {"fan_hold 0", "restart 300"}
@@ -1465,7 +1681,7 @@ CONTROLS = """
 import json, sys
 sys.path.insert(0, sys.argv[1])
 import world
-w = world.World("mixed")
+w = world.load("mixed")
 w.advance(120)
 def den():
     view = json.loads(w.view())
@@ -1507,7 +1723,8 @@ def test_each_control_changes_both_rows(tree: Path) -> None:
 SAME_SPEED = """
 import json, sys
 sys.path.insert(0, sys.argv[1])
-import world
+sys.path.append(sys.argv[2])
+import simlab_starts
 def studio(w):
     view = json.loads(w.view())
     return [view["stock"]["rooms"][0]["fan"], view["mxz"]["rooms"][0]["fan"], view["mxz"]["rooms"][0]["fan_held"]]
@@ -1515,7 +1732,7 @@ out = {}
 for name, at in (("fan_hold", 63), ("fan_hold", 0), ("mixed", 63), ("restart", 63)):
     case = {}
     for pick in (True, False):
-        w = world.World(name)
+        w = simlab_starts.load(name)
         w.advance(at)
         shown = studio(w)[1]
         before = len(w.row.log.calls)
@@ -1536,7 +1753,7 @@ def test_picking_the_speed_the_mxz_head_shows_holds_it(tree: Path) -> None:
     """A pick of the speed MXZ's head already shows is held in both rows for the next 10
     minutes, through the restart scenario's restart at 5:00, and MXZ sends that head no fan
     command. Without the pick, MXZ steps the same fan within those 10 minutes."""
-    done = subprocess.run([sys.executable, "-I", "-c", SAME_SPEED, str(tree)], capture_output=True, text=True,
+    done = subprocess.run([sys.executable, "-I", "-c", SAME_SPEED, str(tree), str(TESTS)], capture_output=True, text=True,
                           check=True)
     cases = json.loads(done.stdout)
     assert set(cases) == {"fan_hold 63", "fan_hold 0", "mixed 63", "restart 63"}
@@ -1551,7 +1768,7 @@ def test_picking_the_speed_the_mxz_head_shows_holds_it(tree: Path) -> None:
         assert alone["fan_calls"] > 0, name
 
 
-# A fan pick of the speed MXZ set one step earlier, in "Manual fan speed": at 5:00 while Studio
+# A fan pick of the speed MXZ set one step earlier, in "fan_hold": at 5:00 while Studio
 # cools (the head shows low and MXZ set medium before it), and at 7:00 while it dries the coil
 # (the head shows auto and MXZ set quiet before it). The product reads that pick as its own
 # write (``fan_latch.FanEcho.own``), so the simulator does too. Each moment also gets a pick of a
@@ -1559,7 +1776,8 @@ def test_picking_the_speed_the_mxz_head_shows_holds_it(tree: Path) -> None:
 ECHO_PICK = """
 import json, sys
 sys.path.insert(0, sys.argv[1])
-import world
+sys.path.append(sys.argv[2])
+import simlab_starts
 def studio(w):
     view = json.loads(w.view())
     stock, mxz = view["stock"]["rooms"][0], view["mxz"]["rooms"][0]
@@ -1568,13 +1786,13 @@ def fans(w, since=0):
     return [c[3]["fan_mode"] for c in w.row.log.calls[since:] if c[1] == "studio" and c[2] == "set_fan_mode"]
 out = {}
 for case, at, other in (("cooling", 300, "high"), ("drying", 420, "low")):
-    w = world.World("fan_hold")
+    w = simlab_starts.load("fan_hold")
     w.advance(at)
     room = json.loads(w.view())["mxz"]["rooms"][0]
     previous = fans(w)[-2]
     entry = {"mode": room["mode"], "drying": room["drying"], "shown": room["fan"], "previous": previous}
     for pick in (previous, other):
-        w = world.World("fan_hold")
+        w = simlab_starts.load("fan_hold")
         w.advance(at)
         before = len(w.row.log.calls)
         w.set_fan("studio", pick)
@@ -1584,8 +1802,6 @@ for case, at, other in (("cooling", 300, "high"), ("drying", 420, "low")):
             seen.append(studio(w))
         entry[pick] = {"seen": seen, "fan_calls": fans(w, before)}
     out[case] = entry
-out["fan_hold"] = world.PRESETS["fan_hold"].try_this
-out["restart"] = world.PRESETS["restart"].try_this
 print(json.dumps(out))
 """
 
@@ -1596,7 +1812,7 @@ def test_picking_the_speed_mxz_set_one_step_earlier_is_not_held(tree: Path) -> N
     back its own speed within 30 seconds, while cooling and while drying the coil. The page and
     the simulator README say so. Negative: a speed MXZ has not just set, picked at the same
     moment, is held in both rows."""
-    done = subprocess.run([sys.executable, "-I", "-c", ECHO_PICK, str(tree)], capture_output=True, text=True,
+    done = subprocess.run([sys.executable, "-I", "-c", ECHO_PICK, str(tree), str(TESTS)], capture_output=True, text=True,
                           check=True)
     cases = json.loads(done.stdout)
     assert {key: cases[key]["mode"] for key in ("cooling", "drying")} == {"cooling": "cool", "drying": "fan_only"}
@@ -1612,9 +1828,12 @@ def test_picking_the_speed_mxz_set_one_step_earlier_is_not_held(tree: Path) -> N
         # negative: the other speed is held in both rows and MXZ sends that head no fan command
         assert all(seen == [other, other, True] for seen in case[other]["seen"]), (name, case[other])
         assert case[other]["fan_calls"] == [], (name, case[other])
-    for text in (cases["fan_hold"], cases["restart"]):
+    panel = re.search(r'<section id="shared-controls".*?</section>', (PAGE / "index.html").read_text(), re.DOTALL)
+    assert panel is not None
+    beside_the_picks = _words(panel.group(0))
+    for text in (beside_the_picks, *(entry["line"] for entry in _listed(tree))):
         assert "both rows keep it" not in text and "MXZ keeps it" not in text, text
-    assert "MXZ holds it unless it is the speed MXZ set one step earlier" in _words(cases["fan_hold"])
-    assert "reads that pick as its own write" in cases["fan_hold"]
+    assert "MXZ holds it unless it is the speed MXZ set one step earlier" in beside_the_picks
+    assert "reads that pick as its own write" in beside_the_picks
     readme = _words((PAGE / "README.md").read_text())
     assert "MXZ reads a pick of the speed it set one step earlier as its own write" in readme

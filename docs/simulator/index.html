@@ -8,7 +8,7 @@
 </head>
 <body>
   <header class="band" role="banner">
-    <p class="label"><strong>Simulation</strong> · invented heads and rooms</p>
+    <p class="label"><strong>Simulation</strong></p>
     <div class="clock" aria-label="Simulated clock">
       <output id="time" aria-live="off">0:00</output>
       <div class="buttons" role="group" aria-label="Clock">
@@ -16,67 +16,64 @@
         <button id="replay" type="button" disabled>Replay</button>
         <button type="button" data-speed="1" disabled>1×</button>
         <button type="button" data-speed="10" aria-pressed="true" disabled>10×</button>
-        <button type="button" data-speed="25" disabled>25×</button>
         <button type="button" data-speed="100" disabled>100×</button>
-        <button id="skip" type="button" disabled>Skip +1 min</button>
       </div>
     </div>
   </header>
 
   <main>
     <h1>Stock vs. MXZ Coordinator</h1>
-    <p class="lede">The same three invented rooms, stock on top and MXZ Coordinator below.</p>
 
     <p id="status" class="status" role="status">Loading the simulator (about 10 MB the first time)…</p>
     <noscript><p class="status">This simulator needs JavaScript. The
       <a href="https://github.com/dkpnw/ha-mxz-coordinator#readme">README</a> shows the same
       comparison as an animation.</p></noscript>
 
-    <div class="setup">
-    <section class="presets" aria-labelledby="presets-title">
-      <h2 id="presets-title">Scenario</h2>
-      <div class="buttons" id="presets" role="group" aria-labelledby="presets-title"></div>
-      <p id="try" class="try"></p>
+    <section class="presets" aria-label="Scenario">
+      <div class="buttons" id="presets" role="group" aria-label="Scenario"></div>
+      <p id="line" class="line"></p>
     </section>
 
-    <section id="shared-controls" aria-labelledby="controls-title">
-      <h2 id="controls-title">Rooms</h2>
-      <table>
-        <thead><tr><th scope="col">Room</th><th scope="col">Temperature</th><th scope="col">Mode</th>
-          <th scope="col">Set to</th><th scope="col">Fan</th></tr></thead>
-        <tbody id="controls"></tbody>
-      </table>
-      <p class="rule">Each change applies to both rows. For MXZ, Set to is the room's target and Off
-        turns the room off.</p>
-      <p id="refused" class="refused" role="alert"></p>
-    </section>
-    </div>
+    <details id="try-it">
+      <summary>Try it yourself</summary>
+      <section id="shared-controls" aria-label="Room controls">
+        <table>
+          <thead><tr><th scope="col">Room</th><th scope="col">Temperature</th><th scope="col">Mode</th>
+            <th scope="col">Set to</th><th scope="col">Fan</th></tr></thead>
+          <tbody id="controls"></tbody>
+        </table>
+        <div class="help">
+          <p>Each change applies to both rows. MXZ picks heat or cool itself, so on its row Heat
+            and Cool only turn the room on.</p>
+          <p>Stock keeps a fan speed you pick. MXZ holds it unless it is the speed MXZ set one step
+            earlier. MXZ reads that pick as its own write and puts back its own speed. Auto gives
+            the fan back to MXZ.</p>
+          <p id="refused" class="refused" role="alert"></p>
+        </div>
+      </section>
+    </details>
 
     <section class="row" aria-labelledby="stock-title">
       <div class="row-head">
         <h2 id="stock-title">Stock</h2>
         <p>Outdoor unit: <output id="stock-outdoor">–</output></p>
+        <p class="rule">The outdoor unit runs heat or cool. A head set to the other mode waits.</p>
       </div>
-      <p class="rule">The outdoor unit runs heat or cool. A head set to the other mode waits in standby.</p>
       <div class="rooms" id="stock-rooms"></div>
     </section>
 
     <section class="row" aria-labelledby="mxz-title">
       <div class="row-head">
         <h2 id="mxz-title">MXZ Coordinator</h2>
-        <p>Shared mode: <output id="mxz-mode">–</output> · Outdoor unit: <output id="mxz-outdoor">–</output></p>
-        <p><output id="mxz-hold">–</output></p>
+        <p>Outdoor unit: <output id="mxz-outdoor">–</output></p>
+        <p class="rule">MXZ picks heat or cool and sets each head for you.</p>
       </div>
-      <p class="rule">MXZ picks heat or cool and sets each head from its room's target.
-        <output id="mxz-why"></output></p>
       <div class="rooms" id="mxz-rooms"></div>
-      <div class="row-foot">
-        <details class="writes">
-          <summary>Commands MXZ sent to the heads</summary>
-          <p id="mxz-calls-none" class="none">None yet.</p>
-          <ol id="mxz-calls" reversed></ol>
-        </details>
-      </div>
+      <details class="writes">
+        <summary>Commands MXZ sent to the heads</summary>
+        <p id="mxz-calls-none" class="none">None yet.</p>
+        <ol id="mxz-calls" reversed></ol>
+      </details>
     </section>
 
     <section class="notes" aria-labelledby="notes-title">

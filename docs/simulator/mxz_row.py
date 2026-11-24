@@ -1,4 +1,4 @@
-"""The simulator's MXZ row: MXZ Coordinator's own decisions over the invented house's heads.
+"""The simulator's MXZ row: MXZ Coordinator's own decisions over the simulated heads.
 
 Every decision, every wakeup and every order of steps here but one comes from a product function
 in ``custom_components/mxz_coordinator`` that imports no Home Assistant (``tools/import_bounds.py``
@@ -8,11 +8,11 @@ inputs and performs the steps they return, each with the call its docstring name
 of its own is where an adopt hold's end goes on after its write started a compute
 (``MxzRow._go_on``).
 It follows the per-event list in planner1118d's WRITE-SUMMARY.md, with the hold-end wakeup armed
-at a start (``MXZCoordinator.async_setup``). Where a step belongs to a feature the invented house
+at a start (``MXZCoordinator.async_setup``). Where a step belongs to a feature the simulated house
 does not have (a door/window pause, Dry, a floor, a hands-off room, a head going out of sight),
 it raises ``NotModeled`` instead of doing something else.
 
-The invented heads are the verification instance's (``verification/instance/invented_house``):
+The heads are the verification instance's (``verification/instance/invented_house``):
 a °F range head on the ``invented_house`` platform, which takes a mode change and its setpoints
 as two calls. ``InventedHeads.shown`` renders a head the way Home Assistant shows that entity.
 
@@ -21,7 +21,7 @@ the order they were queued, inside their compute (Home Assistant interleaves hea
 await); a delivery a newer plan supersedes; the shared-mode select. Timing follows
 ``sim_timing``, a model of Home Assistant 2025.11 and later.
 
-Every room, head and number here is invented. Nothing is a measurement of real equipment.
+Nothing here is a measurement of real equipment.
 """
 
 from __future__ import annotations
@@ -75,13 +75,13 @@ from custom_components.mxz_coordinator.plan import Plan, RoomPlan
 
 FAHRENHEIT = "°F"
 PLATFORM = "invented_house"
-# Home Assistant's climate features of an invented head: a range, a fan, on and off.
+# Home Assistant's climate features of a head: a range, a fan, on and off.
 RANGE_HEAD_FEATURES = 2 | 8 | 128 | 256
 COMFORT_DOMAIN = "input_boolean"
 
 
 class NotModeled(RuntimeError):
-    """A product step for a feature the invented house does not have."""
+    """A product step for a feature the simulated house does not have."""
 
 
 class OutOfRange(ValueError):
@@ -156,7 +156,7 @@ class Settings:
 
 
 class InventedHeads:
-    """The invented heads and rooms (``invented_house``), and what each head shows.
+    """The heads and rooms (``invented_house``), and what each head shows.
 
     ``devices`` is the shared physical state: each head's mode, setpoints and fan, and each
     room's temperature. ``modelled`` is whether the demo model runs (then a head shows what it
@@ -187,7 +187,7 @@ class InventedHeads:
         return model.action(self.devices.heads[key], self.devices.rooms[key], self.devices.outdoor)
 
     def shown(self, key: str) -> tuple[str, dict[str, Any]]:
-        """The head's state and attributes as Home Assistant shows the invented head.
+        """The head's state and attributes as Home Assistant shows it.
 
         Temperatures show at whole degrees (a °F system's precision), as Home Assistant's
         climate entity renders them.
@@ -279,7 +279,7 @@ class Log:
 
 
 class MxzRow:
-    """MXZ Coordinator over the invented heads, driven by the page."""
+    """MXZ Coordinator over the simulated heads, driven by the page."""
 
     def __init__(
         self,
@@ -484,7 +484,7 @@ class MxzRow:
         return {} if room.shown is None else room.shown[1]
 
     def grid(self) -> gr.Grid:
-        """An invented head's grid (``HeadGrid.read``): its native band, no setpoint step."""
+        """A head's grid (``HeadGrid.read``): its native band, no setpoint step."""
         s = self.settings
         return gr.Grid(
             system_unit=FAHRENHEIT, target_step=s.profile["target_step"],
@@ -621,10 +621,10 @@ class MxzRow:
                     self.log.calls.append((self.now, room.key, service, dict(data)))
                     self.heads.call(room.key, service, data)
                     self.world_changed()
-        del counted  # an invented head refuses no call (``writes_refused`` is never needed)
+        del counted  # a simulated head refuses no call (``writes_refused`` is never needed)
 
     def world_changed(self) -> None:
-        """The invented house wrote its entities: each head, then its room's sensor, in house
+        """The house wrote its entities: each head, then its room's sensor, in house
         order (``invented_house.Bench.changed`` dispatches every room's entities with the model
         on). A head whose state or attributes changed reports (event 6); a sensor whose reading
         changed asks for a compute (event 3).
