@@ -1159,7 +1159,7 @@ BACK = "https://github.com/dkpnw/ha-mxz-coordinator#readme"
 HOLD_END_RULE = "No MXZ function says so, so this page follows that order by a rule of its own"
 
 
-# Labels the page dropped (Drew t367u). The page builds none of them in lab.js either.
+# Labels the page dropped to keep it plain. The page builds none of them in lab.js either.
 JARGON = ("room order", "Shared mode:", "Mode switch:", "More:")
 
 
@@ -1255,8 +1255,7 @@ def test_the_page_check_reports_each_missing_part() -> None:
     assert [label for label in JARGON if label.lower() in js.lower()] == []
 
 
-# What a reader must not be told: it is a simulation, so its rooms and heads need no disclaimer
-# (Drew t368u).
+# What a reader must not be told: it is a simulation, so its rooms and heads need no disclaimer.
 BANNED = re.compile(r"\binvent|made[- ]up|\bfake (?:room|head|house)s?\b", re.IGNORECASE)
 
 
