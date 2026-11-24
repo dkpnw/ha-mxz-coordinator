@@ -590,34 +590,6 @@ switch threshold off target, so the mode leaves Studio once it is back within 3 
 Loft still calls (`docs/FEATURES.md` and `docs/HOW-IT-WORKS.md` step 4 say the same). That
 version was never run. Run it before trusting any number for it.
 
-### 6.2 Every room at target (`satisfied`)
-
-A cold morning: every room reads 66 °F against 70 °F. Window 450 seconds.
-
-**Arm A, stock** (`satisfied-stock`). No MXZ entry.
-
-- **Before the start.** Person at the heads: every head to heat at 70.
-- **Action.** Studio, Loft and Den read 66, in one report.
-- **Pass (a control on the model).** Every head heats and the outdoor unit runs heat;
-  every room reaches 70 and its head idles in heat; at the end every head is still set to
-  heat and idle and the outdoor unit still runs heat, and it never left heat in the
-  window; no climate call reached a head.
-
-**Arm B, coordinated** (`satisfied-coordinated`). After 5.1, every option at its default.
-
-- **Before the start.** Every head off (the coil dry 5.1 leaves has ended).
-- **Action.** Studio, Loft and Den read 66, in one report.
-- **Pass.** The shared mode is heat and every head heats; every room reaches 70 and MXZ
-  turns its head off; once every head is off MXZ sends no head heat or cool for the rest
-  of the window; the model's outdoor unit then has no direction; MXZ never sends cool.
-
-- **Run on scenarios1111 (HA 2026.9.4, 78fb394).** Stock: every head heating from the
-  start, every head idle in heat at 245 s, the outdoor unit on heat to the end. MXZ: shared
-  mode heat and every head heating 10 s after the start, fan high then middle 50 s,
-  medium 110 s, low 170 s, quiet 230 s (Studio's head; Loft's and Den's within 0.1 s);
-  every head off and the outdoor unit with no direction at 250 s; the shared mode still
-  heat at the end.
-
 ### 6.3 A fan speed picked at the head is kept (`fan-hold`)
 
 The afternoon of 6.1, coordinated only: a stock row would show the speed the person set,
@@ -765,7 +737,7 @@ flow were not read line by line; pass criteria taken from the docs are cited to 
 
 1. Add 5.2 and 5.4 to 5.7 in the order written. Land each that runs clean; list any that
    does not as not yet proven, with the reason, in its Gotchas.
-2. Done in readme1110: the demo model and both arms of 6.1. Done in scenarios1111: 6.2
+2. Done in readme1110: the demo model and both arms of 6.1. Done in scenarios1111: 6.3
    to 6.5. Not filmed: a season heat lockout (needs an invented weather source and has
    no stock counterpart), Allow Dry, door/window, and restart continuity (simlab1111).
 3. Point the verify-mxz skill's `SKILL.md` and feature index at this driver.

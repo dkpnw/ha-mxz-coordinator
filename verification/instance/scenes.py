@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from journeys import comfort, demo, mode_wait, satisfied
+from journeys import comfort, demo, mode_wait
 from journeys import fan_hold as fan
 
 
@@ -39,10 +39,6 @@ SCENES = {scene.name: scene for scene in (
         Row("demo-stock", "journeys.demo_stock", "stock"),
         Row("demo-coordinated", "journeys.demo_coordinated", "mxz"),
     ), demo.WINDOW, demo.START_STEP, demo.SPEED),
-    Scene("satisfied", (
-        Row("satisfied-stock", "journeys.satisfied_stock", "stock"),
-        Row("satisfied-coordinated", "journeys.satisfied_coordinated", "mxz-outdoor"),
-    ), satisfied.WINDOW, satisfied.START_STEP),
     Scene("fan-hold", (Row("fan-hold", "journeys.fan_hold", "mxz-fan"),), fan.WINDOW, fan.START_STEP),
     Scene("mode-wait", (Row("mode-wait", "journeys.mode_wait", "mxz-wait"),), mode_wait.WINDOW, mode_wait.START_STEP),
     Scene("comfort-priority", (

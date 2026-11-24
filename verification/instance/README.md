@@ -119,7 +119,6 @@ and the card `film.py` shows for it (`cards.py`), and the window, start step and
 | Scene | Rows: feature (card) | Window |
 |---|---|---|
 | `stock-vs-mxz`, the README's top demo | `demo-stock` (`stock`), `demo-coordinated` (`mxz`) | 450 s, at 10 times |
-| `satisfied` | `satisfied-stock` (`stock`), `satisfied-coordinated` (`mxz-outdoor`) | 450 s |
 | `fan-hold` | `fan-hold` (`mxz-fan`) | 450 s |
 | `mode-wait` | `mode-wait` (`mxz-wait`) | 600 s |
 | `comfort-priority` | `comfort-off` (`mxz-comfort`), `comfort-on` (`mxz-comfort`) | 150 s, at 10 times |
