@@ -12,6 +12,7 @@ on your equipment.
 
 - Docs and demo scenes only: the README, How it works and the introduction above use shorter wording for the simulated heads and rooms, and the clip of every room reaching its target is gone from How it works and from the filmed scenes.
 - Docs only: the simulator lists only the two scenarios where stock leaves a room waiting, its page is shorter, and its controls are under "Try it yourself".
+- Docs only: the simulator's speed buttons are 1×, 10× and 25×. The 100× button is gone.
 - CI and tests only: ruff moves to 0.17.6 in the CI tools and the pre-commit hook, hypothesis moves to 6.170.16 in the test requirements and each HA test-lane lock, each lock regenerated from a fresh venv, and the hassfest and OpenSSF Scorecard actions move to newer pinned commits. This takes Dependabot PRs #159 and #160.
 
 ## 3.23.0 (November 18, 2026)
