@@ -29,7 +29,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Hashable, Iterator, Mapping
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from invented_house import devices as dv
@@ -62,6 +62,8 @@ from custom_components.mxz_coordinator.const import (
     KEY_ECO_IDLE,
     KEY_HEAT_LOCKOUT,
     MODE_OFF,
+    TARGET_SOURCE_HEAD,
+    TARGET_SOURCE_HOME_ASSISTANT,
     unit_profile,
     zone_slug,
 )
@@ -251,6 +253,13 @@ class Room:
     slug: str
     target: float
     enable: bool
+    # Where the target last came from and when (wall clock), None while no write is on
+    # record (``Zone.target_source``, ``Zone.target_set_at``).
+    target_source: str | None = None
+    target_set_at: float | None = None
+    # The target write in hand adopts a change made at the head, so it records "head"
+    # (``MXZCoordinator._adopting_target``); the write spends it.
+    adopting: bool = False
     comfort: bool = False
     comfort_at: float = 0.0
     latch: fl.FanLatch = field(default_factory=lambda: fl.FanLatch(echo=fl.FanEcho()))
@@ -388,6 +397,7 @@ class MxzRow:
         for room, saved_room in zip(self.rooms, resumed.rooms, strict=True):
             if saved_room.target is not None:
                 room.target = saved_room.target
+                room.target_source, room.target_set_at = saved_room.target_source, saved_room.target_set_at
             if saved_room.target_range is not None or saved_room.drift is not None:
                 raise NotModeled("a dual setpoint or a room's own drift")
             if saved_room.enable is not None:
@@ -428,6 +438,7 @@ class MxzRow:
             rs.SECTION_ROOMS: {
                 room.climate_id: {
                     "target": room.target, "target_low": None, "target_high": None,
+                    "target_source": room.target_source, "target_set_at": room.target_set_at,
                     "drift": None, "enable": room.enable, "hands_off_released": False,
                 }
                 for room in self.rooms
@@ -583,6 +594,7 @@ class MxzRow:
             case pl.SetTarget(number, value):
                 if number != "target":
                     raise NotModeled(f"a write to {number}")
+                room.adopting = True
                 self.set_target(room.key, value)
             case pl.SetEnable(on):
                 self.set_enable(room.key, on)
@@ -857,7 +869,9 @@ class MxzRow:
         """
         return RoomPlan(
             slug=room.slug, name=room.name, demand=decided.demand, engage=decided.engage,
-            temp=given.temp, target=room.target, target_range=None, enabled=room.enable,
+            temp=given.temp, target=room.target, target_range=None,
+            target_source=room.target_source, target_set_at=_iso_second(room.target_set_at),
+            enabled=room.enable,
             drift=self.settings.drift, drift_heat=given.heat_drift, drift_cool=given.cool_drift,
             start_points={}, sensor_health=sensor_health(valid=True, max_age=None, evidence_age=None, in_grace=False),
             sensor_age=None, hands_off=None, hands_off_vote=None, vote_status=status,
@@ -1002,13 +1016,18 @@ class MxzRow:
         """A person sets the room's target number (``number.set_value``).
 
         Home Assistant refuses a value outside the number's range before MXZ sees it; so does
-        this, with ``OutOfRange``.
+        this, with ``OutOfRange``. The write records where the target came from and when
+        (``MXZCoordinator.set_zone_target``): ``"head"`` when it adopts a change made at the
+        head (it spends the adopt step's mark, refused or not), else ``"home_assistant"``.
         """
         room = self._room(key)
+        adopting, room.adopting = room.adopting, False
         low, high = self.target_bounds()
         if not low <= float(value) <= high:
             raise OutOfRange(f"{room.name}'s target {value:g} °F is outside {low:g} to {high:g} °F")
         room.target = float(value)
+        room.target_source = TARGET_SOURCE_HEAD if adopting else TARGET_SOURCE_HOME_ASSISTANT
+        room.target_set_at = self.wall
         for step in pl.target_written(
             room.climate_id, startup=room.slug in self.startup, coordinator=self.coordinator,
             enabled=room.enable,
@@ -1076,6 +1095,11 @@ class MxzRow:
                 "drying": self.waiting("dry", room.climate_id),
             })
         return out
+
+
+def _iso_second(stamp: float | None) -> str | None:
+    """A wall-clock time as ISO 8601 UTC to the second, or None (``MXZCoordinator._iso_second``)."""
+    return None if stamp is None else datetime.fromtimestamp(stamp, UTC).isoformat(timespec="seconds")
 
 
 def plan_view(plan: Plan | None) -> dict[str, Any] | None:

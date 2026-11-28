@@ -59,6 +59,11 @@ class RoomPlan:
     floor: dict[str, Any]
     delivery: dict[str, Any]
     head: dict[str, Any]
+    # Where the room's target came from ("head", "home_assistant", or None while no
+    # write is on record) and when (ISO 8601 UTC). Defaults, so a builder that has no
+    # record (the simulator) shows none.
+    target_source: str | None = None
+    target_set_at: str | None = None
 
     @property
     def cloud_out(self) -> bool:
@@ -87,6 +92,8 @@ class RoomPlan:
                 {"target_low": self.target_range[0], "target_high": self.target_range[1]}
                 if self.target_range is not None else {}
             ),
+            "target_source": self.target_source,
+            "target_set_at": self.target_set_at,
             "enabled": self.enabled,
             "drift": self.drift,
             "drift_heat": self.drift_heat,

@@ -173,7 +173,9 @@ switches the system to cool for that room and leaves the others alone.
 - **Or use the head's own remote.** A setpoint set at the head becomes the
   room's target after about 5 seconds. Off at the head turns the room off. MXZ still picks
   heat or cool. To make MXZ the only writer, turn off **Accept changes made at the head**
-  in Configure → Comfort.
+  in Configure → Comfort. The room's row in the plan sensor shows whether its target was
+  last set at the head or in Home Assistant, and when
+  ([target source](docs/FEATURES.md#where-a-rooms-target-came-from)).
 - **Turn a room off** on its thermostat. MXZ keeps that head off, and the room no longer
   counts toward heat or cool.
 - **Pick a fan speed** and MXZ holds it. Turn the room's **Fan auto** switch on to give
@@ -352,7 +354,7 @@ Heads keep their last commanded state; use their own controls if they stay parke
 
 MXZ Coordinator got this good because people ran it on their own systems, found the edges, and took the time to write them up. Some sent the fix too. Thank you all. [Credits](docs/CREDITS.md) has what each person did, with every issue and pull request.
 
-- [@danolson1](https://github.com/danolson1) (Daniel Olson): one temperature sensor for several heads (3.23.0).
+- [@danolson1](https://github.com/danolson1) (Daniel Olson): one temperature sensor for several heads (3.23.0), and the record of where each room's target came from.
 - [@BHSPitMonkey](https://github.com/BHSPitMonkey) (Stephen Eisenhauer): Accept changes made at the head, built first on a fork (3.22.0).
 - [@calvindomenico](https://github.com/calvindomenico): restart fixes, the °C setpoint rounding fix, a ducted unit's vane fix, and the standby hold.
 - [@amosyuen](https://github.com/amosyuen): the room tile's mode fix, per-room drift, and the Integrations listing fix.

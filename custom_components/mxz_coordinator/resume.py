@@ -31,6 +31,7 @@ from .const import (
     KEY_HEAT_LOCKOUT,
     MODE_COOL,
     MODE_HEAT,
+    TARGET_SOURCES,
 )
 from .fan_latch import FanRecord
 from .head_writes import HEAD_WRITE_FIELDS
@@ -200,12 +201,16 @@ class RoomResume:
 
     ``target`` is in the system unit, on the target step, held to the head's bounds;
     ``target_range`` is the Heat to / Cool to pair, only when both edges are stored.
+    ``target_source`` and ``target_set_at`` (wall clock) are where that target came from
+    and when; both or neither, and only with a resumed target, which they describe.
     ``drift`` None with ``has_drift`` is a stored "follow the global". ``enable_record``
     is the floor record and the hands-off release that go with a stored enable.
     """
 
     target: float | None = None
     target_range: tuple[float, float] | None = None
+    target_source: str | None = None
+    target_set_at: float | None = None
     has_drift: bool = False
     drift: float | None = None
     enable: bool | None = None
@@ -283,6 +288,9 @@ def resume(
             lo, hi = slot.bounds
             target = min(max(value, lo), hi)
             resumed.add(("target", slug))
+        source, set_at = room.get("target_source"), room.get("target_set_at")
+        if target is None or source not in TARGET_SOURCES or not finite_number(set_at):
+            source, set_at = None, None
         target_range = None
         low = saved_temperature(room.get("target_low"), saved.unit, unit, step)
         high = saved_temperature(room.get("target_high"), saved.unit, unit, step)
@@ -315,6 +323,8 @@ def resume(
             RoomResume(
                 target=target,
                 target_range=target_range,
+                target_source=source,
+                target_set_at=None if set_at is None else float(set_at),
                 has_drift=has_drift,
                 drift=drift,
                 enable=enable,

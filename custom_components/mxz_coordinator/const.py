@@ -427,6 +427,15 @@ CONF_CHANGEOVER_COOL_BELOW = "changeover_cool_below"
 CONF_ACCEPT_HEAD_CHANGES = "accept_head_changes"
 DEFAULT_ACCEPT_HEAD_CHANGES = True
 
+# Where a room's target last came from (its plan row's target_source; None while no
+# write is on record): a change made at its head and adopted, or a write through MXZ's
+# number or room thermostat entities. Home Assistant's Context is not read, so a
+# dashboard, a voice assistant and an automation are all TARGET_SOURCE_HOME_ASSISTANT.
+# From @danolson1's Discussion #166.
+TARGET_SOURCE_HEAD = "head"
+TARGET_SOURCE_HOME_ASSISTANT = "home_assistant"
+TARGET_SOURCES = (TARGET_SOURCE_HEAD, TARGET_SOURCE_HOME_ASSISTANT)
+
 # Optional delta-proportional "fan boost" (Tesla-style: bigger off-target -> faster fan).
 CONF_FAN_BOOST_ENABLE = "fan_boost_enable"
 CONF_FAN_BOOST_MAX = "fan_boost_max"

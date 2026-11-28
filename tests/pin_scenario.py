@@ -440,6 +440,41 @@ def take_comfort(step: dict[str, Any]) -> tuple[dict[str, Any], list[tuple[Any, 
     return step, rows, attributes.pop(COMFORT_PLAN_KEY, "<missing>")
 
 
+# Every plan zones row gained these after 3.22 (where the target came from and
+# when, Discussion #166): the 3.9.0 record predates them. A replay takes them
+# out with take_provenance and checks them against provenance: the targets come
+# back from restore with no source on record, and the only write is the
+# scenario's target write to the first room, through its number.
+PROVENANCE_ROW_KEYS = ("target_source", "target_set_at")
+NO_PROVENANCE = (None, None)
+HOME_ASSISTANT_WRITE = ("home_assistant", "<time>")
+FIRST_TARGET_WRITE = "target_write"
+
+
+def take_provenance(step: dict[str, Any]) -> tuple[dict[str, Any], list[tuple[Any, ...]]]:
+    """``step`` without PROVENANCE_ROW_KEYS in its plan rows, and each row's values of them.
+
+    A missing key reads ``"<missing>"``, so a replay that expects the keys
+    fails on a plan without them instead of passing on a default.
+    """
+    step = deepcopy(step)
+    rows = [
+        tuple(row.pop(key, "<missing>") for key in PROVENANCE_ROW_KEYS)
+        for row in step["entities"]["plan"]["attributes"]["zones"]
+    ]
+    return step, rows
+
+
+def provenance(steps: list[dict[str, Any]]) -> list[list[tuple[Any, ...]]]:
+    """What take_provenance must find, step by step, in a replay of the scenario ``steps``."""
+    names = [s["step"] for s in steps]
+    written = names.index(FIRST_TARGET_WRITE)
+    return [
+        [HOME_ASSISTANT_WRITE if i >= written else NO_PROVENANCE, NO_PROVENANCE]
+        for i in range(len(names))
+    ]
+
+
 # Home Assistant 2026.11 publishes temperature_unit, the system unit, on every
 # climate entity (the thermostats and the heads alike); the 3.9.0 record
 # predates it. A replay takes it out of each climate entity's attributes with

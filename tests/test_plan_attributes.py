@@ -10,7 +10,9 @@ and attributes, and the ``plan`` section of diagnostics, as JSON with the key
 order kept.
 
 ``tests/plan_attributes.json`` was captured on main ``3bf558d`` before the plan
-became a typed ``Plan``, and the typed plan must render the same bytes. Only ISO
+became a typed ``Plan``, and the typed plan must render the same bytes. It was
+recaptured once since, when each room row gained ``target_source`` and
+``target_set_at``; those two keys were the only lines that changed. Only ISO
 times and the second counters (``seconds_since_mode_change``, ``*sensor_age``)
 are replaced, the same way on both sides. The thermostats leave out the keys in
 ``HA_CORE_CLIMATE_KEYS``: HA's climate base class adds them on some supported

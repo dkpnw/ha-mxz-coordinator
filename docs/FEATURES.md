@@ -9,6 +9,7 @@ named here live in Configure; see [Configuration](CONFIGURATION.md) for the menu
   [per-room uneven drift](#per-room-uneven-drift)
 - [Give a room separate heat and cool setpoints (dual setpoint)](#give-a-room-separate-heat-and-cool-setpoints-dual-setpoint)
 - [Accept changes made at the head](#accept-changes-made-at-the-head)
+- [Where a room's target came from](#where-a-rooms-target-came-from)
 - [Run one room from its own remote](#run-one-room-from-its-own-remote):
   [count its vote only while it runs](#count-its-vote-only-while-it-runs)
 - [Allow Dry mode](#allow-dry-mode)
@@ -421,6 +422,61 @@ before this ships in a release.
 The idea, its scope and its first version are
 [@BHSPitMonkey](https://github.com/BHSPitMonkey)'s
 ([Discussion #103](https://github.com/dkpnw/ha-mxz-coordinator/discussions/103)).
+
+## Where a room's target came from
+
+Each room's row in `sensor.*_plan` shows where its target last came from and when:
+
+- `target_source` is `head` when the target was adopted from a change made at the head
+  ([Accept changes made at the head](#accept-changes-made-at-the-head)), and
+  `home_assistant` when it was set through the room's thermostat or its target, Heat to or
+  Cool to number. MXZ doesn't read Home Assistant's context, so a dashboard, a voice
+  assistant, Apple Home, a script and an automation are all `home_assistant`. It is `null`
+  until the target is first set after installing, and when the target came back from data
+  that has no source (a store written by an earlier release, or a target an earlier release
+  changed after a rollback).
+- `target_set_at` is when that happened, in UTC to the second (for example
+  `2026-11-28T15:04:05+00:00`), or `null` with no source.
+
+A dual setpoint room has one source for its range. A restart or a reload keeps both values,
+and nothing expires them: the next change replaces them. They are only a record. MXZ
+doesn't read them to decide anything, and doesn't send any head something new because of them.
+
+**A schedule that leaves a person's change alone.** An automation that sets targets on a
+schedule can skip a room whose target was set at its head in the last few hours:
+
+```yaml
+conditions:
+  - condition: template
+    value_template: >
+      {% set room = state_attr('sensor.mxz_coordinator_plan', 'zones')
+         | default([], true) | selectattr('name', 'eq', 'Den') | first | default(none) %}
+      {{ room is none or room.target_source != 'head'
+         or now() - as_datetime(room.target_set_at) > timedelta(hours=3) }}
+```
+
+**Comfort priority for a room someone just changed.** A template `binary_sensor` that is on
+for two hours after a change at the head can be the room's
+[Comfort priority](#comfort-priority) entity:
+
+```yaml
+template:
+  - binary_sensor:
+      - name: "Den changed at its head"
+        state: >
+          {% set room = state_attr('sensor.mxz_coordinator_plan', 'zones')
+             | default([], true) | selectattr('name', 'eq', 'Den') | first | default(none) %}
+          {{ room is not none and room.target_source == 'head'
+             and now() - as_datetime(room.target_set_at) < timedelta(hours=2) }}
+```
+
+Use your own plan sensor's entity ID and room name. The plan sensor is `unavailable` for a few
+seconds after a start, and after a change it shows the new source with the next plan, a few
+seconds later. Use an on/off entity like this one: Comfort priority recomputes each time its
+entity changes, so a sensor that counts down every minute recomputes every minute.
+
+The idea is [@danolson1](https://github.com/danolson1)'s
+([Discussion #166](https://github.com/dkpnw/ha-mxz-coordinator/discussions/166)).
 
 ## Run one room from its own remote
 
