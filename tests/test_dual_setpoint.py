@@ -49,11 +49,13 @@ from tests.pin_scenario import (
     Recorder,
     climate_units,
     mode_hold,
+    provenance,
     room_page_pass,
     run_scenario,
     take_climate_units,
     take_comfort,
     take_mode_hold,
+    take_provenance,
     take_vote_rows,
 )
 from tests.room_state_store import forget_room_state
@@ -789,7 +791,10 @@ async def test_mixed_install_single_room_is_3_9_0(hass: HomeAssistant, unit: str
     steps = await run_scenario(hass, unit, after_room_pages=second_room_dual)
     pinned = json.loads(PIN.read_text())[unit]
     assert [s["step"] for s in steps] == [s["step"] for s in pinned]
-    for seen, want in zip(steps, pinned, strict=True):
+    sources = provenance(pinned)
+    for seen, want, want_sources in zip(steps, pinned, sources, strict=True):
+        seen, taken = take_provenance(seen)  # (added after 3.22; see pin_scenario)
+        assert taken == want_sources, seen["step"]
         seen, votes = take_vote_rows(seen)  # (added after 3.10.0; see pin_scenario)
         assert votes == [("live", None), ("live", None)], seen["step"]
         seen, comfort, by_comfort = take_comfort(seen)  # (added after 3.18; see pin_scenario)
@@ -806,7 +811,9 @@ async def test_mixed_install_single_room_is_3_9_0(hass: HomeAssistant, unit: str
     assert "secondary_target_low" in last["entities"]
     assert "target_low" in last["entities"]["plan"]["attributes"]["zones"][1]
     # Before the toggle, the whole install is 3.9.0.
-    first, comfort, by_comfort = take_comfort(take_vote_rows(steps[0])[0])
+    first, taken = take_provenance(steps[0])
+    assert taken == sources[0]
+    first, comfort, by_comfort = take_comfort(take_vote_rows(first)[0])
     assert (comfort, by_comfort) == ([COMFORT_OFF_ROW, COMFORT_OFF_ROW], False)
     first, units = take_climate_units(first)
     first, holds, since = take_mode_hold(first)

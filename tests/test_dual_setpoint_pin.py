@@ -29,11 +29,13 @@ from tests.pin_scenario import (
     climate_units,
     dumps,
     mode_hold,
+    provenance,
     run_scenario,
     take_climate_units,
     take_comfort,
     take_entry,
     take_mode_hold,
+    take_provenance,
     take_vote_rows,
 )
 
@@ -61,7 +63,11 @@ async def test_all_single_install_is_3_9_0(hass: HomeAssistant, unit: str) -> No
     ran = {s["step"]: s for s in steps}
     assert ran["room_pages"]["data"] == ran["boot"]["data"]
     assert ran["room_pages"]["options"] == ran["boot"]["options"]
-    for seen, want in zip(steps, pinned, strict=True):
+    # Only the first room's target write is on record, from that step on.
+    sources = provenance(pinned)
+    for seen, want, want_sources in zip(steps, pinned, sources, strict=True):
+        seen, taken = take_provenance(seen)
+        assert taken == want_sources, seen["step"]
         # No head is ever lost in this scenario: both rows are live every step.
         seen, votes = take_vote_rows(seen)
         assert votes == [("live", None), ("live", None)], seen["step"]
