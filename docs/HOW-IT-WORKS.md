@@ -130,6 +130,10 @@ MXZ works out one plan for the outdoor unit:
 
 The plan, with each room's reasons, is on `sensor.*_plan`; see
 [Diagnose a room that is waiting](TROUBLESHOOTING.md#diagnose-a-room-that-is-waiting).
+Each room's row also shows where its target last came from, `head` or `home_assistant`
+(`target_source`), and when (`target_set_at`). MXZ keeps both across a restart and reads
+neither to decide anything. Automations can use them; see
+[Where a room's target came from](FEATURES.md#where-a-rooms-target-came-from).
 
 **Setpoints sent to the heads.**
 

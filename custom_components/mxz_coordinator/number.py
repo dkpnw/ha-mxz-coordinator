@@ -120,6 +120,8 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
 
         The room state store resumed the target at the start unless this
         number's restore record is newer (``MXZCoordinator.store_resumes``).
+        Where the target came from resumed with it; a newer restore record with
+        another target leaves that unknown.
 
         A rename's re-add keeps the target it holds (see ``_readded``).
         """
@@ -155,6 +157,10 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
             self._attr_native_value = min(
                 max(restored, self.native_min_value), self.native_max_value
             )
+            if self._attr_native_value != self._zone.target:
+                # Another target than the store's (a release that keeps no source
+                # ran since): the source the store resumed isn't this target's.
+                self.coordinator.restore_target_source(self._zone, None, None)
         elif (seed := self._head_setpoint()) is not None:
             self._attr_native_value = seed
         self._zone.target = cast("float", self._attr_native_value)
@@ -183,10 +189,10 @@ class MXZTargetNumber(MXZEntity, RestoreNumber):
         return min(max(value, self.native_min_value), self.native_max_value)
 
     async def async_set_native_value(self, value: float) -> None:
-        """User changed the target -> persist, reset the latch, recompute."""
+        """User changed the target -> store it (the coordinator resets the latch and
+        records the write), persist, recompute."""
         self._attr_native_value = value
-        self._zone.target = value
-        self.coordinator.reset_engage_latch(self._zone.slug)
+        self.coordinator.set_zone_target(self._zone, value)
         self.async_write_ha_state()
         await self.coordinator.async_user_changed()
 

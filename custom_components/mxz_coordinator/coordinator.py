@@ -133,6 +133,8 @@ from .const import (
     OPENING_CLOSE_DELAY_BOUNDS,
     OPENING_OPEN_DELAY_BOUNDS,
     STARTUP_RECOVER_DELAY,
+    TARGET_SOURCE_HEAD,
+    TARGET_SOURCE_HOME_ASSISTANT,
     UNAVAILABLE_STATES,
     VANE_KICK_APPLY,
     VANE_KICK_RETIRE_TIMEOUT,
@@ -417,6 +419,12 @@ class Zone:
     vane_horizontal_id: str | None = None
     stage_sensor_id: str | None = None
     target: float = 70.0
+    # Where the target (or the range) last came from (TARGET_SOURCES) and when (wall
+    # clock); None while no write is on record. Kept like the target, written only by
+    # MXZCoordinator._stamp_target and restore_target_source; metadata, read by nothing
+    # that decides what a head is sent.
+    target_source: str | None = None
+    target_set_at: float | None = None
     enable: bool = field(default=False)
     # Per-room re-engage drift override (#18). None = use the global
     # engage_deadband. Kept like target/enable and set through the zone's drift
@@ -869,6 +877,9 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         # A dual room's restored edges until both have arrived (see
         # offer_range_restore): {slug: {is_low: value or None}}.
         self._range_offers: dict[str, dict[bool, float | None]] = {}
+        # Rooms whose target number is being written to adopt a change made at
+        # their head (_perform_adopt_step), so _stamp_target records "head".
+        self._adopting_target: set[str] = set()
         # The config this coordinator was built from, so a save that only
         # switches rooms to or from a dual setpoint can be told apart from
         # every other change (see async_switch_dual_in_place).
@@ -1608,6 +1619,8 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
                 # A dual-setpoint room's Heat to and Cool to (its target
                 # above is their midpoint).
                 target_range=(zone.target_low, zone.target_high) if zone.dual else None,
+                target_source=zone.target_source,
+                target_set_at=self._iso_second(zone.target_set_at),
                 enabled=zone.enable,
                 drift=self.zone_drift(zone),
                 # The drift in use below / above target (the same as drift
@@ -3097,9 +3110,16 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
                 self._head_change_seen(climate_id, state, fields)
             case SetTarget(number, value):
                 if eid := self._sibling_entity("number", f"{zone.slug}_{number}"):
-                    await self.hass.services.async_call(
-                        "number", "set_value", {"entity_id": eid, "value": value}, blocking=True,
-                    )
+                    # Through the number, so its rules and restore apply; the mark
+                    # makes the write it lands record "head". A write that never
+                    # lands leaves no mark for the next one.
+                    self._adopting_target.add(zone.slug)
+                    try:
+                        await self.hass.services.async_call(
+                            "number", "set_value", {"entity_id": eid, "value": value}, blocking=True,
+                        )
+                    finally:
+                        self._adopting_target.discard(zone.slug)
             case SetEnable(on):
                 if eid := self._sibling_entity("switch", f"{zone.slug}_enable"):
                     await self.hass.services.async_call(
@@ -3283,6 +3303,11 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             sight.observe(head.state, head.attributes.get(ATTR_HVAC_ACTION), clock)
         return sight
 
+    @staticmethod
+    def _iso_second(stamp: float | None) -> str | None:
+        """A wall-clock time as ISO 8601 UTC to the second, or None."""
+        return None if stamp is None else dt_util.utc_from_timestamp(stamp).isoformat(timespec="seconds")
+
     def _lost_since(self, climate_id: str) -> str | None:
         """When MXZ last lost sight of the head (or started, if never seen), or None."""
         wall = self._sight[climate_id].lost_wall
@@ -3357,6 +3382,7 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
         for zone, room in zip(self.zones, stored.rooms, strict=True):
             if room.target is not None:
                 zone.target = room.target
+                self.restore_target_source(zone, room.target_source, room.target_set_at)
             if room.target_range is not None:
                 self._saved_ranges[zone.slug] = room.target_range
             if room.has_drift:
@@ -3433,6 +3459,8 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
                 "target": zone.target,
                 "target_low": zone.target_low,
                 "target_high": zone.target_high,
+                "target_source": zone.target_source,
+                "target_set_at": zone.target_set_at,
                 "drift": zone.drift,
                 "enable": zone.enable,
                 "hands_off_released": zone.slug in self._hands_off_released,
@@ -3560,18 +3588,49 @@ class MXZCoordinator(DataUpdateCoordinator[Plan | None]):
             return zone.target_low, zone.target_high
         return zone.target, zone.target
 
+    def set_zone_target(self, zone: Zone, value: float) -> None:
+        """Store a single-target room's target, as its target number was given it.
+
+        The engage latch resets (a fresh decision) and the write is recorded
+        (``_stamp_target``). The caller redraws and requests the recompute.
+        """
+        zone.target = value
+        self.reset_engage_latch(zone.slug)
+        self._stamp_target(zone)
+
     def set_zone_range(self, zone: Zone, low: float, high: float) -> None:
         """Store a dual-setpoint room's validated range; nothing is checked here.
 
         The target becomes the midpoint, the engage latch resets exactly as a
-        target write resets it, any restore note is spent, and the room's
-        entities redraw. The caller requests the recompute.
+        target write resets it, any restore note is spent, the write is
+        recorded (``_stamp_target``), and the room's entities redraw. The
+        caller requests the recompute.
         """
         zone.target_low, zone.target_high = low, high
         zone.target = range_target(low, high)
         zone.range_note = None
         self.reset_engage_latch(zone.slug)
+        self._stamp_target(zone)
         self.async_update_listeners()
+
+    def _stamp_target(self, zone: Zone) -> None:
+        """Record where a room's new target or range came from, and when.
+
+        ``"head"`` for the write that adopts a change made at the head (it
+        spends the mark ``_perform_adopt_step`` set), ``"home_assistant"`` for
+        any other: every other write comes through MXZ's number or room
+        thermostat entities. Nothing reads it to decide what a head is sent.
+        """
+        adopting = zone.slug in self._adopting_target
+        self._adopting_target.discard(zone.slug)
+        zone.target_source = TARGET_SOURCE_HEAD if adopting else TARGET_SOURCE_HOME_ASSISTANT
+        zone.target_set_at = dt_util.utcnow().timestamp()
+
+    def restore_target_source(
+        self, zone: Zone, source: str | None, set_at: float | None
+    ) -> None:
+        """A start resumed where the room's target came from and when (None: unknown)."""
+        zone.target_source, zone.target_set_at = source, set_at
 
     def dual_switches(self) -> list[Zone] | None:
         """The rooms an options save switched to or from a dual setpoint, if that's all it did.

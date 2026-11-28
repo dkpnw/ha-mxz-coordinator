@@ -10,6 +10,7 @@ on your equipment.
 
 ## Unreleased
 
+- Each room's row in the plan sensor shows where its target last came from and when: `target_source` is `head` for a change made at the head and adopted, `home_assistant` for one made through the room's thermostat or numbers, and `null` before the first change; `target_set_at` is the time in UTC. Both are kept across a restart and a reload, and nothing expires them. MXZ sends the heads nothing new. An automation can use them to leave a person's change alone, or to give a room Comfort priority for a while after someone changes it at the head ([Where a room's target came from](docs/FEATURES.md#where-a-rooms-target-came-from)). The idea is [@danolson1](https://github.com/danolson1)'s ([Discussion #166](https://github.com/dkpnw/ha-mxz-coordinator/discussions/166)).
 - Docs and demo scenes only: the README, How it works and the introduction above use shorter wording for the simulated heads and rooms, and the clip of every room reaching its target is gone from How it works and from the filmed scenes.
 - Docs only: the simulator lists only the two scenarios where stock leaves a room waiting, its page is shorter, and its controls are under "Try it yourself".
 - Docs only: the simulator's speed buttons are 1×, 10× and 25×. The 100× button is gone.
